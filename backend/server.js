@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import { testDbConnection } from './src/config/db.js';
 
 dotenv.config();
 
@@ -35,6 +36,16 @@ const upload = multer({
 // Route kiểm tra server hoạt động
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Backend server đang chạy tốt!' });
+});
+
+// Route kiểm tra kết nối Database Supabase
+app.get('/api/db-test', async (req, res) => {
+  const isConnected = await testDbConnection();
+  if (isConnected) {
+    res.json({ success: true, message: 'Kết nối Supabase PostgreSQL thành công!' });
+  } else {
+    res.status(500).json({ success: false, message: 'Chưa thể kết nối tới Supabase. Vui lòng kiểm tra DATABASE_URL trong backend/.env' });
+  }
 });
 
 // 3. API Upload ảnh: Nhận file -> Đẩy lên Cloudinary -> Trả về URL HTTPS công khai
@@ -318,7 +329,8 @@ app.get('/api/admin/ai-overrides', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log('Server Backend đang chạy tại http://localhost:' + PORT);
+  await testDbConnection();
 });
 
