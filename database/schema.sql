@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS users (
     -- 4. Trạng thái & Kiểm duyệt hệ thống
     is_verified BOOLEAN DEFAULT FALSE,
     cooldown_until TIMESTAMPTZ, -- Hạn xử phạt kiểm duyệt AI (NULL nếu không bị phạt)
+    cooldown_reason TEXT,       -- Lý do xử phạt (Ví dụ: "Vi phạm ngôn từ thù địch / bạo lực")
+    cooldown_violation_text TEXT, -- Trích dẫn câu nói / bài viết khiến tài khoản bị phạt
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -61,6 +63,7 @@ CREATE TABLE IF NOT EXISTS posts (
     likes_count INT DEFAULT 0,
     comments_count INT DEFAULT 0,
     shares_count INT DEFAULT 0,
+    reports_count INT DEFAULT 0, -- Số lượt bị người dùng báo cáo vi phạm
     
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -219,12 +222,14 @@ CREATE TABLE IF NOT EXISTS reports (
     details TEXT,                     -- Mô tả chi tiết lý do báo cáo
     status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending' (chờ duyệt), 'resolved_violation' (xác nhận vi phạm), 'dismissed' (bác bỏ báo cáo)
     admin_notes TEXT,                 -- Ghi chú xử lý của Quản trị viên
+    action_taken VARCHAR(50),         -- Biện pháp xử lý: 'hidden_content', 'warned_user', 'cooldown_24h', 'ban_account', 'dismissed'
     reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL, -- Admin tiếp nhận xử lý
     reviewed_at TIMESTAMPTZ,          -- Thời điểm xử lý xong
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT chk_report_target_type CHECK (target_type IN ('post', 'comment', 'message')),
-    CONSTRAINT chk_report_status CHECK (status IN ('pending', 'resolved_violation', 'dismissed'))
+    CONSTRAINT chk_report_status CHECK (status IN ('pending', 'resolved_violation', 'dismissed')),
+    CONSTRAINT unique_user_report UNIQUE (reporter_id, target_type, target_id) -- Chống spam: 1 người chỉ báo cáo 1 đối tượng 1 lần
 );
 
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC);
@@ -257,6 +262,9 @@ CREATE TABLE IF NOT EXISTS appeals (
 
 CREATE INDEX IF NOT EXISTS idx_appeals_status ON appeals(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_appeals_user ON appeals(user_id);
+-- Chống spam khiếu nại: 1 người chỉ có tối đa 1 đơn khiếu nại đang chờ duyệt (pending) cho cùng 1 nội dung
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_appeal 
+ON appeals(user_id, content_type, content_id) WHERE status = 'pending';
 
 
 -- ========================================================
