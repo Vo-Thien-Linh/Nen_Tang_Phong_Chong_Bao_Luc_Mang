@@ -22,3 +22,11 @@ export function applyReactionState({ currentReaction, totalCount, selectedReacti
     totalCount: currentReaction ? totalCount : totalCount + 1,
   };
 }
+
+export function rollbackReactionState({ previousReaction, previousCount, error }) {
+  return {
+    myReaction: previousReaction,
+    totalCount: previousCount,
+    errorMessage: error?.message === 'Bài viết không tồn tại' ? error.message : 'Thả icon thất bại',
+  };
+}

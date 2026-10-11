@@ -4,7 +4,7 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle 
 } from 'lucide-react';
 import { updatePostReaction } from '../api/client';
-import { applyReactionState, REACTIONS } from '../utils/reactionLogic';
+import { applyReactionState, rollbackReactionState, REACTIONS } from '../utils/reactionLogic';
 
 export default function PostCard({ 
   post, 
@@ -63,9 +63,10 @@ export default function PostCard({
       setCurrentReaction(result.data.myReaction);
       setReactionCount(result.data.totalCount);
     } catch (error) {
-      setCurrentReaction(previousReaction);
-      setReactionCount(previousCount);
-      setReactionError(error.message === 'Bài viết không tồn tại' ? error.message : 'Thả icon thất bại');
+      const rollbackState = rollbackReactionState({ previousReaction, previousCount, error });
+      setCurrentReaction(rollbackState.myReaction);
+      setReactionCount(rollbackState.totalCount);
+      setReactionError(rollbackState.errorMessage);
     }
   };
 
