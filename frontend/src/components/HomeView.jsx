@@ -15,6 +15,8 @@ export default function HomeView({
   onAddComment,
   onOpenReportModal,
   onOpenAppealModal,
+  onRequireLogin,
+  feedWarning,
   setActiveTab,
   onOpenAiLab,
   onRequireAuth,
@@ -170,7 +172,14 @@ export default function HomeView({
             currentUser={currentUser} 
             onAddPost={onAddPost} 
             onRequireAuth={onRequireAuth} 
+            onRequireLogin={onRequireLogin}
           />
+
+          {feedWarning && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">
+              {feedWarning}
+            </div>
+          )}
 
           {/* Tabs bộ lọc Feed */}
           <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs font-semibold">
@@ -210,6 +219,7 @@ export default function HomeView({
                   onOpenReportModal={onOpenReportModal}
                   onOpenAppealModal={onOpenAppealModal}
                   onRequireAuth={onRequireAuth}
+                  onRequireLogin={onRequireLogin}
                 />
               ))
             ) : (

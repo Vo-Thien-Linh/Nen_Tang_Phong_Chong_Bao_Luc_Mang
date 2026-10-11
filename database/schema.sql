@@ -53,6 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE TABLE IF NOT EXISTS posts (
     id BIGSERIAL PRIMARY KEY,
     author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(200),
     content TEXT NOT NULL,
     image_url TEXT,
     privacy VARCHAR(20) DEFAULT 'public', -- 'public', 'friends', 'private'
@@ -98,15 +99,15 @@ CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, created_at ASC
 
 
 -- ========================================================
--- 4. BẢNG POST_REACTIONS (Bày tỏ 5 loại cảm xúc: Thích, Tim, Ngạc nhiên, Buồn, Phẫn nộ)
+-- 4. BẢNG POST_REACTIONS (Bày tỏ 6 loại cảm xúc: Thích, Tim, Haha, Ngạc nhiên, Buồn, Phẫn nộ)
 -- ========================================================
 CREATE TABLE IF NOT EXISTS post_reactions (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-    reaction_type VARCHAR(20) NOT NULL, -- 'like', 'love', 'wow', 'sad', 'angry'
+    reaction_type VARCHAR(20) NOT NULL, -- 'like', 'love', 'haha', 'wow', 'sad', 'angry'
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, post_id), -- Mỗi người dùng chỉ có 1 cảm xúc trên 1 bài viết
-    CONSTRAINT check_valid_reaction CHECK (reaction_type IN ('like', 'love', 'wow', 'sad', 'angry'))
+    CONSTRAINT check_valid_reaction CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_reactions_post ON post_reactions(post_id, reaction_type);
@@ -291,5 +292,19 @@ CREATE TABLE IF NOT EXISTS ai_override_logs (
 
 CREATE INDEX IF NOT EXISTS idx_ai_override_created ON ai_override_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_override_retrain ON ai_override_logs(is_exported_for_retraining);
+
+
+-- ========================================================
+-- 13. CẬP NHẬT SCHEMA (chạy lặp lại an toàn)
+--     - posts.title: tiêu đề bài viết (cho phép NULL để không ảnh hưởng bài cũ)
+--     - post_reactions: cho phép 6 loại cảm xúc (thêm 'haha')
+--     Lý do cần khối này: CREATE TABLE IF NOT EXISTS ở trên không sửa bảng đã tồn tại.
+-- ========================================================
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS title VARCHAR(200);
+
+ALTER TABLE post_reactions DROP CONSTRAINT IF EXISTS check_valid_reaction;
+ALTER TABLE post_reactions
+    ADD CONSTRAINT check_valid_reaction
+    CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'));
 
 
