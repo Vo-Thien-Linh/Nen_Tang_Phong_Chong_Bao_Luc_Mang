@@ -4,13 +4,25 @@ import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
-import { testDbConnection } from './src/config/db.js';
+import pool, { testDbConnection } from './src/config/db.js';
+import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
+import { createPostsRouter } from './src/routes/postsRouter.js';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+function logApiError(error) {
+  console.error('Lỗi API:', {
+    message: error.message,
+    code: error.code,
+    detail: error.detail,
+    constraint: error.constraint,
+    stack: error.stack,
+  });
+}
 
 // 1. Cấu hình Cloudinary từ file .env
 cloudinary.config({
@@ -40,11 +52,16 @@ app.get('/api/health', (req, res) => {
 
 // Route kiểm tra kết nối Database Supabase
 app.get('/api/db-test', async (req, res) => {
-  const isConnected = await testDbConnection();
-  if (isConnected) {
-    res.json({ success: true, message: 'Kết nối Supabase PostgreSQL thành công!' });
-  } else {
-    res.status(500).json({ success: false, message: 'Chưa thể kết nối tới Supabase. Vui lòng kiểm tra DATABASE_URL trong backend/.env' });
+  try {
+    const isConnected = await testDbConnection();
+    if (isConnected) {
+      res.json({ success: true, message: 'Kết nối Supabase PostgreSQL thành công!' });
+    } else {
+      res.status(500).json({ success: false, message: 'Chưa thể kết nối tới Supabase.' });
+    }
+  } catch (error) {
+    logApiError(error);
+    res.status(500).json({ success: false, message: 'Đã có lỗi hệ thống' });
   }
 });
 
@@ -63,10 +80,13 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
       filename: req.file.filename,
     });
   } catch (error) {
-    console.error('Lỗi khi upload:', error);
-    res.status(500).json({ success: false, error: error.message });
+    logApiError(error);
+    res.status(500).json({ success: false, error: 'Đã có lỗi hệ thống' });
   }
 });
+
+app.use('/api/posts', createPostReactionsRouter({ pool }));
+app.use('/api/posts', createPostsRouter({ pool }));
 
 // ========================================================
 // 4. IN-MEMORY STORE: BÁO CÁO, KHIẾU NẠI & HIỆU CHỈNH NHÃN AI
@@ -328,9 +348,20 @@ app.get('/api/admin/ai-overrides', (req, res) => {
   res.json({ success: true, data: aiOverrideLogsStore });
 });
 
+app.use((err, _req, res, _next) => {
+  logApiError(err);
+  res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.statusCode ? err.message : 'Đã có lỗi hệ thống',
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log('Server Backend đang chạy tại http://localhost:' + PORT);
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('Cảnh báo: x-user-id development auth đang tắt vì NODE_ENV=production.');
+  }
   await testDbConnection();
 });
 

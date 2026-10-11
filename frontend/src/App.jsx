@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -18,11 +18,21 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
+import { fetchPosts } from './api/client';
+
+const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
+const currentUserWithEnvId = configuredUserId
+  ? { ...initialUser, id: configuredUserId }
+  : initialUser;
+const initialFeedWarning = !configuredUserId && import.meta.env.DEV
+  ? 'Dev: thiếu VITE_CURRENT_USER_ID nên đang dùng dữ liệu mẫu.'
+  : '';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(initialUser);
+  const [currentUser, setCurrentUser] = useState(currentUserWithEnvId);
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
   const [posts, setPosts] = useState(initialPosts);
+  const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const [notifications, setNotifications] = useState(initialNotifications);
   
   // Dữ liệu quản trị kiểm duyệt & Người dùng
@@ -45,13 +55,51 @@ export default function App() {
   // Đếm số thông báo chưa đọc
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!configuredUserId) {
+      if (import.meta.env.DEV) {
+        console.warn('Missing VITE_CURRENT_USER_ID; keeping mock feed and local fallback behavior.');
+      }
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    fetchPosts({ userId: configuredUserId })
+      .then((result) => {
+        if (isMounted && Array.isArray(result.data)) {
+          setPosts(result.data);
+          setFeedWarning('');
+        }
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('Could not load posts from API; keeping mock feed.', error);
+          setFeedWarning('Dev: không tải được bài viết từ API, đang dùng dữ liệu mẫu.');
+        }
+        if (isMounted) {
+          setPosts(initialPosts);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Thêm bài viết mới
   const handleAddPost = (newPost) => {
-    setPosts([newPost, ...posts]);
+    setPosts(prev => [newPost, ...prev]);
     setCurrentUser(prev => ({
       ...prev,
       postsCount: prev.postsCount + 1
     }));
+  };
+
+  const handleRequireLogin = () => {
+    window.alert('Vui lòng đăng nhập để tiếp tục');
   };
 
   // Thả tim / Bỏ thích bài viết
@@ -369,6 +417,8 @@ export default function App() {
             onOpenAiLab={() => setIsAiModalOpen(true)}
             onOpenReportModal={handleOpenReportModal}
             onOpenAppealModal={handleOpenAppealModal}
+            onRequireLogin={handleRequireLogin}
+            feedWarning={feedWarning}
           />
         )}
 
