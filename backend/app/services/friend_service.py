@@ -19,7 +19,7 @@ class FriendService:
 
     @staticmethod
     def _get_friend_ids(user_id: str, db: Session) -> Set[str]:
-        """Lấy tập hợp ID tất cả bạn bè chính thức của một người dùng"""
+        """Lấy tập hợp ID tất cả bạn bè chính thức của một người dùng (1 query)"""
         friendships = db.query(Friendship).filter(
             or_(
                 Friendship.requester_id == user_id,
@@ -30,34 +30,36 @@ class FriendService:
 
         friend_ids = set()
         for f in friendships:
-            if f.requester_id == user_id:
-                friend_ids.add(f.addressee_id)
+            if str(f.requester_id) == user_id:
+                friend_ids.add(str(f.addressee_id))
             else:
-                friend_ids.add(f.requester_id)
+                friend_ids.add(str(f.requester_id))
         return friend_ids
 
     @staticmethod
-    def _get_mutual_friends_data(user_id_1: str, user_id_2: str, db: Session) -> List[MutualFriendSummary]:
-        """Tính toán danh sách các bạn bè chung giữa hai người"""
-        friends_1 = FriendService._get_friend_ids(user_id_1, db)
-        friends_2 = FriendService._get_friend_ids(user_id_2, db)
-        mutual_ids = list(friends_1.intersection(friends_2))
+    def _get_batch_friend_maps(user_ids: List[str], db: Session) -> Dict[str, Set[str]]:
+        """Gộp truy vấn: Lấy danh sách bạn bè cho nhiều người dùng chỉ trong 1 câu SQL"""
+        if not user_ids:
+            return {}
 
-        if not mutual_ids:
-            return []
+        mapping: Dict[str, Set[str]] = {uid: set() for uid in user_ids}
+        friendships = db.query(Friendship).filter(
+            or_(
+                Friendship.requester_id.in_(user_ids),
+                Friendship.addressee_id.in_(user_ids)
+            ),
+            Friendship.status == "accepted"
+        ).all()
 
-        # Lấy tối đa 5 người để hiển thị giao diện
-        sample_ids = mutual_ids[:5]
-        users = db.query(User).filter(User.id.in_(sample_ids)).all()
+        for f in friendships:
+            req_id = str(f.requester_id)
+            addr_id = str(f.addressee_id)
+            if req_id in mapping:
+                mapping[req_id].add(addr_id)
+            if addr_id in mapping:
+                mapping[addr_id].add(req_id)
 
-        return [
-            MutualFriendSummary(
-                id=u.id,
-                name=u.full_name,
-                avatar=u.avatar_url
-            )
-            for u in users
-        ]
+        return mapping
 
     @staticmethod
     def send_request(current_user_id: str, target_user_id: str, db: Session) -> FriendshipActionResponse:
@@ -75,7 +77,6 @@ class FriendService:
                 detail="Không tìm thấy người dùng này"
             )
 
-        # Kiểm tra quan hệ 2 chiều hiện có
         existing = db.query(Friendship).filter(
             or_(
                 and_(Friendship.requester_id == current_user_id, Friendship.addressee_id == target_user_id),
@@ -90,28 +91,24 @@ class FriendService:
                     detail="Hai bạn đã là bạn bè của nhau"
                 )
             if existing.status == "pending":
-                if existing.requester_id == current_user_id:
+                if str(existing.requester_id) == current_user_id:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Bạn đã gửi lời mời kết bạn trước đó, vui lòng chờ đối phương phản hồi"
                     )
                 else:
-                    # Đối phương đã gửi lời mời cho mình trước đó -> Tự động chấp nhận luôn
                     existing.status = "accepted"
                     db.commit()
-                    db.refresh(existing)
                     return FriendshipActionResponse(
                         success=True,
                         message="Đối phương đã gửi lời mời trước đó, hai bạn đã chính thức trở thành bạn bè!",
                         data={"friendship_id": existing.id, "status": "accepted"}
                     )
             if existing.status == "declined":
-                # Cho phép gửi lại lời mời nếu trước đó bị từ chối
                 existing.requester_id = current_user_id
                 existing.addressee_id = target_user_id
                 existing.status = "pending"
                 db.commit()
-                db.refresh(existing)
                 return FriendshipActionResponse(
                     success=True,
                     message="Đã gửi lời mời kết bạn thành công",
@@ -125,7 +122,6 @@ class FriendService:
         )
         db.add(new_request)
         db.commit()
-        db.refresh(new_request)
 
         return FriendshipActionResponse(
             success=True,
@@ -135,7 +131,7 @@ class FriendService:
 
     @staticmethod
     def accept_request(request_id: int, current_user_id: str, db: Session) -> FriendshipActionResponse:
-        """Chấp nhận lời mời kết bạn được gửi đến mình"""
+        """Chấp nhận lời mời kết bạn"""
         friendship = db.query(Friendship).filter(
             Friendship.id == request_id,
             Friendship.addressee_id == current_user_id,
@@ -151,18 +147,15 @@ class FriendService:
         friendship.status = "accepted"
         db.commit()
 
-        requester = db.query(User).filter(User.id == friendship.requester_id).first()
-        friend_name = requester.full_name if requester else "người dùng này"
-
         return FriendshipActionResponse(
             success=True,
-            message=f"Đã đồng ý kết bạn với {friend_name}",
+            message="Đã đồng ý kết bạn",
             data={"friendship_id": friendship.id, "status": "accepted"}
         )
 
     @staticmethod
     def reject_request(request_id: int, current_user_id: str, db: Session) -> FriendshipActionResponse:
-        """Từ chối lời mời kết bạn"""
+        """Từ chối / Xóa lời mời kết bạn"""
         friendship = db.query(Friendship).filter(
             Friendship.id == request_id,
             Friendship.addressee_id == current_user_id,
@@ -175,7 +168,6 @@ class FriendService:
                 detail="Không tìm thấy lời mời kết bạn để xóa"
             )
 
-        # Xóa bản ghi để hai bên có thể tương tác lại sau này
         db.delete(friendship)
         db.commit()
 
@@ -187,7 +179,7 @@ class FriendService:
 
     @staticmethod
     def cancel_sent_request(target_user_id: str, current_user_id: str, db: Session) -> FriendshipActionResponse:
-        """Thu hồi lời mời kết bạn mà mình đã gửi đi"""
+        """Thu hồi lời mời kết bạn đã gửi đi"""
         friendship = db.query(Friendship).filter(
             Friendship.requester_id == current_user_id,
             Friendship.addressee_id == target_user_id,
@@ -237,35 +229,60 @@ class FriendService:
 
     @staticmethod
     def get_pending_requests(current_user_id: str, db: Session) -> List[FriendRequestItem]:
-        """Lấy danh sách lời mời kết bạn gửi đến người dùng hiện tại (Tab Lời mời)"""
+        """Lấy danh sách lời mời kết bạn gửi đến người dùng hiện tại (Tối ưu Batch Query)"""
         requests = db.query(Friendship).filter(
             Friendship.addressee_id == current_user_id,
             Friendship.status == "pending"
         ).order_by(desc(Friendship.created_at)).all()
 
+        if not requests:
+            return []
+
+        requester_ids = [str(r.requester_id) for r in requests]
+        users = db.query(User).filter(User.id.in_(requester_ids)).all()
+        user_map = {str(u.id): u for u in users}
+
+        # Batch query bạn bè của current_user và tất cả requesters (Chỉ 1 query)
+        all_related_ids = [current_user_id] + requester_ids
+        friend_maps = FriendService._get_batch_friend_maps(all_related_ids, db)
+        my_friends = friend_maps.get(current_user_id, set())
+
+        # Thu thập các ID bạn chung cần hiển thị avatar
+        sample_mutual_ids = set()
+        req_mutual_map = {}
+        for rid in requester_ids:
+            req_friends = friend_maps.get(rid, set())
+            mutual = my_friends.intersection(req_friends)
+            req_mutual_map[rid] = mutual
+            sample_mutual_ids.update(list(mutual)[:5])
+
+        sample_users = {}
+        if sample_mutual_ids:
+            s_users = db.query(User).filter(User.id.in_(list(sample_mutual_ids))).all()
+            sample_users = {str(u.id): MutualFriendSummary(id=str(u.id), name=u.full_name, avatar=u.avatar_url) for u in s_users}
+
         results = []
         for req in requests:
-            requester = db.query(User).filter(User.id == req.requester_id).first()
+            rid = str(req.requester_id)
+            requester = user_map.get(rid)
             if not requester:
                 continue
 
-            mutual_data = FriendService._get_mutual_friends_data(current_user_id, requester.id, db)
-            all_mutual_ids = FriendService._get_friend_ids(current_user_id, db).intersection(
-                FriendService._get_friend_ids(requester.id, db)
-            )
+            mutual_ids = req_mutual_map.get(rid, set())
+            mutual_list = [sample_users[mid] for mid in list(mutual_ids)[:5] if mid in sample_users]
 
             results.append(
                 FriendRequestItem(
                     id=req.id,
                     user=UserFriendSummary(
-                        id=requester.id,
+                        id=str(requester.id),
                         username=requester.username,
                         full_name=requester.full_name,
                         avatar_url=requester.avatar_url,
                         bio=requester.bio
                     ),
-                    mutual_friends=mutual_data,
-                    mutual_friends_count=len(all_mutual_ids),
+                    mutual_friends=mutual_list,
+                    mutual_friends_count=len(mutual_ids),
                     created_at=req.created_at
                 )
             )
@@ -274,12 +291,12 @@ class FriendService:
 
     @staticmethod
     def get_friends_list(current_user_id: str, db: Session, search: Optional[str] = None) -> List[FriendItem]:
-        """Lấy danh sách bạn bè chính thức (Tab Tất cả bạn bè)"""
-        friend_ids = FriendService._get_friend_ids(current_user_id, db)
-        if not friend_ids:
+        """Lấy danh sách bạn bè chính thức (Tối ưu tốc độ cao qua Batch Query)"""
+        my_friends = FriendService._get_friend_ids(current_user_id, db)
+        if not my_friends:
             return []
 
-        query = db.query(User).filter(User.id.in_(list(friend_ids)))
+        query = db.query(User).filter(User.id.in_(list(my_friends)))
         if search and search.strip():
             s = f"%{search.strip().lower()}%"
             query = query.filter(
@@ -290,20 +307,27 @@ class FriendService:
             )
 
         users = query.all()
+        if not users:
+            return []
+
+        friend_ids = [str(u.id) for u in users]
+        # Batch lấy quan hệ bạn bè của tất cả bạn bè (chỉ 1 query)
+        friend_maps = FriendService._get_batch_friend_maps(friend_ids, db)
 
         results = []
         for u in users:
-            mutual_ids = FriendService._get_friend_ids(current_user_id, db).intersection(
-                FriendService._get_friend_ids(u.id, db)
-            )
+            uid = str(u.id)
+            u_friends = friend_maps.get(uid, set())
+            mutual_count = len(my_friends.intersection(u_friends))
+
             results.append(
                 FriendItem(
-                    id=u.id,
+                    id=uid,
                     username=u.username,
                     name=u.full_name,
                     avatar=u.avatar_url,
                     bio=u.bio,
-                    mutual_friends_count=len(mutual_ids)
+                    mutual_friends_count=mutual_count
                 )
             )
 
@@ -311,10 +335,10 @@ class FriendService:
 
     @staticmethod
     def get_suggestions(current_user_id: str, db: Session, limit: int = 20) -> List[FriendSuggestionItem]:
-        """Gợi ý kết bạn theo thuật toán Bạn của bạn (Friends of Friends)"""
+        """Gợi ý kết bạn theo thuật toán Bạn của bạn (Friends of Friends) - Tối ưu Batch Query"""
         my_friends = FriendService._get_friend_ids(current_user_id, db)
 
-        # Lấy các user đang có lời mời pending (cả gửi đi và nhận về) để không gợi ý lại
+        # Lấy các user đang có lời mời pending trong 1 query
         pending_records = db.query(Friendship).filter(
             or_(
                 Friendship.requester_id == current_user_id,
@@ -326,41 +350,55 @@ class FriendService:
         pending_ids = set()
         sent_request_ids = set()
         for p in pending_records:
-            other_id = p.addressee_id if p.requester_id == current_user_id else p.requester_id
+            req_id = str(p.requester_id)
+            addr_id = str(p.addressee_id)
+            other_id = addr_id if req_id == current_user_id else req_id
             pending_ids.add(other_id)
-            if p.requester_id == current_user_id:
-                sent_request_ids.add(p.addressee_id)
+            if req_id == current_user_id:
+                sent_request_ids.add(addr_id)
 
-        # Tập ID cần loại trừ khỏi gợi ý: chính mình + bạn bè hiện tại + người đang có lời mời chờ
         excluded_ids = my_friends.union(pending_ids).union({current_user_id})
 
-        # 1. Tìm ứng viên từ Bạn của bạn bè
+        # Batch query bạn bè của tất cả my_friends chỉ trong 1 câu SQL
+        friend_maps = FriendService._get_batch_friend_maps(list(my_friends), db)
+
         candidate_scores: Dict[str, int] = {}
-        for friend_id in my_friends:
-            fof_ids = FriendService._get_friend_ids(friend_id, db)
+        for fid, fof_ids in friend_maps.items():
             for fof_id in fof_ids:
                 if fof_id not in excluded_ids:
                     candidate_scores[fof_id] = candidate_scores.get(fof_id, 0) + 1
 
-        # Sắp xếp ứng viên có nhiều bạn chung nhất lên đầu
         sorted_candidates = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
         top_candidate_ids = [uid for uid, _ in sorted_candidates[:limit]]
 
-        # 2. Nếu không đủ ứng viên (người dùng mới), bổ sung thêm các người dùng active khác
+        # Nếu không đủ ứng viên (user mới), lấy thêm user active khác
         if len(top_candidate_ids) < limit:
-            remaining_slots = limit - len(top_candidate_ids)
+            remaining = limit - len(top_candidate_ids)
             more_users = db.query(User).filter(
                 ~User.id.in_(list(excluded_ids.union(set(top_candidate_ids)))),
                 User.status == "active"
-            ).limit(remaining_slots).all()
-            top_candidate_ids.extend([u.id for u in more_users])
+            ).limit(remaining).all()
+            top_candidate_ids.extend([str(u.id) for u in more_users])
 
         if not top_candidate_ids:
             return []
 
         candidates = db.query(User).filter(User.id.in_(top_candidate_ids)).all()
-        # Đưa về dictionary để giữ đúng thứ tự sắp xếp theo điểm bạn chung
-        user_map = {u.id: u for u in candidates}
+        user_map = {str(u.id): u for u in candidates}
+
+        # Batch query để lấy danh sách bạn chung của các ứng viên
+        candidate_friend_maps = FriendService._get_batch_friend_maps(top_candidate_ids, db)
+
+        sample_mutual_ids = set()
+        for cid in top_candidate_ids:
+            c_friends = candidate_friend_maps.get(cid, set())
+            mutual = my_friends.intersection(c_friends)
+            sample_mutual_ids.update(list(mutual)[:5])
+
+        sample_users = {}
+        if sample_mutual_ids:
+            s_users = db.query(User).filter(User.id.in_(list(sample_mutual_ids))).all()
+            sample_users = {str(u.id): MutualFriendSummary(id=str(u.id), name=u.full_name, avatar=u.avatar_url) for u in s_users}
 
         results = []
         for uid in top_candidate_ids:
@@ -368,19 +406,20 @@ class FriendService:
             if not u:
                 continue
 
-            mutual_data = FriendService._get_mutual_friends_data(current_user_id, u.id, db)
-            all_mutual = my_friends.intersection(FriendService._get_friend_ids(u.id, db))
+            c_friends = candidate_friend_maps.get(uid, set())
+            mutual = my_friends.intersection(c_friends)
+            mutual_list = [sample_users[mid] for mid in list(mutual)[:5] if mid in sample_users]
 
             results.append(
                 FriendSuggestionItem(
-                    id=u.id,
+                    id=str(u.id),
                     username=u.username,
                     name=u.full_name,
                     avatar=u.avatar_url,
                     bio=u.bio,
-                    mutual_friends=mutual_data,
-                    mutual_count=len(all_mutual),
-                    request_sent=u.id in sent_request_ids
+                    mutual_friends=mutual_list,
+                    mutual_count=len(mutual),
+                    request_sent=uid in sent_request_ids
                 )
             )
 
@@ -390,10 +429,7 @@ class FriendService:
     def get_friendship_status(current_user_id: str, target_user_id: str, db: Session) -> FriendshipStatusResponse:
         """Lấy trạng thái kết bạn giữa current_user và một tài khoản bất kỳ"""
         if current_user_id == target_user_id:
-            return FriendshipStatusResponse(
-                target_user_id=target_user_id,
-                status="self"
-            )
+            return FriendshipStatusResponse(target_user_id=target_user_id, status="self")
 
         f = db.query(Friendship).filter(
             or_(
@@ -409,7 +445,7 @@ class FriendService:
             return FriendshipStatusResponse(target_user_id=target_user_id, status="friends", friendship_id=f.id)
 
         if f.status == "pending":
-            if f.requester_id == current_user_id:
+            if str(f.requester_id) == current_user_id:
                 return FriendshipStatusResponse(target_user_id=target_user_id, status="pending_sent", friendship_id=f.id)
             else:
                 return FriendshipStatusResponse(target_user_id=target_user_id, status="pending_received", friendship_id=f.id)

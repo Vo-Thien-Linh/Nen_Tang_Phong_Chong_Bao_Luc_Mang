@@ -185,7 +185,7 @@ export const authService = {
           u => u.email.toLowerCase() === identLower || u.phone === identifier.trim()
         );
 
-        if (!user || password !== "Password123") {
+        if (!user || (password !== "Password123" && password !== user._rawPassword)) {
           throw new Error("Email hoặc mật khẩu không chính xác");
         }
 
@@ -272,6 +272,25 @@ export const authService = {
         if (MOCK_DEMO_USERS.some(u => u.phone === phone.trim())) {
           throw new Error("Số điện thoại đã được sử dụng");
         }
+
+        const newMockUser = {
+          id: "mock-" + Date.now(),
+          name: trimmedName,
+          full_name: trimmedName,
+          username: email.trim().split('@')[0],
+          email: email.trim(),
+          phone: phone.trim(),
+          role: "USER",
+          status: "active",
+          avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
+          avatar_url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
+          postsCount: 0,
+          friendsCount: 0,
+          isVerified: false,
+          _rawPassword: password
+        };
+        MOCK_DEMO_USERS.push(newMockUser);
+
         return { success: true, message: "Đăng kí thành công" };
       }
       throw err;
@@ -283,7 +302,7 @@ export const authService = {
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER);
     try {
-      fetch(`${API_BASE_URL}/logout`, { method: 'POST' }).catch(() => {});
+      fetch(`${API_BASE_URL}/logout`, { method: 'POST' }).catch(() => { });
     } catch {
       // ignore
     }

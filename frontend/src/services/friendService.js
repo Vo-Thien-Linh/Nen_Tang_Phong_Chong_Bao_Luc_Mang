@@ -1,6 +1,12 @@
 // API Service kết nối Backend FastAPI (http://localhost:8000)
 const API_BASE_URL = 'http://localhost:8000/api/v1/friends';
 
+const hasValidToken = () => {
+  const token = localStorage.getItem('nexussocial_token');
+  if (!token) return false;
+  return token.split('.').length === 3;
+};
+
 const getAuthHeaders = () => {
   const token = localStorage.getItem('nexussocial_token');
   return {
@@ -9,27 +15,49 @@ const getAuthHeaders = () => {
   };
 };
 
+// Bộ nhớ cache tạm thời trong phiên để render 0ms ngay khi mở tab Bạn bè
+const memoryCache = {
+  requests: null,
+  friends: {},
+  suggestions: null
+};
+
 export const friendService = {
+  clearCache() {
+    memoryCache.requests = null;
+    memoryCache.friends = {};
+    memoryCache.suggestions = null;
+  },
+
   /**
    * Lấy danh sách lời mời kết bạn nhận được
    */
-  async getFriendRequests() {
+  async getFriendRequests(force = false) {
+    if (!hasValidToken()) return null;
+    if (!force && memoryCache.requests) return memoryCache.requests;
+
     try {
       const res = await fetch(`${API_BASE_URL}/requests`, {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Không thể tải lời mời kết bạn');
-      return await res.json();
+      const data = await res.json();
+      memoryCache.requests = data;
+      return data;
     } catch (err) {
-      console.warn('Lỗi gọi API getFriendRequests, fallback demo:', err.message);
+      console.warn('Lỗi gọi API getFriendRequests:', err.message);
       return null;
     }
   },
 
   /**
-   * Lấy danh sách tất cả bạn bè chính thức
+   * Lấy danh sách tất cả bạn bè chính thức (tối ưu tốc độ cao)
    */
-  async getFriendsList(search = '') {
+  async getFriendsList(search = '', force = false) {
+    if (!hasValidToken()) return null;
+    const cacheKey = search || '__all__';
+    if (!force && memoryCache.friends[cacheKey]) return memoryCache.friends[cacheKey];
+
     try {
       const url = new URL(`${API_BASE_URL}/list`);
       if (search) url.searchParams.append('search', search);
@@ -38,9 +66,11 @@ export const friendService = {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Không thể tải danh sách bạn bè');
-      return await res.json();
+      const data = await res.json();
+      memoryCache.friends[cacheKey] = data;
+      return data;
     } catch (err) {
-      console.warn('Lỗi gọi API getFriendsList, fallback demo:', err.message);
+      console.warn('Lỗi gọi API getFriendsList:', err.message);
       return null;
     }
   },
@@ -48,15 +78,20 @@ export const friendService = {
   /**
    * Lấy danh sách gợi ý kết bạn thông minh (Friends of Friends)
    */
-  async getFriendSuggestions(limit = 20) {
+  async getFriendSuggestions(limit = 20, force = false) {
+    if (!hasValidToken()) return null;
+    if (!force && memoryCache.suggestions) return memoryCache.suggestions;
+
     try {
       const res = await fetch(`${API_BASE_URL}/suggestions?limit=${limit}`, {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Không thể tải gợi ý kết bạn');
-      return await res.json();
+      const data = await res.json();
+      memoryCache.suggestions = data;
+      return data;
     } catch (err) {
-      console.warn('Lỗi gọi API getFriendSuggestions, fallback demo:', err.message);
+      console.warn('Lỗi gọi API getFriendSuggestions:', err.message);
       return null;
     }
   },
@@ -65,6 +100,7 @@ export const friendService = {
    * Gửi lời mời kết bạn
    */
   async sendFriendRequest(targetUserId) {
+    friendService.clearCache();
     const res = await fetch(`${API_BASE_URL}/request/${targetUserId}`, {
       method: 'POST',
       headers: getAuthHeaders()
@@ -78,6 +114,7 @@ export const friendService = {
    * Chấp nhận lời mời kết bạn
    */
   async acceptFriendRequest(requestId) {
+    friendService.clearCache();
     const res = await fetch(`${API_BASE_URL}/accept/${requestId}`, {
       method: 'POST',
       headers: getAuthHeaders()
@@ -91,6 +128,7 @@ export const friendService = {
    * Từ chối / Xóa lời mời kết bạn
    */
   async rejectFriendRequest(requestId) {
+    friendService.clearCache();
     const res = await fetch(`${API_BASE_URL}/reject/${requestId}`, {
       method: 'POST',
       headers: getAuthHeaders()
@@ -104,6 +142,7 @@ export const friendService = {
    * Thu hồi lời mời kết bạn đã gửi
    */
   async cancelSentRequest(targetUserId) {
+    friendService.clearCache();
     const res = await fetch(`${API_BASE_URL}/cancel/${targetUserId}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
@@ -117,6 +156,7 @@ export const friendService = {
    * Hủy kết bạn (Unfriend)
    */
   async unfriend(targetUserId) {
+    friendService.clearCache();
     const res = await fetch(`${API_BASE_URL}/${targetUserId}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
