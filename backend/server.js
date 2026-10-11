@@ -4,7 +4,8 @@ import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
-import { testDbConnection } from './src/config/db.js';
+import pool, { testDbConnection } from './src/config/db.js';
+import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
 
 dotenv.config();
 
@@ -67,6 +68,8 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+app.use('/api/posts', createPostReactionsRouter({ pool }));
 
 // ========================================================
 // 4. IN-MEMORY STORE: BÁO CÁO, KHIẾU NẠI & HIỆU CHỈNH NHÃN AI
@@ -326,6 +329,14 @@ app.post('/api/admin/override-ai-label', (req, res) => {
 // 5.9 Lấy danh sách Logs hiệu chỉnh AI / Xuất tập dữ liệu tái huấn luyện
 app.get('/api/admin/ai-overrides', (req, res) => {
   res.json({ success: true, data: aiOverrideLogsStore });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error('Lỗi API:', err.message);
+  res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.statusCode ? err.message : 'Thả icon thất bại',
+  });
 });
 
 const PORT = process.env.PORT || 5000;

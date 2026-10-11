@@ -54,6 +54,10 @@ export default function App() {
     }));
   };
 
+  const handleRequireLogin = () => {
+    window.alert('Vui lòng đăng nhập để thả icon');
+  };
+
   // Thả tim / Bỏ thích bài viết
   const handleToggleLike = (postId) => {
     setPosts(prev => prev.map(post => {
@@ -369,6 +373,7 @@ export default function App() {
             onOpenAiLab={() => setIsAiModalOpen(true)}
             onOpenReportModal={handleOpenReportModal}
             onOpenAppealModal={handleOpenAppealModal}
+            onRequireLogin={handleRequireLogin}
           />
         )}
 

@@ -3,14 +3,8 @@ import {
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle 
 } from 'lucide-react';
-
-const REACTIONS = [
-  { id: 'like', label: 'Thích', emoji: '👍', color: 'text-blue-600' },
-  { id: 'love', label: 'Yêu thích', emoji: '❤️', color: 'text-rose-600' },
-  { id: 'wow', label: 'Ngạc nhiên', emoji: '😮', color: 'text-amber-500' },
-  { id: 'sad', label: 'Buồn', emoji: '😢', color: 'text-amber-600' },
-  { id: 'angry', label: 'Phẫn nộ', emoji: '😡', color: 'text-orange-600' },
-];
+import { updatePostReaction } from '../api/client';
+import { applyReactionState, REACTIONS } from '../utils/reactionLogic';
 
 export default function PostCard({ 
   post, 
@@ -18,24 +12,61 @@ export default function PostCard({
   onToggleLike, 
   onAddComment,
   onOpenReportModal,
-  onOpenAppealModal
+  onOpenAppealModal,
+  onRequireLogin
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isSaved, setIsSaved] = useState(post.isSaved || false);
   const [copiedToast, setCopiedToast] = useState(false);
-  const [currentReaction, setCurrentReaction] = useState(post.isLiked ? 'like' : null);
+  const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
+  const [reactionCount, setReactionCount] = useState(post.likesCount || 0);
+  const [reactionError, setReactionError] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showPostMenu, setShowPostMenu] = useState(false);
 
-  const handleSelectReaction = (reactionId) => {
-    if (currentReaction === reactionId) {
-      setCurrentReaction(null);
-    } else {
-      setCurrentReaction(reactionId);
-    }
+  const handleSelectReaction = async (reactionId = 'like') => {
     setShowReactionPicker(false);
-    onToggleLike(post.id);
+    setReactionError('');
+
+    if (!currentUser?.id) {
+      if (onRequireLogin) {
+        onRequireLogin();
+      }
+      return;
+    }
+
+    const nextState = applyReactionState({
+      currentReaction,
+      totalCount: reactionCount,
+      selectedReaction: reactionId,
+    });
+
+    if (Number.isNaN(Number(post.id))) {
+      setCurrentReaction(nextState.myReaction);
+      setReactionCount(nextState.totalCount);
+      onToggleLike(post.id);
+      return;
+    }
+
+    const previousReaction = currentReaction;
+    const previousCount = reactionCount;
+    setCurrentReaction(nextState.myReaction);
+    setReactionCount(nextState.totalCount);
+
+    try {
+      const result = await updatePostReaction({
+        userId: currentUser.id,
+        postId: post.id,
+        type: reactionId,
+      });
+      setCurrentReaction(result.data.myReaction);
+      setReactionCount(result.data.totalCount);
+    } catch (error) {
+      setCurrentReaction(previousReaction);
+      setReactionCount(previousCount);
+      setReactionError(error.message === 'Bài viết không tồn tại' ? error.message : 'Thả icon thất bại');
+    }
   };
 
   const handleCommentSubmit = (e) => {
@@ -229,7 +260,7 @@ export default function PostCard({
             <span className="w-4 h-4 rounded-full bg-amber-400 text-white flex items-center justify-center text-[9px] shadow-2xs">😮</span>
           </div>
           <span className="font-medium text-slate-600 pl-1">
-            {post.likesCount + (currentReaction && !post.isLiked ? 1 : 0)} cảm xúc
+            {reactionCount} cảm xúc
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -238,16 +269,22 @@ export default function PostCard({
         </div>
       </div>
 
+      {reactionError && (
+        <div className="px-4 sm:px-5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border-b border-rose-100">
+          {reactionError}
+        </div>
+      )}
+
       {/* Các nút hành động tương tác */}
       <div className="px-2 py-1 flex items-center justify-between text-slate-600 relative">
         
-        {/* Nút Cảm xúc với Popover 5 loại cảm xúc chuẩn Facebook */}
+        {/* Nút Cảm xúc với Popover 6 loại cảm xúc chuẩn Facebook */}
         <div 
           className="flex-1 relative"
           onMouseEnter={() => setShowReactionPicker(true)}
           onMouseLeave={() => setShowReactionPicker(false)}
         >
-          {/* Thanh Popover chọn 5 cảm xúc */}
+          {/* Thanh Popover chọn 6 cảm xúc */}
           {showReactionPicker && (
             <div className="absolute -top-12 left-2 z-30 bg-white rounded-full px-2.5 py-1.5 shadow-xl border border-slate-200 flex items-center gap-2 animate-fade-in">
               {REACTIONS.map((r) => (
@@ -264,7 +301,7 @@ export default function PostCard({
           )}
 
           <button
-            onClick={() => handleSelectReaction(currentReaction ? currentReaction : 'like')}
+            onClick={() => handleSelectReaction(currentReaction || 'like')}
             className={`w-full py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 hover:bg-slate-50 cursor-pointer ${
               activeReactionObj ? `${activeReactionObj.color} font-bold` : 'text-slate-600'
             }`}

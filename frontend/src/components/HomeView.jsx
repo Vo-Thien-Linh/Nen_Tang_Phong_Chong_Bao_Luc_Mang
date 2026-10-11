@@ -15,6 +15,7 @@ export default function HomeView({
   onAddComment,
   onOpenReportModal,
   onOpenAppealModal,
+  onRequireLogin,
   setActiveTab,
   onOpenAiLab
 }) {
@@ -177,6 +178,7 @@ export default function HomeView({
                   onAddComment={onAddComment}
                   onOpenReportModal={onOpenReportModal}
                   onOpenAppealModal={onOpenAppealModal}
+                  onRequireLogin={onRequireLogin}
                 />
               ))
             ) : (
