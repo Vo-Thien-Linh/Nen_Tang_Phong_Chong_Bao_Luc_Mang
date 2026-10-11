@@ -3,7 +3,6 @@ import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, X } from 'lucide-re
 import { createPost, uploadPostImage } from '../api/client';
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireLogin }) {
-  const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
@@ -80,8 +79,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireLogin 
       return;
     }
 
-    if (!title.trim() || !content.trim()) {
-      setErrorMessage('Tiêu đề và nội dung là bắt buộc');
+    if (!content.trim()) {
+      setErrorMessage('Nội dung là bắt buộc');
       return;
     }
 
@@ -96,13 +95,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireLogin 
     try {
       const result = await createPost({
         userId: currentUser.id,
-        title: title.trim(),
         content: content.trim(),
         imageUrl: imageUrl || null,
       });
 
       onAddPost(result.data);
-      setTitle('');
       setContent('');
       setImageUrl('');
       setImagePreview('');
@@ -125,13 +122,6 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireLogin 
           className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
         />
         <div className="flex-1">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Tiêu đề bài viết"
-            className="mb-2 w-full px-3 py-2 text-sm font-semibold text-slate-800 placeholder-slate-400 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none transition duration-150"
-          />
           <textarea
             rows={2}
             value={content}
@@ -233,7 +223,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireLogin 
 
             <button
               type="submit"
-              disabled={isSubmitting || !title.trim() || !content.trim()}
+              disabled={isSubmitting || !content.trim()}
               className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150"
             >
               <span>{isSubmitting ? 'Đang đăng...' : 'Đăng bài'}</span>

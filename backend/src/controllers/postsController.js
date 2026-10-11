@@ -18,7 +18,6 @@ function formatRelativeTime(createdAt) {
 export function mapPostToResponse(post) {
   return {
     id: String(post.id),
-    title: post.title,
     content: post.content,
     image: post.image_url || null,
     createdAt: formatRelativeTime(post.created_at),
@@ -59,7 +58,6 @@ export function createPostsController({ postService }) {
       try {
         const post = await postService.createPost({
           user: req.user,
-          title: req.body?.title,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
         });

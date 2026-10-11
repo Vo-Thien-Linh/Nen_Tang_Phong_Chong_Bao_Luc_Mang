@@ -2,7 +2,6 @@ const postSelect = `
   SELECT
     p.id,
     p.author_id,
-    p.title,
     p.content,
     p.image_url,
     p.privacy,
@@ -72,12 +71,12 @@ function attachReactionData(posts, countRows = [], myReactionRows = []) {
 
 export function createPostRepository({ pool }) {
   return {
-    async createPost({ authorId, title, content, imageUrl, privacy = 'public' }) {
+    async createPost({ authorId, content, imageUrl, privacy = 'public' }) {
       const result = await pool.query(
-        `INSERT INTO posts (author_id, title, content, image_url, privacy)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO posts (author_id, content, image_url, privacy)
+         VALUES ($1, $2, $3, $4)
          RETURNING id`,
-        [authorId, title, content, imageUrl, privacy]
+        [authorId, content, imageUrl, privacy]
       );
 
       return this.findById(result.rows[0].id);

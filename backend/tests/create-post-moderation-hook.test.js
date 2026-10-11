@@ -6,7 +6,6 @@ test('call moderation hook after post creation', async () => {
   const savedPost = {
     id: 10,
     author_id: 'user-1',
-    title: 'Tiêu đề',
     content: 'Nội dung',
   };
   let hookPost;
@@ -26,7 +25,6 @@ test('call moderation hook after post creation', async () => {
 
   const post = await service.createPost({
     user: { id: 'user-1' },
-    title: 'Tiêu đề',
     content: 'Nội dung',
   });
 

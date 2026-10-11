@@ -34,11 +34,11 @@ export async function fetchPosts({ userId } = {}) {
   });
 }
 
-export async function createPost({ userId, title, content, imageUrl }) {
+export async function createPost({ userId, content, imageUrl }) {
   return request('/api/posts', {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ title, content, imageUrl }),
+    body: JSON.stringify({ content, imageUrl }),
   });
 }
 

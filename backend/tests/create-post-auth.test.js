@@ -17,7 +17,7 @@ test('reject create post when user is not authenticated', async () => {
   });
 
   await assert.rejects(
-    () => service.createPost({ user: null, title: 'Title', content: 'Content' }),
+    () => service.createPost({ user: null, content: 'Content' }),
     (error) => {
       assert.equal(error.statusCode, 401);
       assert.equal(error.message, 'Bạn cần đăng nhập để đăng bài');

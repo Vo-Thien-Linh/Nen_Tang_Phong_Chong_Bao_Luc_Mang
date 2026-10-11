@@ -18,12 +18,10 @@ test('allow create post with and without image', async () => {
 
   await service.createPost({
     user: { id: 'user-1' },
-    title: 'Không ảnh',
     content: 'Nội dung',
   });
   await service.createPost({
     user: { id: 'user-1' },
-    title: 'Có ảnh',
     content: 'Nội dung',
     imageUrl: 'https://cdn.example.com/post.png',
   });
