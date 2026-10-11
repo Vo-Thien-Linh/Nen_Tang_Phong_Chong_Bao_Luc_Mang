@@ -32,6 +32,16 @@ export function mapPostToResponse(post) {
     },
     tags: [],
     likesCount: post.likes_count || 0,
+    reactionCounts: post.reaction_counts || {
+      like: 0,
+      love: 0,
+      haha: 0,
+      wow: 0,
+      sad: 0,
+      angry: 0,
+    },
+    totalReactions: Number(post.total_reactions ?? post.likes_count ?? 0),
+    myReaction: post.my_reaction || null,
     sharesCount: post.shares_count || 0,
     comments: [],
     aiStatus: {

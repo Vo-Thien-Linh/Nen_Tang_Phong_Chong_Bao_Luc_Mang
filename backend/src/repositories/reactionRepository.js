@@ -113,11 +113,16 @@ export function createReactionRepository({ pool }) {
 
         await client.query('COMMIT');
 
+        const counts = mapCounts(countResult.rows);
+        const totalCount = Number(totalResult.rows[0]?.likes_count || 0);
+
         return {
           action,
           myReaction,
-          totalCount: Number(totalResult.rows[0]?.likes_count || 0),
-          counts: mapCounts(countResult.rows),
+          totalCount,
+          totalReactions: totalCount,
+          counts,
+          reactionCounts: counts,
         };
       } catch (error) {
         await client.query('ROLLBACK');

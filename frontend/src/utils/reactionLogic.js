@@ -7,6 +7,52 @@ export const REACTIONS = [
   { id: 'angry', label: 'Phẫn nộ', emoji: '😡', color: 'text-orange-600' },
 ];
 
+const REACTION_ORDER = REACTIONS.map((reaction) => reaction.id);
+
+export function normalizeReactionCounts(counts = {}) {
+  return REACTIONS.reduce((normalized, reaction) => {
+    normalized[reaction.id] = Number(counts[reaction.id] || 0);
+    return normalized;
+  }, {});
+}
+
+export function getGivenReactionCounts(counts = {}) {
+  const normalized = normalizeReactionCounts(counts);
+
+  return REACTIONS
+    .map((reaction) => ({
+      ...reaction,
+      count: normalized[reaction.id],
+    }))
+    .filter((reaction) => reaction.count > 0)
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return REACTION_ORDER.indexOf(a.id) - REACTION_ORDER.indexOf(b.id);
+    });
+}
+
+export function getSummaryReactions(counts = {}, limit = 3) {
+  return getGivenReactionCounts(counts).slice(0, limit);
+}
+
+export function hasReactionCounts(counts = {}) {
+  return getGivenReactionCounts(counts).length > 0;
+}
+
+export function applyReactionCounts({ counts = {}, previousReaction, nextReaction }) {
+  const nextCounts = normalizeReactionCounts(counts);
+
+  if (previousReaction && nextCounts[previousReaction] !== undefined) {
+    nextCounts[previousReaction] = Math.max(0, nextCounts[previousReaction] - 1);
+  }
+
+  if (nextReaction && nextCounts[nextReaction] !== undefined) {
+    nextCounts[nextReaction] += 1;
+  }
+
+  return nextCounts;
+}
+
 export function applyReactionState({ currentReaction, totalCount, selectedReaction = 'like' }) {
   if (currentReaction === selectedReaction) {
     return {

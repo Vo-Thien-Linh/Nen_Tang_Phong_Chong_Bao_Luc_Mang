@@ -22,6 +22,54 @@ const postSelect = `
   JOIN users u ON u.id = p.author_id
 `;
 
+const emptyReactionCounts = () => ({
+  like: 0,
+  love: 0,
+  haha: 0,
+  wow: 0,
+  sad: 0,
+  angry: 0,
+});
+
+function attachReactionData(posts, countRows = [], myReactionRows = []) {
+  const reactionDataByPost = new Map();
+
+  for (const post of posts) {
+    reactionDataByPost.set(Number(post.id), {
+      counts: emptyReactionCounts(),
+      total: 0,
+      myReaction: null,
+    });
+  }
+
+  for (const row of countRows) {
+    const postId = Number(row.post_id);
+    const reactionData = reactionDataByPost.get(postId);
+    if (!reactionData || !(row.reaction_type in reactionData.counts)) continue;
+
+    const count = Number(row.count || 0);
+    reactionData.counts[row.reaction_type] = count;
+    reactionData.total += count;
+  }
+
+  for (const row of myReactionRows) {
+    const reactionData = reactionDataByPost.get(Number(row.post_id));
+    if (reactionData) {
+      reactionData.myReaction = row.reaction_type;
+    }
+  }
+
+  return posts.map((post) => {
+    const reactionData = reactionDataByPost.get(Number(post.id));
+    return {
+      ...post,
+      reaction_counts: reactionData?.counts || emptyReactionCounts(),
+      total_reactions: reactionData?.total || 0,
+      my_reaction: reactionData?.myReaction || null,
+    };
+  });
+}
+
 export function createPostRepository({ pool }) {
   return {
     async createPost({ authorId, title, content, imageUrl, privacy = 'public' }) {
@@ -61,7 +109,28 @@ export function createPostRepository({ pool }) {
         params
       );
 
-      return result.rows;
+      if (result.rows.length === 0) {
+        return [];
+      }
+
+      const postIds = result.rows.map((post) => post.id);
+      const countResult = await pool.query(
+        `SELECT post_id, reaction_type, COUNT(*)::int AS count
+         FROM post_reactions
+         WHERE post_id = ANY($1::bigint[])
+         GROUP BY post_id, reaction_type`,
+        [postIds]
+      );
+      const myReactionResult = viewerId
+        ? await pool.query(
+            `SELECT post_id, reaction_type
+             FROM post_reactions
+             WHERE user_id = $1 AND post_id = ANY($2::bigint[])`,
+            [viewerId, postIds]
+          )
+        : { rows: [] };
+
+      return attachReactionData(result.rows, countResult.rows, myReactionResult.rows);
     },
   };
 }

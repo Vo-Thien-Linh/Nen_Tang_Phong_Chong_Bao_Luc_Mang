@@ -4,7 +4,15 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle 
 } from 'lucide-react';
 import { updatePostReaction } from '../api/client';
-import { applyReactionState, rollbackReactionState, REACTIONS } from '../utils/reactionLogic';
+import {
+  applyReactionCounts,
+  applyReactionState,
+  getGivenReactionCounts,
+  getSummaryReactions,
+  normalizeReactionCounts,
+  rollbackReactionState,
+  REACTIONS,
+} from '../utils/reactionLogic';
 
 export default function PostCard({ 
   post, 
@@ -20,9 +28,11 @@ export default function PostCard({
   const [isSaved, setIsSaved] = useState(post.isSaved || false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
-  const [reactionCount, setReactionCount] = useState(post.likesCount || 0);
+  const [reactionCount, setReactionCount] = useState(post.totalReactions ?? post.likesCount ?? 0);
+  const [reactionCounts, setReactionCounts] = useState(() => normalizeReactionCounts(post.reactionCounts || post.counts));
   const [reactionError, setReactionError] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [showReactionSummary, setShowReactionSummary] = useState(false);
   const [showPostMenu, setShowPostMenu] = useState(false);
 
   const handleSelectReaction = async (reactionId = 'like') => {
@@ -45,14 +55,27 @@ export default function PostCard({
     if (Number.isNaN(Number(post.id))) {
       setCurrentReaction(nextState.myReaction);
       setReactionCount(nextState.totalCount);
+      setReactionCounts(applyReactionCounts({
+        counts: reactionCounts,
+        previousReaction: currentReaction,
+        nextReaction: nextState.myReaction,
+      }));
       onToggleLike(post.id);
       return;
     }
 
     const previousReaction = currentReaction;
     const previousCount = reactionCount;
+    const previousCounts = reactionCounts;
+    const nextCounts = applyReactionCounts({
+      counts: reactionCounts,
+      previousReaction,
+      nextReaction: nextState.myReaction,
+    });
+
     setCurrentReaction(nextState.myReaction);
     setReactionCount(nextState.totalCount);
+    setReactionCounts(nextCounts);
 
     try {
       const result = await updatePostReaction({
@@ -61,11 +84,13 @@ export default function PostCard({
         type: reactionId,
       });
       setCurrentReaction(result.data.myReaction);
-      setReactionCount(result.data.totalCount);
+      setReactionCount(result.data.totalReactions ?? result.data.totalCount);
+      setReactionCounts(normalizeReactionCounts(result.data.reactionCounts || result.data.counts));
     } catch (error) {
       const rollbackState = rollbackReactionState({ previousReaction, previousCount, error });
       setCurrentReaction(rollbackState.myReaction);
       setReactionCount(rollbackState.totalCount);
+      setReactionCounts(previousCounts);
       setReactionError(rollbackState.errorMessage);
     }
   };
@@ -109,6 +134,8 @@ export default function PostCard({
   };
 
   const activeReactionObj = REACTIONS.find(r => r.id === currentReaction);
+  const summaryReactions = getSummaryReactions(reactionCounts);
+  const reactionDetails = getGivenReactionCounts(reactionCounts);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs mb-5 overflow-hidden transition-all hover:border-slate-300/80">
@@ -266,15 +293,40 @@ export default function PostCard({
 
       {/* Thống kê tương tác cảm xúc */}
       <div className="px-4 sm:px-5 py-2.5 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center -space-x-1">
-            <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] shadow-2xs">👍</span>
-            <span className="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[9px] shadow-2xs">❤️</span>
-            <span className="w-4 h-4 rounded-full bg-amber-400 text-white flex items-center justify-center text-[9px] shadow-2xs">😮</span>
-          </div>
+        <div
+          className="relative flex items-center gap-1.5"
+          onMouseEnter={() => setShowReactionSummary(true)}
+          onMouseLeave={() => setShowReactionSummary(false)}
+        >
+          {summaryReactions.length > 0 && (
+            <div className="flex items-center -space-x-1">
+              {summaryReactions.map((reaction) => (
+                <span
+                  key={reaction.id}
+                  className="w-4 h-4 rounded-full bg-white flex items-center justify-center text-[10px] shadow-2xs ring-1 ring-white"
+                  title={reaction.label}
+                >
+                  {reaction.emoji}
+                </span>
+              ))}
+            </div>
+          )}
           <span className="font-medium text-slate-600 pl-1">
             {reactionCount} cảm xúc
           </span>
+          {showReactionSummary && reactionDetails.length > 0 && (
+            <div className="absolute left-0 top-6 z-30 min-w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              {reactionDetails.map((reaction) => (
+                <div key={reaction.id} className="flex items-center justify-between gap-4 px-2 py-1 text-xs text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <span>{reaction.emoji}</span>
+                    <span className="font-semibold">{reaction.label}</span>
+                  </span>
+                  <span className="font-bold text-slate-900">{reaction.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span>{post.comments?.length || 0} bình luận</span>
