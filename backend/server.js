@@ -359,6 +359,9 @@ app.use((err, _req, res, _next) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log('Server Backend đang chạy tại http://localhost:' + PORT);
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('Cảnh báo: x-user-id development auth đang tắt vì NODE_ENV=production.');
+  }
   await testDbConnection();
 });
 

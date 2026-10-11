@@ -1,29 +1,42 @@
 export function createAuthMiddleware({ userRepository }) {
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const authMessage = 'Bạn cần đăng nhập để tiếp tục';
 
   const authError = () => {
-    const error = new Error('Bạn cần đăng nhập để tiếp tục');
+    const error = new Error(authMessage);
     error.statusCode = 401;
     return error;
   };
 
-  const resolveUser = async (req) => {
+  const warnRejectedAuth = (reason) => {
+    console.warn(`Từ chối xác thực x-user-id: ${reason}`);
+  };
+
+  const resolveUser = async (req, { required = false } = {}) => {
     // TODO: Replace this temporary development auth with JWT when US-2 is implemented.
     if (process.env.NODE_ENV === 'production') {
+      if (required) {
+        warnRejectedAuth('cơ chế x-user-id đang tắt do NODE_ENV=production');
+      }
       return null;
     }
 
     const userId = req.header('x-user-id')?.trim();
     if (!userId) {
+      if (required) {
+        warnRejectedAuth('thiếu header x-user-id');
+      }
       return null;
     }
 
     if (!uuidPattern.test(userId)) {
+      warnRejectedAuth('sai định dạng UUID');
       throw authError();
     }
 
     const user = await userRepository.findById(userId);
     if (!user) {
+      warnRejectedAuth('không tìm thấy user trong DB');
       throw authError();
     }
 
@@ -32,11 +45,11 @@ export function createAuthMiddleware({ userRepository }) {
 
   const requireAuth = async (req, res, next) => {
     try {
-      const user = await resolveUser(req);
+      const user = await resolveUser(req, { required: true });
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'Bạn cần đăng nhập để tiếp tục',
+          message: authMessage,
         });
       }
 
