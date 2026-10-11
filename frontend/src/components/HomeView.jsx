@@ -16,6 +16,7 @@ export default function HomeView({
   onOpenReportModal,
   onOpenAppealModal,
   onRequireLogin,
+  feedWarning,
   setActiveTab,
   onOpenAiLab
 }) {
@@ -140,6 +141,12 @@ export default function HomeView({
           
           {/* Ô tạo bài viết mới */}
           <CreatePostCard currentUser={currentUser} onAddPost={onAddPost} onRequireLogin={onRequireLogin} />
+
+          {feedWarning && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">
+              {feedWarning}
+            </div>
+          )}
 
           {/* Tabs bộ lọc Feed */}
           <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs font-semibold">

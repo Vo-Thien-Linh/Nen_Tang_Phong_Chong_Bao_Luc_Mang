@@ -1,6 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 async function request(path, options = {}) {
+  // TODO(US-2): replace x-user-id with the real authenticated session.
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
