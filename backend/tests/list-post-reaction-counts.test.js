@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mapPostToResponse } from '../src/controllers/postsController.js';
 import { createPostRepository } from '../src/repositories/postRepository.js';
 
-test('backend returns reaction counts and my reaction for each post', async () => {
+test('backend returns reaction counts and my reaction for the viewer', async () => {
   const calls = [];
   const repository = createPostRepository({
     pool: {
