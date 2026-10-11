@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS users (
     relationship_status VARCHAR(50),
 
     -- 4. Trạng thái & Kiểm duyệt hệ thống
+    phone VARCHAR(20) UNIQUE,   -- Số điện thoại (dùng để đăng nhập hoặc khôi phục)
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cooldown', 'banned')), -- Trạng thái tài khoản: active, cooldown, banned (bị khóa)
     is_verified BOOLEAN DEFAULT FALSE,
     cooldown_until TIMESTAMPTZ, -- Hạn xử phạt kiểm duyệt AI (NULL nếu không bị phạt)
     cooldown_reason TEXT,       -- Lý do xử phạt (Ví dụ: "Vi phạm ngôn từ thù địch / bạo lực")
@@ -41,6 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 
