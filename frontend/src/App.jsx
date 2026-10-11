@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -9,6 +9,8 @@ import AdminDashboardView from './components/AdminDashboardView';
 import AiModerationModal from './components/AiModerationModal';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
+import AuthModal from './components/AuthModal';
+import { authService } from './services/authService';
 import { 
   currentUser as initialUser, 
   initialPosts, 
@@ -20,7 +22,12 @@ import {
 } from './data/mockData';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(initialUser);
+  // Trạng thái Xác thực người dùng (Auth)
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser() || initialUser);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
+  const [authNoticeMessage, setAuthNoticeMessage] = useState('');
+
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
   const [posts, setPosts] = useState(initialPosts);
   const [notifications, setNotifications] = useState(initialNotifications);
@@ -37,6 +44,22 @@ export default function App() {
   const [appealItem, setAppealItem] = useState(null);     // Nội dung đang được mở modal khiếu nại
   const [selectedChatUserId, setSelectedChatUserId] = useState(null);
 
+  // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
+  useEffect(() => {
+    const handlePopState = () => {
+      // Nếu đã đăng xuất mà bấm Back, không cho xem nội dung riêng tư
+      if (!authService.getCurrentUser()) {
+        setCurrentUser(null);
+        setActiveTab('home');
+        setAuthModalTab('login');
+        setAuthNoticeMessage("Phiên làm việc đã kết thúc. Vui lòng đăng nhập để tiếp tục.");
+        setIsAuthModalOpen(true);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Số việc quản trị đang chờ xử lý
   const pendingReportsCount = reports.filter(r => r.status === 'pending').length;
   const pendingAppealsCount = appeals.filter(a => a.status === 'pending').length;
@@ -45,17 +68,55 @@ export default function App() {
   // Đếm số thông báo chưa đọc
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  // Xử lý Chuyển Tab có Auth Guard
+  const handleTabChange = (tab) => {
+    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin')) {
+      setAuthNoticeMessage("Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập");
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  // Kích hoạt yêu cầu đăng nhập
+  const handleRequireAuth = (msg = "Vui lòng đăng nhập để thực hiện chức năng này") => {
+    setAuthNoticeMessage(msg);
+    setAuthModalTab('login');
+    setIsAuthModalOpen(true);
+  };
+
+  // Đăng xuất khỏi hệ thống theo User Story 3
+  const handleLogout = () => {
+    authService.logout();
+    setCurrentUser(null);
+    setActiveTab('home');
+    setAuthNoticeMessage("Bạn đã đăng xuất thành công khỏi hệ thống");
+    setAuthModalTab('login');
+    setIsAuthModalOpen(true); // Hiển thị màn hình đăng nhập với form trống & gợi ý tài khoản
+    // Đẩy trạng thái rỗng vào history để chặn Back button
+    window.history.replaceState({ auth: false }, '', window.location.pathname);
+  };
+
   // Thêm bài viết mới
   const handleAddPost = (newPost) => {
+    if (!currentUser) {
+      handleRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
+      return;
+    }
     setPosts([newPost, ...posts]);
     setCurrentUser(prev => ({
       ...prev,
-      postsCount: prev.postsCount + 1
+      postsCount: ((prev && prev.postsCount) || 0) + 1
     }));
   };
 
   // Thả tim / Bỏ thích bài viết
   const handleToggleLike = (postId) => {
+    if (!currentUser) {
+      handleRequireAuth("Vui lòng đăng nhập để tương tác bài viết");
+      return;
+    }
     setPosts(prev => prev.map(post => {
       if (post.id === postId) {
         const isLiked = !post.isLiked;
@@ -71,6 +132,10 @@ export default function App() {
 
   // Thêm bình luận vào bài viết
   const handleAddComment = (postId, newComment) => {
+    if (!currentUser) {
+      handleRequireAuth("Chỉ đăng nhập mới được bình luận (User Story 5)");
+      return;
+    }
     setPosts(prev => prev.map(post => {
       if (post.id === postId) {
         return {
@@ -345,13 +410,19 @@ export default function App() {
       {/* Thanh điều hướng chính */}
       <Navbar 
         activeTab={activeTab} 
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         unreadCount={unreadCount}
         unreadMessagesCount={1}
         pendingModerationCount={pendingModerationCount}
         onOpenAiLab={() => setIsAiModalOpen(true)}
         currentUser={currentUser}
-        postsCount={posts.filter(p => p.author?.id === currentUser.id).length}
+        onOpenAuthModal={(tab) => {
+          setAuthModalTab(tab);
+          setAuthNoticeMessage('');
+          setIsAuthModalOpen(true);
+        }}
+        onLogout={handleLogout}
+        postsCount={posts.filter(p => p.author?.id === currentUser?.id).length}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -365,10 +436,16 @@ export default function App() {
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
-            setActiveTab={setActiveTab}
+            setActiveTab={handleTabChange}
             onOpenAiLab={() => setIsAiModalOpen(true)}
             onOpenReportModal={handleOpenReportModal}
             onOpenAppealModal={handleOpenAppealModal}
+            onRequireAuth={handleRequireAuth}
+            onOpenAuthModal={(tab) => {
+              setAuthModalTab(tab);
+              setAuthNoticeMessage('');
+              setIsAuthModalOpen(true);
+            }}
           />
         )}
 
@@ -450,6 +527,19 @@ export default function App() {
       <AiModerationModal 
         isOpen={isAiModalOpen} 
         onClose={() => setIsAiModalOpen(false)} 
+      />
+
+      {/* Modal Xác thực Đăng nhập & Đăng ký tài khoản (User Story 1, 2, 3) */}
+      <AuthModal 
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        initialTab={authModalTab}
+        noticeMessage={authNoticeMessage}
+        onAuthSuccess={(user) => {
+          setCurrentUser(user);
+          setIsAuthModalOpen(false);
+          setAuthNoticeMessage('');
+        }}
       />
 
     </div>

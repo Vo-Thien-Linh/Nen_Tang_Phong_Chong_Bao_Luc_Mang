@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Image, Sparkles, Send, CheckCircle2, AlertTriangle } from 'lucide-react';
 
-export default function CreatePostCard({ currentUser, onAddPost }) {
+export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth }) {
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [showImageInput, setShowImageInput] = useState(false);
@@ -56,6 +56,10 @@ export default function CreatePostCard({ currentUser, onAddPost }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      if (onRequireAuth) onRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
+      return;
+    }
     if (!content.trim()) return;
 
     if (aiPreview && (aiPreview.label === "Violence" || aiPreview.label === "Hate Speech")) {
@@ -97,19 +101,24 @@ export default function CreatePostCard({ currentUser, onAddPost }) {
     <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs mb-5 transition duration-200">
       <div className="flex gap-3">
         <img 
-          src={currentUser.avatar} 
-          alt={currentUser.name} 
+          src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+          alt={currentUser?.name || "Khách"} 
           className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
         />
         <div className="flex-1">
           <textarea
             rows={2}
             value={content}
+            onClick={() => {
+              if (!currentUser && onRequireAuth) {
+                onRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
+              }
+            }}
             onChange={(e) => {
               setContent(e.target.value);
               if (aiPreview) setAiPreview(null); // Reset preview khi người dùng sửa chữ
             }}
-            placeholder={`${currentUser.name} ơi, bạn đang nghĩ gì thế?`}
+            placeholder={currentUser ? `${currentUser.name} ơi, bạn đang nghĩ gì thế?` : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."}
             className="w-full resize-none p-3 text-slate-800 placeholder-slate-400 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm transition duration-150"
           />
 
