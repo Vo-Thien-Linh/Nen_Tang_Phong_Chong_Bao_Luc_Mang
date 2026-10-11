@@ -21,6 +21,7 @@ export default function PostCard({
   onAddComment,
   onOpenReportModal,
   onOpenAppealModal,
+  onRequireAuth,
   onRequireLogin
 }) {
   const [showComments, setShowComments] = useState(false);
@@ -43,7 +44,9 @@ export default function PostCard({
     setReactionError('');
 
     if (!currentUser?.id) {
-      if (onRequireLogin) {
+      if (onRequireAuth) {
+        onRequireAuth("Vui lòng đăng nhập để tương tác bài viết");
+      } else if (onRequireLogin) {
         onRequireLogin();
       }
       return;
@@ -101,6 +104,10 @@ export default function PostCard({
 
   const handleCommentSubmit = (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+      return;
+    }
     if (!commentText.trim()) return;
 
     onAddComment(post.id, {
@@ -418,16 +425,21 @@ export default function PostCard({
           {/* Form nhập bình luận mới */}
           <form onSubmit={handleCommentSubmit} className="flex gap-2">
             <img 
-              src={currentUser.avatar} 
-              alt={currentUser.name} 
+              src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+              alt={currentUser?.name || "Khách"} 
               className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
             />
             <div className="flex-1 relative">
               <input
                 type="text"
                 value={commentText}
+                onClick={() => {
+                  if (!currentUser && onRequireAuth) {
+                    onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+                  }
+                }}
                 onChange={(e) => setCommentText(e.target.value)}
-                placeholder="Viết bình luận công khai..."
+                placeholder={currentUser ? "Viết bình luận công khai..." : "Đăng nhập để viết bình luận..."}
                 className="w-full pl-3 pr-10 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               />
               <button

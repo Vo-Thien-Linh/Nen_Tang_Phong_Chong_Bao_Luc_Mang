@@ -1,4 +1,8 @@
-import { Home, Bell, Search, Sparkles, ShieldCheck, Users, MessageCircle, LayoutDashboard } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { 
+  Home, Bell, Search, Sparkles, ShieldCheck, Users, MessageCircle, 
+  LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield
+} from 'lucide-react';
 
 export default function Navbar({ 
   activeTab, 
@@ -6,9 +10,25 @@ export default function Navbar({
   unreadCount, 
   onOpenAiLab, 
   currentUser, 
+  onOpenAuthModal,
+  onLogout,
   unreadMessagesCount = 1,
   pendingModerationCount = 0
 }) {
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  // Đóng dropdown khi click bên ngoài
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowUserMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-all shadow-xs shrink-0">
       <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 sm:gap-4">
@@ -123,7 +143,7 @@ export default function Navbar({
             <span className="hidden lg:inline whitespace-nowrap">Thông báo</span>
           </button>
 
-          {/* NÚT TAB ADMIN DASHBOARD (TRUNG TÂM KIỂM DUYỆT & BÁO CÁO) */}
+          {/* NÚT TAB ADMIN DASHBOARD (CHỈ HIỂN THỊ HOẶC TRUY CẬP KHI CÓ QUYỀN HOẶC TEST) */}
           <button
             onClick={() => setActiveTab('admin')}
             title="Bảng điều khiển Quản Trị Viên (Xử lý báo cáo, khiếu nại, sửa nhãn AI)"
@@ -158,31 +178,109 @@ export default function Navbar({
           {/* Phân cách */}
           <div className="h-6 w-px bg-slate-200 mx-0.5 sm:mx-1 shrink-0" />
 
-          {/* Nút Avatar góc trên */}
-          <button
-            onClick={() => setActiveTab('profile')}
-            title="Đến trang cá nhân"
-            className={
-              'h-10 flex items-center gap-2 p-1 pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
-              (activeTab === 'profile'
-                ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100'
-                : 'hover:bg-slate-100 border-slate-200')
-            }
-          >
-            <img 
-              src={currentUser.avatar} 
-              alt={currentUser.name} 
-              className="w-8 h-8 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0"
-            />
-            <div className="hidden xl:flex flex-col text-left leading-tight shrink-0">
-              <span className="text-xs font-bold text-slate-800 whitespace-nowrap">
-                {currentUser.name}
-              </span>
-              <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider whitespace-nowrap">
-                {currentUser.role || 'Admin'}
-              </span>
+          {/* ======================================================== */}
+          {/* USER PROFILE VÀ MENU ĐĂNG XUẤT / HOẶC NÚT ĐĂNG NHẬP KHÁCH */}
+          {/* ======================================================== */}
+          {currentUser ? (
+            <div className="relative shrink-0" ref={menuRef}>
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                title="Menu tài khoản"
+                className={
+                  'h-10 flex items-center gap-2 p-1 pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
+                  (showUserMenu || activeTab === 'profile'
+                    ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100'
+                    : 'hover:bg-slate-100 border-slate-200')
+                }
+              >
+                <img 
+                  src={currentUser.avatar || currentUser.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+                  alt={currentUser.name} 
+                  className="w-8 h-8 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0"
+                />
+                <div className="hidden xl:flex flex-col text-left leading-tight shrink-0">
+                  <span className="text-xs font-bold text-slate-800 whitespace-nowrap">
+                    {currentUser.name}
+                  </span>
+                  <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider whitespace-nowrap">
+                    {currentUser.role || 'USER'}
+                  </span>
+                </div>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+              </button>
+
+              {/* DROPDOWN MENU TÀI KHOẢN (Chứa nút Đăng xuất theo User Story 3) */}
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-fade-in divide-y divide-slate-100">
+                  <div className="px-4 py-3">
+                    <p className="text-xs font-bold text-slate-900 truncate">{currentUser.name}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{currentUser.email || currentUser.phone}</p>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase bg-indigo-50 text-indigo-600 rounded border border-indigo-200">
+                        {currentUser.role || 'USER'}
+                      </span>
+                      {currentUser.phone && (
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          📞 {currentUser.phone}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="py-1">
+                    <button
+                      onClick={() => { setActiveTab('profile'); setShowUserMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                    >
+                      <User className="w-4 h-4 text-slate-400" />
+                      <span>Trang cá nhân của bạn</span>
+                    </button>
+
+                    {currentUser.role === 'ADMIN' && (
+                      <button
+                        onClick={() => { setActiveTab('admin'); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                      >
+                        <Shield className="w-4 h-4 text-indigo-500" />
+                        <span>Bảng quản trị hệ thống</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* NÚT ĐĂNG XUẤT ĐẶT TRONG MENU TÀI KHOẢN THEO EXCEL ID 3 */}
+                  <div className="p-1">
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onLogout();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 transition duration-150 cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4 text-rose-500" />
+                      <span>Đăng xuất khỏi hệ thống</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </button>
+          ) : (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => onOpenAuthModal('login')}
+                className="h-9 px-3.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 transition duration-150 flex items-center gap-1.5 cursor-pointer"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Đăng nhập</span>
+              </button>
+              <button
+                onClick={() => onOpenAuthModal('register')}
+                className="h-9 px-3.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/20 transition duration-150 flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Đăng ký</span>
+              </button>
+            </div>
+          )}
 
         </div>
 
@@ -190,3 +288,4 @@ export default function Navbar({
     </header>
   );
 }
+
