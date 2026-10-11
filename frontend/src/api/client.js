@@ -15,6 +15,13 @@ async function request(path, options = {}) {
   if (!response.ok) {
     const error = new Error(data.message || 'Yêu cầu thất bại');
     error.status = response.status;
+    if (import.meta.env.DEV) {
+      console.error('API request failed', {
+        path,
+        status: response.status,
+        message: data.message || data.error || error.message,
+      });
+    }
     throw error;
   }
 
@@ -54,6 +61,13 @@ export async function uploadPostImage(file) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) {
+    if (import.meta.env.DEV) {
+      console.error('API upload failed', {
+        path: '/api/upload',
+        status: response.status,
+        message: data.message || data.error || 'Tải ảnh thất bại',
+      });
+    }
     throw new Error(data.error || 'Tải ảnh thất bại');
   }
 

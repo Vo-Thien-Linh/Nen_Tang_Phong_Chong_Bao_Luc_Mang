@@ -14,6 +14,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function logApiError(error) {
+  console.error('Lỗi API:', {
+    message: error.message,
+    code: error.code,
+    detail: error.detail,
+    constraint: error.constraint,
+    stack: error.stack,
+  });
+}
+
 // 1. Cấu hình Cloudinary từ file .env
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -42,11 +52,16 @@ app.get('/api/health', (req, res) => {
 
 // Route kiểm tra kết nối Database Supabase
 app.get('/api/db-test', async (req, res) => {
-  const isConnected = await testDbConnection();
-  if (isConnected) {
-    res.json({ success: true, message: 'Kết nối Supabase PostgreSQL thành công!' });
-  } else {
-    res.status(500).json({ success: false, message: 'Chưa thể kết nối tới Supabase. Vui lòng kiểm tra DATABASE_URL trong backend/.env' });
+  try {
+    const isConnected = await testDbConnection();
+    if (isConnected) {
+      res.json({ success: true, message: 'Kết nối Supabase PostgreSQL thành công!' });
+    } else {
+      res.status(500).json({ success: false, message: 'Chưa thể kết nối tới Supabase.' });
+    }
+  } catch (error) {
+    logApiError(error);
+    res.status(500).json({ success: false, message: 'Đã có lỗi hệ thống' });
   }
 });
 
@@ -65,8 +80,8 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
       filename: req.file.filename,
     });
   } catch (error) {
-    console.error('Lỗi khi upload:', error);
-    res.status(500).json({ success: false, error: error.message });
+    logApiError(error);
+    res.status(500).json({ success: false, error: 'Đã có lỗi hệ thống' });
   }
 });
 
@@ -334,7 +349,7 @@ app.get('/api/admin/ai-overrides', (req, res) => {
 });
 
 app.use((err, _req, res, _next) => {
-  console.error('Lỗi API:', err.message);
+  logApiError(err);
   res.status(err.statusCode || 500).json({
     success: false,
     message: err.statusCode ? err.message : 'Đã có lỗi hệ thống',
