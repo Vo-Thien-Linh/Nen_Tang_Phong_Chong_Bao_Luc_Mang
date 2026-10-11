@@ -1,15 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getGivenReactionCounts } from '../src/utils/reactionLogic.js';
+import { getSummaryReactions } from '../src/utils/reactionLogic.js';
 
 test('list reaction counts by type for hover tooltip', () => {
-  const result = getGivenReactionCounts({
-    like: 1,
-    love: 3,
-    haha: 0,
-    wow: 2,
-    sad: 0,
-    angry: 0,
+  const result = getSummaryReactions({
+    counts: {
+      like: 1,
+      love: 3,
+      haha: 0,
+      wow: 2,
+      sad: 0,
+      angry: 0,
+    },
+    max: Number.POSITIVE_INFINITY,
   });
 
   assert.deepEqual(
