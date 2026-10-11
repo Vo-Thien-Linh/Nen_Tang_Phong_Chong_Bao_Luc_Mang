@@ -74,7 +74,9 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireLogin 
     setErrorMessage('');
 
     if (!currentUser?.id) {
-      onRequireLogin && onRequireLogin();
+      if (onRequireLogin) {
+        onRequireLogin();
+      }
       return;
     }
 
