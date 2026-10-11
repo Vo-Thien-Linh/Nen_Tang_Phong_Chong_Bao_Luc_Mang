@@ -171,13 +171,15 @@ export default function PostCard({
                 <button
                   onClick={() => {
                     setShowPostMenu(false);
-                    onOpenReportModal && onOpenReportModal({
-                      targetType: 'post',
-                      targetId: post.id,
-                      targetAuthor: post.author,
-                      contentExcerpt: post.content,
-                      aiStatus: post.aiStatus
-                    });
+                    if (onOpenReportModal) {
+                      onOpenReportModal({
+                        targetType: 'post',
+                        targetId: post.id,
+                        targetAuthor: post.author,
+                        contentExcerpt: post.content,
+                        aiStatus: post.aiStatus
+                      });
+                    }
                   }}
                   className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
                 >
