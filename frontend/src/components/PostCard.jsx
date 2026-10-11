@@ -3,14 +3,16 @@ import {
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle 
 } from 'lucide-react';
-
-const REACTIONS = [
-  { id: 'like', label: 'Thích', emoji: '👍', color: 'text-blue-600' },
-  { id: 'love', label: 'Yêu thích', emoji: '❤️', color: 'text-rose-600' },
-  { id: 'wow', label: 'Ngạc nhiên', emoji: '😮', color: 'text-amber-500' },
-  { id: 'sad', label: 'Buồn', emoji: '😢', color: 'text-amber-600' },
-  { id: 'angry', label: 'Phẫn nộ', emoji: '😡', color: 'text-orange-600' },
-];
+import { updatePostReaction } from '../api/client';
+import {
+  applyReactionCounts,
+  applyReactionState,
+  getSummaryReactions,
+  getTotalReactionCount,
+  normalizeReactionCounts,
+  rollbackReactionState,
+  REACTIONS,
+} from '../utils/reactionLogic';
 
 export default function PostCard({ 
   post, 
@@ -18,28 +20,94 @@ export default function PostCard({
   onToggleLike, 
   onAddComment,
   onOpenReportModal,
-  onOpenAppealModal
+  onOpenAppealModal,
+  onRequireAuth,
+  onRequireLogin
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isSaved, setIsSaved] = useState(post.isSaved || false);
   const [copiedToast, setCopiedToast] = useState(false);
-  const [currentReaction, setCurrentReaction] = useState(post.isLiked ? 'like' : null);
+  const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
+  const [reactionCounts, setReactionCounts] = useState(() => normalizeReactionCounts(post.reactionCounts || post.counts));
+  const [reactionCount, setReactionCount] = useState(() => {
+    const totalFromCounts = getTotalReactionCount(post.reactionCounts || post.counts);
+    return totalFromCounts || post.totalReactions || post.likesCount || 0;
+  });
+  const [reactionError, setReactionError] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [showReactionSummary, setShowReactionSummary] = useState(false);
   const [showPostMenu, setShowPostMenu] = useState(false);
 
-  const handleSelectReaction = (reactionId) => {
-    if (currentReaction === reactionId) {
-      setCurrentReaction(null);
-    } else {
-      setCurrentReaction(reactionId);
-    }
+  const handleSelectReaction = async (reactionId = 'like') => {
     setShowReactionPicker(false);
-    onToggleLike(post.id);
+    setReactionError('');
+
+    if (!currentUser?.id) {
+      if (onRequireAuth) {
+        onRequireAuth("Vui lòng đăng nhập để tương tác bài viết");
+      } else if (onRequireLogin) {
+        onRequireLogin();
+      }
+      return;
+    }
+
+    const nextState = applyReactionState({
+      currentReaction,
+      totalCount: reactionCount,
+      selectedReaction: reactionId,
+    });
+
+    if (Number.isNaN(Number(post.id))) {
+      setCurrentReaction(nextState.myReaction);
+      setReactionCount(nextState.totalCount);
+      setReactionCounts(applyReactionCounts({
+        counts: reactionCounts,
+        previousReaction: currentReaction,
+        nextReaction: nextState.myReaction,
+      }));
+      onToggleLike(post.id);
+      return;
+    }
+
+    const previousReaction = currentReaction;
+    const previousCount = reactionCount;
+    const previousCounts = reactionCounts;
+    const nextCounts = applyReactionCounts({
+      counts: reactionCounts,
+      previousReaction,
+      nextReaction: nextState.myReaction,
+    });
+
+    setCurrentReaction(nextState.myReaction);
+    setReactionCount(nextState.totalCount);
+    setReactionCounts(nextCounts);
+
+    try {
+      const result = await updatePostReaction({
+        userId: currentUser.id,
+        postId: post.id,
+        type: reactionId,
+      });
+      setCurrentReaction(result.data.myReaction);
+      const syncedCounts = normalizeReactionCounts(result.data.reactionCounts || result.data.counts);
+      setReactionCounts(syncedCounts);
+      setReactionCount(getTotalReactionCount(syncedCounts));
+    } catch (error) {
+      const rollbackState = rollbackReactionState({ previousReaction, previousCount, error });
+      setCurrentReaction(rollbackState.myReaction);
+      setReactionCount(rollbackState.totalCount);
+      setReactionCounts(previousCounts);
+      setReactionError(rollbackState.errorMessage);
+    }
   };
 
   const handleCommentSubmit = (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+      return;
+    }
     if (!commentText.trim()) return;
 
     onAddComment(post.id, {
@@ -77,6 +145,8 @@ export default function PostCard({
   };
 
   const activeReactionObj = REACTIONS.find(r => r.id === currentReaction);
+  const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
+  const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs mb-5 overflow-hidden transition-all hover:border-slate-300/80">
@@ -139,13 +209,15 @@ export default function PostCard({
                 <button
                   onClick={() => {
                     setShowPostMenu(false);
-                    onOpenReportModal && onOpenReportModal({
-                      targetType: 'post',
-                      targetId: post.id,
-                      targetAuthor: post.author,
-                      contentExcerpt: post.content,
-                      aiStatus: post.aiStatus
-                    });
+                    if (onOpenReportModal) {
+                      onOpenReportModal({
+                        targetType: 'post',
+                        targetId: post.id,
+                        targetAuthor: post.author,
+                        contentExcerpt: post.content,
+                        aiStatus: post.aiStatus
+                      });
+                    }
                   }}
                   className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
                 >
@@ -192,6 +264,11 @@ export default function PostCard({
 
       {/* Nội dung bài viết */}
       <div className="px-4 sm:px-5 pb-3">
+        {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
+          <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+            Trạng thái: {post.moderationStatus}
+          </span>
+        )}
         <p className="text-slate-800 text-sm sm:text-base leading-relaxed whitespace-pre-line break-words">
           {post.content}
         </p>
@@ -222,15 +299,40 @@ export default function PostCard({
 
       {/* Thống kê tương tác cảm xúc */}
       <div className="px-4 sm:px-5 py-2.5 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center -space-x-1">
-            <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] shadow-2xs">👍</span>
-            <span className="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[9px] shadow-2xs">❤️</span>
-            <span className="w-4 h-4 rounded-full bg-amber-400 text-white flex items-center justify-center text-[9px] shadow-2xs">😮</span>
-          </div>
+        <div
+          className="relative flex items-center gap-1.5"
+          onMouseEnter={() => setShowReactionSummary(true)}
+          onMouseLeave={() => setShowReactionSummary(false)}
+        >
+          {summaryReactions.length > 0 && (
+            <div className="flex items-center -space-x-1">
+              {summaryReactions.map((reaction) => (
+                <span
+                  key={reaction.id}
+                  className="w-4 h-4 rounded-full bg-white flex items-center justify-center text-[10px] shadow-2xs ring-1 ring-white"
+                  title={reaction.label}
+                >
+                  {reaction.emoji}
+                </span>
+              ))}
+            </div>
+          )}
           <span className="font-medium text-slate-600 pl-1">
-            {post.likesCount + (currentReaction && !post.isLiked ? 1 : 0)} cảm xúc
+            {reactionCount} cảm xúc
           </span>
+          {showReactionSummary && reactionDetails.length > 0 && (
+            <div className="absolute left-0 top-6 z-30 min-w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              {reactionDetails.map((reaction) => (
+                <div key={reaction.id} className="flex items-center justify-between gap-4 px-2 py-1 text-xs text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <span>{reaction.emoji}</span>
+                    <span className="font-semibold">{reaction.label}</span>
+                  </span>
+                  <span className="font-bold text-slate-900">{reaction.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span>{post.comments?.length || 0} bình luận</span>
@@ -238,16 +340,22 @@ export default function PostCard({
         </div>
       </div>
 
+      {reactionError && (
+        <div className="px-4 sm:px-5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border-b border-rose-100">
+          {reactionError}
+        </div>
+      )}
+
       {/* Các nút hành động tương tác */}
       <div className="px-2 py-1 flex items-center justify-between text-slate-600 relative">
         
-        {/* Nút Cảm xúc với Popover 5 loại cảm xúc chuẩn Facebook */}
+        {/* Nút Cảm xúc với Popover 6 loại cảm xúc chuẩn Facebook */}
         <div 
           className="flex-1 relative"
           onMouseEnter={() => setShowReactionPicker(true)}
           onMouseLeave={() => setShowReactionPicker(false)}
         >
-          {/* Thanh Popover chọn 5 cảm xúc */}
+          {/* Thanh Popover chọn 6 cảm xúc */}
           {showReactionPicker && (
             <div className="absolute -top-12 left-2 z-30 bg-white rounded-full px-2.5 py-1.5 shadow-xl border border-slate-200 flex items-center gap-2 animate-fade-in">
               {REACTIONS.map((r) => (
@@ -264,7 +372,7 @@ export default function PostCard({
           )}
 
           <button
-            onClick={() => handleSelectReaction(currentReaction ? currentReaction : 'like')}
+            onClick={() => handleSelectReaction(currentReaction || 'like')}
             className={`w-full py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 hover:bg-slate-50 cursor-pointer ${
               activeReactionObj ? `${activeReactionObj.color} font-bold` : 'text-slate-600'
             }`}
@@ -317,16 +425,21 @@ export default function PostCard({
           {/* Form nhập bình luận mới */}
           <form onSubmit={handleCommentSubmit} className="flex gap-2">
             <img 
-              src={currentUser.avatar} 
-              alt={currentUser.name} 
+              src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+              alt={currentUser?.name || "Khách"} 
               className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
             />
             <div className="flex-1 relative">
               <input
                 type="text"
                 value={commentText}
+                onClick={() => {
+                  if (!currentUser && onRequireAuth) {
+                    onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+                  }
+                }}
                 onChange={(e) => setCommentText(e.target.value)}
-                placeholder="Viết bình luận công khai..."
+                placeholder={currentUser ? "Viết bình luận công khai..." : "Đăng nhập để viết bình luận..."}
                 className="w-full pl-3 pr-10 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               />
               <button

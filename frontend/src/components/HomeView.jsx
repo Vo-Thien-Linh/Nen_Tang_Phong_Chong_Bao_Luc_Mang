@@ -15,8 +15,12 @@ export default function HomeView({
   onAddComment,
   onOpenReportModal,
   onOpenAppealModal,
+  onRequireLogin,
+  feedWarning,
   setActiveTab,
-  onOpenAiLab
+  onOpenAiLab,
+  onRequireAuth,
+  onOpenAuthModal
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [friendsList, setFriendsList] = useState(() => {
@@ -35,7 +39,7 @@ export default function HomeView({
   };
 
   const filteredPosts = feedFilter === 'following'
-    ? posts.filter(p => p.author.id !== currentUser.id)
+    ? posts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
     : posts;
 
   return (
@@ -45,38 +49,64 @@ export default function HomeView({
         {/* ================= CỘT TRÁI: LỐI TẮT NHANH & PROFILE (HIỆN TRÊN MÀN HÌNH RỘNG XL) ================= */}
         <aside className="hidden xl:block w-64 2xl:w-72 space-y-4 sticky top-20 shrink-0">
           
-          {/* Card Thông tin tài khoản người dùng */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs space-y-3.5">
-            <div 
-              onClick={() => setActiveTab && setActiveTab('profile')}
-              className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer"
-            >
-              <img 
-                src={currentUser.avatar} 
-                alt={currentUser.name} 
-                className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
-              />
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-slate-800 truncate hover:text-blue-600 transition">
-                  {currentUser.name}
-                </h3>
-                <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded uppercase">
-                  {currentUser.role || 'Admin'}
-                </span>
+          {/* Card Thông tin tài khoản người dùng hoặc Khách */}
+          {currentUser ? (
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs space-y-3.5">
+              <div 
+                onClick={() => setActiveTab && setActiveTab('profile')}
+                className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer"
+              >
+                <img 
+                  src={currentUser.avatar || currentUser.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+                  alt={currentUser.name} 
+                  className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
+                />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-800 truncate hover:text-blue-600 transition">
+                    {currentUser.name}
+                  </h3>
+                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded uppercase">
+                    {currentUser.role || 'USER'}
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
-              <div className="p-2 bg-slate-50 rounded-xl">
-                <p className="text-sm font-black text-slate-800">{currentUser.postsCount || posts.filter(p => p.author?.id === currentUser.id).length}</p>
-                <p className="text-[10px] text-slate-400 font-medium">Bài viết</p>
-              </div>
-              <div className="p-2 bg-slate-50 rounded-xl">
-                <p className="text-sm font-black text-slate-800">{currentUser.friendsCount || 128}</p>
-                <p className="text-[10px] text-slate-400 font-medium">Bạn bè</p>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
+                <div className="p-2 bg-slate-50 rounded-xl">
+                  <p className="text-sm font-black text-slate-800">{currentUser.postsCount || posts.filter(p => p.author?.id === currentUser?.id).length}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">Bài viết</p>
+                </div>
+                <div className="p-2 bg-slate-50 rounded-xl">
+                  <p className="text-sm font-black text-slate-800">{currentUser.friendsCount || 128}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">Bạn bè</p>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-gradient-to-br from-indigo-900 via-blue-900 to-slate-900 text-white rounded-2xl p-4 shadow-md space-y-3">
+              <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs uppercase tracking-wider">
+                <Sparkles className="w-4 h-4 text-cyan-400" />
+                <span>Chào mừng bạn!</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Đăng nhập để đăng bài, tương tác với bạn bè và trải nghiệm tính năng kiểm duyệt AI thông minh.
+              </p>
+              <div className="pt-1 flex flex-col gap-2">
+                <button
+                  onClick={() => onOpenAuthModal && onOpenAuthModal('login')}
+                  className="w-full py-2 bg-white text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                >
+                  Đăng nhập ngay
+                </button>
+                <button
+                  onClick={() => onOpenAuthModal && onOpenAuthModal('register')}
+                  className="w-full py-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Tạo tài khoản mới
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Menu Lối tắt tính năng */}
           <div className="bg-white rounded-2xl p-3 border border-slate-200/90 shadow-2xs space-y-1">
@@ -138,7 +168,18 @@ export default function HomeView({
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
           
           {/* Ô tạo bài viết mới */}
-          <CreatePostCard currentUser={currentUser} onAddPost={onAddPost} />
+          <CreatePostCard 
+            currentUser={currentUser} 
+            onAddPost={onAddPost} 
+            onRequireAuth={onRequireAuth} 
+            onRequireLogin={onRequireLogin}
+          />
+
+          {feedWarning && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">
+              {feedWarning}
+            </div>
+          )}
 
           {/* Tabs bộ lọc Feed */}
           <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs font-semibold">
@@ -177,6 +218,8 @@ export default function HomeView({
                   onAddComment={onAddComment}
                   onOpenReportModal={onOpenReportModal}
                   onOpenAppealModal={onOpenAppealModal}
+                  onRequireAuth={onRequireAuth}
+                  onRequireLogin={onRequireLogin}
                 />
               ))
             ) : (

@@ -1,106 +1,131 @@
-import { useState } from 'react';
-import { UserCheck, UserPlus, UserX, MessageCircle, Search, Clock, Users, Sparkles } from 'lucide-react';
-import { suggestedFriends } from '../data/mockData';
+import { useState, useEffect } from 'react';
+import { UserCheck, UserPlus, UserX, MessageCircle, Search, Clock, Users, Sparkles, Loader2 } from 'lucide-react';
+import { friendService } from '../services/friendService';
 
 export default function FriendsView({ onOpenChat }) {
   const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Danh sách lời mời kết bạn (Pending)
-  const [friendRequests, setFriendRequests] = useState([
-    {
-      id: 'req-1',
-      user: {
-        id: 'u2',
-        name: 'Nguyễn Văn An',
-        username: 'vanan_nguyen',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        mutualFriends: [
-          { id: 'u4', name: 'Lê Hoàng Nam', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150' },
-          { id: 'u7', name: 'Vũ Quốc Bảo', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150' }
-        ],
-        time: '2 giờ trước',
-        bio: 'Sinh viên CNTT - Đam mê lập trình Web & AI'
-      }
-    },
-    {
-      id: 'req-2',
-      user: {
-        id: 'u3',
-        name: 'Trần Thị Mai',
-        username: 'maitran_cute',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        mutualFriends: [
-          { id: 'u4', name: 'Lê Hoàng Nam', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150' },
-          { id: 'u5', name: 'Phạm Quỳnh Anh', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150' },
-          { id: 'u7', name: 'Vũ Quốc Bảo', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150' }
-        ],
-        time: '1 ngày trước',
-        bio: 'Yêu thích nhiếp ảnh và du lịch ✨'
-      }
-    }
-  ]);
+  // Danh sách lời mời kết bạn (Pending) - Mặc định rỗng, chỉ hiển thị lời mời thật từ DB
+  const [friendRequests, setFriendRequests] = useState([]);
 
   // Danh sách bạn bè hiện tại (Accepted)
-  const [friendsList, setFriendsList] = useState([
-    {
-      id: 'u4',
-      name: 'Lê Hoàng Nam',
-      username: 'nam_le',
-      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
-      bio: 'Machine Learning Engineer @ BK'
-    },
-    {
-      id: 'u5',
-      name: 'Phạm Quỳnh Anh',
-      username: 'quynhanh_p',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-      bio: 'Sống tích cực mỗi ngày ✨ Design & Art'
-    },
-    {
-      id: 'u7',
-      name: 'Vũ Quốc Bảo',
-      username: 'bao_vq',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-      bio: 'Fullstack Developer | React & FastAPI'
-    }
-  ]);
+  const [friendsList, setFriendsList] = useState([]);
 
-  // Gợi ý kết bạn: Tự động sắp xếp người có nhiều bạn chung lên đầu lần lượt xuống dưới
-  const [suggestions, setSuggestions] = useState(() => {
-    return [...suggestedFriends].sort((a, b) => {
-      const aCount = Array.isArray(a.mutualFriends) ? a.mutualFriends.length : (a.mutualFriends || 0);
-      const bCount = Array.isArray(b.mutualFriends) ? b.mutualFriends.length : (b.mutualFriends || 0);
-      return bCount - aCount;
-    });
-  });
+  // Gợi ý kết bạn: Khởi tạo rỗng, chỉ hiển thị người dùng thật từ Database Supabase
+  const [suggestions, setSuggestions] = useState([]);
+
+  // Tải dữ liệu thật từ Backend API song song độc lập (không chặn nhau)
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Tải danh sách bạn bè siêu tốc (hiển thị tức thì)
+    friendService.getFriendsList().then(friends => {
+      if (!isMounted) return;
+      if (friends && Array.isArray(friends)) {
+        setFriendsList(friends.map(f => ({
+          id: f.id,
+          name: f.name,
+          username: f.username,
+          avatar: f.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          bio: f.bio
+        })));
+      }
+    }).catch(err => console.warn('Lỗi tải bạn bè:', err));
+
+    // 2. Tải lời mời kết bạn (chỉ lấy dữ liệu thật, không dùng mock)
+    friendService.getFriendRequests().then(reqs => {
+      if (!isMounted) return;
+      if (reqs && Array.isArray(reqs)) {
+        setFriendRequests(reqs.map(r => ({
+          id: r.id,
+          user: {
+            id: r.user.id,
+            name: r.user.full_name,
+            username: r.user.username,
+            avatar: r.user.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+            mutualFriends: (r.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' })),
+            time: 'Gần đây',
+            bio: r.user.bio
+          }
+        })));
+      }
+    }).catch(err => console.warn('Lỗi tải lời mời:', err));
+
+    // 3. Tải gợi ý kết bạn thông minh
+    friendService.getFriendSuggestions().then(sugs => {
+      if (!isMounted) return;
+      if (sugs && Array.isArray(sugs) && sugs.length > 0) {
+        setSuggestions(sugs.map(s => ({
+          id: s.id,
+          name: s.name,
+          username: s.username,
+          avatar: s.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          bio: s.bio,
+          mutualFriends: (s.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' })),
+          requestSent: s.request_sent || false
+        })));
+      }
+    }).catch(err => console.warn('Lỗi tải gợi ý:', err));
+
+    return () => { isMounted = false; };
+  }, []);
 
   // Xử lý chấp nhận lời mời
-  const handleAccept = (reqId) => {
+  const handleAccept = async (reqId) => {
     const target = friendRequests.find(r => r.id === reqId);
     if (target) {
       setFriendsList([target.user, ...friendsList]);
       setFriendRequests(friendRequests.filter(r => r.id !== reqId));
+      try {
+        await friendService.acceptFriendRequest(reqId);
+      } catch (err) {
+        console.warn('API accept fallback:', err);
+      }
     }
   };
 
   // Xử lý từ chối lời mời
-  const handleReject = (reqId) => {
+  const handleReject = async (reqId) => {
     setFriendRequests(friendRequests.filter(r => r.id !== reqId));
+    try {
+      await friendService.rejectFriendRequest(reqId);
+    } catch (err) {
+      console.warn('API reject fallback:', err);
+    }
   };
 
   // Xử lý hủy kết bạn
-  const handleUnfriend = (friendId) => {
+  const handleUnfriend = async (friendId) => {
     if (window.confirm('Bạn có chắc chắn muốn hủy kết bạn?')) {
       setFriendsList(friendsList.filter(f => f.id !== friendId));
+      try {
+        await friendService.unfriend(friendId);
+      } catch (err) {
+        console.warn('API unfriend fallback:', err);
+      }
     }
   };
 
   // Gửi hoặc hủy lời mời kết bạn trong gợi ý
-  const handleToggleSendRequest = (sugId) => {
+  const handleToggleSendRequest = async (sugId) => {
+    const targetSug = suggestions.find(s => s.id === sugId);
+    const willBeSent = targetSug ? !targetSug.requestSent : true;
+
     setSuggestions(prev => prev.map(s => 
-      s.id === sugId ? { ...s, requestSent: !s.requestSent } : s
+      s.id === sugId ? { ...s, requestSent: willBeSent } : s
     ));
+
+    try {
+      if (willBeSent) {
+        await friendService.sendFriendRequest(sugId);
+      } else {
+        await friendService.cancelSentRequest(sugId);
+      }
+    } catch (err) {
+      console.warn('API toggle friend request fallback:', err);
+    }
   };
 
   // Gỡ người này khỏi danh sách gợi ý

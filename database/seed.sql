@@ -4,13 +4,15 @@
 -- ========================================================
 
 -- 1. TẠO TÀI KHOẢN MẪU
--- Tài khoản chính: Võ Thiện Linh
-INSERT INTO users (id, username, email, password_hash, full_name, avatar_url, cover_url, bio, location, hometown, education, high_school, relationship_status, is_verified)
+-- Tài khoản chính: Võ Thiện Linh (Mật khẩu: Password123)
+INSERT INTO users (id, username, email, phone, status, password_hash, full_name, avatar_url, cover_url, bio, location, hometown, education, high_school, relationship_status, is_verified)
 VALUES (
     'a0000000-0000-0000-0000-000000000001',
     'linh.vothien.16',
     'linh.vothien@example.com',
-    '$2b$12$e80yJ/6J9Zf41p3hWv5P2uK8E2jX7.3d5F7h1y3l1b9o4s2q1w3e5', -- demo hashed password
+    '0912345678',
+    'active',
+    '$2b$12$T7WV8FtIRGpSXr6YJ.HU9ulm0mf3jVZbrUTOGYxljRPA5plNx.T3C', -- Password123
     'Võ Thiện Linh',
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1707343843437-caacff5cfa74?w=1200&auto=format&fit=crop&q=80',
@@ -23,41 +25,61 @@ VALUES (
     TRUE
 ) ON CONFLICT (username) DO NOTHING;
 
--- Tài khoản Quản trị viên mẫu (Admin)
-INSERT INTO users (id, username, email, password_hash, full_name, role, is_verified)
+-- Tài khoản Quản trị viên mẫu (Admin) (Mật khẩu: Password123)
+INSERT INTO users (id, username, email, phone, status, password_hash, full_name, role, is_verified)
 VALUES (
     'a0000000-0000-0000-0000-000000000099',
     'admin_moderator',
     'admin@nexussocial.vn',
-    '$2b$12$e80yJ/6J9Zf41p3hWv5P2uK8E2jX7.3d5F7h1y3l1b9o4s2q1w3e5',
+    '0909999999',
+    'active',
+    '$2b$12$T7WV8FtIRGpSXr6YJ.HU9ulm0mf3jVZbrUTOGYxljRPA5plNx.T3C', -- Password123
     'Quản Trị Viên Hệ Thống',
     'ADMIN',
     TRUE
 ) ON CONFLICT (username) DO NOTHING;
 
--- Bạn bè mẫu: Lê Thu Trang
-INSERT INTO users (id, username, email, password_hash, full_name, avatar_url, bio, is_verified)
+-- Bạn bè mẫu: Lê Thu Trang (Mật khẩu: Password123)
+INSERT INTO users (id, username, email, phone, status, password_hash, full_name, avatar_url, bio, is_verified)
 VALUES (
     'a0000000-0000-0000-0000-000000000002',
     'thutrang_le',
     'thutrang@example.com',
-    '$2b$12$e80yJ/6J9Zf41p3hWv5P2uK8E2jX7.3d5F7h1y3l1b9o4s2q1w3e5',
+    '0987654321',
+    'active',
+    '$2b$12$T7WV8FtIRGpSXr6YJ.HU9ulm0mf3jVZbrUTOGYxljRPA5plNx.T3C',
     'Lê Thu Trang',
     'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
     'Frontend Developer & Coffee lover',
     TRUE
 ) ON CONFLICT (username) DO NOTHING;
 
--- Bạn bè mẫu: Trần Hoàng Nam
-INSERT INTO users (id, username, email, password_hash, full_name, avatar_url, bio, is_verified)
+-- Bạn bè mẫu: Trần Hoàng Nam (Mật khẩu: Password123)
+INSERT INTO users (id, username, email, phone, status, password_hash, full_name, avatar_url, bio, is_verified)
 VALUES (
     'a0000000-0000-0000-0000-000000000003',
     'nam_traveler',
     'nam@example.com',
-    '$2b$12$e80yJ/6J9Zf41p3hWv5P2uK8E2jX7.3d5F7h1y3l1b9o4s2q1w3e5',
+    '0933333333',
+    'active',
+    '$2b$12$T7WV8FtIRGpSXr6YJ.HU9ulm0mf3jVZbrUTOGYxljRPA5plNx.T3C',
     'Trần Hoàng Nam',
     'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
     'Photographer & Wanderer',
+    FALSE
+) ON CONFLICT (username) DO NOTHING;
+
+-- Tài khoản bị khóa mẫu (Dùng để kiểm thử chức năng Tài khoản bị khóa) (Mật khẩu: Password123)
+INSERT INTO users (id, username, email, phone, status, password_hash, full_name, role, is_verified)
+VALUES (
+    'a0000000-0000-0000-0000-000000000004',
+    'tuan_tran_ai',
+    'tuan.tran.hack@darkmail.com',
+    '0988888888',
+    'banned',
+    '$2b$12$T7WV8FtIRGpSXr6YJ.HU9ulm0mf3jVZbrUTOGYxljRPA5plNx.T3C',
+    'Trần Minh Tuấn (Bị khóa)',
+    'USER',
     FALSE
 ) ON CONFLICT (username) DO NOTHING;
 
