@@ -192,6 +192,16 @@ export default function PostCard({
 
       {/* Nội dung bài viết */}
       <div className="px-4 sm:px-5 pb-3">
+        {post.title && (
+          <h2 className="mb-2 text-base sm:text-lg font-bold leading-snug text-slate-950 break-words">
+            {post.title}
+          </h2>
+        )}
+        {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
+          <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+            Trạng thái: {post.moderationStatus}
+          </span>
+        )}
         <p className="text-slate-800 text-sm sm:text-base leading-relaxed whitespace-pre-line break-words">
           {post.content}
         </p>

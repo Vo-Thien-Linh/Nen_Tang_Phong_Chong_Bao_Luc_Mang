@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -18,6 +18,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
+import { fetchPosts } from './api/client';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(initialUser);
@@ -45,6 +46,27 @@ export default function App() {
   // Đếm số thông báo chưa đọc
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchPosts({ userId: currentUser?.id })
+      .then((result) => {
+        if (isMounted && Array.isArray(result.data)) {
+          setPosts((prev) => {
+            const mockPosts = prev.filter((post) => Number.isNaN(Number(post.id)));
+            return [...result.data, ...mockPosts];
+          });
+        }
+      })
+      .catch(() => {
+        // Giữ dữ liệu mock khi backend chưa chạy.
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.id]);
+
   // Thêm bài viết mới
   const handleAddPost = (newPost) => {
     setPosts([newPost, ...posts]);
@@ -52,6 +74,10 @@ export default function App() {
       ...prev,
       postsCount: prev.postsCount + 1
     }));
+  };
+
+  const handleRequireLogin = () => {
+    window.alert('Vui lòng đăng nhập để đăng bài');
   };
 
   // Thả tim / Bỏ thích bài viết
@@ -369,6 +395,7 @@ export default function App() {
             onOpenAiLab={() => setIsAiModalOpen(true)}
             onOpenReportModal={handleOpenReportModal}
             onOpenAppealModal={handleOpenAppealModal}
+            onRequireLogin={handleRequireLogin}
           />
         )}
 
