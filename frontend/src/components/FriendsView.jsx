@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { UserCheck, UserPlus, UserX, MessageCircle, Search, Clock, Users, Sparkles } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { UserCheck, UserPlus, UserX, MessageCircle, Search, Clock, Users, Sparkles, Loader2 } from 'lucide-react';
 import { suggestedFriends } from '../data/mockData';
+import { friendService } from '../services/friendService';
 
 export default function FriendsView({ onOpenChat }) {
   const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   // Danh sách lời mời kết bạn (Pending)
   const [friendRequests, setFriendRequests] = useState([
@@ -75,32 +77,118 @@ export default function FriendsView({ onOpenChat }) {
     });
   });
 
+  // Tải dữ liệu thật từ Backend API khi đã đăng nhập
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFriendsData = async () => {
+      try {
+        const [reqs, friends, sugs] = await Promise.all([
+          friendService.getFriendRequests(),
+          friendService.getFriendsList(),
+          friendService.getFriendSuggestions()
+        ]);
+
+        if (!isMounted) return;
+
+        if (reqs && Array.isArray(reqs) && reqs.length > 0) {
+          setFriendRequests(reqs.map(r => ({
+            id: r.id,
+            user: {
+              id: r.user.id,
+              name: r.user.full_name,
+              username: r.user.username,
+              avatar: r.user.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+              mutualFriends: (r.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' })),
+              time: 'Gần đây',
+              bio: r.user.bio
+            }
+          })));
+        }
+
+        if (friends && Array.isArray(friends) && friends.length > 0) {
+          setFriendsList(friends.map(f => ({
+            id: f.id,
+            name: f.name,
+            username: f.username,
+            avatar: f.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+            bio: f.bio
+          })));
+        }
+
+        if (sugs && Array.isArray(sugs) && sugs.length > 0) {
+          setSuggestions(sugs.map(s => ({
+            id: s.id,
+            name: s.name,
+            username: s.username,
+            avatar: s.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+            bio: s.bio,
+            mutualFriends: (s.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' })),
+            requestSent: s.request_sent || false
+          })));
+        }
+      } catch (err) {
+        console.warn('Backend chưa sẵn sàng hoặc phiên hết hạn, hiển thị dữ liệu mẫu:', err);
+      }
+    };
+
+    fetchFriendsData();
+    return () => { isMounted = false; };
+  }, []);
+
   // Xử lý chấp nhận lời mời
-  const handleAccept = (reqId) => {
+  const handleAccept = async (reqId) => {
     const target = friendRequests.find(r => r.id === reqId);
     if (target) {
       setFriendsList([target.user, ...friendsList]);
       setFriendRequests(friendRequests.filter(r => r.id !== reqId));
+      try {
+        await friendService.acceptFriendRequest(reqId);
+      } catch (err) {
+        console.warn('API accept fallback:', err);
+      }
     }
   };
 
   // Xử lý từ chối lời mời
-  const handleReject = (reqId) => {
+  const handleReject = async (reqId) => {
     setFriendRequests(friendRequests.filter(r => r.id !== reqId));
+    try {
+      await friendService.rejectFriendRequest(reqId);
+    } catch (err) {
+      console.warn('API reject fallback:', err);
+    }
   };
 
   // Xử lý hủy kết bạn
-  const handleUnfriend = (friendId) => {
+  const handleUnfriend = async (friendId) => {
     if (window.confirm('Bạn có chắc chắn muốn hủy kết bạn?')) {
       setFriendsList(friendsList.filter(f => f.id !== friendId));
+      try {
+        await friendService.unfriend(friendId);
+      } catch (err) {
+        console.warn('API unfriend fallback:', err);
+      }
     }
   };
 
   // Gửi hoặc hủy lời mời kết bạn trong gợi ý
-  const handleToggleSendRequest = (sugId) => {
+  const handleToggleSendRequest = async (sugId) => {
+    const targetSug = suggestions.find(s => s.id === sugId);
+    const willBeSent = targetSug ? !targetSug.requestSent : true;
+
     setSuggestions(prev => prev.map(s => 
-      s.id === sugId ? { ...s, requestSent: !s.requestSent } : s
+      s.id === sugId ? { ...s, requestSent: willBeSent } : s
     ));
+
+    try {
+      if (willBeSent) {
+        await friendService.sendFriendRequest(sugId);
+      } else {
+        await friendService.cancelSentRequest(sugId);
+      }
+    } catch (err) {
+      console.warn('API toggle friend request fallback:', err);
+    }
   };
 
   // Gỡ người này khỏi danh sách gợi ý

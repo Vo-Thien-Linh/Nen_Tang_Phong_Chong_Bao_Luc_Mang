@@ -10,6 +10,7 @@ from app.services.auth_service import seed_default_users
 from app.routes.auth import router as auth_router
 from app.routes.moderate import router as moderate_router
 from app.routes.admin import router as admin_router
+from app.routes.friend import router as friend_router
 
 # 1. Khởi tạo ứng dụng FastAPI với Swagger UI tài liệu tự động
 app = FastAPI(
@@ -69,6 +70,8 @@ app.include_router(auth_router, prefix="/api") # Hỗ trợ cả alias /api/auth
 app.include_router(moderate_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api")
+app.include_router(friend_router, prefix="/api/v1")
+app.include_router(friend_router, prefix="/api")
 
 @app.get("/", tags=["Hệ thống"])
 def root():
