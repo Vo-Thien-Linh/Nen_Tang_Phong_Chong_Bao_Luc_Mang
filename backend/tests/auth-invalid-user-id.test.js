@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAuthMiddleware } from '../src/middleware/auth.js';
 
-test('reject malformed x-user-id before querying users', async () => {
+test('reject user id with angle brackets before querying database', async () => {
   let queried = false;
   const { requireAuth } = createAuthMiddleware({
     userRepository: {
