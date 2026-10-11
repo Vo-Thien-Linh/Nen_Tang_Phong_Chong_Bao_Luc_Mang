@@ -31,8 +31,32 @@ export function getGivenReactionCounts(counts = {}) {
     });
 }
 
-export function getSummaryReactions(counts = {}, limit = 3) {
-  return getGivenReactionCounts(counts).slice(0, limit);
+export function getTotalReactionCount(counts = {}) {
+  return Object.values(normalizeReactionCounts(counts))
+    .reduce((total, count) => total + count, 0);
+}
+
+export function getSummaryReactions({ counts = {}, myReaction = null, max = 3 } = {}) {
+  const ranked = getGivenReactionCounts(counts);
+  if (!myReaction || !ranked.some((reaction) => reaction.id === myReaction)) {
+    return ranked.slice(0, max);
+  }
+
+  const viewerReaction = ranked.find((reaction) => reaction.id === myReaction);
+  const defaultSummary = ranked.slice(0, max);
+  if (defaultSummary.some((reaction) => reaction.id === myReaction)) {
+    return defaultSummary;
+  }
+
+  const otherReactions = ranked
+    .filter((reaction) => reaction.id !== myReaction)
+    .slice(0, Math.max(0, max - 1));
+
+  return [...otherReactions, viewerReaction]
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return REACTION_ORDER.indexOf(a.id) - REACTION_ORDER.indexOf(b.id);
+    });
 }
 
 export function hasReactionCounts(counts = {}) {

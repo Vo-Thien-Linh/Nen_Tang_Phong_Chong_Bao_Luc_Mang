@@ -104,17 +104,10 @@ export function createReactionRepository({ pool }) {
            GROUP BY reaction_type`,
           [postId]
         );
-        const totalResult = await client.query(
-          `SELECT likes_count
-           FROM posts
-           WHERE id = $1`,
-          [postId]
-        );
-
         await client.query('COMMIT');
 
         const counts = mapCounts(countResult.rows);
-        const totalCount = Number(totalResult.rows[0]?.likes_count || 0);
+        const totalCount = Object.values(counts).reduce((total, count) => total + count, 0);
 
         return {
           action,

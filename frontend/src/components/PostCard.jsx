@@ -7,8 +7,8 @@ import { updatePostReaction } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
-  getGivenReactionCounts,
   getSummaryReactions,
+  getTotalReactionCount,
   normalizeReactionCounts,
   rollbackReactionState,
   REACTIONS,
@@ -28,8 +28,11 @@ export default function PostCard({
   const [isSaved, setIsSaved] = useState(post.isSaved || false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
-  const [reactionCount, setReactionCount] = useState(post.totalReactions ?? post.likesCount ?? 0);
   const [reactionCounts, setReactionCounts] = useState(() => normalizeReactionCounts(post.reactionCounts || post.counts));
+  const [reactionCount, setReactionCount] = useState(() => {
+    const totalFromCounts = getTotalReactionCount(post.reactionCounts || post.counts);
+    return totalFromCounts || post.totalReactions || post.likesCount || 0;
+  });
   const [reactionError, setReactionError] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showReactionSummary, setShowReactionSummary] = useState(false);
@@ -84,8 +87,9 @@ export default function PostCard({
         type: reactionId,
       });
       setCurrentReaction(result.data.myReaction);
-      setReactionCount(result.data.totalReactions ?? result.data.totalCount);
-      setReactionCounts(normalizeReactionCounts(result.data.reactionCounts || result.data.counts));
+      const syncedCounts = normalizeReactionCounts(result.data.reactionCounts || result.data.counts);
+      setReactionCounts(syncedCounts);
+      setReactionCount(getTotalReactionCount(syncedCounts));
     } catch (error) {
       const rollbackState = rollbackReactionState({ previousReaction, previousCount, error });
       setCurrentReaction(rollbackState.myReaction);
@@ -134,8 +138,8 @@ export default function PostCard({
   };
 
   const activeReactionObj = REACTIONS.find(r => r.id === currentReaction);
-  const summaryReactions = getSummaryReactions(reactionCounts);
-  const reactionDetails = getGivenReactionCounts(reactionCounts);
+  const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
+  const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs mb-5 overflow-hidden transition-all hover:border-slate-300/80">
