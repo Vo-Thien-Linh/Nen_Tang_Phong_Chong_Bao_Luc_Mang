@@ -6,6 +6,7 @@ import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import pool, { testDbConnection } from './src/config/db.js';
 import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
+import { createPostsRouter } from './src/routes/postsRouter.js';
 
 dotenv.config();
 
@@ -70,6 +71,7 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 });
 
 app.use('/api/posts', createPostReactionsRouter({ pool }));
+app.use('/api/posts', createPostsRouter({ pool }));
 
 // ========================================================
 // 4. IN-MEMORY STORE: BÁO CÁO, KHIẾU NẠI & HIỆU CHỈNH NHÃN AI
@@ -335,7 +337,7 @@ app.use((err, _req, res, _next) => {
   console.error('Lỗi API:', err.message);
   res.status(err.statusCode || 500).json({
     success: false,
-    message: err.statusCode ? err.message : 'Thả icon thất bại',
+    message: err.statusCode ? err.message : 'Đã có lỗi hệ thống',
   });
 });
 

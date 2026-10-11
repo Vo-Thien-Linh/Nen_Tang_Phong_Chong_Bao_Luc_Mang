@@ -1,21 +1,25 @@
 export function createAuthMiddleware({ userRepository }) {
+  const resolveUser = async (req) => {
+    // TODO: Replace this temporary development auth with JWT when US-2 is implemented.
+    if (process.env.NODE_ENV === 'production') {
+      return null;
+    }
+
+    const userId = req.header('x-user-id');
+    if (!userId) {
+      return null;
+    }
+
+    return userRepository.findById(userId);
+  };
+
   const requireAuth = async (req, res, next) => {
     try {
-      // TODO: Replace this temporary development auth with JWT when US-2 is implemented.
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(401).json({
-          success: false,
-          message: 'Bạn cần đăng nhập để thả icon',
-        });
-      }
-
-      const userId = req.header('x-user-id');
-      const user = userId ? await userRepository.findById(userId) : null;
-
+      const user = await resolveUser(req);
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'Bạn cần đăng nhập để thả icon',
+          message: 'Bạn cần đăng nhập để tiếp tục',
         });
       }
 
@@ -26,5 +30,14 @@ export function createAuthMiddleware({ userRepository }) {
     }
   };
 
-  return { requireAuth };
+  const optionalAuth = async (req, _res, next) => {
+    try {
+      req.user = await resolveUser(req);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  return { requireAuth, optionalAuth };
 }

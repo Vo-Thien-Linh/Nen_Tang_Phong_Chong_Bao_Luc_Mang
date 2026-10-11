@@ -139,7 +139,7 @@ export default function HomeView({
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
           
           {/* Ô tạo bài viết mới */}
-          <CreatePostCard currentUser={currentUser} onAddPost={onAddPost} />
+          <CreatePostCard currentUser={currentUser} onAddPost={onAddPost} onRequireLogin={onRequireLogin} />
 
           {/* Tabs bộ lọc Feed */}
           <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs font-semibold">
