@@ -22,6 +22,8 @@ export function mapPostToResponse(post) {
     image: post.image_url || null,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
+    editedAt: post.edited_at || null,
+    isEdited: Boolean(post.edited_at),
     author: {
       id: post.author_id,
       name: post.full_name,
@@ -76,6 +78,57 @@ export function createPostsController({ postService, postRepository }) {
           success: true,
           message: 'Đăng bài thành công',
           data: mapPostToResponse(post),
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async getPost(req, res, next) {
+      try {
+        const post = await postService.getVisiblePost({
+          user: req.user,
+          postId: req.params.postId,
+        });
+
+        res.json({
+          success: true,
+          data: mapPostToResponse(post),
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async editPost(req, res, next) {
+      try {
+        const post = await postService.editPost({
+          user: req.user,
+          postId: req.params.postId,
+          content: req.body?.content,
+          imageUrl: req.body?.imageUrl,
+        });
+
+        res.json({
+          success: true,
+          message: 'Cập nhật bài viết thành công',
+          data: mapPostToResponse(post),
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async deletePost(req, res, next) {
+      try {
+        await postService.deletePost({
+          user: req.user,
+          postId: req.params.postId,
+        });
+
+        res.json({
+          success: true,
+          message: 'Xóa bài viết thành công',
         });
       } catch (error) {
         next(error);

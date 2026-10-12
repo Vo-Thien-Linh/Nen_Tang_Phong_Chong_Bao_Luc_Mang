@@ -13,6 +13,7 @@ const postSelect = `
     p.shares_count,
     p.created_at,
     p.updated_at,
+    p.edited_at,
     u.username,
     u.full_name,
     u.avatar_url,
@@ -124,6 +125,52 @@ export function createPostRepository({ pool }) {
       );
 
       return attachReactionAndCommentsData(result.rows, [], [], commentResult.rows)[0];
+    },
+
+    async updatePost({ postId, authorId, content, imageUrl }) {
+      const result = await pool.query(
+        `UPDATE posts
+         SET content = $3, image_url = $4, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND author_id = $2
+         RETURNING id`,
+        [postId, authorId, content, imageUrl]
+      );
+
+      if (!result.rows[0]) {
+        const error = new Error('Bài viết không tồn tại');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      return this.findById(result.rows[0].id);
+    },
+
+    async deletePost({ postId, authorId }) {
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+        const result = await client.query(
+          `DELETE FROM posts
+           WHERE id = $1 AND author_id = $2
+           RETURNING id`,
+          [postId, authorId]
+        );
+
+        if (!result.rows[0]) {
+          const error = new Error('Bài viết không tồn tại');
+          error.statusCode = 404;
+          throw error;
+        }
+
+        await client.query('COMMIT');
+        return { id: String(result.rows[0].id) };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async createComment({ postId, authorId, content }) {
