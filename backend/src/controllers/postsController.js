@@ -42,7 +42,17 @@ export function mapPostToResponse(post) {
     totalReactions: Number(post.total_reactions ?? post.likes_count ?? 0),
     myReaction: post.my_reaction || null,
     sharesCount: post.shares_count || 0,
-    comments: [],
+    comments: (post.comments || []).map((c) => ({
+      id: String(c.id),
+      author: {
+        id: c.author?.id,
+        name: c.author?.name || c.full_name || 'Người dùng',
+        avatar: c.author?.avatar || c.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+      },
+      content: c.content,
+      time: formatRelativeTime(c.created_at),
+      createdAt: c.created_at,
+    })),
     aiStatus: {
       label: post.ai_label || 'Normal',
       confidence: Number(post.ai_confidence ?? 0.99),
@@ -52,7 +62,7 @@ export function mapPostToResponse(post) {
   };
 }
 
-export function createPostsController({ postService }) {
+export function createPostsController({ postService, postRepository }) {
   return {
     async createPost(req, res, next) {
       try {
@@ -78,6 +88,41 @@ export function createPostsController({ postService }) {
         res.json({
           success: true,
           data: posts.map(mapPostToResponse),
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async createComment(req, res, next) {
+      try {
+        const { postId } = req.params;
+        const { content } = req.body;
+
+        if (!content || !content.trim()) {
+          return res.status(400).json({ success: false, message: 'Nội dung bình luận không được rỗng' });
+        }
+
+        const comment = await postRepository.createComment({
+          postId,
+          authorId: req.user.id,
+          content: content.trim(),
+        });
+
+        res.status(201).json({
+          success: true,
+          message: 'Bình luận thành công',
+          data: {
+            id: String(comment.id),
+            author: {
+              id: comment.author_id,
+              name: comment.full_name,
+              avatar: comment.avatar_url,
+            },
+            content: comment.content,
+            time: 'Vừa xong',
+            createdAt: comment.created_at,
+          },
         });
       } catch (error) {
         next(error);

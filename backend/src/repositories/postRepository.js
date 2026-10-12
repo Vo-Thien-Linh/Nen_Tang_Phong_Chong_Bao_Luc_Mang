@@ -30,15 +30,18 @@ const emptyReactionCounts = () => ({
   angry: 0,
 });
 
-function attachReactionData(posts, countRows = [], myReactionRows = []) {
+function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [], commentRows = []) {
   const reactionDataByPost = new Map();
+  const commentsByPost = new Map();
 
   for (const post of posts) {
-    reactionDataByPost.set(Number(post.id), {
+    const pid = Number(post.id);
+    reactionDataByPost.set(pid, {
       counts: emptyReactionCounts(),
       total: 0,
       myReaction: null,
     });
+    commentsByPost.set(pid, []);
   }
 
   for (const row of countRows) {
@@ -58,13 +61,32 @@ function attachReactionData(posts, countRows = [], myReactionRows = []) {
     }
   }
 
+  for (const c of commentRows) {
+    const pid = Number(c.post_id);
+    if (commentsByPost.has(pid)) {
+      commentsByPost.get(pid).push({
+        id: String(c.id),
+        author: {
+          id: c.author_id,
+          name: c.full_name,
+          username: c.username,
+          avatar: c.avatar_url,
+        },
+        content: c.content,
+        created_at: c.created_at,
+      });
+    }
+  }
+
   return posts.map((post) => {
-    const reactionData = reactionDataByPost.get(Number(post.id));
+    const pid = Number(post.id);
+    const reactionData = reactionDataByPost.get(pid);
     return {
       ...post,
       reaction_counts: reactionData?.counts || emptyReactionCounts(),
       total_reactions: reactionData?.total || 0,
       my_reaction: reactionData?.myReaction || null,
+      comments: commentsByPost.get(pid) || [],
     };
   });
 }
@@ -89,7 +111,44 @@ export function createPostRepository({ pool }) {
         [postId]
       );
 
-      return result.rows[0] || null;
+      if (!result.rows[0]) return null;
+
+      const commentResult = await pool.query(
+        `SELECT c.id, c.post_id, c.content, c.created_at,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url
+         FROM comments c
+         JOIN users u ON u.id = c.author_id
+         WHERE c.post_id = $1 AND c.is_hidden = false
+         ORDER BY c.created_at ASC`,
+        [postId]
+      );
+
+      return attachReactionAndCommentsData(result.rows, [], [], commentResult.rows)[0];
+    },
+
+    async createComment({ postId, authorId, content }) {
+      const res = await pool.query(
+        `INSERT INTO comments (post_id, author_id, content)
+         VALUES ($1, $2, $3)
+         RETURNING id, post_id, author_id, content, created_at`,
+        [postId, authorId, content]
+      );
+
+      await pool.query(
+        `UPDATE posts SET comments_count = comments_count + 1 WHERE id = $1`,
+        [postId]
+      );
+
+      const detail = await pool.query(
+        `SELECT c.id, c.post_id, c.content, c.created_at,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url
+         FROM comments c
+         JOIN users u ON u.id = c.author_id
+         WHERE c.id = $1`,
+        [res.rows[0].id]
+      );
+
+      return detail.rows[0];
     },
 
     async findVisiblePosts({ viewerId }) {
@@ -113,6 +172,7 @@ export function createPostRepository({ pool }) {
       }
 
       const postIds = result.rows.map((post) => post.id);
+
       const countResult = await pool.query(
         `SELECT post_id, reaction_type, COUNT(*)::int AS count
          FROM post_reactions
@@ -120,6 +180,7 @@ export function createPostRepository({ pool }) {
          GROUP BY post_id, reaction_type`,
         [postIds]
       );
+
       const myReactionResult = viewerId
         ? await pool.query(
             `SELECT post_id, reaction_type
@@ -129,7 +190,17 @@ export function createPostRepository({ pool }) {
           )
         : { rows: [] };
 
-      return attachReactionData(result.rows, countResult.rows, myReactionResult.rows);
+      const commentsResult = await pool.query(
+        `SELECT c.id, c.post_id, c.content, c.created_at,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url
+         FROM comments c
+         JOIN users u ON u.id = c.author_id
+         WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+         ORDER BY c.created_at ASC`,
+        [postIds]
+      );
+
+      return attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);
     },
   };
 }
