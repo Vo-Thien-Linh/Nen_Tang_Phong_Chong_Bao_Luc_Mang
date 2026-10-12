@@ -38,6 +38,7 @@ const storage = new CloudinaryStorage({
   params: {
     folder: 'nexussocial_uploads', // Thư mục lưu ảnh trên Cloudinary
     allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'gif'],
+    transformation: [{ width: 1920, height: 1920, crop: 'limit', quality: 'auto' }],
   },
 });
 
