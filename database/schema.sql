@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS users (
     cooldown_reason TEXT,       -- Lý do xử phạt (Ví dụ: "Vi phạm ngôn từ thù địch / bạo lực")
     cooldown_violation_text TEXT, -- Trích dẫn câu nói / bài viết khiến tài khoản bị phạt
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    edited_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -309,5 +310,7 @@ ALTER TABLE post_reactions
     CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'));
 
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent';
+
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
 
 

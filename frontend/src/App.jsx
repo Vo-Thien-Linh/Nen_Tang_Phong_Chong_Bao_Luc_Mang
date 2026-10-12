@@ -20,7 +20,16 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, createComment } from './api/client';
+import { fetchPosts, createComment, updatePost, deletePost } from './api/client';
+import { applyUpdatedPostToList } from './utils/postActionLogic';
+import { closePostMenu, togglePostMenu } from './utils/menuLogic';
+import {
+  clearPostNotice,
+  countVisiblePosts,
+  markDeletedPostNotice,
+  markEditPostNotice,
+  removeDeletedNotice,
+} from './utils/noticeLogic';
 
 const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
@@ -38,6 +47,7 @@ export default function App() {
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
   const [posts, setPosts] = useState([]);
+  const [openPostMenuId, setOpenPostMenuId] = useState(null);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const [notifications, setNotifications] = useState(initialNotifications);
   
@@ -98,6 +108,24 @@ export default function App() {
   const handleOpenUserProfile = (user) => {
     setViewedProfileUser(user);
     setActiveTab('profile');
+  };
+
+  const handleTogglePostMenu = (postId) => {
+    setOpenPostMenuId(prev => togglePostMenu(prev, postId));
+  };
+
+  const handleClosePostMenu = () => {
+    setOpenPostMenuId(closePostMenu());
+  };
+
+  const handleDismissPostNotice = (postId) => {
+    setPosts(prev => {
+      const target = prev.find(post => String(post.id) === String(postId));
+      if (target?.inlineNotice?.type === 'delete') {
+        return removeDeletedNotice(prev, postId);
+      }
+      return clearPostNotice(prev, postId);
+    });
   };
 
   // Kích hoạt yêu cầu đăng nhập
@@ -188,6 +216,55 @@ export default function App() {
       }
       return post;
     }));
+  };
+
+  const handleUpdatePost = async (postId, changes) => {
+    if (!currentUser?.id) {
+      handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
+      throw new Error('Vui lòng đăng nhập để tiếp tục');
+    }
+
+    try {
+      const result = await updatePost({
+        userId: currentUser.id,
+        postId,
+        content: changes.content,
+        imageUrl: changes.imageUrl,
+      });
+      const updatedPost = result.data;
+      setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
+      return updatedPost;
+    } catch (error) {
+      if (error.status === 404) {
+        setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
+        )));
+        throw new Error('Bài viết không tồn tại');
+      }
+      throw new Error(error.message || 'Cập nhật bài viết thất bại');
+    }
+  };
+
+  const handleDeleteOwnPost = async (postId) => {
+    if (!currentUser?.id) {
+      handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
+      throw new Error('Vui lòng đăng nhập để tiếp tục');
+    }
+
+    try {
+      await deletePost({ userId: currentUser.id, postId });
+      setPosts(prev => prev.map(post => (
+        String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
+      )));
+    } catch (error) {
+      if (error.status === 404) {
+        setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
+        )));
+        throw new Error('Bài viết không tồn tại');
+      }
+      throw new Error(error.message || 'Xóa bài viết thất bại');
+    }
   };
 
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
@@ -497,7 +574,7 @@ export default function App() {
           setIsAuthModalOpen(true);
         }}
         onLogout={handleLogout}
-        postsCount={posts.filter(p => p.author?.id === currentUser?.id).length}
+        postsCount={countVisiblePosts(posts.filter(p => p.author?.id === currentUser?.id))}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -524,6 +601,12 @@ export default function App() {
             onRequireLogin={handleRequireLogin}
             feedWarning={feedWarning}
             onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
           />
         )}
 
@@ -560,7 +643,7 @@ export default function App() {
           <ProfileView 
             currentUser={currentUser}
             viewedUser={viewedProfileUser}
-            posts={posts}
+            posts={posts.filter(p => !p.inlineNotice)}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}

@@ -15,7 +15,10 @@ export function createPostsRouter({ pool }) {
   const { requireAuth, optionalAuth } = createAuthMiddleware({ userRepository });
 
   router.get('/', optionalAuth, postsController.listPosts);
+  router.get('/:postId', optionalAuth, postsController.getPost);
   router.post('/', requireAuth, postsController.createPost);
+  router.put('/:postId', requireAuth, postsController.editPost);
+  router.delete('/:postId', requireAuth, postsController.deletePost);
   router.post('/:postId/comments', requireAuth, postsController.createComment);
 
   return router;
