@@ -65,11 +65,15 @@ export async function createComment({ userId, postId, content }) {
   });
 }
 
-export async function updatePostReaction({ userId, postId, type }) {
+export async function updatePostReaction({ userId, postId, type, action }) {
+  const resolvedAction = action || (type ? 'set' : 'remove');
   return request(`/api/posts/${postId}/reaction`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify(type ? { type } : {}),
+    body: JSON.stringify({
+      type: type || null,
+      action: resolvedAction,
+    }),
   });
 }
 

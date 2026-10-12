@@ -7,6 +7,7 @@ import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
 import InlineNotice from './InlineNotice';
 import { suggestedFriends, trendingTopics } from '../data/mockData';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost } from '../utils/noticeLogic';
 
 export default function HomeView({ 
@@ -67,7 +68,7 @@ export default function HomeView({
                 className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer"
               >
                 <img 
-                  src={currentUser.avatar || currentUser.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
                   alt={currentUser.name} 
                   className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
                 />
@@ -289,11 +290,12 @@ export default function HomeView({
                       <img 
                         src={friend.avatar} 
                         alt={friend.name} 
-                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 shadow-2xs"
+                        onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
+                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                       />
                       <div className="min-w-0 flex-1">
                         <p 
-                          onClick={() => setActiveTab && setActiveTab('friends')}
+                          onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
                           className="text-xs font-bold text-slate-800 truncate hover:text-blue-600 cursor-pointer"
                         >
                           {friend.name}
