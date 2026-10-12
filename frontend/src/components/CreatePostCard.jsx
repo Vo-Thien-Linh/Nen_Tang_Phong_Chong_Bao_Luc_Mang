@@ -119,7 +119,10 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setAiPreview(null);
       setMessage('Đăng bài thành công');
     } catch (error) {
-      setErrorMessage(error.message || 'Đăng bài thất bại');
+      const msg = error.message === 'Failed to fetch'
+        ? 'Không thể kết nối đến máy chủ bài viết (cổng 5000). Vui lòng kiểm tra backend server.'
+        : (error.message || 'Đăng bài thất bại');
+      setErrorMessage(msg);
     } finally {
       setIsSubmitting(false);
     }
