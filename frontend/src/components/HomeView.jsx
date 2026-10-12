@@ -20,7 +20,8 @@ export default function HomeView({
   setActiveTab,
   onOpenAiLab,
   onRequireAuth,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onOpenProfile
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [friendsList, setFriendsList] = useState(() => {
@@ -220,6 +221,7 @@ export default function HomeView({
                   onOpenAppealModal={onOpenAppealModal}
                   onRequireAuth={onRequireAuth}
                   onRequireLogin={onRequireLogin}
+                  onOpenProfile={onOpenProfile}
                 />
               ))
             ) : (

@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'sent', -- 'sent' (Đã gửi), 'delivered' (Đã nhận), 'read' (Đã xem)
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
@@ -306,5 +307,7 @@ ALTER TABLE post_reactions DROP CONSTRAINT IF EXISTS check_valid_reaction;
 ALTER TABLE post_reactions
     ADD CONSTRAINT check_valid_reaction
     CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'));
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent';
 
 
