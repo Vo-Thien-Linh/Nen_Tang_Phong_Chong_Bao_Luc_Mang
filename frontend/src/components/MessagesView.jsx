@@ -426,6 +426,16 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     return matchTab && matchSearch;
   });
 
+  // Tìm ID tin nhắn đã xem mới nhất của chính mình để chỉ hiển thị avatar ở tin nhắn đó
+  let lastReadMessageId = null;
+  for (let i = activeMessages.length - 1; i >= 0; i--) {
+    const m = activeMessages[i];
+    if (m.senderId === 'current' && (m.status === 'read' || !m.status)) {
+      lastReadMessageId = String(m.id);
+      break;
+    }
+  }
+
   return (
     <main className={`w-full h-full min-h-0 flex flex-col overflow-hidden transition-all duration-200 ${
       isEdgeToEdge ? 'p-0' : 'p-2 sm:p-3 lg:p-4'
@@ -773,77 +783,78 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                 <div className="space-y-4 w-full">
                   {activeMessages.map((msg) => {
                     const isMe = msg.senderId === 'current';
+                    const isLastRead = isMe && String(msg.id) === lastReadMessageId;
                     return (
-                      <div
-                        key={msg.id}
-                        className={'flex items-end gap-2.5 ' + (isMe ? 'justify-end' : 'justify-start')}
-                      >
-                        {!isMe && (
-                          <img
-                            src={currentConversation.user.avatar}
-                            alt=""
-                            className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100"
-                          />
-                        )}
+                        <div
+                          key={msg.id}
+                          className={'flex items-end gap-2.5 ' + (isMe ? 'justify-end' : 'justify-start')}
+                        >
+                          {!isMe && (
+                            <img
+                              src={currentConversation.user.avatar}
+                              alt=""
+                              className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100"
+                            />
+                          )}
 
-                        <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative ' + (isMe ? 'items-end' : 'items-start')}>
-                          <div
-                            className={
-                              'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
-                              (isMe
-                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
-                                : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
-                            }
-                          >
-                            {msg.text}
-                          </div>
-                          <div
-                            className={
-                              'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
-                              (isMe ? 'justify-end' : 'justify-start')
-                            }
-                          >
-                            <span>{msg.time}</span>
-                            {isMe ? (
-                              <div className="flex items-center gap-1.5">
-                                {/* Trạng thái 1: Đang gửi */}
-                                {msg.status === 'sending' && (
-                                  <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium animate-pulse" title="Đang gửi...">
-                                    <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                                    <span>Đang gửi...</span>
-                                  </span>
-                                )}
+                          <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative ' + (isMe ? 'items-end' : 'items-start')}>
+                            <div
+                              className={
+                                'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
+                                (isMe
+                                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
+                                  : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
+                              }
+                            >
+                              {msg.text}
+                            </div>
+                            <div
+                              className={
+                                'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
+                                (isMe ? 'justify-end' : 'justify-start')
+                              }
+                            >
+                              <span>{msg.time}</span>
+                              {isMe ? (
+                                <div className="flex items-center gap-1.5">
+                                  {/* Trạng thái 1: Đang gửi */}
+                                  {msg.status === 'sending' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium animate-pulse" title="Đang gửi...">
+                                      <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                                      <span>Đang gửi...</span>
+                                    </span>
+                                  )}
 
-                                {/* Trạng thái 2: Đã gửi */}
-                                {msg.status === 'sent' && (
-                                  <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title="Đã gửi">
-                                    <Check className="w-3 h-3 text-slate-400" />
-                                    <span>Đã gửi</span>
-                                  </span>
-                                )}
+                                  {/* Trạng thái 2: Đã gửi */}
+                                  {msg.status === 'sent' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title="Đã gửi">
+                                      <Check className="w-3 h-3 text-slate-400" />
+                                      <span>Đã gửi</span>
+                                    </span>
+                                  )}
 
-                                {/* Trạng thái 3: Đã nhận */}
-                                {msg.status === 'delivered' && (
-                                  <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium" title="Đã nhận">
-                                    <CheckCheck className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Đã nhận</span>
-                                  </span>
-                                )}
+                                  {/* Trạng thái 3: Đã nhận */}
+                                  {msg.status === 'delivered' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium" title="Đã nhận">
+                                      <CheckCheck className="w-3.5 h-3.5 text-slate-400" />
+                                      <span>Đã nhận</span>
+                                    </span>
+                                  )}
 
-                                {/* Trạng thái 4: Đã xem (Dấu hiệu: avatar người nhận nằm ở góc dưới phải) */}
-                                {(msg.status === 'read' || !msg.status) && (
-                                  <div 
-                                    className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
-                                    title={`Đã xem bởi ${currentConversation.user.name}`}
-                                  >
-                                    <span>Đã xem</span>
-                                    <img
-                                      src={currentConversation.user.avatar}
-                                      alt={currentConversation.user.name}
-                                      className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
-                                    />
-                                  </div>
-                                )}
+                                  {/* Trạng thái 4: Đã xem (Chỉ hiển thị avatar ở tin nhắn đã xem mới nhất) */}
+                                  {(msg.status === 'read' || !msg.status) && isLastRead && (
+                                    <div 
+                                      className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
+                                      title={`Đã xem bởi ${currentConversation.user.name}`}
+                                    >
+                                      <span>Đã xem</span>
+                                      <img
+                                        src={currentConversation.user.avatar}
+                                        alt={currentConversation.user.name}
+                                        className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
+                                      />
+                                    </div>
+                                  )}
 
                                 {/* Trạng thái lỗi: Gửi thất bại kèm nút Gửi lại */}
                                 {msg.status === 'failed' && (
