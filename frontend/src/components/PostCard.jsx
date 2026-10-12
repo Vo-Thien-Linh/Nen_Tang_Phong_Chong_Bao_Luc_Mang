@@ -292,12 +292,13 @@ export default function PostCard({
 
       {/* Ảnh bài viết (nếu có) */}
       {post.image && (
-        <div className="w-full overflow-hidden bg-slate-900/5 border-y border-slate-100 flex items-center justify-center">
+        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center">
           <img 
             src={post.image} 
-            alt="Post media" 
-            className="w-full h-auto max-h-[520px] object-cover block"
+            alt="Ảnh đính kèm bài viết" 
+            className="block h-auto max-h-[75vh] w-full object-contain"
             loading="lazy"
+            decoding="async"
           />
         </div>
       )}
