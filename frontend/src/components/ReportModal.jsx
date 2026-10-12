@@ -96,7 +96,7 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
               </div>
               <h3 className="text-lg font-bold text-slate-900">Báo cáo đã được tiếp nhận!</h3>
               <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                Cảm ơn bạn đã chung tay bảo vệ môi trường văn minh trên NexusSocial. Đội ngũ kiểm duyệt sẽ xử lý trong thời gian sớm nhất.
+                Cảm ơn bạn đã chung tay bảo vệ môi trường văn minh trên WINGS. Đội ngũ kiểm duyệt sẽ xử lý trong thời gian sớm nhất.
               </p>
             </div>
           ) : (

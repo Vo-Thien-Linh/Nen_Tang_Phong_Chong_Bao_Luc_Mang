@@ -669,20 +669,35 @@ export default function App() {
 
         {/* Tab 6: BẢNG ĐIỀU KHIỂN QUẢN TRỊ VIÊN (ADMIN DASHBOARD) */}
         {activeTab === 'admin' && (
-          <AdminDashboardView 
-            posts={posts}
-            reports={reports}
-            appeals={appeals}
-            aiOverrides={aiOverrides}
-            usersList={usersList}
-            onResolveReport={handleResolveReport}
-            onResolveAppeal={handleResolveAppeal}
-            onOverrideAiLabel={handleOverrideAiLabel}
-            onToggleHidePost={handleToggleHidePost}
-            onDeletePost={handleDeletePost}
-            onUpdateUserStatus={handleUpdateUserStatus}
-            onUpdateUserRole={handleUpdateUserRole}
-          />
+          (currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin)) ? (
+            <AdminDashboardView 
+              posts={posts}
+              reports={reports}
+              appeals={appeals}
+              aiOverrides={aiOverrides}
+              usersList={usersList}
+              onResolveReport={handleResolveReport}
+              onResolveAppeal={handleResolveAppeal}
+              onOverrideAiLabel={handleOverrideAiLabel}
+              onToggleHidePost={handleToggleHidePost}
+              onDeletePost={handleDeletePost}
+              onUpdateUserStatus={handleUpdateUserStatus}
+              onUpdateUserRole={handleUpdateUserRole}
+            />
+          ) : (
+            <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200 text-center shadow-xs">
+              <h3 className="text-lg font-bold text-slate-800">Không có quyền truy cập</h3>
+              <p className="text-sm text-slate-500 mt-2">
+                Trang Admin Dashboard chỉ dành riêng cho tài khoản quản trị viên.
+              </p>
+              <button
+                onClick={() => setActiveTab('home')}
+                className="mt-6 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition cursor-pointer"
+              >
+                Quay về trang chủ
+              </button>
+            </div>
+          )
         )}
 
       </div>

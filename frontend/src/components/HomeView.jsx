@@ -52,6 +52,7 @@ export default function HomeView({
     ? posts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
     : posts;
   const visiblePostCount = countVisiblePosts(filteredPosts);
+  const isAdmin = Boolean(currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin));
 
   return (
     <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -76,7 +77,7 @@ export default function HomeView({
                   <h3 className="text-sm font-bold text-slate-800 truncate hover:text-blue-600 transition">
                     {currentUser.name}
                   </h3>
-                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded uppercase">
+                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700 bg-blue-50 border border-blue-200 rounded uppercase">
                     {currentUser.role || 'USER'}
                   </span>
                 </div>
@@ -94,12 +95,12 @@ export default function HomeView({
               </div>
             </div>
           ) : (
-            <div className="bg-gradient-to-br from-indigo-900 via-blue-900 to-slate-900 text-white rounded-2xl p-4 shadow-md space-y-3">
-              <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs uppercase tracking-wider">
-                <Sparkles className="w-4 h-4 text-cyan-400" />
+            <div className="bg-gradient-to-br from-blue-900 via-blue-800 to-slate-900 text-white rounded-2xl p-4 shadow-md space-y-3">
+              <div className="flex items-center gap-2 text-blue-200 font-bold text-xs uppercase tracking-wider">
+                <Sparkles className="w-4 h-4 text-blue-300" />
                 <span>Chào mừng bạn!</span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
+              <p className="text-xs text-slate-200 leading-relaxed">
                 Đăng nhập để đăng bài, tương tác với bạn bè và trải nghiệm tính năng kiểm duyệt AI thông minh.
               </p>
               <div className="pt-1 flex flex-col gap-2">
@@ -133,7 +134,7 @@ export default function HomeView({
               onClick={() => setActiveTab && setActiveTab('friends')}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             >
-              <Users className="w-4 h-4 text-emerald-600" />
+              <Users className="w-4 h-4 text-blue-600" />
               <span>Bạn bè & Kết nối</span>
             </button>
 
@@ -141,32 +142,34 @@ export default function HomeView({
               onClick={() => setActiveTab && setActiveTab('messages')}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             >
-              <MessageCircle className="w-4 h-4 text-violet-600" />
+              <MessageCircle className="w-4 h-4 text-blue-600" />
               <span>Hộp thư Tin nhắn</span>
             </button>
 
-            <button
-              onClick={() => setActiveTab && setActiveTab('admin')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100/80 transition cursor-pointer"
-            >
-              <LayoutDashboard className="w-4 h-4 text-indigo-600" />
-              <span>Admin Dashboard</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab && setActiveTab('admin')}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition cursor-pointer"
+              >
+                <LayoutDashboard className="w-4 h-4 text-blue-600" />
+                <span>Admin Dashboard</span>
+              </button>
+            )}
 
             <button
               onClick={onOpenAiLab}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             >
-              <ShieldCheck className="w-4 h-4 text-cyan-600" />
+              <ShieldCheck className="w-4 h-4 text-blue-600" />
               <span>Thử nghiệm AI Lab</span>
             </button>
           </div>
 
           {/* Card trạng thái AI Shield PhoBERT */}
-          <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl p-4 shadow-md space-y-2 border border-indigo-950">
+          <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-4 shadow-sm space-y-2 border border-blue-900/40">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-cyan-300 animate-pulse" />
-              <span className="text-xs font-black text-cyan-300 uppercase tracking-wider">AI Shield Active</span>
+              <Sparkles className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-black text-blue-300 uppercase tracking-wider">AI Shield Active</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
               Mô hình PhoBERT đang bảo vệ nền tảng, tự động gắn nhãn và chặn lọc nội dung độc hại thời gian thực.
@@ -381,7 +384,7 @@ export default function HomeView({
           {/* Footer thông tin bài tập lớn / dự án */}
           <div className="px-2 text-[11px] text-slate-400 space-y-1">
             <p className="font-semibold text-slate-500">Mạng xã hội BTL Project 1</p>
-            <p>© 2026 NexusSocial • React 19 & Tailwind CSS</p>
+            <p>© 2026 WINGS • social network</p>
           </div>
 
         </aside>

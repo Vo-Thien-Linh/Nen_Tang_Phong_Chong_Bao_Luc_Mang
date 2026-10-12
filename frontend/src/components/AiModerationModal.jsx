@@ -95,9 +95,9 @@ export default function AiModerationModal({ isOpen, onClose }) {
       <div className="w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
         
         {/* Header */}
-        <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+        <div className="p-5 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 flex items-center justify-center text-cyan-400 border border-indigo-500/40">
+            <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400 border border-blue-500/40">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
