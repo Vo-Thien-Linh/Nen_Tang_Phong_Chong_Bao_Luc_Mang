@@ -32,171 +32,11 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
   // Tab danh sách bên trái: 'main' (Hộp thư chính) | 'requests' (Tin nhắn chờ từ người lạ)
   const [inboxTab, setInboxTab] = useState('main');
 
-  // Danh sách các cuộc trò chuyện mẫu (gồm cả bạn bè và người lạ)
-  const [conversations, setConversations] = useState([
-    // === 1. HỘP THƯ CHÍNH (BẠN BÈ / ĐÃ XÁC NHẬN) ===
-    {
-      id: 'c1',
-      status: 'accepted', // Đã vào hộp thư chính
-      user: {
-        id: 'u4',
-        name: 'Lê Hoàng Nam',
-        username: 'nam_le',
-        avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Vừa xong'
-      },
-      lastMessage: 'Hôm nay bài tập lớn tiến độ thế nào rồi ông?',
-      lastTime: '10:45',
-      unreadCount: 1,
-      messages: [
-        { id: 'm1', senderId: 'u4', text: 'Chào Linh! Dạo này thế nào rồi?', time: '10:30' },
-        { id: 'm2', senderId: 'current', text: 'Chào Nam! Mình đang hoàn thiện nốt phần AI kiểm duyệt và giao diện mạng xã hội đây.', time: '10:35' },
-        { id: 'm3', senderId: 'u4', text: 'Nghe xịn vậy! Có tích hợp cả PhoBERT nhận diện từ ngữ độc hại à?', time: '10:40' },
-        { id: 'm4', senderId: 'current', text: 'Đúng rồi, có cả mô hình PhoBERT chạy kiểm duyệt thời gian thực nữa.', time: '10:42' },
-        { id: 'm5', senderId: 'u4', text: 'Hôm nay bài tập lớn tiến độ thế nào rồi ông?', time: '10:45' }
-      ]
-    },
-    {
-      id: 'c2',
-      status: 'accepted',
-      user: {
-        id: 'u5',
-        name: 'Phạm Quỳnh Anh',
-        username: 'quynhanh_p',
-        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Đang hoạt động'
-      },
-      lastMessage: 'Cảm ơn bạn nhiều nhé! Giao diện đẹp lắm ✨',
-      lastTime: 'Hôm qua',
-      unreadCount: 0,
-      messages: [
-        { id: 'm20', senderId: 'current', text: 'Quỳnh Anh xem thử phần thiết kế mới chưa?', time: '14:20' },
-        { id: 'm21', senderId: 'u5', text: 'Cảm ơn bạn nhiều nhé! Giao diện đẹp lắm ✨', time: '14:25' }
-      ]
-    },
-    {
-      id: 'c3',
-      status: 'accepted',
-      user: {
-        id: 'u7',
-        name: 'Vũ Quốc Bảo',
-        username: 'bao_vq',
-        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Vừa xong'
-      },
-      lastMessage: 'Oke ông nhé, phần code API PostgreSQL chạy mượt rồi!',
-      lastTime: '08:30',
-      unreadCount: 0,
-      messages: [
-        { id: 'm30', senderId: 'u7', text: 'Linh ơi, schema database có cần bổ sung trường gì nữa không?', time: '08:15' },
-        { id: 'm31', senderId: 'current', text: 'Tôi vừa thêm bảng reports và appeals rồi đấy, Bảo test thử nhé!', time: '08:22' },
-        { id: 'm32', senderId: 'u7', text: 'Oke ông nhé, phần code API PostgreSQL chạy mượt rồi!', time: '08:30' }
-      ]
-    },
-    {
-      id: 'c4',
-      status: 'accepted',
-      user: {
-        id: 'u3',
-        name: 'Trần Thị Mai',
-        username: 'maitran_cute',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        isOnline: false,
-        isFriend: true,
-        lastSeen: '1 giờ trước'
-      },
-      lastMessage: 'Chiều nay nhóm mình có họp thảo luận slide báo cáo không bạn?',
-      lastTime: 'Hôm qua',
-      unreadCount: 0,
-      messages: [
-        { id: 'm40', senderId: 'u3', text: 'Chào Linh! Mai vừa xem xong phần Admin Dashboard, trực quan lắm!', time: '16:00' },
-        { id: 'm41', senderId: 'current', text: 'Cảm ơn Mai nhé, chiều nay nhóm mình chốt phần demo nhé.', time: '16:15' },
-        { id: 'm42', senderId: 'u3', text: 'Chiều nay nhóm mình có họp thảo luận slide báo cáo không bạn?', time: 'Hôm qua' }
-      ]
-    },
-    {
-      id: 'c5',
-      status: 'accepted',
-      user: {
-        id: 'u2',
-        name: 'Nguyễn Văn An',
-        username: 'vanan_nguyen',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Đang hoạt động'
-      },
-      lastMessage: 'File dataset PhoBERT mới gửi qua email rồi nhé ông.',
-      lastTime: 'Thứ 3',
-      unreadCount: 0,
-      messages: [
-        { id: 'm50', senderId: 'u2', text: 'An vừa lọc thêm 500 mẫu câu tiếng Việt gán nhãn Toxic/Violence.', time: '09:00' },
-        { id: 'm51', senderId: 'current', text: 'Hay quá An, để tôi import vào file retraining dataset nhé.', time: '09:10' },
-        { id: 'm52', senderId: 'u2', text: 'File dataset PhoBERT mới gửi qua email rồi nhé ông.', time: 'Thứ 3' }
-      ]
-    },
-
-    // === 2. TIN NHẮN CHỜ (NGƯỜI LẠ CHƯA XÁC NHẬN) ===
-    {
-      id: 'req_c1',
-      status: 'pending', // Tin nhắn chờ từ người lạ
-      user: {
-        id: 'stranger_1',
-        name: 'Trần Minh Tuấn',
-        username: 'tuan_tran_ai',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        isOnline: false,
-        isFriend: false,
-        lastSeen: '30 phút trước',
-        mutualFriends: 2
-      },
-      lastMessage: 'Chào bạn, mình thấy bạn làm đề tài kiểm duyệt PhoBERT hay quá, có thể cho mình xin tham khảo không?',
-      lastTime: '09:12',
-      unreadCount: 1,
-      messages: [
-        { 
-          id: 'rm1', 
-          senderId: 'stranger_1', 
-          text: 'Chào bạn, mình thấy bạn làm đề tài kiểm duyệt PhoBERT hay quá, có thể cho mình xin tham khảo không?', 
-          time: '09:12' 
-        }
-      ]
-    },
-    {
-      id: 'req_c2',
-      status: 'pending',
-      user: {
-        id: 'stranger_2',
-        name: 'Ngô Thanh Hà',
-        username: 'thanhha_design',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        isOnline: true,
-        isFriend: false,
-        lastSeen: 'Vừa xong',
-        mutualFriends: 0
-      },
-      lastMessage: 'Hello Linh, bạn có tham gia nhóm Nghiên cứu Trí tuệ Nhân tạo không?',
-      lastTime: 'Hôm qua',
-      unreadCount: 1,
-      messages: [
-        { 
-          id: 'rm2', 
-          senderId: 'stranger_2', 
-          text: 'Hello Linh, bạn có tham gia nhóm Nghiên cứu Trí tuệ Nhân tạo không?', 
-          time: '18:40' 
-        }
-      ]
-    }
-  ]);
+  // Danh sách các cuộc trò chuyện thực tế từ CSDL
+  const [conversations, setConversations] = useState([]);
 
   // Cuộc trò chuyện đang chọn
-  const [selectedConversationId, setSelectedConversationId] = useState('c1');
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -218,11 +58,11 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
   const prevMessagesLengthRef = useRef(currentConversation?.messages.length || 0);
 
   // Tải danh sách cuộc trò chuyện từ Backend FastAPI
-  const loadServerConversations = async () => {
+  const loadServerConversations = async (autoSelect = false) => {
     if (!currentUser) return;
     try {
       const data = await messageService.getConversations();
-      if (data && Array.isArray(data) && data.length > 0) {
+      if (data && Array.isArray(data)) {
         const formatted = data.map(c => ({
           id: String(c.id),
           status: c.status,
@@ -242,11 +82,12 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
           messages: []
         }));
 
-        setConversations(prev => {
-          const serverIds = new Set(formatted.map(f => f.id));
-          const remainingPrev = prev.filter(p => !serverIds.has(String(p.id)));
-          return [...formatted, ...remainingPrev];
-        });
+        setConversations(formatted);
+        if (autoSelect && formatted.length > 0 && !selectedConversationId) {
+          setSelectedConversationId(formatted[0].id);
+        }
+      } else {
+        setConversations([]);
       }
     } catch (err) {
       console.warn("Lỗi nạp danh sách cuộc trò chuyện:", err);
@@ -255,9 +96,57 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
   useEffect(() => {
     if (currentUser) {
-      loadServerConversations();
+      loadServerConversations(true);
     }
   }, [currentUser]);
+
+  // Tải tin nhắn của cuộc trò chuyện đang chọn từ CSDL
+  const loadMessages = async (convId) => {
+    if (!convId || !currentUser) return;
+    try {
+      const msgs = await messageService.getMessages(convId);
+      if (msgs && Array.isArray(msgs)) {
+        const formattedMsgs = msgs.map(m => ({
+          id: m.id,
+          senderId: m.sender_id === currentUser.id ? 'current' : m.sender_id,
+          text: m.content,
+          time: new Date(m.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          status: m.status || 'sent'
+        }));
+
+        setConversations(prev => prev.map(c => {
+          if (String(c.id) === String(convId)) {
+            return {
+              ...c,
+              messages: formattedMsgs,
+              unreadCount: 0
+            };
+          }
+          return c;
+        }));
+      }
+    } catch (err) {
+      console.warn("Lỗi tải tin nhắn:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedConversationId) {
+      loadMessages(selectedConversationId);
+    }
+  }, [selectedConversationId]);
+
+  // Polling chu kỳ 3s để đồng bộ tin nhắn mới và trạng thái xem từ người khác
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(() => {
+      loadServerConversations(false);
+      if (selectedConversationId) {
+        loadMessages(selectedConversationId);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [currentUser, selectedConversationId]);
 
   // Tự động chọn cuộc trò chuyện khi nhận initialChatUserId (từ Trang cá nhân hoặc Bạn bè)
   useEffect(() => {
@@ -274,9 +163,10 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     if (currentUser) {
       messageService.getOrCreateConversation(initialChatUserId).then(res => {
         if (res && res.conversation_id) {
-          loadServerConversations();
-          setSelectedConversationId(String(res.conversation_id));
-          setMobileShowChat(true);
+          loadServerConversations(false).then(() => {
+            setSelectedConversationId(String(res.conversation_id));
+            setMobileShowChat(true);
+          });
         }
       }).catch(console.warn);
     }
@@ -317,7 +207,6 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     setConversations(prev => prev.map(c => 
       c.id === convId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
     ));
-    // Cập nhật đã xem lên máy chủ
     if (currentUser && !isNaN(convId)) {
       messageService.markRead(convId);
     }
@@ -378,18 +267,17 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
           ...c,
           lastMessage: content,
           lastTime: timeNow,
-          messages: [...c.messages, optimisticMsg]
+          messages: [...(c.messages || []), optimisticMsg]
         };
       }
       return c;
     }));
 
-    // Gửi tin nhắn qua Backend hoặc mô phỏng kết nối
+    // Gửi tin nhắn qua Backend
     const targetUserId = currentConversation?.user?.id;
     try {
       let serverMsg = null;
-      // Nếu có currentUser và targetUserId là UUID thật trên DB, gọi API
-      if (currentUser && targetUserId && targetUserId.length > 20) {
+      if (currentUser && targetUserId) {
         serverMsg = await messageService.sendMessage(targetUserId, content);
       }
 
@@ -398,88 +286,17 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
         if (c.id === selectedConversationId) {
           return {
             ...c,
-            messages: c.messages.map(m => m.id === tempId ? {
+            messages: (c.messages || []).map(m => m.id === tempId ? {
               ...m,
               id: serverMsg ? serverMsg.id : m.id,
-              status: 'sent'
+              status: serverMsg?.status || 'sent'
             } : m)
           };
         }
         return c;
       }));
 
-      const activeMsgId = serverMsg ? serverMsg.id : tempId;
-
-      // Trạng thái 3: Đã nhận (Sau 1s, thông báo đã đến thiết bị người nhận)
-      setTimeout(() => {
-        setConversations(prev => prev.map(c => {
-          if (c.id === selectedConversationId) {
-            return {
-              ...c,
-              messages: c.messages.map(m => m.id === activeMsgId ? {
-                ...m,
-                status: 'delivered'
-              } : m)
-            };
-          }
-          return c;
-        }));
-      }, 1000);
-
-      // Trạng thái 4: Đã xem (Sau 2.2s, người nhận mở khung chat - hiện avatar ở góc dưới phải)
-      setTimeout(() => {
-        setConversations(prev => prev.map(c => {
-          if (c.id === selectedConversationId) {
-            return {
-              ...c,
-              messages: c.messages.map(m => m.id === activeMsgId ? {
-                ...m,
-                status: 'read'
-              } : m)
-            };
-          }
-          return c;
-        }));
-
-        // Mô phỏng đối phương soạn tin và trả lời
-        setTimeout(() => {
-          setIsTyping(true);
-          setTimeout(() => {
-            setIsTyping(false);
-            const autoReplies = [
-              'Tuyệt vời quá! Cứ phát huy nhé 👍',
-              'Oke nhận thông tin rồi nè! Để mình xem qua nhé.',
-              'Cảm ơn bạn đã phản hồi nhanh nhé!',
-              'Được nha, lát mình nhắn tiếp cho bạn.'
-            ];
-            const randomReply = autoReplies[Math.floor(Math.random() * autoReplies.length)];
-            const replyTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-            setConversations(prev => prev.map(c => {
-              if (c.id === selectedConversationId) {
-                return {
-                  ...c,
-                  lastMessage: randomReply,
-                  lastTime: replyTime,
-                  messages: [
-                    ...c.messages,
-                    {
-                      id: 'reply-' + Date.now(),
-                      senderId: c.user.id,
-                      text: randomReply,
-                      time: replyTime,
-                      status: 'read'
-                    }
-                  ]
-                };
-              }
-              return c;
-            }));
-          }, 1400);
-        }, 500);
-
-      }, 2200);
-
+      loadServerConversations(false);
     } catch (err) {
       console.warn("Lỗi gửi tin nhắn:", err);
       // Sự cố hệ thống / Mất kết nối mạng: Chuyển sang 'failed' (Gửi thất bại kèm nút Gửi lại)
@@ -487,7 +304,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
         if (c.id === selectedConversationId) {
           return {
             ...c,
-            messages: c.messages.map(m => m.id === tempId ? {
+            messages: (c.messages || []).map(m => m.id === tempId ? {
               ...m,
               status: 'failed'
             } : m)
@@ -505,7 +322,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       if (c.id === selectedConversationId) {
         return {
           ...c,
-          messages: c.messages.map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m)
+          messages: (c.messages || []).map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m)
         };
       }
       return c;
@@ -514,7 +331,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     const targetUserId = currentConversation?.user?.id;
     try {
       let serverMsg = null;
-      if (currentUser && targetUserId && targetUserId.length > 20) {
+      if (currentUser && targetUserId) {
         serverMsg = await messageService.sendMessage(targetUserId, failedMsg.text);
       }
 
@@ -523,56 +340,23 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
         if (c.id === selectedConversationId) {
           return {
             ...c,
-            messages: c.messages.map(m => m.id === failedMsg.id ? {
+            messages: (c.messages || []).map(m => m.id === failedMsg.id ? {
               ...m,
               id: serverMsg ? serverMsg.id : m.id,
-              status: 'sent'
+              status: serverMsg?.status || 'sent'
             } : m)
           };
         }
         return c;
       }));
 
-      const activeMsgId = serverMsg ? serverMsg.id : failedMsg.id;
-
-      // Đã nhận
-      setTimeout(() => {
-        setConversations(prev => prev.map(c => {
-          if (c.id === selectedConversationId) {
-            return {
-              ...c,
-              messages: c.messages.map(m => m.id === activeMsgId ? {
-                ...m,
-                status: 'delivered'
-              } : m)
-            };
-          }
-          return c;
-        }));
-      }, 1000);
-
-      // Đã xem (avatar ở góc phải)
-      setTimeout(() => {
-        setConversations(prev => prev.map(c => {
-          if (c.id === selectedConversationId) {
-            return {
-              ...c,
-              messages: c.messages.map(m => m.id === activeMsgId ? {
-                ...m,
-                status: 'read'
-              } : m)
-            };
-          }
-          return c;
-        }));
-      }, 2000);
-
+      loadServerConversations(false);
     } catch (err) {
       setConversations(prev => prev.map(c => {
         if (c.id === selectedConversationId) {
           return {
             ...c,
-            messages: c.messages.map(m => m.id === failedMsg.id ? {
+            messages: (c.messages || []).map(m => m.id === failedMsg.id ? {
               ...m,
               status: 'failed'
             } : m)
@@ -686,12 +470,24 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
             {displayedConversations.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 {inboxTab === 'main' ? (
-                  <p>Không có cuộc trò chuyện nào trong Hộp thư chính</p>
+                  <div className="py-6 flex flex-col items-center">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-3">
+                      <MessageSquare className="w-6 h-6" />
+                    </div>
+                    <p className="font-bold text-slate-700">Chưa có cuộc trò chuyện nào</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
+                      Vào trang cá nhân bạn bè hoặc mục Bạn bè để bấm "Nhắn tin" bắt đầu trò chuyện!
+                    </p>
+                  </div>
                 ) : (
-                  <div>
-                    <CheckCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2 opacity-60" />
-                    <p className="font-medium text-slate-600">Không có tin nhắn chờ nào</p>
-                    <p className="text-xs text-slate-400 mt-1">Khi người lạ nhắn tin, họ sẽ xuất hiện tại đây.</p>
+                  <div className="py-6 flex flex-col items-center">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mb-3">
+                      <CheckCheck className="w-6 h-6" />
+                    </div>
+                    <p className="font-bold text-slate-700">Không có tin nhắn chờ nào</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
+                      Khi người lạ gửi tin nhắn đến, yêu cầu sẽ xuất hiện tại đây.
+                    </p>
                   </div>
                 )}
               </div>
