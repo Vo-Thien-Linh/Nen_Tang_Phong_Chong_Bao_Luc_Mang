@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
@@ -129,15 +129,15 @@ export default function PostCard({
   const allowDelete = canDeletePost(post, currentUser);
   const allowReport = canReportPost(post, currentUser);
 
-  const closePostMenu = () => {
+  const closePostMenu = useCallback(() => {
     if (usesSharedMenuState) onClosePostMenu();
     else setLocalShowPostMenu(false);
-  };
+  }, [onClosePostMenu, usesSharedMenuState]);
 
-  const togglePostMenu = () => {
+  const togglePostMenu = useCallback(() => {
     if (usesSharedMenuState) onTogglePostMenu(post.id);
     else setLocalShowPostMenu((value) => !value);
-  };
+  }, [onTogglePostMenu, post.id, usesSharedMenuState]);
 
   useEffect(() => {
     if (!showPostMenu) return undefined;
@@ -164,7 +164,7 @@ export default function PostCard({
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showPostMenu, usesSharedMenuState, onClosePostMenu]);
+  }, [closePostMenu, showPostMenu]);
 
   const handleSelectReaction = async (reactionId = 'like') => {
     setShowReactionPicker(false);
