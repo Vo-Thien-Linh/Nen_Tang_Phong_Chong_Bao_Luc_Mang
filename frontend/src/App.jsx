@@ -20,7 +20,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts } from './api/client';
+import { fetchPosts, createComment } from './api/client';
 
 const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
@@ -37,7 +37,7 @@ export default function App() {
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
-  const [posts, setPosts] = useState(initialPosts);
+  const [posts, setPosts] = useState([]);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const [notifications, setNotifications] = useState(initialNotifications);
   
@@ -178,21 +178,32 @@ export default function App() {
     }));
   };
 
-  // Thêm bình luận vào bài viết
-  const handleAddComment = (postId, newComment) => {
+  // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
+  const handleAddComment = async (postId, newComment) => {
     if (!currentUser) {
       handleRequireAuth("Chỉ đăng nhập mới được bình luận (User Story 5)");
       return;
     }
-    setPosts(prev => prev.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: [...(post.comments || []), newComment]
-        };
-      }
-      return post;
-    }));
+    try {
+      const res = await createComment({
+        userId: currentUser.id,
+        postId,
+        content: newComment.content
+      });
+      const savedComment = res.data || newComment;
+      setPosts(prev => prev.map(post => {
+        if (String(post.id) === String(postId)) {
+          return {
+            ...post,
+            comments: [...(post.comments || []), savedComment],
+            commentsCount: (post.commentsCount || 0) + 1
+          };
+        }
+        return post;
+      }));
+    } catch (err) {
+      console.error('Lỗi lưu bình luận vào Supabase:', err);
+    }
   };
 
   // Cập nhật thông tin profile

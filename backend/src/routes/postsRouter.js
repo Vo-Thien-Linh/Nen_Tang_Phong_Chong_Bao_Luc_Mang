@@ -11,11 +11,12 @@ export function createPostsRouter({ pool }) {
   const userRepository = createUserRepository({ pool });
   const postRepository = createPostRepository({ pool });
   const postService = createPostService({ postRepository, moderationHook });
-  const postsController = createPostsController({ postService });
+  const postsController = createPostsController({ postService, postRepository });
   const { requireAuth, optionalAuth } = createAuthMiddleware({ userRepository });
 
   router.get('/', optionalAuth, postsController.listPosts);
   router.post('/', requireAuth, postsController.createPost);
+  router.post('/:postId/comments', requireAuth, postsController.createComment);
 
   return router;
 }

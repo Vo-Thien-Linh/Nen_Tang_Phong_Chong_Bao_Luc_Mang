@@ -335,7 +335,7 @@ export default function PostCard({
           )}
         </div>
         <div className="flex items-center gap-3">
-          <span>{post.comments?.length || 0} bình luận</span>
+          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{post.comments?.length || 0} bình luận</span>
           <span>{post.sharesCount || 0} chia sẻ</span>
         </div>
       </div>
