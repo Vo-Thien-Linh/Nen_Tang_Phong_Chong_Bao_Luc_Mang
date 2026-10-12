@@ -42,6 +42,14 @@ export async function createPost({ userId, content, imageUrl }) {
   });
 }
 
+export async function createComment({ userId, postId, content }) {
+  return request(`/api/posts/${postId}/comments`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ content }),
+  });
+}
+
 export async function updatePostReaction({ userId, postId, type }) {
   return request(`/api/posts/${postId}/reaction`, {
     method: 'PUT',

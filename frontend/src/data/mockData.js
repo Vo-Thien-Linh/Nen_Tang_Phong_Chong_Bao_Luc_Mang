@@ -1,5 +1,5 @@
 export const currentUser = {
-  id: "user-current",
+  id: "a0000000-0000-0000-0000-000000000001",
   name: "Võ Thiện Linh",
   username: "linh.vothien.16",
   role: "ADMIN", // 'ADMIN' | 'USER'
