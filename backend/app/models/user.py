@@ -15,14 +15,8 @@ class User(Base):
     role = Column(String(20), default="USER", nullable=False) # 'USER', 'ADMIN', 'MODERATOR'
     status = Column(String(20), default="active", nullable=False) # 'active', 'cooldown', 'banned'
 
-    avatar_url = Column(
-        Text, 
-        default="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80"
-    )
-    cover_url = Column(
-        Text, 
-        default="https://images.unsplash.com/photo-1707343843437-caacff5cfa74?w=1200&auto=format&fit=crop&q=80"
-    )
+    avatar_url = Column(Text, nullable=True, default=None)
+    cover_url = Column(Text, nullable=True, default=None)
     bio = Column(Text, nullable=True)
     location = Column(String(100), nullable=True)
     hometown = Column(String(100), nullable=True)

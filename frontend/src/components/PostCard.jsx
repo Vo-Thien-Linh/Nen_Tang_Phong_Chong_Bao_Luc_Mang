@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle 
@@ -13,6 +13,7 @@ import {
   rollbackReactionState,
   REACTIONS,
 } from '../utils/reactionLogic';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 
 export default function PostCard({ 
   post, 
@@ -39,6 +40,18 @@ export default function PostCard({
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showReactionSummary, setShowReactionSummary] = useState(false);
   const [showPostMenu, setShowPostMenu] = useState(false);
+
+  useEffect(() => {
+    setCurrentReaction(post.myReaction || (post.isLiked ? 'like' : null));
+  }, [post.myReaction, post.isLiked]);
+
+  useEffect(() => {
+    if (post.reactionCounts || post.counts) {
+      const counts = normalizeReactionCounts(post.reactionCounts || post.counts);
+      setReactionCounts(counts);
+      setReactionCount(getTotalReactionCount(counts) || post.totalReactions || post.likesCount || 0);
+    }
+  }, [post.reactionCounts, post.counts, post.totalReactions, post.likesCount]);
 
   const handleSelectReaction = async (reactionId = 'like') => {
     setShowReactionPicker(false);
@@ -67,7 +80,10 @@ export default function PostCard({
         previousReaction: currentReaction,
         nextReaction: nextState.myReaction,
       }));
-      onToggleLike(post.id);
+      // Chỉ toggle like khi thay đổi giữa trạng thái (chưa thả <-> đã thả)
+      if ((!currentReaction && nextState.myReaction) || (currentReaction && !nextState.myReaction)) {
+        onToggleLike && onToggleLike(post.id);
+      }
       return;
     }
 
@@ -85,10 +101,12 @@ export default function PostCard({
     setReactionCounts(nextCounts);
 
     try {
+      const isRevoking = nextState.myReaction === null;
       const result = await updatePostReaction({
         userId: currentUser.id,
         postId: post.id,
-        type: reactionId,
+        type: isRevoking ? null : reactionId,
+        action: isRevoking ? 'remove' : 'set',
       });
       setCurrentReaction(result.data.myReaction);
       const syncedCounts = normalizeReactionCounts(result.data.reactionCounts || result.data.counts);
@@ -430,7 +448,7 @@ export default function PostCard({
           {/* Form nhập bình luận mới */}
           <form onSubmit={handleCommentSubmit} className="flex gap-2">
             <img 
-              src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+              src={currentUser?.avatar || DEFAULT_AVATAR} 
               alt={currentUser?.name || "Khách"} 
               className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
             />
@@ -465,11 +483,17 @@ export default function PostCard({
                   <img 
                     src={comment.author.avatar} 
                     alt={comment.author.name} 
-                    className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5"
+                    onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                    className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                   />
                   <div className="flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-slate-800">{comment.author.name}</span>
+                      <span 
+                        onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                        className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition"
+                      >
+                        {comment.author.name}
+                      </span>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-slate-400">{comment.time}</span>
                         <button

@@ -52,6 +52,7 @@ export default function App() {
   const [reportTarget, setReportTarget] = useState(null); // Đối tượng đang được mở modal báo cáo
   const [appealItem, setAppealItem] = useState(null);     // Nội dung đang được mở modal khiếu nại
   const [selectedChatUserId, setSelectedChatUserId] = useState(null);
+  const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
 
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
@@ -178,12 +179,13 @@ export default function App() {
       return;
     }
     setPosts(prev => prev.map(post => {
-      if (post.id === postId) {
+      if (String(post.id) === String(postId)) {
         const isLiked = !post.isLiked;
         return {
           ...post,
           isLiked,
-          likesCount: isLiked ? post.likesCount + 1 : Math.max(0, post.likesCount - 1)
+          myReaction: isLiked ? (post.myReaction || 'like') : null,
+          likesCount: isLiked ? (post.likesCount || 0) + 1 : Math.max(0, (post.likesCount || 0) - 1)
         };
       }
       return post;
@@ -220,6 +222,7 @@ export default function App() {
 
   // Cập nhật thông tin profile
   const handleUpdateUser = (updatedFields) => {
+    authService.updateCurrentUser(updatedFields);
     setCurrentUser(prev => ({
       ...prev,
       ...updatedFields
@@ -475,7 +478,15 @@ export default function App() {
       handleRequireAuth("Vui lòng đăng nhập để sử dụng tính năng nhắn tin");
       return;
     }
-    setSelectedChatUserId(user.id);
+    const userPayload = {
+      id: user.id || user.user_id,
+      name: user.name || user.full_name,
+      username: user.username,
+      avatar: user.avatar || user.avatar_url,
+      _ts: Date.now()
+    };
+    setSelectedChatUser(userPayload);
+    setSelectedChatUserId(userPayload.id);
     setActiveTab('messages');
   };
 
@@ -539,9 +550,11 @@ export default function App() {
         {activeTab === 'messages' && (
           <MessagesView 
             currentUser={currentUser} 
+            initialChatUser={selectedChatUser}
             initialChatUserId={selectedChatUserId} 
             onOpenReportModal={handleOpenReportModal}
             onRequireAuth={handleRequireAuth}
+            onOpenProfile={handleOpenUserProfile}
           />
         )}
 
@@ -566,6 +579,7 @@ export default function App() {
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
             onOpenChat={handleOpenChatFromFriends}
+            onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
           />
         )}

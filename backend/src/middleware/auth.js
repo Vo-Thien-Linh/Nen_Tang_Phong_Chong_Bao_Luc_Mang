@@ -31,13 +31,19 @@ export function createAuthMiddleware({ userRepository }) {
 
     if (!uuidPattern.test(userId)) {
       warnRejectedAuth('sai định dạng UUID');
-      throw authError();
+      if (required) {
+        throw authError();
+      }
+      return null;
     }
 
     const user = await userRepository.findById(userId);
     if (!user) {
       warnRejectedAuth('không tìm thấy user trong DB');
-      throw authError();
+      if (required) {
+        throw authError();
+      }
+      return null;
     }
 
     return user;

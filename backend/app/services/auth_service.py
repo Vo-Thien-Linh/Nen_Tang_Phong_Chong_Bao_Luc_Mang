@@ -119,7 +119,8 @@ class AuthService:
             full_name=req.full_name,
             role="USER",
             status="active",
-            avatar_url="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
+            avatar_url=None,
+            cover_url=None,
             is_verified=False
         )
 

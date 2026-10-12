@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, X } from 'lucide-react';
 import { createPost, uploadPostImage } from '../api/client';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
   const [content, setContent] = useState('');
@@ -117,7 +118,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs mb-5 transition duration-200">
       <div className="flex gap-3">
         <img 
-          src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+          src={currentUser?.avatar || DEFAULT_AVATAR} 
           alt={currentUser?.name || "Người dùng"}
           className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
         />

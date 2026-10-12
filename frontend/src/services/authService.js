@@ -136,6 +136,19 @@ export const authService = {
     return null;
   },
 
+  // Cập nhật thông tin người dùng đang đăng nhập vào LocalStorage
+  updateCurrentUser: (updatedFields) => {
+    try {
+      const current = authService.getCurrentUser() || {};
+      const updated = { ...current, ...updatedFields };
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updated));
+      return updated;
+    } catch (e) {
+      console.warn("Không thể lưu cập nhật người dùng vào localStorage:", e);
+      return null;
+    }
+  },
+
   // Lấy Token hiện tại
   getToken: () => {
     return localStorage.getItem(STORAGE_KEYS.TOKEN);
@@ -274,7 +287,7 @@ export const authService = {
         }
 
         const newMockUser = {
-          id: "mock-" + Date.now(),
+          id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "b0000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12)),
           name: trimmedName,
           full_name: trimmedName,
           username: email.trim().split('@')[0],
@@ -282,8 +295,10 @@ export const authService = {
           phone: phone.trim(),
           role: "USER",
           status: "active",
-          avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
-          avatar_url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
+          avatar: null,
+          avatar_url: null,
+          cover: null,
+          cover_url: null,
           postsCount: 0,
           friendsCount: 0,
           isVerified: false,
