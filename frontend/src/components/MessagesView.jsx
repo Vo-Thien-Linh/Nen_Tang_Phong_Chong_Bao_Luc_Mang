@@ -1,181 +1,43 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   Search, Send, Image as ImageIcon, Smile, MoreVertical, 
-  Phone, Video, CheckCheck, MessageSquare, ArrowLeft,
+  Phone, Video, Check, CheckCheck, Clock, RotateCw, Loader2, MessageSquare, ArrowLeft,
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
   User, FileText, ChevronRight, Ban
 } from 'lucide-react';
+import { messageService } from '../services/messageService';
 
-export default function MessagesView({ currentUser, initialChatUserId, onOpenReportModal }) {
+export default function MessagesView({ currentUser, initialChatUserId, onOpenReportModal, onRequireAuth }) {
+  if (!currentUser) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white rounded-2xl m-4 border border-slate-200 shadow-xs">
+        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
+          <MessageSquare className="w-8 h-8" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-800">Yêu cầu đăng nhập</h3>
+        <p className="text-sm text-slate-500 mt-1 max-w-sm">
+          Người dùng chưa đăng nhập sẽ không sử dụng được chức năng nhắn tin. Vui lòng đăng nhập để tiếp tục.
+        </p>
+        <button
+          onClick={() => onRequireAuth && onRequireAuth("Vui lòng đăng nhập để sử dụng tính năng nhắn tin")}
+          className="mt-4 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+        >
+          Đăng nhập ngay
+        </button>
+      </div>
+    );
+  }
+
   // Tab danh sách bên trái: 'main' (Hộp thư chính) | 'requests' (Tin nhắn chờ từ người lạ)
   const [inboxTab, setInboxTab] = useState('main');
 
-  // Danh sách các cuộc trò chuyện mẫu (gồm cả bạn bè và người lạ)
-  const [conversations, setConversations] = useState([
-    // === 1. HỘP THƯ CHÍNH (BẠN BÈ / ĐÃ XÁC NHẬN) ===
-    {
-      id: 'c1',
-      status: 'accepted', // Đã vào hộp thư chính
-      user: {
-        id: 'u4',
-        name: 'Lê Hoàng Nam',
-        username: 'nam_le',
-        avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Vừa xong'
-      },
-      lastMessage: 'Hôm nay bài tập lớn tiến độ thế nào rồi ông?',
-      lastTime: '10:45',
-      unreadCount: 1,
-      messages: [
-        { id: 'm1', senderId: 'u4', text: 'Chào Linh! Dạo này thế nào rồi?', time: '10:30' },
-        { id: 'm2', senderId: 'current', text: 'Chào Nam! Mình đang hoàn thiện nốt phần AI kiểm duyệt và giao diện mạng xã hội đây.', time: '10:35' },
-        { id: 'm3', senderId: 'u4', text: 'Nghe xịn vậy! Có tích hợp cả PhoBERT nhận diện từ ngữ độc hại à?', time: '10:40' },
-        { id: 'm4', senderId: 'current', text: 'Đúng rồi, có cả mô hình PhoBERT chạy kiểm duyệt thời gian thực nữa.', time: '10:42' },
-        { id: 'm5', senderId: 'u4', text: 'Hôm nay bài tập lớn tiến độ thế nào rồi ông?', time: '10:45' }
-      ]
-    },
-    {
-      id: 'c2',
-      status: 'accepted',
-      user: {
-        id: 'u5',
-        name: 'Phạm Quỳnh Anh',
-        username: 'quynhanh_p',
-        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Đang hoạt động'
-      },
-      lastMessage: 'Cảm ơn bạn nhiều nhé! Giao diện đẹp lắm ✨',
-      lastTime: 'Hôm qua',
-      unreadCount: 0,
-      messages: [
-        { id: 'm20', senderId: 'current', text: 'Quỳnh Anh xem thử phần thiết kế mới chưa?', time: '14:20' },
-        { id: 'm21', senderId: 'u5', text: 'Cảm ơn bạn nhiều nhé! Giao diện đẹp lắm ✨', time: '14:25' }
-      ]
-    },
-    {
-      id: 'c3',
-      status: 'accepted',
-      user: {
-        id: 'u7',
-        name: 'Vũ Quốc Bảo',
-        username: 'bao_vq',
-        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Vừa xong'
-      },
-      lastMessage: 'Oke ông nhé, phần code API PostgreSQL chạy mượt rồi!',
-      lastTime: '08:30',
-      unreadCount: 0,
-      messages: [
-        { id: 'm30', senderId: 'u7', text: 'Linh ơi, schema database có cần bổ sung trường gì nữa không?', time: '08:15' },
-        { id: 'm31', senderId: 'current', text: 'Tôi vừa thêm bảng reports và appeals rồi đấy, Bảo test thử nhé!', time: '08:22' },
-        { id: 'm32', senderId: 'u7', text: 'Oke ông nhé, phần code API PostgreSQL chạy mượt rồi!', time: '08:30' }
-      ]
-    },
-    {
-      id: 'c4',
-      status: 'accepted',
-      user: {
-        id: 'u3',
-        name: 'Trần Thị Mai',
-        username: 'maitran_cute',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        isOnline: false,
-        isFriend: true,
-        lastSeen: '1 giờ trước'
-      },
-      lastMessage: 'Chiều nay nhóm mình có họp thảo luận slide báo cáo không bạn?',
-      lastTime: 'Hôm qua',
-      unreadCount: 0,
-      messages: [
-        { id: 'm40', senderId: 'u3', text: 'Chào Linh! Mai vừa xem xong phần Admin Dashboard, trực quan lắm!', time: '16:00' },
-        { id: 'm41', senderId: 'current', text: 'Cảm ơn Mai nhé, chiều nay nhóm mình chốt phần demo nhé.', time: '16:15' },
-        { id: 'm42', senderId: 'u3', text: 'Chiều nay nhóm mình có họp thảo luận slide báo cáo không bạn?', time: 'Hôm qua' }
-      ]
-    },
-    {
-      id: 'c5',
-      status: 'accepted',
-      user: {
-        id: 'u2',
-        name: 'Nguyễn Văn An',
-        username: 'vanan_nguyen',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        isOnline: true,
-        isFriend: true,
-        lastSeen: 'Đang hoạt động'
-      },
-      lastMessage: 'File dataset PhoBERT mới gửi qua email rồi nhé ông.',
-      lastTime: 'Thứ 3',
-      unreadCount: 0,
-      messages: [
-        { id: 'm50', senderId: 'u2', text: 'An vừa lọc thêm 500 mẫu câu tiếng Việt gán nhãn Toxic/Violence.', time: '09:00' },
-        { id: 'm51', senderId: 'current', text: 'Hay quá An, để tôi import vào file retraining dataset nhé.', time: '09:10' },
-        { id: 'm52', senderId: 'u2', text: 'File dataset PhoBERT mới gửi qua email rồi nhé ông.', time: 'Thứ 3' }
-      ]
-    },
-
-    // === 2. TIN NHẮN CHỜ (NGƯỜI LẠ CHƯA XÁC NHẬN) ===
-    {
-      id: 'req_c1',
-      status: 'pending', // Tin nhắn chờ từ người lạ
-      user: {
-        id: 'stranger_1',
-        name: 'Trần Minh Tuấn',
-        username: 'tuan_tran_ai',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        isOnline: false,
-        isFriend: false,
-        lastSeen: '30 phút trước',
-        mutualFriends: 2
-      },
-      lastMessage: 'Chào bạn, mình thấy bạn làm đề tài kiểm duyệt PhoBERT hay quá, có thể cho mình xin tham khảo không?',
-      lastTime: '09:12',
-      unreadCount: 1,
-      messages: [
-        { 
-          id: 'rm1', 
-          senderId: 'stranger_1', 
-          text: 'Chào bạn, mình thấy bạn làm đề tài kiểm duyệt PhoBERT hay quá, có thể cho mình xin tham khảo không?', 
-          time: '09:12' 
-        }
-      ]
-    },
-    {
-      id: 'req_c2',
-      status: 'pending',
-      user: {
-        id: 'stranger_2',
-        name: 'Ngô Thanh Hà',
-        username: 'thanhha_design',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        isOnline: true,
-        isFriend: false,
-        lastSeen: 'Vừa xong',
-        mutualFriends: 0
-      },
-      lastMessage: 'Hello Linh, bạn có tham gia nhóm Nghiên cứu Trí tuệ Nhân tạo không?',
-      lastTime: 'Hôm qua',
-      unreadCount: 1,
-      messages: [
-        { 
-          id: 'rm2', 
-          senderId: 'stranger_2', 
-          text: 'Hello Linh, bạn có tham gia nhóm Nghiên cứu Trí tuệ Nhân tạo không?', 
-          time: '18:40' 
-        }
-      ]
-    }
-  ]);
+  // Danh sách các cuộc trò chuyện thực tế từ CSDL
+  const [conversations, setConversations] = useState([]);
 
   // Cuộc trò chuyện đang chọn
-  const [selectedConversationId, setSelectedConversationId] = useState('c1');
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [activeMessages, setActiveMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -187,14 +49,146 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const selectedConversationIdRef = useRef(selectedConversationId);
+  selectedConversationIdRef.current = selectedConversationId;
 
   // Đếm số lượng tin nhắn chờ từ người lạ
   const pendingRequestsCount = conversations.filter(c => c.status === 'pending').length;
 
   // Lấy hội thoại hiện tại
-  const currentConversation = conversations.find(c => c.id === selectedConversationId);
+  const currentConversation = conversations.find(c => String(c.id) === String(selectedConversationId));
 
-  const prevMessagesLengthRef = useRef(currentConversation?.messages.length || 0);
+  const prevMessagesLengthRef = useRef(activeMessages.length);
+
+  // Tải danh sách cuộc trò chuyện từ Backend FastAPI (giữ nguyên messages của conversation đã nạp)
+  const loadServerConversations = async (autoSelect = false) => {
+    if (!currentUser) return;
+    try {
+      const data = await messageService.getConversations();
+      if (data && Array.isArray(data)) {
+        setConversations(prev => {
+          return data.map(c => {
+            const existing = prev.find(p => String(p.id) === String(c.id));
+            return {
+              id: String(c.id),
+              status: c.status,
+              user: {
+                id: c.user.id,
+                name: c.user.name,
+                username: c.user.username,
+                avatar: c.user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+                isOnline: c.user.is_online,
+                isFriend: c.user.is_friend,
+                bio: c.user.bio,
+                lastSeen: 'Vừa xong'
+              },
+              lastMessage: c.last_message || 'Bắt đầu cuộc trò chuyện',
+              lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
+              unreadCount: c.unread_count || 0,
+              messages: existing ? (existing.messages || []) : []
+            };
+          });
+        });
+
+        if (autoSelect && data.length > 0 && !selectedConversationIdRef.current) {
+          const firstId = String(data[0].id);
+          setSelectedConversationId(firstId);
+        }
+      } else {
+        setConversations([]);
+      }
+    } catch (err) {
+      console.warn("Lỗi nạp danh sách cuộc trò chuyện:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+      loadServerConversations(true);
+    }
+  }, [currentUser]);
+
+  // Tải tin nhắn của cuộc trò chuyện đang chọn từ CSDL
+  const loadMessages = async (convId) => {
+    if (!convId || !currentUser) return;
+    try {
+      const msgs = await messageService.getMessages(convId);
+      if (msgs && Array.isArray(msgs)) {
+        const formattedMsgs = msgs.map(m => ({
+          id: m.id,
+          senderId: m.sender_id === currentUser.id ? 'current' : m.sender_id,
+          text: m.content,
+          time: new Date(m.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          status: m.status || 'sent'
+        }));
+
+        if (String(convId) === String(selectedConversationIdRef.current)) {
+          setActiveMessages(prev => {
+            // Giữ lại các tin nhắn đang gửi hoặc gửi thất bại chưa đồng bộ lên server
+            const pending = prev.filter(m => (m.status === 'sending' || m.status === 'failed') && !formattedMsgs.some(f => f.text === m.text));
+            return [...formattedMsgs, ...pending];
+          });
+        }
+
+        setConversations(prev => prev.map(c => {
+          if (String(c.id) === String(convId)) {
+            return {
+              ...c,
+              messages: formattedMsgs,
+              unreadCount: 0
+            };
+          }
+          return c;
+        }));
+      }
+    } catch (err) {
+      console.warn("Lỗi tải tin nhắn:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedConversationId) {
+      loadMessages(selectedConversationId);
+    } else {
+      setActiveMessages([]);
+    }
+  }, [selectedConversationId]);
+
+  // Polling chu kỳ 3s để đồng bộ tin nhắn mới và trạng thái xem từ người khác
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(() => {
+      loadServerConversations(false);
+      if (selectedConversationIdRef.current) {
+        loadMessages(selectedConversationIdRef.current);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Tự động chọn cuộc trò chuyện khi nhận initialChatUserId (từ Trang cá nhân hoặc Bạn bè)
+  useEffect(() => {
+    if (!initialChatUserId) return;
+
+    const existing = conversations.find(c => c.user?.id === initialChatUserId);
+    if (existing) {
+      setSelectedConversationId(existing.id);
+      setMobileShowChat(true);
+      return;
+    }
+
+    // Nếu chưa có trong danh sách hiển thị, gọi API tạo/lấy hội thoại
+    if (currentUser) {
+      messageService.getOrCreateConversation(initialChatUserId).then(res => {
+        if (res && res.conversation_id) {
+          loadServerConversations(false).then(() => {
+            setSelectedConversationId(String(res.conversation_id));
+            setMobileShowChat(true);
+          });
+        }
+      }).catch(console.warn);
+    }
+  }, [initialChatUserId, currentUser]);
 
   // Khi CHUYỂN cuộc trò chuyện: Đặt vị trí cuộn xuống đáy TỨC THÌ (0ms, không trượt animation)
   useEffect(() => {
@@ -205,13 +199,13 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     };
     scrollToBottomInstant();
     const frameId = requestAnimationFrame(scrollToBottomInstant);
-    prevMessagesLengthRef.current = currentConversation?.messages.length || 0;
+    prevMessagesLengthRef.current = activeMessages.length;
     return () => cancelAnimationFrame(frameId);
   }, [selectedConversationId]);
 
   // Khi CÓ TIN NHẮN MỚI hoặc ĐANG GÕ: Cuộn mượt mà trong nội bộ container tin nhắn
   useEffect(() => {
-    const currentLen = currentConversation?.messages.length || 0;
+    const currentLen = activeMessages.length;
     if (currentLen > prevMessagesLengthRef.current || isTyping) {
       if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTo({
@@ -221,16 +215,28 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       }
     }
     prevMessagesLengthRef.current = currentLen;
-  }, [currentConversation?.messages.length, isTyping]);
+  }, [activeMessages.length, isTyping]);
 
-  // Chọn hội thoại
+  // Chọn hội thoại và đánh dấu đã xem
   const handleSelectConversation = (convId) => {
-    if (convId === selectedConversationId) return;
-    setSelectedConversationId(convId);
+    if (String(convId) === String(selectedConversationId)) return;
+    const strId = String(convId);
+    setSelectedConversationId(strId);
     setMobileShowChat(true);
+
+    const existing = conversations.find(c => String(c.id) === strId);
+    if (existing && existing.messages && existing.messages.length > 0) {
+      setActiveMessages(existing.messages);
+    } else {
+      setActiveMessages([]);
+    }
+
     setConversations(prev => prev.map(c => 
-      c.id === convId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
+      String(c.id) === strId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
     ));
+    if (currentUser && !isNaN(convId)) {
+      messageService.markRead(convId);
+    }
   };
 
   // HÀNH ĐỘNG 1: Chấp nhận cuộc trò chuyện từ người lạ -> Chuyển sang hộp thư chính
@@ -239,12 +245,15 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       if (c.id === convId) {
         return {
           ...c,
-          status: 'accepted' // Chuyển thành chính thức
+          status: 'accepted'
         };
       }
       return c;
     }));
-    setInboxTab('main'); // Tự động chuyển view sang Hộp thư chính
+    setInboxTab('main');
+    if (currentUser && !isNaN(convId)) {
+      messageService.acceptConversation(convId);
+    }
   };
 
   // HÀNH ĐỘNG 2: Xóa / Từ chối cuộc trò chuyện từ người lạ
@@ -254,73 +263,159 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       setConversations(remaining);
       const nextConv = remaining.find(c => c.status === inboxTab) || remaining[0];
       setSelectedConversationId(nextConv?.id || null);
+      if (currentUser && !isNaN(convId)) {
+        messageService.declineConversation(convId);
+      }
     }
   };
 
-  // Gửi tin nhắn
-  const handleSendMessage = (e) => {
+  // Xử lý gửi tin nhắn (Bằng nút Gửi hoặc phím Enter)
+  const handleSendMessage = async (e) => {
     e?.preventDefault();
-    if (!inputText.trim() || !selectedConversationId) return;
+    const content = inputText.trim();
+    if (!content || !selectedConversationId) return; // Nút gửi bị vô hiệu hóa khi ô trống
 
-    const newMsgText = inputText.trim();
     const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const tempId = 'msg-' + Date.now();
 
-    const newMsg = {
-      id: 'm-' + Date.now(),
+    // 1. Trạng thái 1: Đang gửi (optimistic message)
+    const optimisticMsg = {
+      id: tempId,
       senderId: 'current',
-      text: newMsgText,
-      time: timeNow
+      text: content,
+      time: timeNow,
+      status: 'sending'
     };
 
+    setInputText('');
+    setActiveMessages(prev => [...prev, optimisticMsg]);
     setConversations(prev => prev.map(c => {
-      if (c.id === selectedConversationId) {
+      if (String(c.id) === String(selectedConversationId)) {
         return {
           ...c,
-          lastMessage: newMsgText,
+          lastMessage: content,
           lastTime: timeNow,
-          messages: [...c.messages, newMsg]
+          messages: [...(c.messages || []), optimisticMsg]
         };
       }
       return c;
     }));
 
-    setInputText('');
+    // Gửi tin nhắn qua Backend
+    const targetUserId = currentConversation?.user?.id;
+    try {
+      let serverMsg = null;
+      if (currentUser && targetUserId) {
+        serverMsg = await messageService.sendMessage(targetUserId, content);
+      }
 
-    // Giả lập đối phương phản hồi sau 1.5s
-    setTimeout(() => {
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        const autoReplies = [
-          'Tuyệt vời quá! Cứ phát huy nhé 👍',
-          'Oke nhận thông tin rồi nè! Để mình xem qua nhé.',
-          'Cảm ơn bạn đã phản hồi nhanh nhé!',
-          'Được nha, lát mình nhắn tiếp cho bạn.'
-        ];
-        const randomReply = autoReplies[Math.floor(Math.random() * autoReplies.length)];
-        const replyTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      // Trạng thái 2: Đã gửi (Server đã nhận và lưu thành công)
+      setActiveMessages(prev => prev.map(m => m.id === tempId ? {
+        ...m,
+        id: serverMsg ? serverMsg.id : m.id,
+        status: serverMsg?.status || 'sent'
+      } : m));
 
-        setConversations(prev => prev.map(c => {
-          if (c.id === selectedConversationId) {
-            return {
-              ...c,
-              lastMessage: randomReply,
-              lastTime: replyTime,
-              messages: [
-                ...c.messages,
-                {
-                  id: 'reply-' + Date.now(),
-                  senderId: c.user.id,
-                  text: randomReply,
-                  time: replyTime
-                }
-              ]
-            };
-          }
-          return c;
-        }));
-      }, 1500);
-    }, 600);
+      setConversations(prev => prev.map(c => {
+        if (String(c.id) === String(selectedConversationId)) {
+          return {
+            ...c,
+            messages: (c.messages || []).map(m => m.id === tempId ? {
+              ...m,
+              id: serverMsg ? serverMsg.id : m.id,
+              status: serverMsg?.status || 'sent'
+            } : m)
+          };
+        }
+        return c;
+      }));
+
+      loadServerConversations(false);
+    } catch (err) {
+      console.warn("Lỗi gửi tin nhắn:", err);
+      // Sự cố hệ thống / Mất kết nối mạng: Chuyển sang 'failed' (Gửi thất bại kèm nút Gửi lại)
+      setActiveMessages(prev => prev.map(m => m.id === tempId ? {
+        ...m,
+        status: 'failed'
+      } : m));
+
+      setConversations(prev => prev.map(c => {
+        if (String(c.id) === String(selectedConversationId)) {
+          return {
+            ...c,
+            messages: (c.messages || []).map(m => m.id === tempId ? {
+              ...m,
+              status: 'failed'
+            } : m)
+          };
+        }
+        return c;
+      }));
+    }
+  };
+
+  // Xử lý gửi lại khi tin nhắn bị thất bại (Retry button)
+  const handleRetryMessage = async (failedMsg) => {
+    // 1. Chuyển lại trạng thái thành "Đang gửi"
+    setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m));
+    setConversations(prev => prev.map(c => {
+      if (String(c.id) === String(selectedConversationId)) {
+        return {
+          ...c,
+          messages: (c.messages || []).map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m)
+        };
+      }
+      return c;
+    }));
+
+    const targetUserId = currentConversation?.user?.id;
+    try {
+      let serverMsg = null;
+      if (currentUser && targetUserId) {
+        serverMsg = await messageService.sendMessage(targetUserId, failedMsg.text);
+      }
+
+      // Đã gửi
+      setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? {
+        ...m,
+        id: serverMsg ? serverMsg.id : m.id,
+        status: serverMsg?.status || 'sent'
+      } : m));
+
+      setConversations(prev => prev.map(c => {
+        if (String(c.id) === String(selectedConversationId)) {
+          return {
+            ...c,
+            messages: (c.messages || []).map(m => m.id === failedMsg.id ? {
+              ...m,
+              id: serverMsg ? serverMsg.id : m.id,
+              status: serverMsg?.status || 'sent'
+            } : m)
+          };
+        }
+        return c;
+      }));
+
+      loadServerConversations(false);
+    } catch (err) {
+      setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? {
+        ...m,
+        status: 'failed'
+      } : m));
+
+      setConversations(prev => prev.map(c => {
+        if (String(c.id) === String(selectedConversationId)) {
+          return {
+            ...c,
+            messages: (c.messages || []).map(m => m.id === failedMsg.id ? {
+              ...m,
+              status: 'failed'
+            } : m)
+          };
+        }
+        return c;
+      }));
+    }
   };
 
   // Lọc cuộc trò chuyện theo Tab (Chính hay Tin nhắn chờ) và theo ô tìm kiếm
@@ -330,6 +425,16 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                         c.user.username.toLowerCase().includes(searchTerm.toLowerCase());
     return matchTab && matchSearch;
   });
+
+  // Tìm ID tin nhắn đã xem mới nhất của chính mình để chỉ hiển thị avatar ở tin nhắn đó
+  let lastReadMessageId = null;
+  for (let i = activeMessages.length - 1; i >= 0; i--) {
+    const m = activeMessages[i];
+    if (m.senderId === 'current' && (m.status === 'read' || !m.status)) {
+      lastReadMessageId = String(m.id);
+      break;
+    }
+  }
 
   return (
     <main className={`w-full h-full min-h-0 flex flex-col overflow-hidden transition-all duration-200 ${
@@ -426,12 +531,24 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
             {displayedConversations.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 {inboxTab === 'main' ? (
-                  <p>Không có cuộc trò chuyện nào trong Hộp thư chính</p>
+                  <div className="py-6 flex flex-col items-center">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-3">
+                      <MessageSquare className="w-6 h-6" />
+                    </div>
+                    <p className="font-bold text-slate-700">Chưa có cuộc trò chuyện nào</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
+                      Vào trang cá nhân bạn bè hoặc mục Bạn bè để bấm "Nhắn tin" bắt đầu trò chuyện!
+                    </p>
+                  </div>
                 ) : (
-                  <div>
-                    <CheckCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2 opacity-60" />
-                    <p className="font-medium text-slate-600">Không có tin nhắn chờ nào</p>
-                    <p className="text-xs text-slate-400 mt-1">Khi người lạ nhắn tin, họ sẽ xuất hiện tại đây.</p>
+                  <div className="py-6 flex flex-col items-center">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mb-3">
+                      <CheckCheck className="w-6 h-6" />
+                    </div>
+                    <p className="font-bold text-slate-700">Không có tin nhắn chờ nào</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
+                      Khi người lạ gửi tin nhắn đến, yêu cầu sẽ xuất hiện tại đây.
+                    </p>
                   </div>
                 )}
               </div>
@@ -664,41 +781,97 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
                 {/* Nhóm danh sách các tin nhắn */}
                 <div className="space-y-4 w-full">
-                  {currentConversation.messages.map((msg) => {
+                  {activeMessages.map((msg) => {
                     const isMe = msg.senderId === 'current';
+                    const isLastRead = isMe && String(msg.id) === lastReadMessageId;
                     return (
-                      <div
-                        key={msg.id}
-                        className={'flex items-end gap-2.5 ' + (isMe ? 'justify-end' : 'justify-start')}
-                      >
-                        {!isMe && (
-                          <img
-                            src={currentConversation.user.avatar}
-                            alt=""
-                            className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100"
-                          />
-                        )}
+                        <div
+                          key={msg.id}
+                          className={'flex items-end gap-2.5 ' + (isMe ? 'justify-end' : 'justify-start')}
+                        >
+                          {!isMe && (
+                            <img
+                              src={currentConversation.user.avatar}
+                              alt=""
+                              className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100"
+                            />
+                          )}
 
-                        <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative ' + (isMe ? 'items-end' : 'items-start')}>
-                          <div
-                            className={
-                              'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
-                              (isMe
-                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
-                                : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
-                            }
-                          >
-                            {msg.text}
-                          </div>
-                          <div
-                            className={
-                              'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
-                              (isMe ? 'justify-end' : 'justify-start')
-                            }
-                          >
-                            <span>{msg.time}</span>
-                            {isMe ? (
-                              <CheckCheck className="w-3 h-3 text-blue-500" />
+                          <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative ' + (isMe ? 'items-end' : 'items-start')}>
+                            <div
+                              className={
+                                'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
+                                (isMe
+                                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
+                                  : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
+                              }
+                            >
+                              {msg.text}
+                            </div>
+                            <div
+                              className={
+                                'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
+                                (isMe ? 'justify-end' : 'justify-start')
+                              }
+                            >
+                              <span>{msg.time}</span>
+                              {isMe ? (
+                                <div className="flex items-center gap-1.5">
+                                  {/* Trạng thái 1: Đang gửi */}
+                                  {msg.status === 'sending' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium animate-pulse" title="Đang gửi...">
+                                      <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                                      <span>Đang gửi...</span>
+                                    </span>
+                                  )}
+
+                                  {/* Trạng thái 2: Đã gửi */}
+                                  {msg.status === 'sent' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title="Đã gửi">
+                                      <Check className="w-3 h-3 text-slate-400" />
+                                      <span>Đã gửi</span>
+                                    </span>
+                                  )}
+
+                                  {/* Trạng thái 3: Đã nhận */}
+                                  {msg.status === 'delivered' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium" title="Đã nhận">
+                                      <CheckCheck className="w-3.5 h-3.5 text-slate-400" />
+                                      <span>Đã nhận</span>
+                                    </span>
+                                  )}
+
+                                  {/* Trạng thái 4: Đã xem (Chỉ hiển thị avatar ở tin nhắn đã xem mới nhất) */}
+                                  {(msg.status === 'read' || !msg.status) && isLastRead && (
+                                    <div 
+                                      className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
+                                      title={`Đã xem bởi ${currentConversation.user.name}`}
+                                    >
+                                      <span>Đã xem</span>
+                                      <img
+                                        src={currentConversation.user.avatar}
+                                        alt={currentConversation.user.name}
+                                        className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
+                                      />
+                                    </div>
+                                  )}
+
+                                {/* Trạng thái lỗi: Gửi thất bại kèm nút Gửi lại */}
+                                {msg.status === 'failed' && (
+                                  <div className="flex items-center gap-1.5 text-rose-500 font-medium">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="text-[10px]">Gửi thất bại</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRetryMessage(msg)}
+                                      className="ml-0.5 px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                      title="Nhấn để gửi lại tin nhắn này"
+                                    >
+                                      <RotateCw className="w-2.5 h-2.5" /> Gửi lại
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <button
                                 onClick={() => {
@@ -742,7 +915,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                 </div>
               </div>
 
-              {/* Thanh nhập tin nhắn */}
+              {/* Thanh nhập tin nhắn (Gửi bằng nút gửi hoặc Enter) */}
               <form 
                 onSubmit={handleSendMessage}
                 className="shrink-0 p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center gap-2"
@@ -767,20 +940,29 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                   placeholder={
                     currentConversation.status === 'pending'
                       ? 'Chấp nhận cuộc trò chuyện để trả lời...'
-                      : ('Nhắn tin cho ' + currentConversation.user.name + '...')
+                      : ('Nhắn tin cho ' + currentConversation.user.name + '... (Nhấn Enter để gửi)')
                   }
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (inputText.trim()) {
+                        handleSendMessage(e);
+                      }
+                    }
+                  }}
                   className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 focus:ring-4 focus:ring-blue-100 outline-none transition"
                 />
 
                 <button
                   type="submit"
                   disabled={!inputText.trim()}
+                  title={inputText.trim() ? "Gửi tin nhắn (Enter)" : "Nhập nội dung để gửi"}
                   className={
-                    'p-2.5 rounded-full text-white transition shadow-sm cursor-pointer ' +
+                    'p-2.5 rounded-full text-white transition shadow-sm ' +
                     (inputText.trim()
-                      ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105'
+                      ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105 cursor-pointer'
                       : 'bg-slate-300 cursor-not-allowed opacity-60')
                   }
                 >

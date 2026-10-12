@@ -18,16 +18,22 @@ const REACTIONS = [
 
 export default function ProfileView({ 
   currentUser, 
+  viewedUser,
   posts, 
   onAddPost, 
   onToggleLike, 
   onAddComment,
-  onUpdateUser
+  onUpdateUser,
+  onOpenChat,
+  onRequireAuth
 }) {
+  const activeUser = viewedUser || currentUser || {};
+  const isOwnProfile = !viewedUser || (currentUser && viewedUser.id === currentUser.id);
+
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels'
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
   const [isEditingBio, setIsEditingBio] = useState(false);
-  const [bioInput, setBioInput] = useState(currentUser.bio || '');
+  const [bioInput, setBioInput] = useState(activeUser.bio || '');
   const [newPostText, setNewPostText] = useState('');
   const [newPostImage, setNewPostImage] = useState('');
   const [showImageInput, setShowImageInput] = useState(false);
@@ -45,8 +51,8 @@ export default function ProfileView({
     onToggleLike(postId);
   };
 
-  // Lấy các bài viết của chính người dùng này
-  const userPosts = posts.filter(post => post.author.id === currentUser.id);
+  // Lấy các bài viết của người dùng đang được hiển thị
+  const userPosts = posts.filter(post => post.author && (post.author.id === activeUser.id));
 
   // Bộ sưu tập 9 ảnh mẫu cho mục "Ảnh"
   const photoGrid = [
@@ -129,18 +135,20 @@ export default function ProfileView({
           {/* Ảnh bìa (Cover photo) */}
           <div className="relative h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl sm:rounded-b-3xl overflow-hidden bg-slate-200 shadow-inner">
             <img 
-              src={currentUser.coverImage} 
+              src={activeUser.cover || activeUser.coverImage || activeUser.cover_url || "https://images.unsplash.com/photo-1707343843437-caacff5cfa74?w=1200&auto=format&fit=crop&q=80"} 
               alt="Cover" 
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-            <button 
-              onClick={() => alert("Chức năng thay đổi ảnh bìa")}
-              className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 text-xs sm:text-sm font-semibold rounded-xl shadow-md transition duration-150 backdrop-blur-xs"
-            >
-              <Camera className="w-4 h-4" />
-              <span>Chỉnh sửa ảnh bìa</span>
-            </button>
+            {isOwnProfile && (
+              <button 
+                onClick={() => alert("Chức năng thay đổi ảnh bìa")}
+                className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 text-xs sm:text-sm font-semibold rounded-xl shadow-md transition duration-150 backdrop-blur-xs cursor-pointer"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Chỉnh sửa ảnh bìa</span>
+              </button>
+            )}
           </div>
 
           {/* Hàng thông tin Avatar + Tên + Nút hành động */}
@@ -152,44 +160,46 @@ export default function ProfileView({
               {/* Chỉ Avatar mới có negative margin để nổi lên trên ảnh bìa */}
               <div className="relative group shrink-0 -mt-20 sm:-mt-28">
                 <img 
-                  src={currentUser.avatar} 
-                  alt={currentUser.name} 
+                  src={activeUser.avatar || activeUser.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"} 
+                  alt={activeUser.name || activeUser.full_name} 
                   className="w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover ring-4 ring-white shadow-xl bg-white"
                 />
-                <button 
-                  onClick={() => alert("Chức năng đổi ảnh đại diện")}
-                  className="absolute bottom-2 right-2 p-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-full shadow-md border-2 border-white transition"
-                  title="Cập nhật ảnh đại diện"
-                >
-                  <Camera className="w-5 h-5" />
-                </button>
+                {isOwnProfile && (
+                  <button 
+                    onClick={() => alert("Chức năng đổi ảnh đại diện")}
+                    className="absolute bottom-2 right-2 p-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-full shadow-md border-2 border-white transition cursor-pointer"
+                    title="Cập nhật ảnh đại diện"
+                  >
+                    <Camera className="w-5 h-5" />
+                  </button>
+                )}
               </div>
 
               {/* Tên & Số người bạn & Nơi ở: Nằm hoàn toàn ở phần nền trắng bên dưới, tách bạch rõ ràng */}
               <div className="space-y-1.5 mb-2 mt-2 sm:mt-6">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
                   <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                    {currentUser.name}
+                    {activeUser.name || activeUser.full_name}
                   </h1>
-                  {currentUser.isVerified && (
+                  {activeUser.isVerified && (
                     <CheckCircle2 className="w-5 h-5 text-blue-500 fill-blue-500 shrink-0" />
                   )}
                 </div>
 
                 <p className="text-sm font-semibold text-slate-500">
-                  {currentUser.friendsCount || 309} người bạn
+                  {activeUser.friendsCount || 309} người bạn
                 </p>
 
                 {/* Dòng tóm tắt địa điểm & trường học như trên Facebook */}
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 text-xs text-slate-600 pt-0.5">
                   <span className="flex items-center gap-1 font-medium bg-slate-100 px-2 py-0.5 rounded-md">
                     <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                    {currentUser.location || "Vũng Tàu"}
+                    {activeUser.location || "Vũng Tàu"}
                   </span>
                   <span className="text-slate-300">•</span>
                   <span className="flex items-center gap-1 font-medium bg-slate-100 px-2 py-0.5 rounded-md">
                     <GraduationCap className="w-3.5 h-3.5 text-slate-500" />
-                    {currentUser.highSchool || "Trường THPT Hòa Hội"}
+                    {activeUser.highSchool || "Trường THPT Hòa Hội"}
                   </span>
                 </div>
               </div>
@@ -198,26 +208,42 @@ export default function ProfileView({
 
             {/* Các nút hành động bên phải */}
             <div className="flex items-center justify-center sm:justify-end gap-2.5 pb-2">
-              <button 
-                onClick={() => setIsEditingBio(true)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition duration-150"
-              >
-                <Edit2 className="w-4 h-4" />
-                <span>Chỉnh sửa trang cá nhân</span>
-              </button>
+              {isOwnProfile ? (
+                <button 
+                  onClick={() => setIsEditingBio(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition duration-150 cursor-pointer"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span>Chỉnh sửa trang cá nhân</span>
+                </button>
+              ) : (
+                <button 
+                  onClick={() => {
+                    if (!currentUser) {
+                      onRequireAuth ? onRequireAuth("Vui lòng đăng nhập để sử dụng tính năng nhắn tin") : alert("Vui lòng đăng nhập để nhắn tin");
+                    } else {
+                      onOpenChat && onOpenChat(activeUser);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition duration-150 cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Nhắn tin</span>
+                </button>
+              )}
 
               <button 
                 onClick={() => {
                   navigator.clipboard?.writeText(window.location.href);
                   alert("Đã sao chép liên kết trang cá nhân!");
                 }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-200 hover:bg-slate-300/80 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150"
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-200 hover:bg-slate-300/80 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer"
               >
                 <Share2 className="w-4 h-4" />
                 <span>Chia sẻ trang</span>
               </button>
 
-              <button className="p-2 bg-slate-200 hover:bg-slate-300/80 text-slate-800 rounded-xl transition">
+              <button className="p-2 bg-slate-200 hover:bg-slate-300/80 text-slate-800 rounded-xl transition cursor-pointer">
                 <MoreHorizontal className="w-5 h-5" />
               </button>
             </div>
@@ -510,79 +536,81 @@ export default function ProfileView({
           {/* ================= CỘT PHẢI (BẠN ĐANG NGHĨ GÌ? & BÀI VIẾT ĐÃ TỪNG ĐĂNG) ================= */}
           <div className="lg:col-span-7 xl:col-span-8 space-y-4">
             
-            {/* Box 1: "Bạn đang nghĩ gì?" (Khung tạo bài viết cá nhân chuẩn Facebook) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
-              <div className="flex items-center gap-3">
-                <img 
-                  src={currentUser.avatar} 
-                  alt={currentUser.name} 
-                  className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
-                />
-                <input
-                  type="text"
-                  value={newPostText}
-                  onChange={(e) => setNewPostText(e.target.value)}
-                  placeholder="Bạn đang nghĩ gì?"
-                  className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/70 focus:bg-white text-xs sm:text-sm text-slate-800 placeholder-slate-500 rounded-full border border-transparent focus:border-blue-400 outline-none transition"
-                />
-              </div>
-
-              {/* Ô chèn link ảnh */}
-              {showImageInput && (
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            {/* Box 1: "Bạn đang nghĩ gì?" (Khung tạo bài viết cá nhân chuẩn Facebook - chỉ hiện khi xem trang của chính mình) */}
+            {isOwnProfile && currentUser && (
+              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
+                <div className="flex items-center gap-3">
+                  <img 
+                    src={currentUser?.avatar || activeUser.avatar} 
+                    alt={currentUser?.name || activeUser.name} 
+                    className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
+                  />
                   <input
                     type="text"
-                    value={newPostImage}
-                    onChange={(e) => setNewPostImage(e.target.value)}
-                    placeholder="Dán link ảnh (URL) cần đính kèm..."
-                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none"
+                    value={newPostText}
+                    onChange={(e) => setNewPostText(e.target.value)}
+                    placeholder="Bạn đang nghĩ gì?"
+                    className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/70 focus:bg-white text-xs sm:text-sm text-slate-800 placeholder-slate-500 rounded-full border border-transparent focus:border-blue-400 outline-none transition"
                   />
-                  {newPostImage && (
-                    <img src={newPostImage} alt="Preview" className="h-40 w-full object-cover rounded-lg border" />
+                </div>
+
+                {/* Ô chèn link ảnh */}
+                {showImageInput && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <input
+                      type="text"
+                      value={newPostImage}
+                      onChange={(e) => setNewPostImage(e.target.value)}
+                      placeholder="Dán link ảnh (URL) cần đính kèm..."
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none"
+                    />
+                    {newPostImage && (
+                      <img src={newPostImage} alt="Preview" className="h-40 w-full object-cover rounded-lg border" />
+                    )}
+                  </div>
+                )}
+
+                <div className="h-px bg-slate-100 w-full" />
+
+                {/* 3 Nút tương tác: Video trực tiếp, Ảnh/video, Cột mốc */}
+                <div className="flex items-center justify-around text-xs font-bold text-slate-600">
+                  <button 
+                    onClick={() => alert("Tính năng phát trực tiếp!")}
+                    className="flex items-center justify-center gap-2 py-2 px-3 hover:bg-slate-50 rounded-xl flex-1 transition"
+                  >
+                    <Video className="w-5 h-5 text-rose-500" />
+                    <span className="hidden sm:inline">Video trực tiếp</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setShowImageInput(!showImageInput)}
+                    className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl flex-1 transition ${
+                      showImageInput ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <ImageIcon className="w-5 h-5 text-emerald-500" />
+                    <span>Ảnh/video</span>
+                  </button>
+
+                  <button 
+                    onClick={() => alert("Thêm cột mốc sự kiện!")}
+                    className="flex items-center justify-center gap-2 py-2 px-3 hover:bg-slate-50 rounded-xl flex-1 transition"
+                  >
+                    <Flag className="w-5 h-5 text-blue-500" />
+                    <span className="hidden sm:inline">Cột mốc</span>
+                  </button>
+
+                  {newPostText.trim() && (
+                    <button
+                      onClick={handleCreateProfilePost}
+                      className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition"
+                    >
+                      Đăng
+                    </button>
                   )}
                 </div>
-              )}
-
-              <div className="h-px bg-slate-100 w-full" />
-
-              {/* 3 Nút tương tác: Video trực tiếp, Ảnh/video, Cột mốc */}
-              <div className="flex items-center justify-around text-xs font-bold text-slate-600">
-                <button 
-                  onClick={() => alert("Tính năng phát trực tiếp!")}
-                  className="flex items-center justify-center gap-2 py-2 px-3 hover:bg-slate-50 rounded-xl flex-1 transition"
-                >
-                  <Video className="w-5 h-5 text-rose-500" />
-                  <span className="hidden sm:inline">Video trực tiếp</span>
-                </button>
-
-                <button 
-                  onClick={() => setShowImageInput(!showImageInput)}
-                  className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl flex-1 transition ${
-                    showImageInput ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <ImageIcon className="w-5 h-5 text-emerald-500" />
-                  <span>Ảnh/video</span>
-                </button>
-
-                <button 
-                  onClick={() => alert("Thêm cột mốc sự kiện!")}
-                  className="flex items-center justify-center gap-2 py-2 px-3 hover:bg-slate-50 rounded-xl flex-1 transition"
-                >
-                  <Flag className="w-5 h-5 text-blue-500" />
-                  <span className="hidden sm:inline">Cột mốc</span>
-                </button>
-
-                {newPostText.trim() && (
-                  <button
-                    onClick={handleCreateProfilePost}
-                    className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition"
-                  >
-                    Đăng
-                  </button>
-                )}
               </div>
-            </div>
+            )}
 
 
             {/* Box 2: Header "Bài viết" & Chuyển đổi Chế độ xem danh sách / lưới */}

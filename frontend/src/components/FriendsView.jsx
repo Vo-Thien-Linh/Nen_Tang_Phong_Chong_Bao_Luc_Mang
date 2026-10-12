@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { UserCheck, UserPlus, UserX, MessageCircle, Search, Clock, Users, Sparkles, Loader2 } from 'lucide-react';
 import { friendService } from '../services/friendService';
 
-export default function FriendsView({ onOpenChat }) {
+export default function FriendsView({ onOpenChat, onOpenProfile }) {
   const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -321,9 +321,15 @@ export default function FriendsView({ onOpenChat }) {
                       <img
                         src={friend.avatar}
                         alt={friend.name}
-                        className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-50 group-hover:scale-105 transition duration-200"
+                        onClick={() => onOpenProfile && onOpenProfile(friend)}
+                        className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-50 group-hover:scale-105 transition duration-200 cursor-pointer"
                       />
-                      <h4 className="font-bold text-slate-800 mt-3 truncate w-full">{friend.name}</h4>
+                      <h4 
+                        onClick={() => onOpenProfile && onOpenProfile(friend)}
+                        className="font-bold text-slate-800 mt-3 truncate w-full hover:text-blue-600 cursor-pointer transition"
+                      >
+                        {friend.name}
+                      </h4>
                       <p className="text-xs text-slate-400">@{friend.username}</p>
                       {friend.bio && (
                         <p className="text-xs text-slate-500 mt-2 line-clamp-2 px-1 min-h-[32px]">

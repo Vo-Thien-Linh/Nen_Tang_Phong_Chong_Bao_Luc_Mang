@@ -52,6 +52,7 @@ export default function App() {
   const [reportTarget, setReportTarget] = useState(null); // Đối tượng đang được mở modal báo cáo
   const [appealItem, setAppealItem] = useState(null);     // Nội dung đang được mở modal khiếu nại
   const [selectedChatUserId, setSelectedChatUserId] = useState(null);
+  const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
 
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
   useEffect(() => {
@@ -80,12 +81,23 @@ export default function App() {
   // Xử lý Chuyển Tab có Auth Guard
   const handleTabChange = (tab) => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin')) {
-      setAuthNoticeMessage("Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập");
+      const msg = tab === 'messages'
+        ? "Vui lòng đăng nhập để sử dụng tính năng nhắn tin"
+        : "Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập";
+      setAuthNoticeMessage(msg);
       setAuthModalTab('login');
       setIsAuthModalOpen(true);
       return;
     }
+    if (tab === 'profile') {
+      setViewedProfileUser(null); // Reset về trang cá nhân của mình
+    }
     setActiveTab(tab);
+  };
+
+  const handleOpenUserProfile = (user) => {
+    setViewedProfileUser(user);
+    setActiveTab('profile');
   };
 
   // Kích hoạt yêu cầu đăng nhập
@@ -457,9 +469,13 @@ export default function App() {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  // Mở đoạn chat từ trang Bạn bè
-  const handleOpenChatFromFriends = (friend) => {
-    setSelectedChatUserId(friend.id);
+  // Mở đoạn chat từ trang Bạn bè hoặc Trang cá nhân người khác
+  const handleOpenChatFromFriends = (user) => {
+    if (!currentUser) {
+      handleRequireAuth("Vui lòng đăng nhập để sử dụng tính năng nhắn tin");
+      return;
+    }
+    setSelectedChatUserId(user.id);
     setActiveTab('messages');
   };
 
@@ -507,12 +523,16 @@ export default function App() {
             }}
             onRequireLogin={handleRequireLogin}
             feedWarning={feedWarning}
+            onOpenProfile={handleOpenUserProfile}
           />
         )}
 
         {/* Tab 2: Bạn bè */}
         {activeTab === 'friends' && (
-          <FriendsView onOpenChat={handleOpenChatFromFriends} />
+          <FriendsView 
+            onOpenChat={handleOpenChatFromFriends} 
+            onOpenProfile={handleOpenUserProfile}
+          />
         )}
 
         {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn) */}
@@ -521,6 +541,7 @@ export default function App() {
             currentUser={currentUser} 
             initialChatUserId={selectedChatUserId} 
             onOpenReportModal={handleOpenReportModal}
+            onRequireAuth={handleRequireAuth}
           />
         )}
 
@@ -538,11 +559,14 @@ export default function App() {
         {activeTab === 'profile' && (
           <ProfileView 
             currentUser={currentUser}
+            viewedUser={viewedProfileUser}
             posts={posts}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
+            onOpenChat={handleOpenChatFromFriends}
+            onRequireAuth={handleRequireAuth}
           />
         )}
 

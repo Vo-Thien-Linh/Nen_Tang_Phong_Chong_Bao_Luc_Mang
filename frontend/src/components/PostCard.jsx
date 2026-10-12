@@ -22,7 +22,8 @@ export default function PostCard({
   onOpenReportModal,
   onOpenAppealModal,
   onRequireAuth,
-  onRequireLogin
+  onRequireLogin,
+  onOpenProfile
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -164,11 +165,15 @@ export default function PostCard({
           <img 
             src={post.author.avatar} 
             alt={post.author.name} 
-            className="w-11 h-11 rounded-full object-cover ring-2 ring-slate-100"
+            onClick={() => onOpenProfile && onOpenProfile(post.author)}
+            className="w-11 h-11 rounded-full object-cover ring-2 ring-slate-100 cursor-pointer hover:opacity-90 transition"
           />
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-sm font-bold text-slate-900 hover:text-blue-600 cursor-pointer">
+              <h3 
+                onClick={() => onOpenProfile && onOpenProfile(post.author)}
+                className="text-sm font-bold text-slate-900 hover:text-blue-600 cursor-pointer transition"
+              >
                 {post.author.name}
               </h3>
               {post.author.isVerified && (
