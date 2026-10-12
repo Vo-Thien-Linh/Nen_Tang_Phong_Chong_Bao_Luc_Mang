@@ -12,6 +12,7 @@ from app.routes.moderate import router as moderate_router
 from app.routes.admin import router as admin_router
 from app.routes.friend import router as friend_router
 from app.routes.message import router as message_router
+from app.routes.search import router as search_router
 
 # 1. Khởi tạo ứng dụng FastAPI với Swagger UI tài liệu tự động
 app = FastAPI(
@@ -75,6 +76,8 @@ app.include_router(friend_router, prefix="/api/v1")
 app.include_router(friend_router, prefix="/api")
 app.include_router(message_router, prefix="/api/v1")
 app.include_router(message_router, prefix="/api")
+app.include_router(search_router, prefix="/api/v1")
+app.include_router(search_router, prefix="/api")
 
 @app.get("/", tags=["Hệ thống"])
 def root():
