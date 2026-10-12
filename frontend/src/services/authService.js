@@ -160,12 +160,17 @@ export const authService = {
       throw new Error("Vui lòng nhập đầy đủ thông tin");
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: identifier.trim(), password: password.trim() })
+        body: JSON.stringify({ identifier: identifier.trim(), password: password.trim() }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -190,9 +195,15 @@ export const authService = {
 
       return { user, token: data.access_token };
     } catch (err) {
-      // Nếu Backend chưa bật, hỗ trợ Mock Fallback cho kiểm thử
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        console.warn("Backend FastAPI chưa bật hoặc mạng lỗi, chuyển sang cơ chế Offline Mock Test");
+      clearTimeout(timeoutId);
+      // Nếu Backend chưa bật hoặc phản hồi quá lâu (timeout), hỗ trợ Mock Fallback cho kiểm thử
+      const isNetworkOrTimeout = err.name === 'AbortError' || 
+                                 err.message.includes('Failed to fetch') || 
+                                 err.message.includes('NetworkError') ||
+                                 err.message.includes('aborted');
+
+      if (isNetworkOrTimeout) {
+        console.warn("Backend FastAPI chưa bật hoặc mạng lỗi / timeout, chuyển sang cơ chế Offline Mock Test");
         const identLower = identifier.trim().toLowerCase();
         const user = MOCK_DEMO_USERS.find(
           u => u.email.toLowerCase() === identLower || u.phone === identifier.trim()
@@ -254,6 +265,9 @@ export const authService = {
       throw new Error("Mật khẩu xác nhận không khớp");
     }
 
+    const regController = new AbortController();
+    const regTimeoutId = setTimeout(() => regController.abort(), 8000);
+
     try {
       const response = await fetch(`${API_BASE_URL}/register`, {
         method: 'POST',
@@ -264,8 +278,10 @@ export const authService = {
           phone: phone.trim(),
           password: password,
           confirm_password: confirmPassword
-        })
+        }),
+        signal: regController.signal
       });
+      clearTimeout(regTimeoutId);
 
       const data = await response.json();
       if (!response.ok) {
@@ -274,7 +290,13 @@ export const authService = {
 
       return data;
     } catch (err) {
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+      clearTimeout(regTimeoutId);
+      const isNetworkOrTimeout = err.name === 'AbortError' || 
+                                 err.message.includes('Failed to fetch') || 
+                                 err.message.includes('NetworkError') ||
+                                 err.message.includes('aborted');
+
+      if (isNetworkOrTimeout) {
         // Fallback offline mock test
         if (MOCK_DEMO_USERS.some(u => u.name === trimmedName)) {
           throw new Error("Tên đã được tồn tại");
