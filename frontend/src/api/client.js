@@ -42,6 +42,21 @@ export async function createPost({ userId, content, imageUrl }) {
   });
 }
 
+export async function updatePost({ userId, postId, content, imageUrl }) {
+  return request(`/api/posts/${postId}`, {
+    method: 'PUT',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ content, imageUrl }),
+  });
+}
+
+export async function deletePost({ userId, postId }) {
+  return request(`/api/posts/${postId}`, {
+    method: 'DELETE',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function createComment({ userId, postId, content }) {
   return request(`/api/posts/${postId}/comments`, {
     method: 'POST',
