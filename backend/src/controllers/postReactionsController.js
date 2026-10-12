@@ -6,6 +6,7 @@ export function createPostReactionsController({ reactionService }) {
           user: req.user,
           postId: req.params.postId,
           type: req.body?.type,
+          action: req.body?.action,
         });
 
         res.json({

@@ -20,7 +20,16 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, createComment } from './api/client';
+import { fetchPosts, createComment, updatePost, deletePost } from './api/client';
+import { applyUpdatedPostToList } from './utils/postActionLogic';
+import { closePostMenu, togglePostMenu } from './utils/menuLogic';
+import {
+  clearPostNotice,
+  countVisiblePosts,
+  markDeletedPostNotice,
+  markEditPostNotice,
+  removeDeletedNotice,
+} from './utils/noticeLogic';
 
 const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
@@ -38,6 +47,7 @@ export default function App() {
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
   const [posts, setPosts] = useState([]);
+  const [openPostMenuId, setOpenPostMenuId] = useState(null);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const [notifications, setNotifications] = useState(initialNotifications);
   
@@ -52,6 +62,7 @@ export default function App() {
   const [reportTarget, setReportTarget] = useState(null); // Đối tượng đang được mở modal báo cáo
   const [appealItem, setAppealItem] = useState(null);     // Nội dung đang được mở modal khiếu nại
   const [selectedChatUserId, setSelectedChatUserId] = useState(null);
+  const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
 
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
@@ -98,6 +109,24 @@ export default function App() {
   const handleOpenUserProfile = (user) => {
     setViewedProfileUser(user);
     setActiveTab('profile');
+  };
+
+  const handleTogglePostMenu = (postId) => {
+    setOpenPostMenuId(prev => togglePostMenu(prev, postId));
+  };
+
+  const handleClosePostMenu = () => {
+    setOpenPostMenuId(closePostMenu());
+  };
+
+  const handleDismissPostNotice = (postId) => {
+    setPosts(prev => {
+      const target = prev.find(post => String(post.id) === String(postId));
+      if (target?.inlineNotice?.type === 'delete') {
+        return removeDeletedNotice(prev, postId);
+      }
+      return clearPostNotice(prev, postId);
+    });
   };
 
   // Kích hoạt yêu cầu đăng nhập
@@ -178,16 +207,66 @@ export default function App() {
       return;
     }
     setPosts(prev => prev.map(post => {
-      if (post.id === postId) {
+      if (String(post.id) === String(postId)) {
         const isLiked = !post.isLiked;
         return {
           ...post,
           isLiked,
-          likesCount: isLiked ? post.likesCount + 1 : Math.max(0, post.likesCount - 1)
+          myReaction: isLiked ? (post.myReaction || 'like') : null,
+          likesCount: isLiked ? (post.likesCount || 0) + 1 : Math.max(0, (post.likesCount || 0) - 1)
         };
       }
       return post;
     }));
+  };
+
+  const handleUpdatePost = async (postId, changes) => {
+    if (!currentUser?.id) {
+      handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
+      throw new Error('Vui lòng đăng nhập để tiếp tục');
+    }
+
+    try {
+      const result = await updatePost({
+        userId: currentUser.id,
+        postId,
+        content: changes.content,
+        imageUrl: changes.imageUrl,
+      });
+      const updatedPost = result.data;
+      setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
+      return updatedPost;
+    } catch (error) {
+      if (error.status === 404) {
+        setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
+        )));
+        throw new Error('Bài viết không tồn tại');
+      }
+      throw new Error(error.message || 'Cập nhật bài viết thất bại');
+    }
+  };
+
+  const handleDeleteOwnPost = async (postId) => {
+    if (!currentUser?.id) {
+      handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
+      throw new Error('Vui lòng đăng nhập để tiếp tục');
+    }
+
+    try {
+      await deletePost({ userId: currentUser.id, postId });
+      setPosts(prev => prev.map(post => (
+        String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
+      )));
+    } catch (error) {
+      if (error.status === 404) {
+        setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
+        )));
+        throw new Error('Bài viết không tồn tại');
+      }
+      throw new Error(error.message || 'Xóa bài viết thất bại');
+    }
   };
 
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
@@ -220,6 +299,7 @@ export default function App() {
 
   // Cập nhật thông tin profile
   const handleUpdateUser = (updatedFields) => {
+    authService.updateCurrentUser(updatedFields);
     setCurrentUser(prev => ({
       ...prev,
       ...updatedFields
@@ -475,7 +555,15 @@ export default function App() {
       handleRequireAuth("Vui lòng đăng nhập để sử dụng tính năng nhắn tin");
       return;
     }
-    setSelectedChatUserId(user.id);
+    const userPayload = {
+      id: user.id || user.user_id,
+      name: user.name || user.full_name,
+      username: user.username,
+      avatar: user.avatar || user.avatar_url,
+      _ts: Date.now()
+    };
+    setSelectedChatUser(userPayload);
+    setSelectedChatUserId(userPayload.id);
     setActiveTab('messages');
   };
 
@@ -497,7 +585,7 @@ export default function App() {
           setIsAuthModalOpen(true);
         }}
         onLogout={handleLogout}
-        postsCount={posts.filter(p => p.author?.id === currentUser?.id).length}
+        postsCount={countVisiblePosts(posts.filter(p => p.author?.id === currentUser?.id))}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -524,6 +612,12 @@ export default function App() {
             onRequireLogin={handleRequireLogin}
             feedWarning={feedWarning}
             onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
           />
         )}
 
@@ -539,9 +633,11 @@ export default function App() {
         {activeTab === 'messages' && (
           <MessagesView 
             currentUser={currentUser} 
+            initialChatUser={selectedChatUser}
             initialChatUserId={selectedChatUserId} 
             onOpenReportModal={handleOpenReportModal}
             onRequireAuth={handleRequireAuth}
+            onOpenProfile={handleOpenUserProfile}
           />
         )}
 
@@ -560,12 +656,13 @@ export default function App() {
           <ProfileView 
             currentUser={currentUser}
             viewedUser={viewedProfileUser}
-            posts={posts}
+            posts={posts.filter(p => !p.inlineNotice)}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
             onOpenChat={handleOpenChatFromFriends}
+            onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
           />
         )}

@@ -1,10 +1,11 @@
 from typing import List, Optional, Set, Dict
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, desc
+from sqlalchemy import or_, and_, desc, func
 from fastapi import HTTPException, status
 
 from ..models.user import User
 from ..models.friendship import Friendship
+from ..models.message import Conversation
 from ..schemas.friendship import (
     UserFriendSummary,
     MutualFriendSummary,
@@ -98,6 +99,31 @@ class FriendService:
                     )
                 else:
                     existing.status = "accepted"
+
+                    # TỰ ĐỘNG THÊM BẠN BÈ VÀO Ô CHÁT (Tạo/kích hoạt hội thoại 'accepted')
+                    partner_id = str(existing.requester_id)
+                    u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
+                    conv = db.query(Conversation).filter(
+                        or_(
+                            and_(Conversation.user1_id == u1, Conversation.user2_id == u2),
+                            and_(Conversation.user1_id == u2, Conversation.user2_id == u1)
+                        )
+                    ).first()
+                    if conv:
+                        conv.status = "accepted"
+                        conv.last_message_at = func.now()
+                    else:
+                        new_conv = Conversation(
+                            user1_id=u1,
+                            user2_id=u2,
+                            status="accepted",
+                            initiated_by=current_user_id,
+                            last_message_at=func.now(),
+                            created_at=func.now(),
+                            updated_at=func.now()
+                        )
+                        db.add(new_conv)
+
                     db.commit()
                     return FriendshipActionResponse(
                         success=True,
@@ -145,6 +171,31 @@ class FriendService:
             )
 
         friendship.status = "accepted"
+
+        # TỰ ĐỘNG THÊM BẠN BÈ VÀO Ô CHÁT (Tạo/kích hoạt hội thoại 'accepted')
+        partner_id = str(friendship.requester_id)
+        u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
+        conv = db.query(Conversation).filter(
+            or_(
+                and_(Conversation.user1_id == u1, Conversation.user2_id == u2),
+                and_(Conversation.user1_id == u2, Conversation.user2_id == u1)
+            )
+        ).first()
+        if conv:
+            conv.status = "accepted"
+            conv.last_message_at = func.now()
+        else:
+            new_conv = Conversation(
+                user1_id=u1,
+                user2_id=u2,
+                status="accepted",
+                initiated_by=current_user_id,
+                last_message_at=func.now(),
+                created_at=func.now(),
+                updated_at=func.now()
+            )
+            db.add(new_conv)
+
         db.commit()
 
         return FriendshipActionResponse(

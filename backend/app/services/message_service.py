@@ -31,6 +31,18 @@ class MessageService:
         ).first()
 
         if conv:
+            # Nếu 2 người đã là bạn bè, đảm bảo trạng thái hội thoại luôn là 'accepted'
+            is_friend = db.query(Friendship).filter(
+                or_(
+                    and_(Friendship.requester_id == user1_id, Friendship.addressee_id == user2_id),
+                    and_(Friendship.requester_id == user2_id, Friendship.addressee_id == user1_id)
+                ),
+                Friendship.status == "accepted"
+            ).first() is not None
+            if is_friend and conv.status != "accepted":
+                conv.status = "accepted"
+                db.commit()
+                db.refresh(conv)
             return conv
 
         # Kiểm tra xem 2 người đã là bạn bè chưa
@@ -63,6 +75,47 @@ class MessageService:
 
     @staticmethod
     def get_conversations(current_user_id: str, tab: Optional[str], db: Session) -> List[ConversationItem]:
+        # Tự động đảm bảo tất cả bạn bè đã kết bạn (accepted) đều có mặt trong ô chát
+        try:
+            accepted_friendships = db.query(Friendship).filter(
+                or_(
+                    Friendship.requester_id == current_user_id,
+                    Friendship.addressee_id == current_user_id
+                ),
+                Friendship.status == "accepted"
+            ).all()
+
+            has_new_conv = False
+            for f in accepted_friendships:
+                partner_id = str(f.addressee_id) if str(f.requester_id) == str(current_user_id) else str(f.requester_id)
+                u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
+                existing_conv = db.query(Conversation).filter(
+                    or_(
+                        and_(Conversation.user1_id == u1, Conversation.user2_id == u2),
+                        and_(Conversation.user1_id == u2, Conversation.user2_id == u1)
+                    )
+                ).first()
+                if not existing_conv:
+                    new_conv = Conversation(
+                        user1_id=u1,
+                        user2_id=u2,
+                        status="accepted",
+                        initiated_by=current_user_id,
+                        last_message_at=func.now(),
+                        created_at=func.now(),
+                        updated_at=func.now()
+                    )
+                    db.add(new_conv)
+                    has_new_conv = True
+                elif existing_conv.status != "accepted":
+                    existing_conv.status = "accepted"
+                    has_new_conv = True
+
+            if has_new_conv:
+                db.commit()
+        except Exception as e:
+            db.rollback()
+
         query = db.query(Conversation).filter(
             or_(
                 Conversation.user1_id == current_user_id,

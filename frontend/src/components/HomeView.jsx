@@ -5,7 +5,10 @@ import {
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
+import InlineNotice from './InlineNotice';
 import { suggestedFriends, trendingTopics } from '../data/mockData';
+import { DEFAULT_AVATAR } from '../constants/defaults';
+import { countVisiblePosts, isDeletedNoticePost } from '../utils/noticeLogic';
 
 export default function HomeView({ 
   currentUser, 
@@ -21,7 +24,13 @@ export default function HomeView({
   onOpenAiLab,
   onRequireAuth,
   onOpenAuthModal,
-  onOpenProfile
+  onOpenProfile,
+  onEditPost,
+  onDeletePost,
+  openPostMenuId,
+  onTogglePostMenu,
+  onClosePostMenu,
+  onDismissNotice
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [friendsList, setFriendsList] = useState(() => {
@@ -42,6 +51,7 @@ export default function HomeView({
   const filteredPosts = feedFilter === 'following'
     ? posts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
     : posts;
+  const visiblePostCount = countVisiblePosts(filteredPosts);
 
   return (
     <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -58,7 +68,7 @@ export default function HomeView({
                 className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer"
               >
                 <img 
-                  src={currentUser.avatar || currentUser.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
                   alt={currentUser.name} 
                   className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
                 />
@@ -74,7 +84,7 @@ export default function HomeView({
 
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
                 <div className="p-2 bg-slate-50 rounded-xl">
-                  <p className="text-sm font-black text-slate-800">{currentUser.postsCount || posts.filter(p => p.author?.id === currentUser?.id).length}</p>
+                  <p className="text-sm font-black text-slate-800">{countVisiblePosts(posts.filter(p => p.author?.id === currentUser?.id))}</p>
                   <p className="text-[10px] text-slate-400 font-medium">Bài viết</p>
                 </div>
                 <div className="p-2 bg-slate-50 rounded-xl">
@@ -203,7 +213,7 @@ export default function HomeView({
               </button>
             </div>
             <span className="text-[11px] text-slate-400 font-normal">
-              {filteredPosts.length} bài viết
+              {visiblePostCount} bài viết
             </span>
           </div>
 
@@ -211,18 +221,33 @@ export default function HomeView({
           <div className="space-y-4">
             {filteredPosts.length > 0 ? (
               filteredPosts.map(post => (
-                <PostCard 
-                  key={post.id}
-                  post={post}
-                  currentUser={currentUser}
-                  onToggleLike={onToggleLike}
-                  onAddComment={onAddComment}
-                  onOpenReportModal={onOpenReportModal}
-                  onOpenAppealModal={onOpenAppealModal}
-                  onRequireAuth={onRequireAuth}
-                  onRequireLogin={onRequireLogin}
-                  onOpenProfile={onOpenProfile}
-                />
+                isDeletedNoticePost(post) ? (
+                  <InlineNotice
+                    key={post.id}
+                    notice={post.inlineNotice}
+                    onDismiss={() => onDismissNotice?.(post.id)}
+                    className="shadow-xs"
+                  />
+                ) : (
+                  <PostCard 
+                    key={post.id}
+                    post={post}
+                    currentUser={currentUser}
+                    onToggleLike={onToggleLike}
+                    onAddComment={onAddComment}
+                    onOpenReportModal={onOpenReportModal}
+                    onOpenAppealModal={onOpenAppealModal}
+                    onRequireAuth={onRequireAuth}
+                    onRequireLogin={onRequireLogin}
+                    onOpenProfile={onOpenProfile}
+                    onEditPost={onEditPost}
+                    onDeletePost={onDeletePost}
+                    openPostMenuId={openPostMenuId}
+                    onTogglePostMenu={onTogglePostMenu}
+                    onClosePostMenu={onClosePostMenu}
+                    onDismissNotice={onDismissNotice}
+                  />
+                )
               ))
             ) : (
               <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-400 text-sm">
@@ -265,11 +290,12 @@ export default function HomeView({
                       <img 
                         src={friend.avatar} 
                         alt={friend.name} 
-                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 shadow-2xs"
+                        onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
+                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                       />
                       <div className="min-w-0 flex-1">
                         <p 
-                          onClick={() => setActiveTab && setActiveTab('friends')}
+                          onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
                           className="text-xs font-bold text-slate-800 truncate hover:text-blue-600 cursor-pointer"
                         >
                           {friend.name}

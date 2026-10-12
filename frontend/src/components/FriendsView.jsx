@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { UserCheck, UserPlus, UserX, MessageCircle, Search, Clock, Users, Sparkles, Loader2 } from 'lucide-react';
 import { friendService } from '../services/friendService';
+import { messageService } from '../services/messageService';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 
 export default function FriendsView({ onOpenChat, onOpenProfile }) {
   const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
@@ -28,7 +30,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           id: f.id,
           name: f.name,
           username: f.username,
-          avatar: f.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          avatar: f.avatar || DEFAULT_AVATAR,
           bio: f.bio
         })));
       }
@@ -44,8 +46,8 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
             id: r.user.id,
             name: r.user.full_name,
             username: r.user.username,
-            avatar: r.user.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-            mutualFriends: (r.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' })),
+            avatar: r.user.avatar_url || DEFAULT_AVATAR,
+            mutualFriends: (r.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || DEFAULT_AVATAR })),
             time: 'Gần đây',
             bio: r.user.bio
           }
@@ -61,9 +63,9 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           id: s.id,
           name: s.name,
           username: s.username,
-          avatar: s.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          avatar: s.avatar || DEFAULT_AVATAR,
           bio: s.bio,
-          mutualFriends: (s.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' })),
+          mutualFriends: (s.mutual_friends || []).map(m => ({ id: m.id, name: m.name, avatar: m.avatar || DEFAULT_AVATAR })),
           requestSent: s.request_sent || false
         })));
       }
@@ -80,6 +82,10 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
       setFriendRequests(friendRequests.filter(r => r.id !== reqId));
       try {
         await friendService.acceptFriendRequest(reqId);
+        // TỰ ĐỘNG THÊM BẠN BÈ VÀO Ô CHÁT (Kích hoạt hội thoại 'accepted')
+        if (target.user?.id) {
+          await messageService.getOrCreateConversation(target.user.id);
+        }
       } catch (err) {
         console.warn('API accept fallback:', err);
       }
@@ -119,7 +125,11 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
 
     try {
       if (willBeSent) {
-        await friendService.sendFriendRequest(sugId);
+        const res = await friendService.sendFriendRequest(sugId);
+        // Nếu đối phương đã gửi lời mời trước đó và trở thành bạn bè, tự động tạo chat
+        if (res?.data?.status === 'accepted') {
+          await messageService.getOrCreateConversation(sugId);
+        }
       } else {
         await friendService.cancelSentRequest(sugId);
       }
@@ -239,13 +249,19 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
                       className="p-4 rounded-xl border border-slate-200 hover:shadow-sm transition bg-white flex items-start gap-4"
                     >
                       <img
-                        src={req.user.avatar}
+                        src={req.user.avatar || DEFAULT_AVATAR}
                         alt={req.user.name}
-                        className="w-16 h-16 rounded-full object-cover ring-2 ring-slate-100"
+                        onClick={() => onOpenProfile && onOpenProfile(req.user)}
+                        className="w-16 h-16 rounded-full object-cover ring-2 ring-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline justify-between gap-2">
-                          <h4 className="font-bold text-slate-800 truncate">{req.user.name}</h4>
+                          <h4 
+                            onClick={() => onOpenProfile && onOpenProfile(req.user)}
+                            className="font-bold text-slate-800 truncate cursor-pointer hover:text-blue-600 transition"
+                          >
+                            {req.user.name}
+                          </h4>
                           <span className="text-[11px] text-slate-400 shrink-0">{req.user.time}</span>
                         </div>
                         <p className="text-xs text-slate-400">@{req.user.username}</p>
@@ -399,9 +415,10 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
                         <div className="flex flex-col items-center text-center">
                           <div className="relative mb-3">
                             <img
-                              src={sug.avatar}
+                              src={sug.avatar || DEFAULT_AVATAR}
                               alt={sug.name}
-                              className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 group-hover:scale-105 transition duration-200 shadow-2xs"
+                              onClick={() => onOpenProfile && onOpenProfile(sug)}
+                              className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 group-hover:scale-105 transition duration-200 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400"
                             />
                             {mutualCount > 0 && (
                               <span 
@@ -413,7 +430,10 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
                             )}
                           </div>
 
-                          <h4 className="font-bold text-slate-800 text-sm truncate w-full hover:text-blue-600 cursor-pointer">
+                          <h4 
+                            onClick={() => onOpenProfile && onOpenProfile(sug)}
+                            className="font-bold text-slate-800 text-sm truncate w-full hover:text-blue-600 cursor-pointer transition"
+                          >
                             {sug.name}
                           </h4>
                           <p className="text-[11px] text-slate-400">@{sug.username}</p>

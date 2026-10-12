@@ -7,8 +7,16 @@ import {
   User, FileText, ChevronRight, Ban
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 
-export default function MessagesView({ currentUser, initialChatUserId, onOpenReportModal, onRequireAuth }) {
+export default function MessagesView({ 
+  currentUser, 
+  initialChatUser, 
+  initialChatUserId, 
+  onOpenReportModal, 
+  onRequireAuth,
+  onOpenProfile
+}) {
   if (!currentUser) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white rounded-2xl m-4 border border-slate-200 shadow-xs">
@@ -49,6 +57,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const prevMessagesLengthRef = useRef(activeMessages.length);
   const selectedConversationIdRef = useRef(selectedConversationId);
   selectedConversationIdRef.current = selectedConversationId;
 
@@ -58,7 +67,8 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
   // Lấy hội thoại hiện tại
   const currentConversation = conversations.find(c => String(c.id) === String(selectedConversationId));
 
-  const prevMessagesLengthRef = useRef(activeMessages.length);
+  const targetInitialUserId = initialChatUser?.id || initialChatUserId;
+  const targetInitialUserTs = initialChatUser?._ts || 0;
 
   // Tải danh sách cuộc trò chuyện từ Backend FastAPI (giữ nguyên messages của conversation đã nạp)
   const loadServerConversations = async (autoSelect = false) => {
@@ -73,16 +83,16 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
               id: String(c.id),
               status: c.status,
               user: {
-                id: c.user.id,
-                name: c.user.name,
-                username: c.user.username,
-                avatar: c.user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-                isOnline: c.user.is_online,
-                isFriend: c.user.is_friend,
-                bio: c.user.bio,
+                id: c.user?.id || '',
+                name: c.user?.name || 'Người dùng',
+                username: c.user?.username || '',
+                avatar: c.user?.avatar || DEFAULT_AVATAR,
+                isOnline: c.user?.is_online ?? true,
+                isFriend: c.user?.is_friend ?? false,
+                bio: c.user?.bio || '',
                 lastSeen: 'Vừa xong'
               },
-              lastMessage: c.last_message || 'Bắt đầu cuộc trò chuyện',
+              lastMessage: c.last_message || 'Các bạn đã trở thành bạn bè! 👋',
               lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
               unreadCount: c.unread_count || 0,
               messages: existing ? (existing.messages || []) : []
@@ -90,15 +100,18 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
           });
         });
 
-        if (autoSelect && data.length > 0 && !selectedConversationIdRef.current) {
+        if (autoSelect && data.length > 0 && !selectedConversationIdRef.current && !targetInitialUserId) {
           const firstId = String(data[0].id);
           setSelectedConversationId(firstId);
         }
+        return data;
       } else {
         setConversations([]);
+        return [];
       }
     } catch (err) {
       console.warn("Lỗi nạp danh sách cuộc trò chuyện:", err);
+      return [];
     }
   };
 
@@ -166,29 +179,53 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     return () => clearInterval(interval);
   }, [currentUser]);
 
-  // Tự động chọn cuộc trò chuyện khi nhận initialChatUserId (từ Trang cá nhân hoặc Bạn bè)
+  // Tự động chọn cuộc trò chuyện khi nhận initialChatUser hoặc initialChatUserId (từ Trang cá nhân hoặc Bạn bè)
   useEffect(() => {
-    if (!initialChatUserId) return;
+    if (!targetInitialUserId || !currentUser) return;
+    const targetIdStr = String(targetInitialUserId);
+    if (String(currentUser.id) === targetIdStr) return;
 
-    const existing = conversations.find(c => c.user?.id === initialChatUserId);
-    if (existing) {
-      setSelectedConversationId(existing.id);
-      setMobileShowChat(true);
-      return;
-    }
+    let isSubscribed = true;
 
-    // Nếu chưa có trong danh sách hiển thị, gọi API tạo/lấy hội thoại
-    if (currentUser) {
-      messageService.getOrCreateConversation(initialChatUserId).then(res => {
+    const activateConversation = async () => {
+      // 1. Kiểm tra xem cuộc trò chuyện đã có trong state conversations chưa
+      const existing = conversations.find(c => String(c.user?.id) === targetIdStr);
+      if (existing) {
+        if (existing.status === 'accepted') setInboxTab('main');
+        else setInboxTab('requests');
+        setSelectedConversationId(String(existing.id));
+        setMobileShowChat(true);
+        return;
+      }
+
+      // 2. Nếu chưa có trong danh sách hiển thị, gọi API tạo/lấy hội thoại
+      try {
+        const res = await messageService.getOrCreateConversation(targetIdStr);
+        if (!isSubscribed) return;
         if (res && res.conversation_id) {
-          loadServerConversations(false).then(() => {
-            setSelectedConversationId(String(res.conversation_id));
-            setMobileShowChat(true);
-          });
+          const convId = String(res.conversation_id);
+          const targetTab = res.status === 'pending' ? 'requests' : 'main';
+          setInboxTab(targetTab);
+          setSelectedConversationId(convId);
+          setMobileShowChat(true);
+
+          // Cập nhật lại danh sách cuộc trò chuyện từ server
+          await loadServerConversations(false);
+          if (isSubscribed) {
+            setSelectedConversationId(convId);
+          }
         }
-      }).catch(console.warn);
-    }
-  }, [initialChatUserId, currentUser]);
+      } catch (err) {
+        console.warn("Lỗi tự động mở cuộc trò chuyện:", err);
+      }
+    };
+
+    activateConversation();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [targetInitialUserId, targetInitialUserTs, currentUser]);
 
   // Khi CHUYỂN cuộc trò chuyện: Đặt vị trí cuộn xuống đáy TỨC THÌ (0ms, không trượt animation)
   useEffect(() => {
@@ -420,9 +457,13 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
   // Lọc cuộc trò chuyện theo Tab (Chính hay Tin nhắn chờ) và theo ô tìm kiếm
   const displayedConversations = conversations.filter(c => {
+    if (!c) return false;
     const matchTab = c.status === (inboxTab === 'main' ? 'accepted' : 'pending');
-    const matchSearch = c.user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        c.user.username.toLowerCase().includes(searchTerm.toLowerCase());
+    const nameStr = c.user?.name || '';
+    const usernameStr = c.user?.username || '';
+    const searchLower = (searchTerm || '').toLowerCase();
+    const matchSearch = nameStr.toLowerCase().includes(searchLower) ||
+                        usernameStr.toLowerCase().includes(searchLower);
     return matchTab && matchSearch;
   });
 
@@ -565,13 +606,22 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                     }
                   >
                     {/* Avatar */}
-                    <div className="relative shrink-0">
+                    <div 
+                      className="relative shrink-0"
+                      onClick={(e) => {
+                        if (onOpenProfile) {
+                          e.stopPropagation();
+                          onOpenProfile(conv.user);
+                        }
+                      }}
+                      title="Bấm để xem trang cá nhân"
+                    >
                       <img
-                        src={conv.user.avatar}
-                        alt={conv.user.name}
-                        className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs"
+                        src={conv.user?.avatar || DEFAULT_AVATAR}
+                        alt={conv.user?.name || ''}
+                        className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
                       />
-                      {conv.user.isOnline && (
+                      {conv.user?.isOnline && (
                         <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
                       )}
                     </div>
@@ -580,7 +630,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <h3 className={'text-sm font-bold truncate ' + (isSelected ? 'text-blue-900' : 'text-slate-800')}>
-                          {conv.user.name}
+                          {conv.user?.name || 'Người dùng'}
                         </h3>
                         <span className="text-[11px] text-slate-400 shrink-0 ml-1">
                           {conv.lastTime}
@@ -611,7 +661,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
             (!mobileShowChat ? 'hidden md:flex' : 'flex')
           }
         >
-          {currentConversation ? (
+          {currentConversation && currentConversation.user ? (
             <>
               {/* Header khung chat - CỐ ĐỊNH Ở ĐỈNH */}
               <div className="shrink-0 p-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between">
@@ -623,11 +673,15 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                     <ArrowLeft className="w-5 h-5" />
                   </button>
 
-                  <div className="relative">
+                  <div 
+                    className="relative cursor-pointer group shrink-0"
+                    onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                    title="Bấm để xem trang cá nhân"
+                  >
                     <img
-                      src={currentConversation.user.avatar}
+                      src={currentConversation.user.avatar || DEFAULT_AVATAR}
                       alt={currentConversation.user.name}
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs"
+                      className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
                     />
                     {currentConversation.user.isOnline && (
                       <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
@@ -636,7 +690,10 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-tight">
+                      <h3 
+                        onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                        className="text-sm sm:text-base font-bold text-slate-800 leading-tight cursor-pointer hover:text-blue-600 transition"
+                      >
                         {currentConversation.user.name}
                       </h3>
                       {currentConversation.status === 'pending' && (
@@ -756,17 +813,24 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
                 {/* Thông tin mở đầu cuộc trò chuyện (Gọn gàng, đồng bộ cho mọi người) */}
                 <div className="py-4 sm:py-6 flex flex-col items-center text-center space-y-1.5 mb-2 shrink-0">
-                  <div className="relative mb-0.5">
+                  <div 
+                    className="relative mb-0.5 cursor-pointer group"
+                    onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                    title="Bấm để xem trang cá nhân"
+                  >
                     <img
-                      src={currentConversation.user.avatar}
+                      src={currentConversation.user.avatar || DEFAULT_AVATAR}
                       alt={currentConversation.user.name}
-                      className="w-14 h-14 rounded-full object-cover ring-4 ring-slate-100 shadow-xs"
+                      className="w-14 h-14 rounded-full object-cover ring-4 ring-slate-100 shadow-xs group-hover:ring-blue-400 transition"
                     />
                     {currentConversation.user.isOnline && (
                       <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
                     )}
                   </div>
-                  <h4 className="text-sm sm:text-base font-bold text-slate-800 leading-tight">
+                  <h4 
+                    onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                    className="text-sm sm:text-base font-bold text-slate-800 leading-tight cursor-pointer hover:text-blue-600 transition"
+                  >
                     {currentConversation.user.name}
                   </h4>
                   <p className="text-[11px] text-slate-400 max-w-xs">
@@ -774,9 +838,29 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                   </p>
                   <div className="pt-0.5">
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200/60">
-                      Bắt đầu cuộc trò chuyện
+                      {currentConversation.user.isFriend ? 'Đã là bạn bè trên NexusSocial' : 'Bắt đầu cuộc trò chuyện'}
                     </span>
                   </div>
+
+                  {/* Gợi ý lời chào khi cuộc trò chuyện mới được tạo (chưa có tin nhắn) */}
+                  {activeMessages.length === 0 && (
+                    <div className="pt-3 flex flex-col items-center gap-2">
+                      <p className="text-xs text-slate-400 font-medium">Gợi ý gửi lời chào:</p>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {['Xin chào! 👋', 'Chào bạn nhé! 😊', 'Rất vui được kết bạn! 🎉'].map((greeting, gIdx) => (
+                          <button
+                            key={gIdx}
+                            onClick={() => {
+                              setInputText(greeting);
+                            }}
+                            className="px-3 py-1.5 bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 hover:border-blue-300 rounded-full text-xs font-semibold shadow-2xs transition cursor-pointer"
+                          >
+                            {greeting}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Nhóm danh sách các tin nhắn */}
@@ -791,9 +875,11 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
                         >
                           {!isMe && (
                             <img
-                              src={currentConversation.user.avatar}
+                              src={currentConversation.user.avatar || DEFAULT_AVATAR}
                               alt=""
-                              className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100"
+                              onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                              title="Bấm để xem trang cá nhân"
+                              className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                             />
                           )}
 
@@ -984,7 +1070,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
         </section>
 
         {/* ================= CỘT 3: THÔNG TIN NGƯỜI DÙNG & TÙY CHỌN TRÒ CHUYỆN ================= */}
-        {showInfoSidebar && currentConversation && (
+        {showInfoSidebar && currentConversation && currentConversation.user && (
           <aside className="hidden lg:flex w-72 xl:w-80 border-l border-slate-200 bg-white flex-col shrink-0 h-full min-h-0 overflow-y-auto animate-fadeIn">
             {/* Header Cột 3 */}
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
@@ -1000,17 +1086,24 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
             {/* Thông tin đại diện */}
             <div className="p-6 flex flex-col items-center text-center border-b border-slate-100">
-              <div className="relative mb-3">
+              <div 
+                className="relative mb-3 cursor-pointer group shrink-0"
+                onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                title="Bấm để xem trang cá nhân"
+              >
                 <img 
-                  src={currentConversation.user.avatar} 
+                  src={currentConversation.user.avatar || DEFAULT_AVATAR} 
                   alt={currentConversation.user.name} 
-                  className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 shadow-md"
+                  className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 shadow-md group-hover:ring-2 group-hover:ring-blue-500 transition"
                 />
                 {currentConversation.user.isOnline && (
                   <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" />
                 )}
               </div>
-              <h4 className="text-base font-bold text-slate-900 leading-tight">
+              <h4 
+                onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                className="text-base font-bold text-slate-900 leading-tight cursor-pointer hover:text-blue-600 transition"
+              >
                 {currentConversation.user.name}
               </h4>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -1027,6 +1120,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
               {/* Phím tắt tác vụ nhanh */}
               <div className="grid grid-cols-3 gap-2 w-full mt-5">
                 <button 
+                  onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
                   className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-50 text-slate-600 transition cursor-pointer"
                   title="Trang cá nhân"
                 >

@@ -3,6 +3,7 @@ import {
   Home, Bell, Search, Sparkles, ShieldCheck, Users, MessageCircle, 
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield
 } from 'lucide-react';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 
 export default function Navbar({ 
   activeTab, 
@@ -187,26 +188,23 @@ export default function Navbar({
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 title="Menu tài khoản"
                 className={
-                  'h-10 flex items-center gap-2 p-1 pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
+                  'h-10 flex items-center gap-1.5 p-1 pr-2 sm:pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
                   (showUserMenu || activeTab === 'profile'
                     ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100'
-                    : 'hover:bg-slate-100 border-slate-200')
+                    : 'hover:bg-slate-100 border-slate-200 bg-white/80')
                 }
               >
                 <img 
-                  src={currentUser.avatar || currentUser.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
                   alt={currentUser.name} 
                   className="w-8 h-8 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0"
                 />
-                <div className="hidden xl:flex flex-col text-left leading-tight shrink-0">
-                  <span className="text-xs font-bold text-slate-800 whitespace-nowrap">
-                    {currentUser.name}
+                {(currentUser.role === 'ADMIN' || currentUser.isAdmin) && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-black text-indigo-600 bg-indigo-50 border border-indigo-200/80 rounded-md uppercase tracking-wider">
+                    ADMIN
                   </span>
-                  <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider whitespace-nowrap">
-                    {currentUser.role || 'USER'}
-                  </span>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+                )}
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
               </button>
 
               {/* DROPDOWN MENU TÀI KHOẢN (Chứa nút Đăng xuất theo User Story 3) */}
