@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import { Image, Sparkles, Send, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { createPost, uploadPostImage } from '../api/client';
+import ImagePreview from './ImagePreview';
+import { validateImageFile } from '../utils/imageLogic';
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
   const [content, setContent] = useState('');
@@ -55,6 +57,15 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     if (!file) return;
 
     setErrorMessage('');
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      setImageUrl('');
+      setImagePreview('');
+      setErrorMessage(validation.message);
+      e.target.value = '';
+      return;
+    }
+
     setImagePreview(URL.createObjectURL(file));
 
     try {
@@ -154,26 +165,18 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
             <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
               <input
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp,image/gif"
                 onChange={handleImageChange}
                 className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
               />
-              {(imagePreview || imageUrl) && (
-                <div className="relative mt-2 rounded-lg overflow-hidden max-h-48 border border-slate-200">
-                  <img src={imagePreview || imageUrl} alt="Preview" className="w-full h-48 object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImageUrl('');
-                      setImagePreview('');
-                    }}
-                    className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
-                    title="Xóa ảnh"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
+              <ImagePreview
+                src={imagePreview || imageUrl}
+                alt="Ảnh xem trước bài viết"
+                onRemove={() => {
+                  setImageUrl('');
+                  setImagePreview('');
+                }}
+              />
             </div>
           )}
 
