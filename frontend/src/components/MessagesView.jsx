@@ -37,6 +37,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
   // Cuộc trò chuyện đang chọn
   const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [activeMessages, setActiveMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -48,43 +49,50 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const selectedConversationIdRef = useRef(selectedConversationId);
+  selectedConversationIdRef.current = selectedConversationId;
 
   // Đếm số lượng tin nhắn chờ từ người lạ
   const pendingRequestsCount = conversations.filter(c => c.status === 'pending').length;
 
   // Lấy hội thoại hiện tại
-  const currentConversation = conversations.find(c => c.id === selectedConversationId);
+  const currentConversation = conversations.find(c => String(c.id) === String(selectedConversationId));
 
-  const prevMessagesLengthRef = useRef(currentConversation?.messages.length || 0);
+  const prevMessagesLengthRef = useRef(activeMessages.length);
 
-  // Tải danh sách cuộc trò chuyện từ Backend FastAPI
+  // Tải danh sách cuộc trò chuyện từ Backend FastAPI (giữ nguyên messages của conversation đã nạp)
   const loadServerConversations = async (autoSelect = false) => {
     if (!currentUser) return;
     try {
       const data = await messageService.getConversations();
       if (data && Array.isArray(data)) {
-        const formatted = data.map(c => ({
-          id: String(c.id),
-          status: c.status,
-          user: {
-            id: c.user.id,
-            name: c.user.name,
-            username: c.user.username,
-            avatar: c.user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-            isOnline: c.user.is_online,
-            isFriend: c.user.is_friend,
-            bio: c.user.bio,
-            lastSeen: 'Vừa xong'
-          },
-          lastMessage: c.last_message || 'Bắt đầu cuộc trò chuyện',
-          lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
-          unreadCount: c.unread_count || 0,
-          messages: []
-        }));
+        setConversations(prev => {
+          return data.map(c => {
+            const existing = prev.find(p => String(p.id) === String(c.id));
+            return {
+              id: String(c.id),
+              status: c.status,
+              user: {
+                id: c.user.id,
+                name: c.user.name,
+                username: c.user.username,
+                avatar: c.user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+                isOnline: c.user.is_online,
+                isFriend: c.user.is_friend,
+                bio: c.user.bio,
+                lastSeen: 'Vừa xong'
+              },
+              lastMessage: c.last_message || 'Bắt đầu cuộc trò chuyện',
+              lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
+              unreadCount: c.unread_count || 0,
+              messages: existing ? (existing.messages || []) : []
+            };
+          });
+        });
 
-        setConversations(formatted);
-        if (autoSelect && formatted.length > 0 && !selectedConversationId) {
-          setSelectedConversationId(formatted[0].id);
+        if (autoSelect && data.length > 0 && !selectedConversationIdRef.current) {
+          const firstId = String(data[0].id);
+          setSelectedConversationId(firstId);
         }
       } else {
         setConversations([]);
@@ -114,6 +122,14 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
           status: m.status || 'sent'
         }));
 
+        if (String(convId) === String(selectedConversationIdRef.current)) {
+          setActiveMessages(prev => {
+            // Giữ lại các tin nhắn đang gửi hoặc gửi thất bại chưa đồng bộ lên server
+            const pending = prev.filter(m => (m.status === 'sending' || m.status === 'failed') && !formattedMsgs.some(f => f.text === m.text));
+            return [...formattedMsgs, ...pending];
+          });
+        }
+
         setConversations(prev => prev.map(c => {
           if (String(c.id) === String(convId)) {
             return {
@@ -133,6 +149,8 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
   useEffect(() => {
     if (selectedConversationId) {
       loadMessages(selectedConversationId);
+    } else {
+      setActiveMessages([]);
     }
   }, [selectedConversationId]);
 
@@ -141,12 +159,12 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     if (!currentUser) return;
     const interval = setInterval(() => {
       loadServerConversations(false);
-      if (selectedConversationId) {
-        loadMessages(selectedConversationId);
+      if (selectedConversationIdRef.current) {
+        loadMessages(selectedConversationIdRef.current);
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [currentUser, selectedConversationId]);
+  }, [currentUser]);
 
   // Tự động chọn cuộc trò chuyện khi nhận initialChatUserId (từ Trang cá nhân hoặc Bạn bè)
   useEffect(() => {
@@ -181,13 +199,13 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     };
     scrollToBottomInstant();
     const frameId = requestAnimationFrame(scrollToBottomInstant);
-    prevMessagesLengthRef.current = currentConversation?.messages.length || 0;
+    prevMessagesLengthRef.current = activeMessages.length;
     return () => cancelAnimationFrame(frameId);
   }, [selectedConversationId]);
 
   // Khi CÓ TIN NHẮN MỚI hoặc ĐANG GÕ: Cuộn mượt mà trong nội bộ container tin nhắn
   useEffect(() => {
-    const currentLen = currentConversation?.messages.length || 0;
+    const currentLen = activeMessages.length;
     if (currentLen > prevMessagesLengthRef.current || isTyping) {
       if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTo({
@@ -197,15 +215,24 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       }
     }
     prevMessagesLengthRef.current = currentLen;
-  }, [currentConversation?.messages.length, isTyping]);
+  }, [activeMessages.length, isTyping]);
 
   // Chọn hội thoại và đánh dấu đã xem
   const handleSelectConversation = (convId) => {
-    if (convId === selectedConversationId) return;
-    setSelectedConversationId(convId);
+    if (String(convId) === String(selectedConversationId)) return;
+    const strId = String(convId);
+    setSelectedConversationId(strId);
     setMobileShowChat(true);
+
+    const existing = conversations.find(c => String(c.id) === strId);
+    if (existing && existing.messages && existing.messages.length > 0) {
+      setActiveMessages(existing.messages);
+    } else {
+      setActiveMessages([]);
+    }
+
     setConversations(prev => prev.map(c => 
-      c.id === convId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
+      String(c.id) === strId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c
     ));
     if (currentUser && !isNaN(convId)) {
       messageService.markRead(convId);
@@ -261,8 +288,9 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     };
 
     setInputText('');
+    setActiveMessages(prev => [...prev, optimisticMsg]);
     setConversations(prev => prev.map(c => {
-      if (c.id === selectedConversationId) {
+      if (String(c.id) === String(selectedConversationId)) {
         return {
           ...c,
           lastMessage: content,
@@ -282,8 +310,14 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       }
 
       // Trạng thái 2: Đã gửi (Server đã nhận và lưu thành công)
+      setActiveMessages(prev => prev.map(m => m.id === tempId ? {
+        ...m,
+        id: serverMsg ? serverMsg.id : m.id,
+        status: serverMsg?.status || 'sent'
+      } : m));
+
       setConversations(prev => prev.map(c => {
-        if (c.id === selectedConversationId) {
+        if (String(c.id) === String(selectedConversationId)) {
           return {
             ...c,
             messages: (c.messages || []).map(m => m.id === tempId ? {
@@ -300,8 +334,13 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
     } catch (err) {
       console.warn("Lỗi gửi tin nhắn:", err);
       // Sự cố hệ thống / Mất kết nối mạng: Chuyển sang 'failed' (Gửi thất bại kèm nút Gửi lại)
+      setActiveMessages(prev => prev.map(m => m.id === tempId ? {
+        ...m,
+        status: 'failed'
+      } : m));
+
       setConversations(prev => prev.map(c => {
-        if (c.id === selectedConversationId) {
+        if (String(c.id) === String(selectedConversationId)) {
           return {
             ...c,
             messages: (c.messages || []).map(m => m.id === tempId ? {
@@ -318,8 +357,9 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
   // Xử lý gửi lại khi tin nhắn bị thất bại (Retry button)
   const handleRetryMessage = async (failedMsg) => {
     // 1. Chuyển lại trạng thái thành "Đang gửi"
+    setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m));
     setConversations(prev => prev.map(c => {
-      if (c.id === selectedConversationId) {
+      if (String(c.id) === String(selectedConversationId)) {
         return {
           ...c,
           messages: (c.messages || []).map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m)
@@ -336,8 +376,14 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
       }
 
       // Đã gửi
+      setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? {
+        ...m,
+        id: serverMsg ? serverMsg.id : m.id,
+        status: serverMsg?.status || 'sent'
+      } : m));
+
       setConversations(prev => prev.map(c => {
-        if (c.id === selectedConversationId) {
+        if (String(c.id) === String(selectedConversationId)) {
           return {
             ...c,
             messages: (c.messages || []).map(m => m.id === failedMsg.id ? {
@@ -352,8 +398,13 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
       loadServerConversations(false);
     } catch (err) {
+      setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? {
+        ...m,
+        status: 'failed'
+      } : m));
+
       setConversations(prev => prev.map(c => {
-        if (c.id === selectedConversationId) {
+        if (String(c.id) === String(selectedConversationId)) {
           return {
             ...c,
             messages: (c.messages || []).map(m => m.id === failedMsg.id ? {
@@ -720,7 +771,7 @@ export default function MessagesView({ currentUser, initialChatUserId, onOpenRep
 
                 {/* Nhóm danh sách các tin nhắn */}
                 <div className="space-y-4 w-full">
-                  {currentConversation.messages.map((msg) => {
+                  {activeMessages.map((msg) => {
                     const isMe = msg.senderId === 'current';
                     return (
                       <div
