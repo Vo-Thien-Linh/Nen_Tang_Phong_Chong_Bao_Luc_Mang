@@ -30,7 +30,7 @@ export default function NotificationsView({ notifications, onMarkAllAsRead, onMa
         );
       case 'follow':
         return (
-          <div className="w-8 h-8 rounded-full bg-violet-50 text-violet-500 flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
             <UserPlus className="w-4 h-4" />
           </div>
         );

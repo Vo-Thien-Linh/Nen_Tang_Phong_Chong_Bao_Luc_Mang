@@ -834,11 +834,11 @@ export default function MessagesView({
                     {currentConversation.user.name}
                   </h4>
                   <p className="text-[11px] text-slate-400 max-w-xs">
-                    {currentConversation.user.bio || 'Các bạn đã kết nối trò chuyện trên mạng xã hội NexusSocial'}
+                    {currentConversation.user.bio || 'Các bạn đã kết nối trò chuyện trên mạng xã hội WINGS'}
                   </p>
                   <div className="pt-0.5">
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200/60">
-                      {currentConversation.user.isFriend ? 'Đã là bạn bè trên NexusSocial' : 'Bắt đầu cuộc trò chuyện'}
+                      {currentConversation.user.isFriend ? 'Đã là bạn bè trên WINGS' : 'Bắt đầu cuộc trò chuyện'}
                     </span>
                   </div>
 

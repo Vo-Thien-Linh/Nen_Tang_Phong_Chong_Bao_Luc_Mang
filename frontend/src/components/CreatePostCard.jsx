@@ -223,9 +223,9 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 onClick={handleCheckSafety}
                 disabled={isAiChecking || !content.trim()}
                 title="Kiểm tra độc hại qua mô hình AI trước khi đăng"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded-lg transition duration-150 disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 disabled:opacity-50"
               >
-                <Sparkles className="w-4 h-4 text-violet-500" />
+                <Sparkles className="w-4 h-4 text-blue-500" />
                 <span>{isAiChecking ? 'AI đang duyệt...' : 'Duyệt thử AI'}</span>
               </button>
             </div>
@@ -233,7 +233,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
             <button
               type="submit"
               disabled={isSubmitting || !content.trim()}
-              className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150"
+              className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150"
             >
               <span>{isSubmitting ? 'Đang đăng...' : 'Đăng bài'}</span>
               <Send className="w-3.5 h-3.5" />
