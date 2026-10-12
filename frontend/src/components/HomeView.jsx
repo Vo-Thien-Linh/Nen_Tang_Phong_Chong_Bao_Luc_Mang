@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { 
   TrendingUp, UserPlus, Users, MessageCircle, 
-  ShieldCheck, Sparkles, LayoutDashboard, User
+  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
@@ -30,7 +30,10 @@ export default function HomeView({
   openPostMenuId,
   onTogglePostMenu,
   onClosePostMenu,
-  onDismissNotice
+  onDismissNotice,
+  searchQuery = '',
+  onClearSearch,
+  onSelectHashtag
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [friendsList, setFriendsList] = useState(() => {
@@ -48,9 +51,24 @@ export default function HomeView({
     ));
   };
 
-  const filteredPosts = feedFilter === 'following'
+  const trimmedSearch = (searchQuery || '').trim().toLowerCase();
+
+  let filteredPosts = feedFilter === 'following'
     ? posts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
     : posts;
+
+  if (trimmedSearch) {
+    filteredPosts = filteredPosts.filter(p => {
+      const contentMatch = p.content && p.content.toLowerCase().includes(trimmedSearch);
+      const tagMatch = p.tag && p.tag.toLowerCase().includes(trimmedSearch);
+      const authorMatch = p.author && (
+        (p.author.name && p.author.name.toLowerCase().includes(trimmedSearch)) ||
+        (p.author.username && p.author.username.toLowerCase().includes(trimmedSearch))
+      );
+      return contentMatch || tagMatch || authorMatch;
+    });
+  }
+
   const visiblePostCount = countVisiblePosts(filteredPosts);
   const isAdmin = Boolean(currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin));
 
@@ -195,6 +213,32 @@ export default function HomeView({
             </div>
           )}
 
+          {/* Banner thông báo kết quả tìm kiếm */}
+          {trimmedSearch && (
+            <div className="flex items-center justify-between bg-blue-50/90 border border-blue-200/90 px-4 py-3 rounded-2xl shadow-2xs text-blue-900 transition-all">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Search className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">
+                    Bộ lọc tìm kiếm: <span className="text-blue-700 underline decoration-blue-300 underline-offset-2">"{searchQuery}"</span>
+                  </p>
+                  <p className="text-[11px] text-blue-700/80">
+                    Tìm thấy {visiblePostCount} bài viết phù hợp
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onClearSearch}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-blue-100/50 text-blue-700 text-xs font-bold rounded-xl border border-blue-200/70 shadow-2xs transition cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Xóa bộ lọc</span>
+              </button>
+            </div>
+          )}
+
           {/* Tabs bộ lọc Feed */}
           <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs font-semibold">
             <div className="flex gap-2">
@@ -252,6 +296,25 @@ export default function HomeView({
                   />
                 )
               ))
+            ) : trimmedSearch ? (
+              <div className="bg-white rounded-2xl p-8 sm:p-10 text-center border border-slate-200 shadow-2xs space-y-3">
+                <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-2xs">
+                  <Search className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">Không tìm thấy bài viết nào</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.
+                  </p>
+                </div>
+                <button
+                  onClick={onClearSearch}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Xóa bộ lọc & Xem tất cả bài viết</span>
+                </button>
+              </div>
             ) : (
               <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-400 text-sm">
                 Chưa có bài viết nào trong mục này.
@@ -367,10 +430,15 @@ export default function HomeView({
 
             <div className="space-y-3">
               {trendingTopics.map((topic, index) => (
-                <div key={index} className="group cursor-pointer">
+                <div 
+                  key={index} 
+                  onClick={() => onSelectHashtag?.(topic.tag)}
+                  className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-blue-50/60 transition duration-150"
+                  title={`Lọc bài viết với ${topic.tag}`}
+                >
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span>{topic.category}</span>
-                    <span className="text-[10px]">Thịnh hành</span>
+                    <span className="text-[10px] text-blue-500 font-semibold group-hover:underline">Khám phá</span>
                   </div>
                   <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition">
                     {topic.tag}

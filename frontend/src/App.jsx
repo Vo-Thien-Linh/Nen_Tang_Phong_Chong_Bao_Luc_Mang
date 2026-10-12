@@ -64,6 +64,7 @@ export default function App() {
   const [selectedChatUserId, setSelectedChatUserId] = useState(null);
   const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
+  const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
 
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
   useEffect(() => {
@@ -586,6 +587,14 @@ export default function App() {
         }}
         onLogout={handleLogout}
         postsCount={countVisiblePosts(posts.filter(p => p.author?.id === currentUser?.id))}
+        onOpenProfile={handleOpenUserProfile}
+        onSearchPosts={(query) => {
+          setHomeSearchQuery(query);
+          setActiveTab('home');
+        }}
+        clientPosts={posts}
+        activeFilterQuery={homeSearchQuery}
+        onClearFilter={() => setHomeSearchQuery('')}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -618,6 +627,12 @@ export default function App() {
             onTogglePostMenu={handleTogglePostMenu}
             onClosePostMenu={handleClosePostMenu}
             onDismissNotice={handleDismissPostNotice}
+            searchQuery={homeSearchQuery}
+            onClearSearch={() => setHomeSearchQuery('')}
+            onSelectHashtag={(tag) => {
+              setHomeSearchQuery(tag);
+              setActiveTab('home');
+            }}
           />
         )}
 

@@ -4,6 +4,7 @@ import {
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import SearchBar from './SearchBar';
 
 export default function Navbar({ 
   activeTab, 
@@ -14,7 +15,12 @@ export default function Navbar({
   onOpenAuthModal,
   onLogout,
   unreadMessagesCount = 1,
-  pendingModerationCount = 0
+  pendingModerationCount = 0,
+  onOpenProfile,
+  onSearchPosts,
+  clientPosts = [],
+  activeFilterQuery = '',
+  onClearFilter
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef(null);
@@ -57,16 +63,15 @@ export default function Navbar({
             </div>
           </button>
 
-          {/* Search Bar - Fixed width, no shrinking */}
-          <div className="hidden md:flex items-center shrink-0 w-48 lg:w-60 xl:w-72">
-            <div className="relative w-full">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input 
-                type="text" 
-                placeholder="Tìm kiếm bạn bè, bài viết..."
-                className="w-full pl-9 pr-3.5 py-2 bg-slate-100 hover:bg-slate-200/60 focus:bg-white text-xs sm:text-sm text-slate-800 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition duration-200"
-              />
-            </div>
+          {/* Search Bar */}
+          <div className="hidden sm:block shrink-0 w-52 md:w-64 lg:w-80 xl:w-96">
+            <SearchBar 
+              onOpenProfile={onOpenProfile}
+              onSearchPosts={onSearchPosts}
+              clientPosts={clientPosts}
+              activeFilterQuery={activeFilterQuery}
+              onClearFilter={onClearFilter}
+            />
           </div>
         </div>
 
