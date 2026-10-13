@@ -55,13 +55,18 @@ def send_otp_email(to_email: str, code: str, purpose: str = "Xác thực tài kh
     </html>
     """
 
-    # In log ra terminal để tester và dev luôn thấy được OTP ngay lập tức
-    print(f"\n=======================================================")
-    print(f"[EmailService] [OTP NOTIFICATION]")
-    print(f"  • Người nhận: {to_email}")
-    print(f"  • Mục đích:   {purpose}")
-    print(f"  • Mã OTP:     {code}")
-    print(f"=======================================================\n")
+    try:
+        print(f"\n=======================================================")
+        print(f"[EmailService] [OTP NOTIFICATION]")
+        print(f"  - Nguoi nhan: {to_email}")
+        print(f"  - Muc dich:   {purpose}")
+        print(f"  - Ma OTP:     {code}")
+        print(f"=======================================================\n")
+    except Exception:
+        try:
+            print(f"[EmailService] OTP sent to {to_email}: {code}")
+        except Exception:
+            pass
 
     if smtp_user and smtp_pass:
         try:

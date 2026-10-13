@@ -274,7 +274,7 @@ class AuthService:
         return {
             "email": email_clean,
             "demo_otp": new_otp,
-            "message": "Mã xác thực mới đã được gửi tới email của bạn"
+            "message": "Đã gửi lại mã OTP mới tới email của bạn"
         }
 
     @staticmethod
