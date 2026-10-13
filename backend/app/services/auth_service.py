@@ -1,11 +1,15 @@
 import uuid
+import random
+from datetime import datetime, timedelta
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from fastapi import HTTPException, status
 from ..models.user import User
+from ..models.verification_code import VerificationCode
 from ..schemas.auth import RegisterRequest, LoginRequest, UserResponse, TokenResponse
 from ..utils.security import hash_password, verify_password, create_access_token
+from ..utils.email_service import send_otp_email
 
 def seed_default_users(db: Session):
     """Tự động nạp các tài khoản mẫu cho việc kiểm thử nếu chưa có dữ liệu"""
@@ -128,7 +132,25 @@ class AuthService:
         db.commit()
         db.refresh(new_user)
 
-        return UserResponse.model_validate(new_user)
+        # 6. Tạo mã xác thực OTP gửi qua email
+        otp_code = f"{random.randint(100000, 999999)}"
+        ver_code = VerificationCode(
+            user_id=new_user.id,
+            email=new_user.email,
+            code=otp_code,
+            type="email_verification",
+            expires_at=datetime.utcnow() + timedelta(minutes=10)
+        )
+        db.add(ver_code)
+        db.commit()
+
+        # 7. Gửi email xác thực
+        send_otp_email(to_email=new_user.email, code=otp_code, purpose="Xác thực tài khoản")
+
+        user_data = UserResponse.model_validate(new_user).model_dump()
+        user_data["demo_otp"] = otp_code
+        user_data["requires_email_verification"] = True
+        return user_data
 
     @staticmethod
     def login(req: LoginRequest, db: Session) -> TokenResponse:
@@ -189,3 +211,160 @@ class AuthService:
     @staticmethod
     def get_user_by_id(user_id: str, db: Session) -> Optional[User]:
         return db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def verify_email(email: str, otp: str, db: Session) -> dict:
+        email_clean = email.strip().lower()
+        code_record = db.query(VerificationCode).filter(
+            VerificationCode.email == email_clean,
+            VerificationCode.code == otp.strip(),
+            VerificationCode.type == "email_verification",
+            VerificationCode.is_used == False,
+            VerificationCode.expires_at >= datetime.utcnow()
+        ).order_by(VerificationCode.created_at.desc()).first()
+
+        if not code_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mã xác thực không chính xác hoặc đã hết hạn"
+            )
+
+        code_record.is_used = True
+        user = db.query(User).filter(User.email == email_clean).first()
+        if user:
+            user.is_verified = True
+        db.commit()
+
+        return {
+            "email": email_clean,
+            "is_verified": True,
+            "message": "Xác thực email thành công! Tài khoản đã được kích hoạt."
+        }
+
+    @staticmethod
+    def resend_verification_otp(email: str, db: Session) -> dict:
+        email_clean = email.strip().lower()
+        user = db.query(User).filter(User.email == email_clean).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy tài khoản với email này"
+            )
+
+        # Hủy các mã cũ chưa dùng
+        db.query(VerificationCode).filter(
+            VerificationCode.email == email_clean,
+            VerificationCode.type == "email_verification",
+            VerificationCode.is_used == False
+        ).update({"is_used": True})
+
+        new_otp = f"{random.randint(100000, 999999)}"
+        ver_code = VerificationCode(
+            user_id=user.id,
+            email=email_clean,
+            code=new_otp,
+            type="email_verification",
+            expires_at=datetime.utcnow() + timedelta(minutes=10)
+        )
+        db.add(ver_code)
+        db.commit()
+
+        send_otp_email(to_email=email_clean, code=new_otp, purpose="Xác thực tài khoản")
+
+        return {
+            "email": email_clean,
+            "demo_otp": new_otp,
+            "message": "Mã xác thực mới đã được gửi tới email của bạn"
+        }
+
+    @staticmethod
+    def forgot_password(identifier: str, db: Session) -> dict:
+        clean_id = identifier.strip()
+        user = db.query(User).filter(
+            or_(
+                User.email == clean_id.lower(),
+                User.phone == clean_id,
+                User.username == clean_id
+            )
+        ).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy tài khoản với thông tin đã cung cấp"
+            )
+
+        # Hủy các mã đặt lại mật khẩu cũ
+        db.query(VerificationCode).filter(
+            VerificationCode.email == user.email,
+            VerificationCode.type == "password_reset",
+            VerificationCode.is_used == False
+        ).update({"is_used": True})
+
+        otp_code = f"{random.randint(100000, 999999)}"
+        ver_code = VerificationCode(
+            user_id=user.id,
+            email=user.email,
+            code=otp_code,
+            type="password_reset",
+            expires_at=datetime.utcnow() + timedelta(minutes=15)
+        )
+        db.add(ver_code)
+        db.commit()
+
+        send_otp_email(to_email=user.email, code=otp_code, purpose="Đặt lại mật khẩu")
+
+        # Mask email: ví dụ linh.vothien@example.com -> l***n@example.com
+        parts = user.email.split("@")
+        if len(parts[0]) > 2:
+            masked_name = parts[0][0] + "***" + parts[0][-1]
+        else:
+            masked_name = parts[0][0] + "***"
+        masked_email = f"{masked_name}@{parts[1]}"
+
+        return {
+            "masked_email": masked_email,
+            "email": user.email,
+            "demo_otp": otp_code,
+            "message": f"Mã xác thực đã được gửi tới {masked_email}"
+        }
+
+    @staticmethod
+    def reset_password(identifier: str, otp: str, new_password: str, db: Session) -> dict:
+        clean_id = identifier.strip()
+        user = db.query(User).filter(
+            or_(
+                User.email == clean_id.lower(),
+                User.phone == clean_id,
+                User.username == clean_id
+            )
+        ).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy tài khoản với thông tin đã cung cấp"
+            )
+
+        code_record = db.query(VerificationCode).filter(
+            VerificationCode.email == user.email,
+            VerificationCode.code == otp.strip(),
+            VerificationCode.type == "password_reset",
+            VerificationCode.is_used == False,
+            VerificationCode.expires_at >= datetime.utcnow()
+        ).order_by(VerificationCode.created_at.desc()).first()
+
+        if not code_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mã xác thực không chính xác hoặc đã hết hạn"
+            )
+
+        code_record.is_used = True
+        user.password_hash = hash_password(new_password)
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới."
+        }

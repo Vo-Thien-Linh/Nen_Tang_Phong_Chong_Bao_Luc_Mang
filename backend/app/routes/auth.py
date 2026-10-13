@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from ..database import get_db
-from ..schemas.auth import RegisterRequest, LoginRequest, TokenResponse, UserResponse, ApiResponse
+from ..schemas.auth import (
+    RegisterRequest, LoginRequest, TokenResponse, UserResponse, ApiResponse,
+    VerifyEmailRequest, ResendOtpRequest, ForgotPasswordRequest, ResetPasswordRequest
+)
 from ..services.auth_service import AuthService
 from ..utils.security import decode_access_token
 
@@ -19,7 +22,68 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     return ApiResponse(
         success=True,
         message="Đăng kí thành công",
-        data=user.model_dump()
+        data=user if isinstance(user, dict) else user.model_dump()
+    )
+
+@router.post(
+    "/verify-email",
+    response_model=ApiResponse,
+    summary="Xác thực email bằng mã OTP",
+    description="Xác minh mã OTP 6 số đã gửi qua email để kích hoạt tài khoản"
+)
+def verify_email(request: VerifyEmailRequest, db: Session = Depends(get_db)):
+    res = AuthService.verify_email(request.email, request.otp, db)
+    return ApiResponse(
+        success=True,
+        message=res.get("message", "Xác thực email thành công!"),
+        data=res
+    )
+
+@router.post(
+    "/resend-verification-otp",
+    response_model=ApiResponse,
+    summary="Gửi lại mã xác thực OTP qua email",
+    description="Tạo và gửi lại mã OTP mới cho tài khoản đăng ký"
+)
+def resend_verification_otp(request: ResendOtpRequest, db: Session = Depends(get_db)):
+    res = AuthService.resend_verification_otp(request.email, db)
+    return ApiResponse(
+        success=True,
+        message=res.get("message", "Đã gửi lại mã OTP"),
+        data=res
+    )
+
+@router.post(
+    "/forgot-password",
+    response_model=ApiResponse,
+    summary="Yêu cầu đặt lại mật khẩu (Quên mật khẩu)",
+    description="Nhập Email hoặc Số điện thoại để nhận mã xác thực OTP qua email"
+)
+def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    res = AuthService.forgot_password(request.identifier, db)
+    return ApiResponse(
+        success=True,
+        message=res.get("message", "Mã xác thực đã được gửi tới email"),
+        data=res
+    )
+
+@router.post(
+    "/reset-password",
+    response_model=ApiResponse,
+    summary="Xác nhận mã OTP và đặt mật khẩu mới",
+    description="Xác thực mã OTP và cập nhật mật khẩu mới cho tài khoản"
+)
+def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    res = AuthService.reset_password(
+        identifier=request.identifier,
+        otp=request.otp,
+        new_password=request.new_password,
+        db=db
+    )
+    return ApiResponse(
+        success=True,
+        message=res.get("message", "Đặt lại mật khẩu thành công!"),
+        data=res
     )
 
 @router.post(

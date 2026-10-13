@@ -345,4 +345,21 @@ CREATE TABLE IF NOT EXISTS user_settings (
 
 CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
 
+-- ========================================================
+-- 9. BẢNG VERIFICATION_CODES (Mã OTP xác nhận Email & Quên mật khẩu)
+-- ========================================================
+CREATE TABLE IF NOT EXISTS verification_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    code VARCHAR(10) NOT NULL,
+    type VARCHAR(30) NOT NULL, -- 'email_verification', 'password_reset'
+    is_used BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_codes_email ON verification_codes(email);
+CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON verification_codes(code);
+
 
