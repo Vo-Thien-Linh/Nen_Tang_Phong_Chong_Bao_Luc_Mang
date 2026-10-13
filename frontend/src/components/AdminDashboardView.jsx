@@ -265,8 +265,8 @@ export default function AdminDashboardView({
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wider uppercase bg-indigo-500/20 text-cyan-300 border border-indigo-400/30 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wider uppercase bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-300" />
                 Hệ Thống Kiểm Duyệt Toàn Diện & AI Shield
               </span>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -287,7 +287,7 @@ export default function AdminDashboardView({
               className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition border border-white/15 shadow-xs cursor-pointer"
               title="Xuất dữ liệu các trường hợp AI sai để train lại mô hình"
             >
-              <Download className="w-4 h-4 text-cyan-300" />
+              <Download className="w-4 h-4 text-blue-300" />
               <span>Xuất Dataset AI ({totalOverridesCount})</span>
             </button>
           </div>

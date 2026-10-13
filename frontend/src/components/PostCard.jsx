@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
-  CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle 
+  CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2
 } from 'lucide-react';
 import { updatePostReaction } from '../api/client';
 import {
@@ -13,6 +14,74 @@ import {
   rollbackReactionState,
   REACTIONS,
 } from '../utils/reactionLogic';
+import { DEFAULT_AVATAR } from '../constants/defaults';
+import { computeMeasuredPopoverPlacement } from '../utils/popoverLogic';
+import { canDeletePost, canEditPost, canReportPost } from '../utils/postActionLogic';
+import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
+import EditPostModal from './EditPostModal';
+import DeletePostModal from './DeletePostModal';
+import InlineNotice from './InlineNotice';
+
+function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose }) {
+  const popoverRef = useRef(null);
+  const [style, setStyle] = useState({ position: 'fixed', left: 0, top: 0, visibility: 'hidden', pointerEvents: 'none' });
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+
+    const updatePosition = () => {
+      const anchor = anchorRef.current;
+      const popover = popoverRef.current;
+      if (!anchor || !popover) return;
+
+      const next = computeMeasuredPopoverPlacement({
+        anchorRect: anchor.getBoundingClientRect(),
+        popoverSize: popover.getBoundingClientRect(),
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        gap,
+      });
+
+      if (!next.ready) {
+        setStyle({ position: 'fixed', left: 0, top: 0, visibility: 'hidden', pointerEvents: 'none' });
+        return;
+      }
+
+      setStyle({
+        position: 'fixed',
+        top: `${next.top}px`,
+        left: `${next.left}px`,
+        visibility: 'visible',
+        pointerEvents: 'auto',
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition, { passive: true });
+    window.addEventListener('scroll', updatePosition, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [anchorRef, children, gap, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onRequestClose?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onRequestClose, open]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div ref={popoverRef} style={style} className={`z-50 ${className}`}>
+      {children}
+    </div>,
+    document.body
+  );
+}
 
 export default function PostCard({ 
   post, 
@@ -22,7 +91,14 @@ export default function PostCard({
   onOpenReportModal,
   onOpenAppealModal,
   onRequireAuth,
-  onRequireLogin
+  onRequireLogin,
+  onOpenProfile,
+  onEditPost,
+  onDeletePost,
+  openPostMenuId,
+  onTogglePostMenu,
+  onClosePostMenu,
+  onDismissNotice
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -37,7 +113,71 @@ export default function PostCard({
   const [reactionError, setReactionError] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showReactionSummary, setShowReactionSummary] = useState(false);
-  const [showPostMenu, setShowPostMenu] = useState(false);
+  const [localShowPostMenu, setLocalShowPostMenu] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [postError, setPostError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const reactionSummaryRef = useRef(null);
+  const reactionPickerRef = useRef(null);
+  const menuRef = useRef(null);
+  const menuButtonRef = useRef(null);
+  const usesSharedMenuState = openPostMenuId !== undefined && onTogglePostMenu && onClosePostMenu;
+  const showPostMenu = usesSharedMenuState
+    ? String(openPostMenuId || '') === String(post.id)
+    : localShowPostMenu;
+  const allowEdit = canEditPost(post, currentUser);
+  const allowDelete = canDeletePost(post, currentUser);
+  const allowReport = canReportPost(post, currentUser);
+
+  const closePostMenu = useCallback(() => {
+    if (usesSharedMenuState) onClosePostMenu();
+    else setLocalShowPostMenu(false);
+  }, [onClosePostMenu, usesSharedMenuState]);
+
+  const togglePostMenu = useCallback(() => {
+    if (usesSharedMenuState) onTogglePostMenu(post.id);
+    else setLocalShowPostMenu((value) => !value);
+  }, [onTogglePostMenu, post.id, usesSharedMenuState]);
+
+  useEffect(() => {
+    if (!showPostMenu) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (shouldClosePostMenuForPointer({
+        target: event.target,
+        menuElement: menuRef.current,
+        triggerElement: menuButtonRef.current,
+      })) {
+        closePostMenu();
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closePostMenu();
+        menuButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closePostMenu, showPostMenu]);
+
+  useEffect(() => {
+    setCurrentReaction(post.myReaction || (post.isLiked ? 'like' : null));
+  }, [post.myReaction, post.isLiked]);
+
+  useEffect(() => {
+    if (post.reactionCounts || post.counts) {
+      const counts = normalizeReactionCounts(post.reactionCounts || post.counts);
+      setReactionCounts(counts);
+      setReactionCount(getTotalReactionCount(counts) || post.totalReactions || post.likesCount || 0);
+    }
+  }, [post.reactionCounts, post.counts, post.totalReactions, post.likesCount]);
 
   const handleSelectReaction = async (reactionId = 'like') => {
     setShowReactionPicker(false);
@@ -66,7 +206,10 @@ export default function PostCard({
         previousReaction: currentReaction,
         nextReaction: nextState.myReaction,
       }));
-      onToggleLike(post.id);
+      // Chỉ toggle like khi thay đổi giữa trạng thái (chưa thả <-> đã thả)
+      if ((!currentReaction && nextState.myReaction) || (currentReaction && !nextState.myReaction)) {
+        onToggleLike && onToggleLike(post.id);
+      }
       return;
     }
 
@@ -84,10 +227,12 @@ export default function PostCard({
     setReactionCounts(nextCounts);
 
     try {
+      const isRevoking = nextState.myReaction === null;
       const result = await updatePostReaction({
         userId: currentUser.id,
         postId: post.id,
-        type: reactionId,
+        type: isRevoking ? null : reactionId,
+        action: isRevoking ? 'remove' : 'set',
       });
       setCurrentReaction(result.data.myReaction);
       const syncedCounts = normalizeReactionCounts(result.data.reactionCounts || result.data.counts);
@@ -130,6 +275,26 @@ export default function PostCard({
     setTimeout(() => setCopiedToast(false), 2000);
   };
 
+  const handleSaveEdit = async ({ content, imageUrl }) => {
+    setPostError('');
+    const updatedPost = await onEditPost(post.id, { content, imageUrl });
+    setShowEditModal(false);
+    return updatedPost;
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    setPostError('');
+    try {
+      await onDeletePost(post.id);
+      setShowDeleteModal(false);
+    } catch (error) {
+      setPostError(error.message || 'Xóa bài viết thất bại');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const getAiBadgeColor = (label) => {
     switch (label) {
       case 'Normal':
@@ -159,16 +324,28 @@ export default function PostCard({
       )}
 
       {/* Header bài viết */}
+      {post.inlineNotice?.type === 'edit' && (
+        <InlineNotice
+          notice={post.inlineNotice}
+          onDismiss={() => onDismissNotice?.(post.id)}
+          className="mx-4 mt-4 sm:mx-5"
+        />
+      )}
+
       <div className="p-4 sm:p-5 flex items-center justify-between pb-3">
         <div className="flex items-center gap-3">
           <img 
             src={post.author.avatar} 
             alt={post.author.name} 
-            className="w-11 h-11 rounded-full object-cover ring-2 ring-slate-100"
+            onClick={() => onOpenProfile && onOpenProfile(post.author)}
+            className="w-11 h-11 rounded-full object-cover ring-2 ring-slate-100 cursor-pointer hover:opacity-90 transition"
           />
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-sm font-bold text-slate-900 hover:text-blue-600 cursor-pointer">
+              <h3 
+                onClick={() => onOpenProfile && onOpenProfile(post.author)}
+                className="text-sm font-bold text-slate-900 hover:text-blue-600 cursor-pointer transition"
+              >
                 {post.author.name}
               </h3>
               {post.author.isVerified && (
@@ -179,6 +356,12 @@ export default function PostCard({
               <span>@{post.author.username}</span>
               <span>•</span>
               <span>{post.createdAt}</span>
+              {post.isEdited && (
+                <>
+                  <span>•</span>
+                  <span>Đã chỉnh sửa</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -197,18 +380,56 @@ export default function PostCard({
 
           <div className="relative">
             <button 
-              onClick={() => setShowPostMenu(!showPostMenu)}
+              ref={menuButtonRef}
+              onClick={togglePostMenu}
               className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+              aria-haspopup="menu"
+              aria-expanded={showPostMenu}
               title="Tùy chọn bài viết"
             >
               <MoreHorizontal className="w-4 h-4" />
             </button>
 
             {showPostMenu && (
-              <div className="absolute right-0 top-8 z-30 w-48 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 animate-fade-in text-xs">
+              <div ref={menuRef} role="menu" className="absolute right-0 top-8 z-30 w-48 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 animate-fade-in text-xs">
+                {allowEdit && (
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      if (!currentUser?.id) {
+                        onRequireAuth?.('Vui lòng đăng nhập để tiếp tục');
+                        return;
+                      }
+                      closePostMenu();
+                      setShowEditModal(true);
+                    }}
+                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    <span>Chỉnh sửa bài viết</span>
+                  </button>
+                )}
+                {allowDelete && (
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      if (!currentUser?.id) {
+                        onRequireAuth?.('Vui lòng đăng nhập để tiếp tục');
+                        return;
+                      }
+                      closePostMenu();
+                      setShowDeleteModal(true);
+                    }}
+                    className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Xóa bài viết</span>
+                  </button>
+                )}
                 <button
+                  role="menuitem"
                   onClick={() => {
-                    setShowPostMenu(false);
+                    closePostMenu();
                     if (onOpenReportModal) {
                       onOpenReportModal({
                         targetType: 'post',
@@ -219,7 +440,7 @@ export default function PostCard({
                       });
                     }
                   }}
-                  className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                  className={`w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 ${allowReport ? 'flex' : 'hidden'} items-center gap-2 font-semibold transition cursor-pointer`}
                 >
                   <ShieldAlert className="w-4 h-4" />
                   <span>Báo cáo bài viết này</span>
@@ -287,22 +508,29 @@ export default function PostCard({
 
       {/* Ảnh bài viết (nếu có) */}
       {post.image && (
-        <div className="w-full overflow-hidden bg-slate-900/5 border-y border-slate-100 flex items-center justify-center">
+        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center">
           <img 
             src={post.image} 
-            alt="Post media" 
-            className="w-full h-auto max-h-[520px] object-cover block"
+            alt="Ảnh đính kèm bài viết" 
+            className="block h-auto max-h-[75vh] w-full object-contain"
             loading="lazy"
+            decoding="async"
           />
         </div>
       )}
 
       {/* Thống kê tương tác cảm xúc */}
       <div className="px-4 sm:px-5 py-2.5 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
-        <div
-          className="relative flex items-center gap-1.5"
+        <button
+          type="button"
+          ref={reactionSummaryRef}
+          className="flex min-w-0 items-center gap-1.5 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-blue-100"
           onMouseEnter={() => setShowReactionSummary(true)}
           onMouseLeave={() => setShowReactionSummary(false)}
+          onFocus={() => setShowReactionSummary(true)}
+          onBlur={() => setShowReactionSummary(false)}
+          onClick={() => setShowReactionSummary((value) => !value)}
+          aria-label="Xem số lượng từng loại cảm xúc"
         >
           {summaryReactions.length > 0 && (
             <div className="flex items-center -space-x-1">
@@ -320,20 +548,23 @@ export default function PostCard({
           <span className="font-medium text-slate-600 pl-1">
             {reactionCount} cảm xúc
           </span>
-          {showReactionSummary && reactionDetails.length > 0 && (
-            <div className="absolute left-0 top-6 z-30 min-w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-              {reactionDetails.map((reaction) => (
-                <div key={reaction.id} className="flex items-center justify-between gap-4 px-2 py-1 text-xs text-slate-700">
-                  <span className="flex items-center gap-2">
-                    <span>{reaction.emoji}</span>
-                    <span className="font-semibold">{reaction.label}</span>
-                  </span>
-                  <span className="font-bold text-slate-900">{reaction.count}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          <PortalPopover
+            anchorRef={reactionSummaryRef}
+            open={showReactionSummary && reactionDetails.length > 0}
+            onRequestClose={() => setShowReactionSummary(false)}
+            className="min-w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+          >
+            {reactionDetails.map((reaction) => (
+              <div key={reaction.id} className="flex items-center justify-between gap-4 px-2 py-1 text-xs text-slate-700">
+                <span className="flex items-center gap-2">
+                  <span>{reaction.emoji}</span>
+                  <span className="font-semibold">{reaction.label}</span>
+                </span>
+                <span className="font-bold text-slate-900">{reaction.count}</span>
+              </div>
+            ))}
+          </PortalPopover>
+        </button>
         <div className="flex items-center gap-3">
           <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{post.comments?.length || 0} bình luận</span>
           <span>{post.sharesCount || 0} chia sẻ</span>
@@ -351,13 +582,20 @@ export default function PostCard({
         
         {/* Nút Cảm xúc với Popover 6 loại cảm xúc chuẩn Facebook */}
         <div 
+          ref={reactionPickerRef}
           className="flex-1 relative"
           onMouseEnter={() => setShowReactionPicker(true)}
           onMouseLeave={() => setShowReactionPicker(false)}
         >
           {/* Thanh Popover chọn 6 cảm xúc */}
-          {showReactionPicker && (
-            <div className="absolute -top-12 left-2 z-30 bg-white rounded-full px-2.5 py-1.5 shadow-xl border border-slate-200 flex items-center gap-2 animate-fade-in">
+          <PortalPopover
+            anchorRef={reactionPickerRef}
+            open={showReactionPicker}
+            gap={10}
+            onRequestClose={() => setShowReactionPicker(false)}
+            className="rounded-full border border-slate-200 bg-white px-2.5 py-1.5 shadow-xl animate-fade-in"
+          >
+            <div className="flex items-center gap-2">
               {REACTIONS.map((r) => (
                 <button
                   key={r.id}
@@ -369,7 +607,7 @@ export default function PostCard({
                 </button>
               ))}
             </div>
-          )}
+          </PortalPopover>
 
           <button
             onClick={() => handleSelectReaction(currentReaction || 'like')}
@@ -425,7 +663,7 @@ export default function PostCard({
           {/* Form nhập bình luận mới */}
           <form onSubmit={handleCommentSubmit} className="flex gap-2">
             <img 
-              src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
+              src={currentUser?.avatar || DEFAULT_AVATAR} 
               alt={currentUser?.name || "Khách"} 
               className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
             />
@@ -460,11 +698,17 @@ export default function PostCard({
                   <img 
                     src={comment.author.avatar} 
                     alt={comment.author.name} 
-                    className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5"
+                    onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                    className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                   />
                   <div className="flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-slate-800">{comment.author.name}</span>
+                      <span 
+                        onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                        className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition"
+                      >
+                        {comment.author.name}
+                      </span>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-slate-400">{comment.time}</span>
                         <button
@@ -493,6 +737,19 @@ export default function PostCard({
         </div>
       )}
 
+      <EditPostModal
+        post={post}
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        onSave={handleSaveEdit}
+      />
+      <DeletePostModal
+        isOpen={showDeleteModal}
+        isDeleting={isDeleting}
+        errorMessage={postError}
+        onCancel={() => setShowDeleteModal(false)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

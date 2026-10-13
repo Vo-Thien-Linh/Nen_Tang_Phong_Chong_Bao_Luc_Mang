@@ -12,6 +12,8 @@ from app.routes.moderate import router as moderate_router
 from app.routes.admin import router as admin_router
 from app.routes.friend import router as friend_router
 from app.routes.settings import router as settings_router
+from app.routes.message import router as message_router
+from app.routes.search import router as search_router
 
 # 1. Khởi tạo ứng dụng FastAPI với Swagger UI tài liệu tự động
 app = FastAPI(
@@ -75,6 +77,10 @@ app.include_router(friend_router, prefix="/api/v1")
 app.include_router(friend_router, prefix="/api")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api")
+app.include_router(message_router, prefix="/api/v1")
+app.include_router(message_router, prefix="/api")
+app.include_router(search_router, prefix="/api/v1")
+app.include_router(search_router, prefix="/api")
 
 @app.get("/", tags=["Hệ thống"])
 def root():
@@ -90,4 +96,5 @@ def health_check():
     return {"status": "OK", "message": "Backend FastAPI đang hoạt động tốt trên cổng 8000!"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, reload_dirs=["app"])
+

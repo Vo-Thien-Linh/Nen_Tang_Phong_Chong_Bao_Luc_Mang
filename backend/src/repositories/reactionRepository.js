@@ -17,7 +17,7 @@ function mapCounts(rows) {
 
 export function createReactionRepository({ pool }) {
   return {
-    async setReaction({ userId, postId, reactionType }) {
+    async setReaction({ userId, postId, reactionType, forceRemove = false }) {
       const client = await pool.connect();
 
       try {
@@ -49,7 +49,25 @@ export function createReactionRepository({ pool }) {
         let action;
         let myReaction;
 
-        if (!currentReaction) {
+        const isRevoke = forceRemove || (!reactionType && currentReaction) || (reactionType && currentReaction === reactionType);
+
+        if (isRevoke) {
+          if (currentReaction) {
+            await client.query(
+              `DELETE FROM post_reactions
+               WHERE user_id = $1 AND post_id = $2`,
+              [userId, postId]
+            );
+            await client.query(
+              `UPDATE posts
+               SET likes_count = GREATEST(likes_count - 1, 0), updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [postId]
+            );
+          }
+          action = 'removed';
+          myReaction = null;
+        } else if (!currentReaction) {
           await client.query(
             `INSERT INTO post_reactions (user_id, post_id, reaction_type)
              VALUES ($1, $2, $3)`,
@@ -72,20 +90,6 @@ export function createReactionRepository({ pool }) {
 
           action = 'created';
           myReaction = reactionType;
-        } else if (currentReaction === reactionType) {
-          await client.query(
-            `DELETE FROM post_reactions
-             WHERE user_id = $1 AND post_id = $2`,
-            [userId, postId]
-          );
-          await client.query(
-            `UPDATE posts
-             SET likes_count = GREATEST(likes_count - 1, 0), updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
-            [postId]
-          );
-          action = 'removed';
-          myReaction = null;
         } else {
           await client.query(
             `UPDATE post_reactions

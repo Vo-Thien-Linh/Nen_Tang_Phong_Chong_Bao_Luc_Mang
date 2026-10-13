@@ -7,6 +7,7 @@ import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import pool, { testDbConnection } from './src/config/db.js';
 import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
 import { createPostsRouter } from './src/routes/postsRouter.js';
+import { createUsersRouter } from './src/routes/usersRouter.js';
 
 dotenv.config();
 
@@ -37,6 +38,7 @@ const storage = new CloudinaryStorage({
   params: {
     folder: 'nexussocial_uploads', // Thư mục lưu ảnh trên Cloudinary
     allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'gif'],
+    transformation: [{ width: 1920, height: 1920, crop: 'limit', quality: 'auto' }],
   },
 });
 
@@ -87,6 +89,7 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 
 app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
+app.use('/api/users', createUsersRouter({ pool }));
 
 // ========================================================
 // 4. IN-MEMORY STORE: BÁO CÁO, KHIẾU NẠI & HIỆU CHỈNH NHÃN AI

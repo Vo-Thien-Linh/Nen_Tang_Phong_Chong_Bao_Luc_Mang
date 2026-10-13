@@ -142,7 +142,7 @@ export default function AuthModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header với Gradient sang trọng */}
-        <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-6 py-6 text-white relative">
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-6 text-white relative">
           <button 
             onClick={onClose}
             className="absolute top-4 right-4 p-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer"
@@ -152,12 +152,14 @@ export default function AuthModal({
           </button>
 
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-inner">
-              <Sparkles className="w-5 h-5" />
-            </div>
+            <img 
+              src="/wings-logo.png" 
+              alt="WINGS Logo" 
+              className="w-11 h-11 rounded-full object-cover ring-2 ring-white/30 shadow-sm"
+            />
             <div>
-              <h2 className="text-xl font-bold tracking-tight">NexusSocial AI</h2>
-              <p className="text-xs text-blue-100">Nền tảng phòng chống bạo lực mạng</p>
+              <h2 className="text-xl font-black tracking-tight">WINGS</h2>
+              <p className="text-xs text-blue-100 font-medium">social network • Nền tảng kết nối văn minh</p>
             </div>
           </div>
 
@@ -320,7 +322,7 @@ export default function AuthModal({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-500/25 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {isLoading ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -471,7 +473,7 @@ export default function AuthModal({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-500/25 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
               >
                 {isLoading ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

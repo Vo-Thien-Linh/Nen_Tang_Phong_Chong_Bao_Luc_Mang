@@ -136,6 +136,19 @@ export const authService = {
     return null;
   },
 
+  // Cập nhật thông tin người dùng đang đăng nhập vào LocalStorage
+  updateCurrentUser: (updatedFields) => {
+    try {
+      const current = authService.getCurrentUser() || {};
+      const updated = { ...current, ...updatedFields };
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updated));
+      return updated;
+    } catch (e) {
+      console.warn("Không thể lưu cập nhật người dùng vào localStorage:", e);
+      return null;
+    }
+  },
+
   // Lấy Token hiện tại
   getToken: () => {
     return localStorage.getItem(STORAGE_KEYS.TOKEN);
@@ -147,12 +160,17 @@ export const authService = {
       throw new Error("Vui lòng nhập đầy đủ thông tin");
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: identifier.trim(), password: password.trim() })
+        body: JSON.stringify({ identifier: identifier.trim(), password: password.trim() }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -177,9 +195,15 @@ export const authService = {
 
       return { user, token: data.access_token };
     } catch (err) {
-      // Nếu Backend chưa bật, hỗ trợ Mock Fallback cho kiểm thử
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        console.warn("Backend FastAPI chưa bật hoặc mạng lỗi, chuyển sang cơ chế Offline Mock Test");
+      clearTimeout(timeoutId);
+      // Nếu Backend chưa bật hoặc phản hồi quá lâu (timeout), hỗ trợ Mock Fallback cho kiểm thử
+      const isNetworkOrTimeout = err.name === 'AbortError' || 
+                                 err.message.includes('Failed to fetch') || 
+                                 err.message.includes('NetworkError') ||
+                                 err.message.includes('aborted');
+
+      if (isNetworkOrTimeout) {
+        console.warn("Backend FastAPI chưa bật hoặc mạng lỗi / timeout, chuyển sang cơ chế Offline Mock Test");
         const identLower = identifier.trim().toLowerCase();
         const user = MOCK_DEMO_USERS.find(
           u => u.email.toLowerCase() === identLower || u.phone === identifier.trim()
@@ -241,6 +265,9 @@ export const authService = {
       throw new Error("Mật khẩu xác nhận không khớp");
     }
 
+    const regController = new AbortController();
+    const regTimeoutId = setTimeout(() => regController.abort(), 8000);
+
     try {
       const response = await fetch(`${API_BASE_URL}/register`, {
         method: 'POST',
@@ -251,8 +278,10 @@ export const authService = {
           phone: phone.trim(),
           password: password,
           confirm_password: confirmPassword
-        })
+        }),
+        signal: regController.signal
       });
+      clearTimeout(regTimeoutId);
 
       const data = await response.json();
       if (!response.ok) {
@@ -261,7 +290,13 @@ export const authService = {
 
       return data;
     } catch (err) {
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+      clearTimeout(regTimeoutId);
+      const isNetworkOrTimeout = err.name === 'AbortError' || 
+                                 err.message.includes('Failed to fetch') || 
+                                 err.message.includes('NetworkError') ||
+                                 err.message.includes('aborted');
+
+      if (isNetworkOrTimeout) {
         // Fallback offline mock test
         if (MOCK_DEMO_USERS.some(u => u.name === trimmedName)) {
           throw new Error("Tên đã được tồn tại");
@@ -274,7 +309,7 @@ export const authService = {
         }
 
         const newMockUser = {
-          id: "mock-" + Date.now(),
+          id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "b0000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12)),
           name: trimmedName,
           full_name: trimmedName,
           username: email.trim().split('@')[0],
@@ -282,8 +317,10 @@ export const authService = {
           phone: phone.trim(),
           role: "USER",
           status: "active",
-          avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
-          avatar_url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
+          avatar: null,
+          avatar_url: null,
+          cover: null,
+          cover_url: null,
           postsCount: 0,
           friendsCount: 0,
           isVerified: false,

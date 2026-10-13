@@ -21,7 +21,16 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, createComment } from './api/client';
+import { fetchPosts, createComment, updatePost, deletePost } from './api/client';
+import { applyUpdatedPostToList } from './utils/postActionLogic';
+import { closePostMenu, togglePostMenu } from './utils/menuLogic';
+import {
+  clearPostNotice,
+  countVisiblePosts,
+  markDeletedPostNotice,
+  markEditPostNotice,
+  removeDeletedNotice,
+} from './utils/noticeLogic';
 
 const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
@@ -39,6 +48,7 @@ export default function App() {
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
   const [posts, setPosts] = useState([]);
+  const [openPostMenuId, setOpenPostMenuId] = useState(null);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const [notifications, setNotifications] = useState(initialNotifications);
   
@@ -75,6 +85,9 @@ export default function App() {
   const [reportTarget, setReportTarget] = useState(null); // Đối tượng đang được mở modal báo cáo
   const [appealItem, setAppealItem] = useState(null);     // Nội dung đang được mở modal khiếu nại
   const [selectedChatUserId, setSelectedChatUserId] = useState(null);
+  const [selectedChatUser, setSelectedChatUser] = useState(null);
+  const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
+  const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
 
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
   useEffect(() => {
@@ -103,25 +116,26 @@ export default function App() {
   // Xử lý Chuyển Tab có Auth Guard
   const handleTabChange = (tab) => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'settings')) {
-      setAuthNoticeMessage("Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập");
+      const msg = tab === 'messages'
+        ? "Vui lòng đăng nhập để sử dụng tính năng nhắn tin"
+        : "Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập";
+      setAuthNoticeMessage(msg);
       setAuthModalTab('login');
       setIsAuthModalOpen(true);
       return;
+    }
+    if (tab === 'profile') {
+      setViewedProfileUser(null); // Reset về trang cá nhân của mình
     }
     setActiveTab(tab);
   };
 
   // Cập nhật thông tin người dùng đồng bộ
   const handleUpdateUser = (updatedFields) => {
+    authService.updateCurrentUser(updatedFields);
     setCurrentUser(prev => {
       if (!prev) return prev;
-      const updated = { ...prev, ...updatedFields };
-      try {
-        localStorage.setItem('nexussocial_current_user', JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
-      return updated;
+      return { ...prev, ...updatedFields };
     });
 
     setUsersList(prev => prev.map(u => {
@@ -130,6 +144,29 @@ export default function App() {
       }
       return u;
     }));
+  };
+
+  const handleOpenUserProfile = (user) => {
+    setViewedProfileUser(user);
+    setActiveTab('profile');
+  };
+
+  const handleTogglePostMenu = (postId) => {
+    setOpenPostMenuId(prev => togglePostMenu(prev, postId));
+  };
+
+  const handleClosePostMenu = () => {
+    setOpenPostMenuId(closePostMenu());
+  };
+
+  const handleDismissPostNotice = (postId) => {
+    setPosts(prev => {
+      const target = prev.find(post => String(post.id) === String(postId));
+      if (target?.inlineNotice?.type === 'delete') {
+        return removeDeletedNotice(prev, postId);
+      }
+      return clearPostNotice(prev, postId);
+    });
   };
 
   // Kích hoạt yêu cầu đăng nhập
@@ -210,16 +247,66 @@ export default function App() {
       return;
     }
     setPosts(prev => prev.map(post => {
-      if (post.id === postId) {
+      if (String(post.id) === String(postId)) {
         const isLiked = !post.isLiked;
         return {
           ...post,
           isLiked,
-          likesCount: isLiked ? post.likesCount + 1 : Math.max(0, post.likesCount - 1)
+          myReaction: isLiked ? (post.myReaction || 'like') : null,
+          likesCount: isLiked ? (post.likesCount || 0) + 1 : Math.max(0, (post.likesCount || 0) - 1)
         };
       }
       return post;
     }));
+  };
+
+  const handleUpdatePost = async (postId, changes) => {
+    if (!currentUser?.id) {
+      handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
+      throw new Error('Vui lòng đăng nhập để tiếp tục');
+    }
+
+    try {
+      const result = await updatePost({
+        userId: currentUser.id,
+        postId,
+        content: changes.content,
+        imageUrl: changes.imageUrl,
+      });
+      const updatedPost = result.data;
+      setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
+      return updatedPost;
+    } catch (error) {
+      if (error.status === 404) {
+        setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
+        )));
+        throw new Error('Bài viết không tồn tại');
+      }
+      throw new Error(error.message || 'Cập nhật bài viết thất bại');
+    }
+  };
+
+  const handleDeleteOwnPost = async (postId) => {
+    if (!currentUser?.id) {
+      handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
+      throw new Error('Vui lòng đăng nhập để tiếp tục');
+    }
+
+    try {
+      await deletePost({ userId: currentUser.id, postId });
+      setPosts(prev => prev.map(post => (
+        String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
+      )));
+    } catch (error) {
+      if (error.status === 404) {
+        setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
+        )));
+        throw new Error('Bài viết không tồn tại');
+      }
+      throw new Error(error.message || 'Xóa bài viết thất bại');
+    }
   };
 
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
@@ -249,6 +336,7 @@ export default function App() {
       console.error('Lỗi lưu bình luận vào Supabase:', err);
     }
   };
+
 
   // ========================================================
   // XỬ LÝ BÁO CÁO NGƯỜI DÙNG (REPORTS)
@@ -493,9 +581,21 @@ export default function App() {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  // Mở đoạn chat từ trang Bạn bè
-  const handleOpenChatFromFriends = (friend) => {
-    setSelectedChatUserId(friend.id);
+  // Mở đoạn chat từ trang Bạn bè hoặc Trang cá nhân người khác
+  const handleOpenChatFromFriends = (user) => {
+    if (!currentUser) {
+      handleRequireAuth("Vui lòng đăng nhập để sử dụng tính năng nhắn tin");
+      return;
+    }
+    const userPayload = {
+      id: user.id || user.user_id,
+      name: user.name || user.full_name,
+      username: user.username,
+      avatar: user.avatar || user.avatar_url,
+      _ts: Date.now()
+    };
+    setSelectedChatUser(userPayload);
+    setSelectedChatUserId(userPayload.id);
     setActiveTab('messages');
   };
 
@@ -519,7 +619,15 @@ export default function App() {
           setIsAuthModalOpen(true);
         }}
         onLogout={handleLogout}
-        postsCount={posts.filter(p => p.author?.id === currentUser?.id).length}
+        postsCount={countVisiblePosts(posts.filter(p => p.author?.id === currentUser?.id))}
+        onOpenProfile={handleOpenUserProfile}
+        onSearchPosts={(query) => {
+          setHomeSearchQuery(query);
+          setActiveTab('home');
+        }}
+        clientPosts={posts}
+        activeFilterQuery={homeSearchQuery}
+        onClearFilter={() => setHomeSearchQuery('')}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -545,20 +653,39 @@ export default function App() {
             }}
             onRequireLogin={handleRequireLogin}
             feedWarning={feedWarning}
+            onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
+            searchQuery={homeSearchQuery}
+            onClearSearch={() => setHomeSearchQuery('')}
+            onSelectHashtag={(tag) => {
+              setHomeSearchQuery(tag);
+              setActiveTab('home');
+            }}
           />
         )}
 
         {/* Tab 2: Bạn bè */}
         {activeTab === 'friends' && (
-          <FriendsView onOpenChat={handleOpenChatFromFriends} />
+          <FriendsView 
+            onOpenChat={handleOpenChatFromFriends} 
+            onOpenProfile={handleOpenUserProfile}
+          />
         )}
 
         {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn) */}
         {activeTab === 'messages' && (
           <MessagesView 
             currentUser={currentUser} 
+            initialChatUser={selectedChatUser}
             initialChatUserId={selectedChatUserId} 
             onOpenReportModal={handleOpenReportModal}
+            onRequireAuth={handleRequireAuth}
+            onOpenProfile={handleOpenUserProfile}
           />
         )}
 
@@ -576,31 +703,50 @@ export default function App() {
         {activeTab === 'profile' && (
           <ProfileView 
             currentUser={currentUser}
-            posts={posts}
+            viewedUser={viewedProfileUser}
+            posts={posts.filter(p => !p.inlineNotice)}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
             onOpenSettings={() => setActiveTab('settings')}
+            onOpenChat={handleOpenChatFromFriends}
+            onOpenUserProfile={handleOpenUserProfile}
+            onRequireAuth={handleRequireAuth}
           />
         )}
 
         {/* Tab 6: BẢNG ĐIỀU KHIỂN QUẢN TRỊ VIÊN (ADMIN DASHBOARD) */}
         {activeTab === 'admin' && (
-          <AdminDashboardView 
-            posts={posts}
-            reports={reports}
-            appeals={appeals}
-            aiOverrides={aiOverrides}
-            usersList={usersList}
-            onResolveReport={handleResolveReport}
-            onResolveAppeal={handleResolveAppeal}
-            onOverrideAiLabel={handleOverrideAiLabel}
-            onToggleHidePost={handleToggleHidePost}
-            onDeletePost={handleDeletePost}
-            onUpdateUserStatus={handleUpdateUserStatus}
-            onUpdateUserRole={handleUpdateUserRole}
-          />
+          (currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin)) ? (
+            <AdminDashboardView 
+              posts={posts}
+              reports={reports}
+              appeals={appeals}
+              aiOverrides={aiOverrides}
+              usersList={usersList}
+              onResolveReport={handleResolveReport}
+              onResolveAppeal={handleResolveAppeal}
+              onOverrideAiLabel={handleOverrideAiLabel}
+              onToggleHidePost={handleToggleHidePost}
+              onDeletePost={handleDeletePost}
+              onUpdateUserStatus={handleUpdateUserStatus}
+              onUpdateUserRole={handleUpdateUserRole}
+            />
+          ) : (
+            <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200 text-center shadow-xs">
+              <h3 className="text-lg font-bold text-slate-800">Không có quyền truy cập</h3>
+              <p className="text-sm text-slate-500 mt-2">
+                Trang Admin Dashboard chỉ dành riêng cho tài khoản quản trị viên.
+              </p>
+              <button
+                onClick={() => setActiveTab('home')}
+                className="mt-6 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition cursor-pointer"
+              >
+                Quay về trang chủ
+              </button>
+            </div>
+          )
         )}
 
         {/* Tab 7: TRUNG TÂM CÀI ĐẶT & KHIÊN AN TOÀN AI */}
