@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { 
   Home, Bell, Search, Sparkles, ShieldCheck, Users, MessageCircle, 
-  LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield
+  LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
+  Sun, Moon
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
@@ -16,6 +17,8 @@ export default function Navbar({
   onLogout,
   unreadMessagesCount = 1,
   pendingModerationCount = 0,
+  theme = 'light',
+  onToggleTheme,
   onOpenProfile,
   onSearchPosts,
   clientPosts = [],
@@ -186,6 +189,19 @@ export default function Navbar({
             <span className="hidden sm:inline whitespace-nowrap">AI Lab</span>
           </button>
 
+          {/* Nút Chuyển đổi Giao diện Sáng / Tối */}
+          <button
+            onClick={onToggleTheme}
+            title={theme === 'dark' ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối"}
+            className="h-10 w-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-400 transition duration-150 cursor-pointer shrink-0"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+            )}
+          </button>
+
           {/* Phân cách */}
           <div className="h-6 w-px bg-slate-200 mx-0.5 sm:mx-1 shrink-0" />
 
@@ -198,8 +214,8 @@ export default function Navbar({
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 title="Menu tài khoản"
                 className={
-                  'h-10 flex items-center gap-1.5 p-1 pr-2 sm:pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
-                  (showUserMenu || activeTab === 'profile'
+                  'h-10 flex items-center gap-1.5 sm:gap-2 p-1 pr-2 sm:pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
+                  (showUserMenu || activeTab === 'profile' || activeTab === 'settings'
                     ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100'
                     : 'hover:bg-slate-100 border-slate-200 bg-white/80')
                 }
@@ -242,6 +258,27 @@ export default function Navbar({
                     >
                       <User className="w-4 h-4 text-slate-400" />
                       <span>Trang cá nhân của bạn</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('settings'); setShowUserMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                    >
+                      <Settings className="w-4 h-4 text-blue-500" />
+                      <span>Cài đặt & Khiên an toàn</span>
+                    </button>
+
+                    <button
+                      onClick={() => { onToggleTheme && onToggleTheme(); }}
+                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center justify-between font-medium cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-indigo-500" />}
+                        <span>Chế độ: {theme === 'dark' ? 'Tối (Dark)' : 'Sáng (Light)'}</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                        {theme === 'dark' ? '☀️ Bật sáng' : '🌙 Bật tối'}
+                      </span>
                     </button>
 
                     {isAdmin && (

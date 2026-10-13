@@ -3,7 +3,7 @@ import {
   Camera, Edit2, MoreHorizontal, MapPin, Home as HomeIcon, 
   Heart, GraduationCap, Briefcase, Calendar, Image as ImageIcon, 
   Video, Flag, SlidersHorizontal, Settings2, List, Grid3X3, 
-  Share2, CheckCircle2, Globe,
+  Share2, CheckCircle2, Globe, Lock, Settings,
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
   UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert
@@ -34,6 +34,7 @@ export default function ProfileView({
   onToggleLike, 
   onAddComment,
   onUpdateUser,
+  onOpenSettings,
   onOpenChat,
   onOpenUserProfile,
   onRequireAuth
@@ -771,6 +772,16 @@ export default function ProfileView({
                     <span>Nhắn tin</span>
                   </button>
                 </>
+              )}
+
+              {onOpenSettings && (
+                <button 
+                  onClick={onOpenSettings}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border border-slate-200"
+                >
+                  <Settings className="w-4 h-4 text-blue-600" />
+                  <span>Cài đặt & An toàn</span>
+                </button>
               )}
 
               <button 

@@ -6,6 +6,7 @@ import MessagesView from './components/MessagesView';
 import NotificationsView from './components/NotificationsView';
 import ProfileView from './components/ProfileView';
 import AdminDashboardView from './components/AdminDashboardView';
+import SettingsView from './components/SettingsView';
 import AiModerationModal from './components/AiModerationModal';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
@@ -51,6 +52,28 @@ export default function App() {
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const [notifications, setNotifications] = useState(initialNotifications);
   
+  // Quản lý Chế độ Giao diện Sáng / Tối (Theme Mode)
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('nexussocial_theme') || 'light';
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('nexussocial_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  const handleSetTheme = (newTheme) => {
+    setTheme(newTheme);
+  };
+  
   // Dữ liệu quản trị kiểm duyệt & Người dùng
   const [reports, setReports] = useState(initialReports);
   const [appeals, setAppeals] = useState(initialAppeals);
@@ -92,7 +115,7 @@ export default function App() {
 
   // Xử lý Chuyển Tab có Auth Guard
   const handleTabChange = (tab) => {
-    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin')) {
+    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'settings')) {
       const msg = tab === 'messages'
         ? "Vui lòng đăng nhập để sử dụng tính năng nhắn tin"
         : "Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập";
@@ -105,6 +128,22 @@ export default function App() {
       setViewedProfileUser(null); // Reset về trang cá nhân của mình
     }
     setActiveTab(tab);
+  };
+
+  // Cập nhật thông tin người dùng đồng bộ
+  const handleUpdateUser = (updatedFields) => {
+    authService.updateCurrentUser(updatedFields);
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      return { ...prev, ...updatedFields };
+    });
+
+    setUsersList(prev => prev.map(u => {
+      if (u.id === currentUser?.id) {
+        return { ...u, ...updatedFields };
+      }
+      return u;
+    }));
   };
 
   const handleOpenUserProfile = (user) => {
@@ -298,14 +337,6 @@ export default function App() {
     }
   };
 
-  // Cập nhật thông tin profile
-  const handleUpdateUser = (updatedFields) => {
-    authService.updateCurrentUser(updatedFields);
-    setCurrentUser(prev => ({
-      ...prev,
-      ...updatedFields
-    }));
-  };
 
   // ========================================================
   // XỬ LÝ BÁO CÁO NGƯỜI DÙNG (REPORTS)
@@ -569,7 +600,7 @@ export default function App() {
   };
 
   return (
-    <div className={`bg-slate-100/80 text-slate-900 selection:bg-blue-500 selection:text-white flex flex-col font-sans ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+    <div className={`bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       
       {/* Thanh điều hướng chính */}
       <Navbar 
@@ -580,6 +611,8 @@ export default function App() {
         pendingModerationCount={pendingModerationCount}
         onOpenAiLab={() => setIsAiModalOpen(true)}
         currentUser={currentUser}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onOpenAuthModal={(tab) => {
           setAuthModalTab(tab);
           setAuthNoticeMessage('');
@@ -676,6 +709,7 @@ export default function App() {
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
+            onOpenSettings={() => setActiveTab('settings')}
             onOpenChat={handleOpenChatFromFriends}
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
@@ -713,6 +747,17 @@ export default function App() {
               </button>
             </div>
           )
+        )}
+
+        {/* Tab 7: TRUNG TÂM CÀI ĐẶT & KHIÊN AN TOÀN AI */}
+        {activeTab === 'settings' && (
+          <SettingsView 
+            currentUser={currentUser}
+            onUpdateUser={handleUpdateUser}
+            theme={theme}
+            onSetTheme={handleSetTheme}
+            onToggleTheme={toggleTheme}
+          />
         )}
 
       </div>

@@ -11,6 +11,7 @@ from app.routes.auth import router as auth_router
 from app.routes.moderate import router as moderate_router
 from app.routes.admin import router as admin_router
 from app.routes.friend import router as friend_router
+from app.routes.settings import router as settings_router
 from app.routes.message import router as message_router
 from app.routes.search import router as search_router
 
@@ -74,6 +75,8 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api")
 app.include_router(friend_router, prefix="/api/v1")
 app.include_router(friend_router, prefix="/api")
+app.include_router(settings_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api")
 app.include_router(message_router, prefix="/api/v1")
 app.include_router(message_router, prefix="/api")
 app.include_router(search_router, prefix="/api/v1")
