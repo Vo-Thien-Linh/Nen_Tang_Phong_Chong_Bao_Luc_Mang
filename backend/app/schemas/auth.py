@@ -104,3 +104,96 @@ class ApiResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
+
+
+class VerifyEmailRequest(BaseModel):
+    email: str
+    otp: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        email = v.strip().lower()
+        if not email:
+            raise ValueError("Vui lòng nhập email")
+        return email
+
+    @field_validator("otp")
+    @classmethod
+    def validate_otp(cls, v: str) -> str:
+        otp = v.strip()
+        if not otp:
+            raise ValueError("Vui lòng nhập mã xác thực OTP")
+        if len(otp) != 6 or not otp.isdigit():
+            raise ValueError("Mã xác thực OTP phải gồm 6 chữ số")
+        return otp
+
+
+class ResendOtpRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        email = v.strip().lower()
+        if not email:
+            raise ValueError("Vui lòng nhập email")
+        return email
+
+
+class ForgotPasswordRequest(BaseModel):
+    identifier: str # Email hoặc Số điện thoại
+
+    @field_validator("identifier")
+    @classmethod
+    def validate_identifier(cls, v: str) -> str:
+        val = v.strip()
+        if not val:
+            raise ValueError("Vui lòng nhập email hoặc số điện thoại")
+        return val
+
+
+class ResetPasswordRequest(BaseModel):
+    identifier: str
+    otp: str
+    new_password: str
+    confirm_password: str
+
+    @field_validator("identifier")
+    @classmethod
+    def validate_identifier(cls, v: str) -> str:
+        val = v.strip()
+        if not val:
+            raise ValueError("Vui lòng nhập email hoặc số điện thoại")
+        return val
+
+    @field_validator("otp")
+    @classmethod
+    def validate_otp(cls, v: str) -> str:
+        otp = v.strip()
+        if not otp:
+            raise ValueError("Vui lòng nhập mã xác thực OTP")
+        if len(otp) != 6 or not otp.isdigit():
+            raise ValueError("Mã xác thực OTP phải gồm 6 chữ số")
+        return otp
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Vui lòng nhập mật khẩu mới")
+        if len(v) < 8:
+            raise ValueError("Mật khẩu bắt buộc 8 kí tự đổ lên có kí tự hoa, thường và số")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Mật khẩu bắt buộc có kí tự hoa")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Mật khẩu bắt buộc có kí tự thường")
+        if not re.search(r"\d", v):
+            raise ValueError("Mật khẩu bắt buộc có kí tự số")
+        return v
+
+    @model_validator(mode="after")
+    def validate_passwords_match(self):
+        if self.new_password != self.confirm_password:
+            raise ValueError("Mật khẩu xác nhận không khớp")
+        return self

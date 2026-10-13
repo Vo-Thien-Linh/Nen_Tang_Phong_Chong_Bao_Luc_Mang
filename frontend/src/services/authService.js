@@ -328,7 +328,185 @@ export const authService = {
         };
         MOCK_DEMO_USERS.push(newMockUser);
 
-        return { success: true, message: "Đăng kí thành công" };
+        return { 
+          success: true, 
+          message: "Đăng kí thành công",
+          data: {
+            user_id: newMockUser.id,
+            email: newMockUser.email,
+            demo_otp: "123456",
+            requires_email_verification: true
+          }
+        };
+      }
+      throw err;
+    }
+  },
+
+  // XÁC THỰC EMAIL BẰNG MÃ OTP
+  verifyEmail: async (email, otp) => {
+    if (!email || !email.trim()) {
+      throw new Error("Vui lòng nhập email");
+    }
+    if (!otp || !otp.trim() || otp.trim().length !== 6) {
+      throw new Error("Mã xác thực OTP phải gồm 6 chữ số");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), otp: otp.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || "Mã xác thực không hợp lệ");
+      }
+      return data;
+    } catch (err) {
+      const isNetwork = err.name === 'AbortError' || 
+                        err.message.includes('Failed to fetch') || 
+                        err.message.includes('NetworkError');
+      if (isNetwork) {
+        // Fallback offline mock test
+        const user = MOCK_DEMO_USERS.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+        if (user) user.isVerified = true;
+        return { success: true, message: "Xác thực email thành công! Tài khoản đã được kích hoạt." };
+      }
+      throw err;
+    }
+  },
+
+  // GỬI LẠI MÃ XÁC THỰC OTP
+  resendVerificationOtp: async (email) => {
+    if (!email || !email.trim()) {
+      throw new Error("Vui lòng nhập email");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/resend-verification-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || "Không thể gửi lại mã OTP");
+      }
+      return data;
+    } catch (err) {
+      const isNetwork = err.name === 'AbortError' || 
+                        err.message.includes('Failed to fetch') || 
+                        err.message.includes('NetworkError');
+      if (isNetwork) {
+        return { 
+          success: true, 
+          message: "Mã xác thực mới đã được gửi tới email của bạn", 
+          data: { demo_otp: "123456" } 
+        };
+      }
+      throw err;
+    }
+  },
+
+  // YÊU CẦU ĐẶT LẠI MẬT KHẨU (QUÊN MẬT KHẨU)
+  forgotPassword: async (identifier) => {
+    if (!identifier || !identifier.trim()) {
+      throw new Error("Vui lòng nhập email hoặc số điện thoại");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: identifier.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || "Không tìm thấy tài khoản");
+      }
+      return data;
+    } catch (err) {
+      const isNetwork = err.name === 'AbortError' || 
+                        err.message.includes('Failed to fetch') || 
+                        err.message.includes('NetworkError');
+      if (isNetwork) {
+        const id = identifier.trim().toLowerCase();
+        const user = MOCK_DEMO_USERS.find(u => 
+          u.email.toLowerCase() === id || 
+          u.phone === id || 
+          u.username === id
+        );
+        if (!user) {
+          throw new Error("Không tìm thấy tài khoản tương ứng với thông tin đã nhập");
+        }
+        return {
+          success: true,
+          message: `Mã xác thực đã được gửi tới email của bạn`,
+          data: {
+            masked_email: user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3'),
+            email: user.email,
+            demo_otp: "654321"
+          }
+        };
+      }
+      throw err;
+    }
+  },
+
+  // ĐẶT LẠI MẬT KHẨU MỚI
+  resetPassword: async (identifier, otp, newPassword, confirmPassword) => {
+    if (!identifier || !identifier.trim()) {
+      throw new Error("Vui lòng nhập email hoặc số điện thoại");
+    }
+    if (!otp || !otp.trim() || otp.trim().length !== 6) {
+      throw new Error("Mã xác thực OTP phải gồm 6 chữ số");
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error("Mật khẩu mới bắt buộc từ 8 kí tự đổ lên");
+    }
+    if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      throw new Error("Mật khẩu mới bắt buộc có kí tự hoa, thường và số");
+    }
+    if (newPassword !== confirmPassword) {
+      throw new Error("Mật khẩu xác nhận không khớp");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          otp: otp.trim(),
+          new_password: newPassword,
+          confirm_password: confirmPassword
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || "Đặt lại mật khẩu thất bại");
+      }
+      return data;
+    } catch (err) {
+      const isNetwork = err.name === 'AbortError' || 
+                        err.message.includes('Failed to fetch') || 
+                        err.message.includes('NetworkError');
+      if (isNetwork) {
+        const id = identifier.trim().toLowerCase();
+        const user = MOCK_DEMO_USERS.find(u => 
+          u.email.toLowerCase() === id || 
+          u.phone === id || 
+          u.username === id
+        );
+        if (!user) {
+          throw new Error("Không tìm thấy tài khoản");
+        }
+        user._rawPassword = newPassword;
+        return {
+          success: true,
+          message: "Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới."
+        };
       }
       throw err;
     }
