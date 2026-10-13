@@ -2,7 +2,7 @@ import { isValidReactionType, normalizeReactionType } from './reactionTypes.js';
 
 export function createReactionService({ reactionRepository }) {
   return {
-    async reactToPost({ user, postId, type, action }) {
+    async reactToPost({ user, postId, type = 'like', action }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để thả icon');
         error.statusCode = 401;
