@@ -308,3 +308,35 @@ ALTER TABLE post_reactions
     CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'));
 
 
+-- ========================================================
+-- 14. BẢNG USER_SETTINGS (Cài đặt người dùng & Khiên bảo vệ AI)
+-- ========================================================
+CREATE TABLE IF NOT EXISTS user_settings (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+    ai_shield_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    ai_sensitivity VARCHAR(20) NOT NULL DEFAULT 'high',
+    auto_hide_toxic_comments BOOLEAN NOT NULL DEFAULT TRUE,
+    filter_keywords TEXT NOT NULL DEFAULT 'chó, ngu, rác rưởi, đồ khốn, mất dạy, óc chó, cút, giết, chém, đập',
+    block_strangers_messages BOOLEAN NOT NULL DEFAULT FALSE,
+    take_a_break_mode BOOLEAN NOT NULL DEFAULT FALSE,
+    post_default_privacy VARCHAR(20) NOT NULL DEFAULT 'public',
+    who_can_send_friend_requests VARCHAR(20) NOT NULL DEFAULT 'everyone',
+    who_can_message VARCHAR(20) NOT NULL DEFAULT 'everyone',
+    show_email BOOLEAN NOT NULL DEFAULT FALSE,
+    show_phone BOOLEAN NOT NULL DEFAULT FALSE,
+    notify_likes BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_comments BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_friend_requests BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_ai_warnings BOOLEAN NOT NULL DEFAULT TRUE,
+    sound_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    theme VARCHAR(20) NOT NULL DEFAULT 'light',
+    language VARCHAR(10) NOT NULL DEFAULT 'vi',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
+
+

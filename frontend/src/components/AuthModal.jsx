@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   X, Mail, Lock, Phone, User, Eye, EyeOff, ShieldAlert, 
-  CheckCircle2, Sparkles, ArrowRight, Clock, Trash2, KeyRound 
+  CheckCircle2, Sparkles, ArrowRight, Clock, Trash2 
 } from 'lucide-react';
 import { authService } from '../services/authService';
 
@@ -135,13 +135,6 @@ export default function AuthModal({
     setSavedAccounts(updated);
   };
 
-  // Đăng nhập nhanh tài khoản mẫu (phục vụ test)
-  const handleQuickDemoLogin = (identifier, password) => {
-    setLoginIdentifier(identifier);
-    setLoginPassword(password);
-    setErrorMessage('');
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-md animate-fade-in overflow-y-auto">
       <div 
@@ -183,7 +176,7 @@ export default function AuthModal({
               onClick={() => { setTab('login'); setErrorMessage(''); setSuccessMessage(''); }}
               className={`flex-1 py-2 text-xs sm:text-sm font-semibold rounded-lg transition duration-200 cursor-pointer ${
                 tab === 'login' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
+                  ? 'bg-white keep-white text-indigo-700 shadow-sm' 
                   : 'text-white/80 hover:text-white'
               }`}
             >
@@ -194,7 +187,7 @@ export default function AuthModal({
               onClick={() => { setTab('register'); setErrorMessage(''); setSuccessMessage(''); }}
               className={`flex-1 py-2 text-xs sm:text-sm font-semibold rounded-lg transition duration-200 cursor-pointer ${
                 tab === 'register' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
+                  ? 'bg-white keep-white text-indigo-700 shadow-sm' 
                   : 'text-white/80 hover:text-white'
               }`}
             >
@@ -338,43 +331,6 @@ export default function AuthModal({
                   </>
                 )}
               </button>
-
-              {/* Khu vực Tài khoản Demo phục vụ kiểm thử nhanh */}
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                  <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Tài khoản mẫu để kiểm thử nhanh:</span>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 text-left">
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDemoLogin("0912345678", "Password123")}
-                    className="p-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 rounded-xl text-[11px] transition text-left cursor-pointer"
-                  >
-                    <p className="font-bold text-slate-800 truncate">Võ Thiện Linh</p>
-                    <p className="text-[10px] text-blue-600 font-mono">0912345678</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDemoLogin("admin@nexussocial.vn", "Password123")}
-                    className="p-2 bg-slate-50 hover:bg-indigo-50 border border-slate-200 rounded-xl text-[11px] transition text-left cursor-pointer"
-                  >
-                    <p className="font-bold text-indigo-700 truncate">Admin QTV</p>
-                    <p className="text-[10px] text-slate-500 truncate">admin@...</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDemoLogin("0988888888", "Password123")}
-                    className="p-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl text-[11px] transition text-left cursor-pointer"
-                  >
-                    <p className="font-bold text-rose-700 truncate">Nick bị khóa</p>
-                    <p className="text-[10px] text-rose-500 font-mono">0988888888</p>
-                  </button>
-                </div>
-              </div>
-
             </form>
           )}
 

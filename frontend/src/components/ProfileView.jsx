@@ -4,7 +4,7 @@ import {
   Heart, GraduationCap, Briefcase, Calendar, Image as ImageIcon, 
   Video, Flag, SlidersHorizontal, Settings2, List, Grid3X3, 
   Share2, CheckCircle2, Globe, Lock,
-  MessageCircle, Send, ThumbsUp
+  MessageCircle, Send, ThumbsUp, Settings
 } from 'lucide-react';
 import { suggestedFriends } from '../data/mockData';
 
@@ -22,7 +22,8 @@ export default function ProfileView({
   onAddPost, 
   onToggleLike, 
   onAddComment,
-  onUpdateUser
+  onUpdateUser,
+  onOpenSettings
 }) {
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels'
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
@@ -199,12 +200,22 @@ export default function ProfileView({
             {/* Các nút hành động bên phải */}
             <div className="flex items-center justify-center sm:justify-end gap-2.5 pb-2">
               <button 
-                onClick={() => setIsEditingBio(true)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition duration-150"
+                onClick={onOpenSettings || (() => setIsEditingBio(true))}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition duration-150 cursor-pointer"
               >
                 <Edit2 className="w-4 h-4" />
                 <span>Chỉnh sửa trang cá nhân</span>
               </button>
+
+              {onOpenSettings && (
+                <button 
+                  onClick={onOpenSettings}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border border-slate-200"
+                >
+                  <Settings className="w-4 h-4 text-blue-600" />
+                  <span>Cài đặt & An toàn</span>
+                </button>
+              )}
 
               <button 
                 onClick={() => {
