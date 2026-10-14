@@ -41,7 +41,7 @@ export function mapPostToResponse(post) {
       sad: 0,
       angry: 0,
     },
-    totalReactions: Number(post.total_reactions ?? post.likes_count ?? 0),
+    totalReactions: Number(post.total_reactions || post.likes_count || 0),
     myReaction: post.my_reaction || null,
     sharesCount: post.shares_count || 0,
     comments: (post.comments || []).map((c) => ({
@@ -68,6 +68,9 @@ export function mapPostToResponse(post) {
           content: post.original_post.content,
           image: post.original_post.image_url || null,
           createdAt: formatRelativeTime(post.original_post.created_at),
+          likesCount: Number(post.original_post.likes_count || 0),
+          commentsCount: Number(post.original_post.comments_count || 0),
+          sharesCount: Number(post.original_post.shares_count || 0),
           author: {
             id: post.original_post.author_id,
             name: post.original_post.full_name,

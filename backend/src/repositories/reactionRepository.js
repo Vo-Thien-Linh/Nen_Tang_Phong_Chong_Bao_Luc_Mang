@@ -81,10 +81,19 @@ export function createReactionRepository({ pool }) {
           );
 
           if (post.author_id !== userId) {
+            const reactionLabels = {
+              like: 'đã thích bài viết của bạn',
+              love: 'đã thả tim bài viết của bạn',
+              haha: 'đã thả haha vào bài viết của bạn',
+              wow: 'đã thả bất ngờ vào bài viết của bạn',
+              sad: 'đã thả buồn vào bài viết của bạn',
+              angry: 'đã thả tức giận vào bài viết của bạn',
+            };
+            const notifContent = reactionLabels[reactionType] || 'đã bày tỏ cảm xúc về bài viết của bạn';
             await client.query(
               `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
                VALUES ($1, $2, 'like', $3, $4)`,
-              [post.author_id, userId, 'đã thả icon vào bài viết của bạn', postId]
+              [post.author_id, userId, notifContent, postId]
             );
           }
 

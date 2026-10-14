@@ -34,6 +34,12 @@ export async function fetchPosts({ userId } = {}) {
   });
 }
 
+export async function fetchPostById({ postId, userId } = {}) {
+  return request(`/api/posts/${postId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function createPost({ userId, content, imageUrl }) {
   return request('/api/posts', {
     method: 'POST',
@@ -119,5 +125,51 @@ export async function sharePost({ userId, postId, content = '', user = null }) {
     method: 'POST',
     headers,
     body: JSON.stringify({ content }),
+  });
+}
+
+export async function fetchNotifications({ userId, limit = 30, offset = 0, filter = 'all' } = {}) {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    filter,
+  }).toString();
+
+  return request(`/api/notifications?${query}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchUnreadNotificationsCount({ userId } = {}) {
+  return request('/api/notifications/unread-count', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function markNotificationAsRead({ userId, notificationId }) {
+  return request(`/api/notifications/${notificationId}/read`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function markAllNotificationsAsRead({ userId }) {
+  return request('/api/notifications/read-all', {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function deleteNotificationApi({ userId, notificationId }) {
+  return request(`/api/notifications/${notificationId}`, {
+    method: 'DELETE',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function clearReadNotificationsApi({ userId }) {
+  return request('/api/notifications/read', {
+    method: 'DELETE',
+    headers: userId ? { 'x-user-id': userId } : {},
   });
 }
