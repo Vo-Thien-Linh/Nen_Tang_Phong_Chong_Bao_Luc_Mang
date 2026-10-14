@@ -8,7 +8,8 @@ const { Pool } = pkg;
 // Cấu hình kết nối PostgreSQL (Supabase yêu cầu SSL)
 const pool = new Pool({
   // Tự động gỡ bỏ dấu ngoặc vuông [ ] nếu vô tình giữ lại quanh password
-  connectionString: process.env.DATABASE_URL?.replace(/:\s*\[([^\]]+)\]\s*@/, ':@'),
+  connectionString: process.env.DATABASE_URL?.replace(/:\s*\[([^\]]+)\]\s*@/, ':$1@'),
+
   ssl: process.env.DATABASE_URL?.includes('localhost') 
     ? false 
     : { rejectUnauthorized: false }, // Cho phép kết nối SSL bảo mật tới Supabase

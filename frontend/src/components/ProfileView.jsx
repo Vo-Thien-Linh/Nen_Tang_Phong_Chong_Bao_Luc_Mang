@@ -167,7 +167,36 @@ export default function ProfileView({
   const [activeCommentPostId, setActiveCommentPostId] = useState(null);
   const [profileReactions, setProfileReactions] = useState({});
   const [hoverReactionPostId, setHoverReactionPostId] = useState(null);
+  const hoverReactionTimeoutRef = useRef(null);
+
+  const handleOpenProfileReaction = (postId) => {
+    if (hoverReactionTimeoutRef.current) {
+      clearTimeout(hoverReactionTimeoutRef.current);
+      hoverReactionTimeoutRef.current = null;
+    }
+    setHoverReactionPostId(postId);
+  };
+
+  const handleCloseProfileReaction = (delay = 350) => {
+    if (hoverReactionTimeoutRef.current) {
+      clearTimeout(hoverReactionTimeoutRef.current);
+    }
+    hoverReactionTimeoutRef.current = setTimeout(() => {
+      setHoverReactionPostId(null);
+      hoverReactionTimeoutRef.current = null;
+    }, delay);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hoverReactionTimeoutRef.current) {
+        clearTimeout(hoverReactionTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const [activePostMenuId, setActivePostMenuId] = useState(null);
+
 
   // ── 1. Fetch Profile từ DB ──────────────────────────────────
   useEffect(() => {
@@ -382,7 +411,12 @@ export default function ProfileView({
       ...prev,
       [postId]: nextReaction
     }));
+    if (hoverReactionTimeoutRef.current) {
+      clearTimeout(hoverReactionTimeoutRef.current);
+      hoverReactionTimeoutRef.current = null;
+    }
     setHoverReactionPostId(null);
+
 
     // Cập nhật API database nếu post có id số
     if (!Number.isNaN(Number(postId))) {
@@ -1316,11 +1350,17 @@ export default function ProfileView({
                         <div className="px-2 py-1 flex items-center justify-between text-xs font-bold text-slate-600 relative">
                           <div 
                             className="flex-1 relative"
-                            onMouseEnter={() => setHoverReactionPostId(post.id)}
-                            onMouseLeave={() => setHoverReactionPostId(null)}
+                            onMouseEnter={() => handleOpenProfileReaction(post.id)}
+                            onMouseLeave={() => handleCloseProfileReaction(350)}
                           >
                             {hoverReactionPostId === post.id && (
-                              <div className="absolute -top-12 left-2 z-30 bg-white rounded-full px-2.5 py-1.5 shadow-xl border border-slate-200 flex items-center gap-2 animate-fade-in">
+                              <div 
+                                className="absolute -top-12 left-2 z-30 bg-white rounded-full px-2.5 py-1.5 shadow-xl border border-slate-200 flex items-center gap-2 animate-fade-in"
+                                onMouseEnter={() => handleOpenProfileReaction(post.id)}
+                                onMouseLeave={() => handleCloseProfileReaction(350)}
+                              >
+                                {/* Cầu nối vô hình bao phủ khoảng trống gap */}
+                                <div className="absolute inset-x-0 -bottom-3.5 h-4 pointer-events-auto" aria-hidden="true" />
                                 {REACTIONS.map((r) => (
                                   <button
                                     key={r.id}
@@ -1333,6 +1373,7 @@ export default function ProfileView({
                                 ))}
                               </div>
                             )}
+
 
                             {(() => {
                               const curRId = getPostCurrentReaction(post);
