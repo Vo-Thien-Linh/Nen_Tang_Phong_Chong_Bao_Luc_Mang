@@ -145,11 +145,12 @@ class AuthService:
         db.commit()
 
         # 7. Gửi email xác thực
-        send_otp_email(to_email=new_user.email, code=otp_code, purpose="Xác thực tài khoản")
+        email_sent = send_otp_email(to_email=new_user.email, code=otp_code, purpose="Xác thực tài khoản")
 
         user_data = UserResponse.model_validate(new_user).model_dump()
         user_data["demo_otp"] = otp_code
         user_data["requires_email_verification"] = True
+        user_data["email_sent"] = email_sent
         return user_data
 
     @staticmethod
@@ -269,11 +270,12 @@ class AuthService:
         db.add(ver_code)
         db.commit()
 
-        send_otp_email(to_email=email_clean, code=new_otp, purpose="Xác thực tài khoản")
+        email_sent = send_otp_email(to_email=email_clean, code=new_otp, purpose="Xác thực tài khoản")
 
         return {
             "email": email_clean,
             "demo_otp": new_otp,
+            "email_sent": email_sent,
             "message": "Đã gửi lại mã OTP mới tới email của bạn"
         }
 
@@ -312,7 +314,7 @@ class AuthService:
         db.add(ver_code)
         db.commit()
 
-        send_otp_email(to_email=user.email, code=otp_code, purpose="Đặt lại mật khẩu")
+        email_sent = send_otp_email(to_email=user.email, code=otp_code, purpose="Đặt lại mật khẩu")
 
         # Mask email: ví dụ linh.vothien@example.com -> l***n@example.com
         parts = user.email.split("@")
@@ -326,6 +328,7 @@ class AuthService:
             "masked_email": masked_email,
             "email": user.email,
             "demo_otp": otp_code,
+            "email_sent": email_sent,
             "message": f"Mã xác thực đã được gửi tới {masked_email}"
         }
 
@@ -368,3 +371,41 @@ class AuthService:
             "success": True,
             "message": "Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới."
         }
+
+    @staticmethod
+    def verify_reset_otp(identifier: str, otp: str, db: Session) -> dict:
+        clean_id = identifier.strip()
+        user = db.query(User).filter(
+            or_(
+                User.email == clean_id.lower(),
+                User.phone == clean_id,
+                User.username == clean_id
+            )
+        ).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy tài khoản với thông tin đã cung cấp"
+            )
+
+        code_record = db.query(VerificationCode).filter(
+            VerificationCode.email == user.email,
+            VerificationCode.code == otp.strip(),
+            VerificationCode.type == "password_reset",
+            VerificationCode.is_used == False,
+            VerificationCode.expires_at >= datetime.utcnow()
+        ).order_by(VerificationCode.created_at.desc()).first()
+
+        if not code_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mã xác thực không chính xác hoặc đã hết hạn"
+            )
+
+        return {
+            "email": user.email,
+            "valid": True,
+            "message": "Mã xác thực OTP chính xác! Bạn có thể đặt mật khẩu mới."
+        }
+

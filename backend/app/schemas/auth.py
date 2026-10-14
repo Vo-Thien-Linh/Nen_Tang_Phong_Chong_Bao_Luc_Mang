@@ -197,3 +197,27 @@ class ResetPasswordRequest(BaseModel):
         if self.new_password != self.confirm_password:
             raise ValueError("Mật khẩu xác nhận không khớp")
         return self
+
+
+class VerifyResetOtpRequest(BaseModel):
+    identifier: str
+    otp: str
+
+    @field_validator("identifier")
+    @classmethod
+    def validate_identifier(cls, v: str) -> str:
+        val = v.strip()
+        if not val:
+            raise ValueError("Vui lòng nhập email hoặc số điện thoại")
+        return val
+
+    @field_validator("otp")
+    @classmethod
+    def validate_otp(cls, v: str) -> str:
+        otp = v.strip()
+        if not otp:
+            raise ValueError("Vui lòng nhập mã xác thực OTP")
+        if len(otp) != 6 or not otp.isdigit():
+            raise ValueError("Mã xác thực OTP phải gồm 6 chữ số")
+        return otp
+
