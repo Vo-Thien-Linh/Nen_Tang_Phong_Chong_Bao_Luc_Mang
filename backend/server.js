@@ -8,6 +8,7 @@ import pool, { testDbConnection } from './src/config/db.js';
 import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
 import { createPostsRouter } from './src/routes/postsRouter.js';
 import { createUsersRouter } from './src/routes/usersRouter.js';
+import { createNotificationsRouter } from './src/routes/notificationsRouter.js';
 
 dotenv.config();
 
@@ -90,6 +91,7 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
 app.use('/api/users', createUsersRouter({ pool }));
+app.use('/api/notifications', createNotificationsRouter({ pool }));
 
 // ========================================================
 // 4. IN-MEMORY STORE: BÁO CÁO, KHIẾU NẠI & HIỆU CHỈNH NHÃN AI

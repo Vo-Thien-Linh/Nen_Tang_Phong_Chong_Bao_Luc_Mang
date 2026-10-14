@@ -229,6 +229,23 @@ export function createPostRepository({ pool }) {
         [res.rows[0].id]
       );
 
+      // Gửi thông báo cho chủ bài viết (nếu người bình luận không phải chính tác giả)
+      try {
+        const postRes = await pool.query(`SELECT author_id FROM posts WHERE id = $1`, [postId]);
+        if (postRes.rows.length > 0) {
+          const postAuthorId = postRes.rows[0].author_id;
+          if (postAuthorId && postAuthorId !== authorId) {
+            await pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'comment', $3, $4)`,
+              [postAuthorId, authorId, 'đã bình luận về bài viết của bạn', postId]
+            );
+          }
+        }
+      } catch (notifErr) {
+        console.error('Lỗi gửi thông báo bình luận:', notifErr.message);
+      }
+
       return detail.rows[0];
     },
 
@@ -328,6 +345,19 @@ export function createPostRepository({ pool }) {
           `UPDATE posts SET shares_count = shares_count + 1 WHERE id = $1`,
           [originalPostId]
         );
+
+        // Gửi thông báo cho tác giả bài viết gốc nếu người chia sẻ không phải chính họ
+        const origPostRes = await client.query(`SELECT author_id FROM posts WHERE id = $1`, [originalPostId]);
+        if (origPostRes.rows.length > 0) {
+          const originalAuthorId = origPostRes.rows[0].author_id;
+          if (originalAuthorId && originalAuthorId !== sharerId) {
+            await client.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'share', $3, $4)`,
+              [originalAuthorId, sharerId, 'đã chia sẻ bài viết của bạn', originalPostId]
+            );
+          }
+        }
 
         await client.query('COMMIT');
         return this.findById(newPostId);
