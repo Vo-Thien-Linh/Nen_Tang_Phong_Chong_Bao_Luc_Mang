@@ -34,13 +34,11 @@ export default function AuthModal({
   // Email Verification States
   const [verifyEmailAddress, setVerifyEmailAddress] = useState('');
   const [verifyOtp, setVerifyOtp] = useState('');
-  const [verifyDemoOtp, setVerifyDemoOtp] = useState('');
 
   // Forgot Password States
   const [forgotStep, setForgotStep] = useState(1); // 1: request OTP, 2: input OTP & new pwd
   const [forgotIdentifier, setForgotIdentifier] = useState('');
   const [forgotOtp, setForgotOtp] = useState('');
-  const [forgotDemoOtp, setForgotDemoOtp] = useState('');
   const [forgotMaskedEmail, setForgotMaskedEmail] = useState('');
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
@@ -143,9 +141,6 @@ export default function AuthModal({
 
       const emailToVerify = regEmail.trim();
       setVerifyEmailAddress(emailToVerify);
-      if (res.data?.demo_otp) {
-        setVerifyDemoOtp(res.data.demo_otp);
-      }
       setSuccessMessage("Đăng kí thành công! Mã OTP xác nhận đã được gửi về Gmail của bạn.");
       setTab('verify-email');
       setResendCountdown(60);
@@ -190,9 +185,6 @@ export default function AuthModal({
     try {
       const res = await authService.resendVerificationOtp(verifyEmailAddress);
       setSuccessMessage(res.message || "Đã gửi lại mã xác thực OTP qua email!");
-      if (res.data?.demo_otp) {
-        setVerifyDemoOtp(res.data.demo_otp);
-      }
       setResendCountdown(60);
     } catch (err) {
       setErrorMessage(err.message || "Không thể gửi lại mã OTP");
@@ -211,9 +203,6 @@ export default function AuthModal({
     try {
       const res = await authService.forgotPassword(forgotIdentifier);
       setForgotMaskedEmail(res.data?.masked_email || res.data?.email || forgotIdentifier);
-      if (res.data?.demo_otp) {
-        setForgotDemoOtp(res.data.demo_otp);
-      }
       setSuccessMessage(res.message || "Đã gửi mã xác nhận đến email của bạn!");
       setForgotStep(2);
       setResendCountdown(60);
@@ -266,9 +255,6 @@ export default function AuthModal({
     try {
       const res = await authService.forgotPassword(forgotIdentifier);
       setSuccessMessage(res.message || "Đã gửi lại mã OTP qua email!");
-      if (res.data?.demo_otp) {
-        setForgotDemoOtp(res.data.demo_otp);
-      }
       setResendCountdown(60);
     } catch (err) {
       setErrorMessage(err.message || "Không thể gửi lại mã OTP");
@@ -704,13 +690,10 @@ export default function AuthModal({
                   {verifyEmailAddress || "Email của bạn"}
                 </div>
                 
-                {/* Gợi ý mã OTP khi chạy ở môi trường test/dev */}
-                {verifyDemoOtp && (
-                  <div className="mt-2 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-1 px-2.5 inline-flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Mã OTP thử nghiệm: <strong>{verifyDemoOtp}</strong></span>
-                  </div>
-                )}
+                <div className="mt-2.5 text-[11.5px] text-blue-700 bg-blue-50/80 border border-blue-200/80 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 text-center">
+                  <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>Vui lòng mở hộp thư Gmail của bạn (kiểm tra cả mục Hộp thư đến và Spam) để nhận mã.</span>
+                </div>
               </div>
 
               <div>
@@ -843,12 +826,10 @@ export default function AuthModal({
                     <p className="text-xs text-slate-500 mt-1">
                       Mã xác nhận đã được gửi đến: <strong className="text-blue-600">{forgotMaskedEmail}</strong>
                     </p>
-                    {forgotDemoOtp && (
-                      <div className="mt-1.5 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-1 px-2.5 inline-flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Mã OTP thử nghiệm: <strong>{forgotDemoOtp}</strong></span>
-                      </div>
-                    )}
+                    <div className="mt-2 text-[11.5px] text-blue-700 bg-blue-50/80 border border-blue-200/80 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 text-center">
+                      <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Vui lòng mở hộp thư Gmail để nhận mã OTP gồm 6 chữ số.</span>
+                    </div>
                   </div>
 
                   {/* Mã OTP */}

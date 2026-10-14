@@ -7,60 +7,8 @@ const STORAGE_KEYS = {
   SAVED_ACCOUNTS: 'nexussocial_saved_accounts'
 };
 
-// Danh sách tài khoản mẫu cục bộ phòng khi backend chưa bật
-const MOCK_DEMO_USERS = [
-  {
-    id: "a0000000-0000-0000-0000-000000000001",
-    name: "Võ Thiện Linh",
-    full_name: "Võ Thiện Linh",
-    username: "linh.vothien.16",
-    email: "linh.vothien@example.com",
-    phone: "0912345678",
-    role: "ADMIN",
-    status: "active",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
-    avatar_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
-    bio: "Cuộc sống là những chuyến đi và trải nghiệm 🌊 Đam mê công nghệ & khám phá cuộc sống.",
-    postsCount: 4,
-    friendsCount: 309,
-    isVerified: true
-  },
-  {
-    id: "a0000000-0000-0000-0000-000000000099",
-    name: "Quản Trị Viên Hệ Thống",
-    full_name: "Quản Trị Viên Hệ Thống",
-    username: "admin_moderator",
-    email: "admin@nexussocial.vn",
-    phone: "0909999999",
-    role: "ADMIN",
-    status: "active",
-    avatar: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200",
-    avatar_url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200",
-    bio: "Quản trị viên an toàn không gian mạng.",
-    postsCount: 1,
-    friendsCount: 50,
-    isVerified: true
-  },
-  {
-    id: "a0000000-0000-0000-0000-000000000004",
-    name: "Trần Minh Tuấn (Bị khóa)",
-    full_name: "Trần Minh Tuấn (Bị khóa)",
-    username: "tuan_tran_ai",
-    email: "tuan.tran.hack@darkmail.com",
-    phone: "0988888888",
-    role: "USER",
-    status: "banned", // Bị khóa
-    avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
-    avatar_url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
-    bio: "Tài khoản vi phạm tiêu chuẩn cộng đồng.",
-    postsCount: 0,
-    friendsCount: 0,
-    isVerified: false
-  }
-];
-
 export const authService = {
-  // Lấy danh sách tài khoản đã từng đăng nhập để gợi ý
+  // Lấy danh sách tài khoản đã từng đăng nhập trên trình duyệt này
   getSavedAccounts: () => {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SAVED_ACCOUNTS);
@@ -68,34 +16,14 @@ export const authService = {
     } catch {
       // fallback
     }
-    // Mặc định nạp 2 tài khoản gợi ý sẵn
-    return [
-      {
-        identifier: "0912345678",
-        name: "Võ Thiện Linh",
-        email: "linh.vothien@example.com",
-        phone: "0912345678",
-        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
-        lastLogin: "Gần đây"
-      },
-      {
-        identifier: "admin@nexussocial.vn",
-        name: "Quản Trị Viên Hệ Thống",
-        email: "admin@nexussocial.vn",
-        phone: "0909999999",
-        avatar: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200",
-        lastLogin: "Hôm qua"
-      }
-    ];
+    return [];
   },
 
-  // Lưu tài khoản vào danh sách gợi ý
+  // Lưu tài khoản vào danh sách gợi ý sau khi đăng nhập thành công
   saveAccountToHistory: (user, identifier) => {
     try {
       let accounts = authService.getSavedAccounts();
-      // Loại bỏ nếu đã có
       accounts = accounts.filter(a => a.identifier !== identifier && a.email !== user.email);
-      // Thêm lên đầu danh sách
       accounts.unshift({
         identifier: identifier,
         name: user.full_name || user.name,
@@ -104,7 +32,6 @@ export const authService = {
         avatar: user.avatar_url || user.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400",
         lastLogin: "Vừa xong"
       });
-      // Giới hạn 5 tài khoản gần nhất
       localStorage.setItem(STORAGE_KEYS.SAVED_ACCOUNTS, JSON.stringify(accounts.slice(0, 5)));
     } catch (err) {
       console.warn("Không thể lưu lịch sử tài khoản:", err);
@@ -143,8 +70,8 @@ export const authService = {
       const updated = { ...current, ...updatedFields };
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updated));
       return updated;
-    } catch (e) {
-      console.warn("Không thể lưu cập nhật người dùng vào localStorage:", e);
+    } catch (err) {
+      console.error("Không thể cập nhật User LocalStorage:", err);
       return null;
     }
   },
@@ -161,7 +88,7 @@ export const authService = {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
       const response = await fetch(`${API_BASE_URL}/login`, {
@@ -196,32 +123,8 @@ export const authService = {
       return { user, token: data.access_token };
     } catch (err) {
       clearTimeout(timeoutId);
-      // Nếu Backend chưa bật hoặc phản hồi quá lâu (timeout), hỗ trợ Mock Fallback cho kiểm thử
-      const isNetworkOrTimeout = err.name === 'AbortError' || 
-                                 err.message.includes('Failed to fetch') || 
-                                 err.message.includes('NetworkError') ||
-                                 err.message.includes('aborted');
-
-      if (isNetworkOrTimeout) {
-        console.warn("Backend FastAPI chưa bật hoặc mạng lỗi / timeout, chuyển sang cơ chế Offline Mock Test");
-        const identLower = identifier.trim().toLowerCase();
-        const user = MOCK_DEMO_USERS.find(
-          u => u.email.toLowerCase() === identLower || u.phone === identifier.trim()
-        );
-
-        if (!user || (password !== "Password123" && password !== user._rawPassword)) {
-          throw new Error("Email hoặc mật khẩu không chính xác");
-        }
-
-        if (user.status === "banned") {
-          throw new Error("Tài khoản của bạn đã bị khóa");
-        }
-
-        const fakeToken = "mock_jwt_token_" + Date.now();
-        localStorage.setItem(STORAGE_KEYS.TOKEN, fakeToken);
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-        authService.saveAccountToHistory(user, identifier.trim());
-        return { user, token: fakeToken };
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000). Vui lòng đảm bảo backend FastAPI đang chạy.");
       }
       throw err;
     }
@@ -266,7 +169,7 @@ export const authService = {
     }
 
     const regController = new AbortController();
-    const regTimeoutId = setTimeout(() => regController.abort(), 8000);
+    const regTimeoutId = setTimeout(() => regController.abort(), 12000);
 
     try {
       const response = await fetch(`${API_BASE_URL}/register`, {
@@ -291,59 +194,14 @@ export const authService = {
       return data;
     } catch (err) {
       clearTimeout(regTimeoutId);
-      const isNetworkOrTimeout = err.name === 'AbortError' || 
-                                 err.message.includes('Failed to fetch') || 
-                                 err.message.includes('NetworkError') ||
-                                 err.message.includes('aborted');
-
-      if (isNetworkOrTimeout) {
-        // Fallback offline mock test
-        if (MOCK_DEMO_USERS.some(u => u.name === trimmedName)) {
-          throw new Error("Tên đã được tồn tại");
-        }
-        if (MOCK_DEMO_USERS.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) {
-          throw new Error("Email đã được sử dụng");
-        }
-        if (MOCK_DEMO_USERS.some(u => u.phone === phone.trim())) {
-          throw new Error("Số điện thoại đã được sử dụng");
-        }
-
-        const newMockUser = {
-          id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "b0000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12)),
-          name: trimmedName,
-          full_name: trimmedName,
-          username: email.trim().split('@')[0],
-          email: email.trim(),
-          phone: phone.trim(),
-          role: "USER",
-          status: "active",
-          avatar: null,
-          avatar_url: null,
-          cover: null,
-          cover_url: null,
-          postsCount: 0,
-          friendsCount: 0,
-          isVerified: false,
-          _rawPassword: password
-        };
-        MOCK_DEMO_USERS.push(newMockUser);
-
-        return { 
-          success: true, 
-          message: "Đăng kí thành công",
-          data: {
-            user_id: newMockUser.id,
-            email: newMockUser.email,
-            demo_otp: "123456",
-            requires_email_verification: true
-          }
-        };
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000). Vui lòng đảm bảo backend FastAPI đang chạy.");
       }
       throw err;
     }
   },
 
-  // XÁC THỰC EMAIL BẰNG MÃ OTP
+  // XÁC THỰC EMAIL BẰNG MÃ OTP THẬT
   verifyEmail: async (email, otp) => {
     if (!email || !email.trim()) {
       throw new Error("Vui lòng nhập email");
@@ -360,24 +218,18 @@ export const authService = {
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.detail || data.message || "Mã xác thực không hợp lệ");
+        throw new Error(data.detail || data.message || "Mã xác thực không chính xác hoặc đã hết hạn");
       }
       return data;
     } catch (err) {
-      const isNetwork = err.name === 'AbortError' || 
-                        err.message.includes('Failed to fetch') || 
-                        err.message.includes('NetworkError');
-      if (isNetwork) {
-        // Fallback offline mock test
-        const user = MOCK_DEMO_USERS.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-        if (user) user.isVerified = true;
-        return { success: true, message: "Xác thực email thành công! Tài khoản đã được kích hoạt." };
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
       }
       throw err;
     }
   },
 
-  // GỬI LẠI MÃ XÁC THỰC OTP
+  // GỬI LẠI MÃ XÁC THỰC OTP QUA GMAIL THẬT
   resendVerificationOtp: async (email) => {
     if (!email || !email.trim()) {
       throw new Error("Vui lòng nhập email");
@@ -395,21 +247,14 @@ export const authService = {
       }
       return data;
     } catch (err) {
-      const isNetwork = err.name === 'AbortError' || 
-                        err.message.includes('Failed to fetch') || 
-                        err.message.includes('NetworkError');
-      if (isNetwork) {
-        return { 
-          success: true, 
-          message: "Mã xác thực mới đã được gửi tới email của bạn", 
-          data: { demo_otp: "123456" } 
-        };
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
       }
       throw err;
     }
   },
 
-  // YÊU CẦU ĐẶT LẠI MẬT KHẨU (QUÊN MẬT KHẨU)
+  // YÊU CẦU ĐẶT LẠI MẬT KHẨU (GỬI MÃ OTP VỀ GMAIL THẬT)
   forgotPassword: async (identifier) => {
     if (!identifier || !identifier.trim()) {
       throw new Error("Vui lòng nhập email hoặc số điện thoại");
@@ -427,34 +272,14 @@ export const authService = {
       }
       return data;
     } catch (err) {
-      const isNetwork = err.name === 'AbortError' || 
-                        err.message.includes('Failed to fetch') || 
-                        err.message.includes('NetworkError');
-      if (isNetwork) {
-        const id = identifier.trim().toLowerCase();
-        const user = MOCK_DEMO_USERS.find(u => 
-          u.email.toLowerCase() === id || 
-          u.phone === id || 
-          u.username === id
-        );
-        if (!user) {
-          throw new Error("Không tìm thấy tài khoản tương ứng với thông tin đã nhập");
-        }
-        return {
-          success: true,
-          message: `Mã xác thực đã được gửi tới email của bạn`,
-          data: {
-            masked_email: user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3'),
-            email: user.email,
-            demo_otp: "654321"
-          }
-        };
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
       }
       throw err;
     }
   },
 
-  // ĐẶT LẠI MẬT KHẨU MỚI
+  // ĐẶT LẠI MẬT KHẨU MỚI BẰNG OTP THẬT
   resetPassword: async (identifier, otp, newPassword, confirmPassword) => {
     if (!identifier || !identifier.trim()) {
       throw new Error("Vui lòng nhập email hoặc số điện thoại");
@@ -489,24 +314,8 @@ export const authService = {
       }
       return data;
     } catch (err) {
-      const isNetwork = err.name === 'AbortError' || 
-                        err.message.includes('Failed to fetch') || 
-                        err.message.includes('NetworkError');
-      if (isNetwork) {
-        const id = identifier.trim().toLowerCase();
-        const user = MOCK_DEMO_USERS.find(u => 
-          u.email.toLowerCase() === id || 
-          u.phone === id || 
-          u.username === id
-        );
-        if (!user) {
-          throw new Error("Không tìm thấy tài khoản");
-        }
-        user._rawPassword = newPassword;
-        return {
-          success: true,
-          message: "Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới."
-        };
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
       }
       throw err;
     }
