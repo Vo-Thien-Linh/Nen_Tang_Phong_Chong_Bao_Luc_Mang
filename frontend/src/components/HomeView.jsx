@@ -33,7 +33,8 @@ export default function HomeView({
   onDismissNotice,
   searchQuery = '',
   onClearSearch,
-  onSelectHashtag
+  onSelectHashtag,
+  onSharePost
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [friendsList, setFriendsList] = useState(() => {
@@ -280,6 +281,8 @@ export default function HomeView({
                     key={post.id}
                     post={post}
                     currentUser={currentUser}
+                    allPosts={posts}
+                    onUpdatePost={onEditPost}
                     onToggleLike={onToggleLike}
                     onAddComment={onAddComment}
                     onOpenReportModal={onOpenReportModal}
@@ -293,6 +296,7 @@ export default function HomeView({
                     onTogglePostMenu={onTogglePostMenu}
                     onClosePostMenu={onClosePostMenu}
                     onDismissNotice={onDismissNotice}
+                    onSharePost={onSharePost}
                   />
                 )
               ))

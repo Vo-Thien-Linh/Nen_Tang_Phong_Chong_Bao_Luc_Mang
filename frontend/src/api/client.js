@@ -34,6 +34,12 @@ export async function fetchPosts({ userId } = {}) {
   });
 }
 
+export async function fetchPostById({ postId, userId } = {}) {
+  return request(`/api/posts/${postId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function createPost({ userId, content, imageUrl }) {
   return request('/api/posts', {
     method: 'POST',
