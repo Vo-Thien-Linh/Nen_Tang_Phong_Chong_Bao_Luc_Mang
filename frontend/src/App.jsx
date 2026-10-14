@@ -113,8 +113,32 @@ export default function App() {
   // Đếm số thông báo chưa đọc
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  // Lắng nghe sự kiện Back/Forward của trình duyệt để điều hướng trang
+  useEffect(() => {
+    const initialHash = window.location.hash.replace('#', '') || 'home';
+    if (!window.history.state) {
+      window.history.replaceState({ tab: initialHash, viewedUser: null }, '', `#${initialHash}`);
+    }
+
+    const handlePopState = (event) => {
+      const state = event.state;
+      const hash = window.location.hash.replace('#', '') || 'home';
+      const targetTab = state?.tab || hash || 'home';
+
+      setActiveTab(targetTab);
+      if (targetTab === 'profile') {
+        setViewedProfileUser(state?.viewedUser || null);
+      } else {
+        setViewedProfileUser(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Xử lý Chuyển Tab có Auth Guard
-  const handleTabChange = (tab) => {
+  const handleTabChange = (tab, targetUser = null, replace = false) => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'settings')) {
       const msg = tab === 'messages'
         ? "Vui lòng đăng nhập để sử dụng tính năng nhắn tin"
@@ -125,9 +149,21 @@ export default function App() {
       return;
     }
     if (tab === 'profile') {
-      setViewedProfileUser(null); // Reset về trang cá nhân của mình
+      setViewedProfileUser(targetUser || null);
+    } else {
+      setViewedProfileUser(null);
     }
     setActiveTab(tab);
+
+    const stateObj = { 
+      tab, 
+      viewedUser: targetUser ? { id: targetUser.id, name: targetUser.name, avatar: targetUser.avatar } : null 
+    };
+    if (replace) {
+      window.history.replaceState(stateObj, '', `#${tab}`);
+    } else {
+      window.history.pushState(stateObj, '', `#${tab}`);
+    }
   };
 
   // Cập nhật thông tin người dùng đồng bộ
@@ -147,8 +183,7 @@ export default function App() {
   };
 
   const handleOpenUserProfile = (user) => {
-    setViewedProfileUser(user);
-    setActiveTab('profile');
+    handleTabChange('profile', user);
   };
 
   const handleTogglePostMenu = (postId) => {
