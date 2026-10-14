@@ -163,6 +163,9 @@ export function createUsersRouter({ pool }) {
           content: p.orig_content,
           image: p.orig_image_url || null,
           createdAt: p.orig_created_at,
+          likesCount: Number(p.orig_likes_count || 0),
+          commentsCount: Number(p.orig_comments_count || 0),
+          sharesCount: Number(p.orig_shares_count || 0),
           author: {
             id: p.orig_author_id,
             name: p.orig_author_name,

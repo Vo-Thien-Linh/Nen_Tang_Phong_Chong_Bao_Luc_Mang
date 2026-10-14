@@ -45,7 +45,7 @@ export function createPostService({ postRepository, moderationHook, clock = () =
     },
 
     async getVisiblePost({ user, postId }) {
-      const post = await postRepository.findById(postId);
+      const post = await postRepository.findById(postId, user?.id || null);
       if (!post || (post.ai_status !== 'approved' && post.author_id !== user?.id)) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;

@@ -106,7 +106,7 @@ export function createPostRepository({ pool }) {
       return this.findById(result.rows[0].id);
     },
 
-    async findById(postId) {
+    async findById(postId, viewerId = null) {
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1`,
@@ -114,6 +114,23 @@ export function createPostRepository({ pool }) {
       );
 
       if (!result.rows[0]) return null;
+
+      const countResult = await pool.query(
+        `SELECT post_id, reaction_type, COUNT(*)::int AS count
+         FROM post_reactions
+         WHERE post_id = $1
+         GROUP BY post_id, reaction_type`,
+        [postId]
+      );
+
+      const myReactionResult = viewerId
+        ? await pool.query(
+            `SELECT post_id, reaction_type
+             FROM post_reactions
+             WHERE user_id = $1 AND post_id = $2`,
+            [viewerId, postId]
+          )
+        : { rows: [] };
 
       const commentResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.created_at,
@@ -125,12 +142,13 @@ export function createPostRepository({ pool }) {
         [postId]
       );
 
-      const post = attachReactionAndCommentsData(result.rows, [], [], commentResult.rows)[0];
+      const post = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentResult.rows)[0];
 
       // Nếu là bài chia sẻ, lấy thêm thông tin bài gốc
       if (post && post.original_post_id) {
         const originalResult = await pool.query(
           `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  p.likes_count, p.comments_count, p.shares_count,
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
@@ -273,6 +291,7 @@ export function createPostRepository({ pool }) {
       if (originalPostIds.length > 0) {
         const originalPostsResult = await pool.query(
           `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  p.likes_count, p.comments_count, p.shares_count,
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
