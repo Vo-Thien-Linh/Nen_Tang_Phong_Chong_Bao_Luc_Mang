@@ -34,14 +34,20 @@ class RegisterRequest(BaseModel):
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, v: str) -> str:
-        phone = v.strip().replace(" ", "").replace(".", "")
+        phone = v.strip().replace(" ", "").replace(".", "").replace("-", "")
         if not phone:
             raise ValueError("Vui lòng nhập số điện thoại")
         # Định dạng số điện thoại Việt Nam (10 số, bắt đầu bằng 03, 05, 07, 08, 09 hoặc +84)
         pattern = r"^(0|\+84)(3|5|7|8|9)[0-9]{8}$"
         if not re.match(pattern, phone):
             raise ValueError("Số điện thoại không đúng định dạng hợp lệ (10 chữ số)")
+        # Chuẩn hóa về định dạng 10 chữ số bắt đầu bằng 0 (ví dụ: +84912345678 -> 0912345678)
+        if phone.startswith("+84"):
+            phone = "0" + phone[3:]
+        elif phone.startswith("84") and len(phone) == 11:
+            phone = "0" + phone[2:]
         return phone
+
 
     @field_validator("password")
     @classmethod

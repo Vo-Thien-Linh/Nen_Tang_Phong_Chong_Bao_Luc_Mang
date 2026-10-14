@@ -297,16 +297,23 @@ export const authService = {
                                  err.message.includes('aborted');
 
       if (isNetworkOrTimeout) {
-        // Fallback offline mock test
-        if (MOCK_DEMO_USERS.some(u => u.name === trimmedName)) {
+        // Fallback offline mock test (so khớp không phân biệt hoa/thường và chuẩn hóa số điện thoại)
+        if (MOCK_DEMO_USERS.some(u => (u.name || u.full_name)?.trim().toLowerCase() === trimmedName.toLowerCase())) {
           throw new Error("Tên đã được tồn tại");
         }
-        if (MOCK_DEMO_USERS.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) {
+        if (MOCK_DEMO_USERS.some(u => u.email?.trim().toLowerCase() === email.trim().toLowerCase())) {
           throw new Error("Email đã được sử dụng");
         }
-        if (MOCK_DEMO_USERS.some(u => u.phone === phone.trim())) {
+        const cleanRegPhone = phone.trim().replace(/\D/g, '');
+        const normRegPhone = cleanRegPhone.startsWith('84') ? '0' + cleanRegPhone.slice(2) : cleanRegPhone;
+        if (MOCK_DEMO_USERS.some(u => {
+          const uClean = (u.phone || '').trim().replace(/\D/g, '');
+          const uNorm = uClean.startsWith('84') ? '0' + uClean.slice(2) : uClean;
+          return uNorm === normRegPhone || u.phone === phone.trim();
+        })) {
           throw new Error("Số điện thoại đã được sử dụng");
         }
+
 
         const newMockUser = {
           id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "b0000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12)),
