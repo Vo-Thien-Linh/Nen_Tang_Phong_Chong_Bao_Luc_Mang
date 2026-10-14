@@ -61,6 +61,23 @@ export function mapPostToResponse(post) {
       status: post.ai_status || 'approved',
     },
     moderationStatus: post.ai_status || 'approved',
+    // Thông tin bài gốc nếu đây là bài chia sẻ
+    originalPost: post.original_post
+      ? {
+          id: String(post.original_post.id),
+          content: post.original_post.content,
+          image: post.original_post.image_url || null,
+          createdAt: formatRelativeTime(post.original_post.created_at),
+          author: {
+            id: post.original_post.author_id,
+            name: post.original_post.full_name,
+            username: post.original_post.username,
+            avatar: post.original_post.avatar_url,
+          },
+        }
+      : post.original_post_id
+        ? null   // Bài gốc đã bị xóa (SET NULL không còn)
+        : undefined,
   };
 }
 
@@ -176,6 +193,27 @@ export function createPostsController({ postService, postRepository }) {
             time: 'Vừa xong',
             createdAt: comment.created_at,
           },
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async sharePost(req, res, next) {
+      try {
+        const { postId } = req.params;
+        const { content } = req.body || {};
+
+        const sharedPost = await postService.sharePost({
+          user: req.user,
+          originalPostId: postId,
+          content: content || '',
+        });
+
+        res.status(201).json({
+          success: true,
+          message: 'Chia sẻ bài viết thành công',
+          data: mapPostToResponse(sharedPost),
         });
       } catch (error) {
         next(error);
