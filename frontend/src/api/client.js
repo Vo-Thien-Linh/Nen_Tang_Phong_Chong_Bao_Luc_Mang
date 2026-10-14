@@ -100,3 +100,24 @@ export async function uploadPostImage(file) {
 
   return data.url;
 }
+
+export async function sharePost({ userId, postId, content = '', user = null }) {
+  const headers = {};
+  if (userId) {
+    headers['x-user-id'] = userId;
+    const name = user?.name || user?.full_name;
+    if (name) {
+      headers['x-user-name'] = encodeURIComponent(name);
+    }
+    const avatar = user?.avatar || user?.avatar_url;
+    if (avatar) {
+      headers['x-user-avatar'] = encodeURIComponent(avatar);
+    }
+  }
+
+  return request(`/api/posts/${postId}/share`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ content }),
+  });
+}

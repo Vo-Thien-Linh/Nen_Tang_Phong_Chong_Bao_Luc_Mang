@@ -21,7 +21,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, createComment, updatePost, deletePost } from './api/client';
+import { fetchPosts, createComment, updatePost, deletePost, sharePost } from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -309,6 +309,13 @@ export default function App() {
     }
   };
 
+  // Chia sẻ bài viết — thêm bài chia sẻ lên đầu Feed
+  const handleSharePost = (newSharedPost) => {
+    if (newSharedPost) {
+      setPosts((prev) => [newSharedPost, ...prev]);
+    }
+  };
+
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
   const handleAddComment = async (postId, newComment) => {
     if (!currentUser) {
@@ -573,6 +580,7 @@ export default function App() {
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
   };
 
+
   const handleMarkAsRead = (id) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
   };
@@ -666,6 +674,7 @@ export default function App() {
               setHomeSearchQuery(tag);
               setActiveTab('home');
             }}
+            onSharePost={handleSharePost}
           />
         )}
 
@@ -713,6 +722,7 @@ export default function App() {
             onOpenChat={handleOpenChatFromFriends}
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
+            onSharePost={handleSharePost}
           />
         )}
 

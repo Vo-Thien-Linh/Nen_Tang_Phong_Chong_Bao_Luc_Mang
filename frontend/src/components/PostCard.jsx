@@ -4,7 +4,7 @@ import {
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2
 } from 'lucide-react';
-import { updatePostReaction } from '../api/client';
+import { sharePost, updatePostReaction } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -21,6 +21,7 @@ import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
+import SharePostModal from './SharePostModal';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose }) {
   const popoverRef = useRef(null);
@@ -116,6 +117,8 @@ export default function PostCard({
   const [localShowPostMenu, setLocalShowPostMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [localSharesCount, setLocalSharesCount] = useState(post.sharesCount || 0);
   const [postError, setPostError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const reactionSummaryRef = useRef(null);
@@ -270,9 +273,28 @@ export default function PostCard({
   };
 
   const handleShare = () => {
-    navigator.clipboard?.writeText(window.location.href);
-    setCopiedToast(true);
-    setTimeout(() => setCopiedToast(false), 2000);
+    if (!currentUser?.id) {
+      if (onRequireAuth) {
+        onRequireAuth('Vui lòng đăng nhập để chia sẻ bài viết');
+      } else if (onRequireLogin) {
+        onRequireLogin();
+      }
+      return;
+    }
+    setShowShareModal(true);
+  };
+
+  const handleConfirmShare = async (content) => {
+    const result = await sharePost({
+      userId: currentUser.id,
+      user: currentUser,
+      postId: post.id,
+      content,
+    });
+    // Optimistic: tăng đếm ngay sau khi API thành công
+    setLocalSharesCount((prev) => prev + 1);
+    // Thông báo ra ngoài nếu cần cập nhật Feed
+    onSharePost?.(result?.data);
   };
 
   const handleSaveEdit = async ({ content, imageUrl }) => {
@@ -519,6 +541,53 @@ export default function PostCard({
         </div>
       )}
 
+      {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
+      {post.originalPost !== undefined && (
+        <div className="mx-4 sm:mx-5 mb-3 mt-1">
+          {post.originalPost ? (
+            <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50 text-xs">
+              {/* Header tác giả bài gốc */}
+              <div className="flex items-center gap-2 px-3 pt-3 pb-1.5">
+                <img
+                  src={post.originalPost.author?.avatar || DEFAULT_AVATAR}
+                  alt={post.originalPost.author?.name}
+                  className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
+                />
+                <div>
+                  <p className="font-semibold text-slate-800 leading-tight">
+                    {post.originalPost.author?.name || 'Người dùng'}
+                  </p>
+                  <p className="text-[11px] text-slate-400">{post.originalPost.createdAt}</p>
+                </div>
+              </div>
+              {/* Nội dung bài gốc */}
+              {post.originalPost.content && (
+                <p className="px-3 pb-2 text-slate-700 leading-relaxed line-clamp-4">
+                  {post.originalPost.content}
+                </p>
+              )}
+              {/* Ảnh bài gốc */}
+              {post.originalPost.image && (
+                <div className="border-t border-slate-200">
+                  <img
+                    src={post.originalPost.image}
+                    alt="Ảnh bài gốc"
+                    className="w-full max-h-48 object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Bài gốc đã bị xóa */
+            <div className="border border-slate-200 rounded-xl px-3.5 py-3 bg-slate-50 text-xs text-slate-400 flex items-center gap-2">
+              <Share2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Bài viết gốc đã bị xóa</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Thống kê tương tác cảm xúc */}
       <div className="px-4 sm:px-5 py-2.5 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
         <button
@@ -567,7 +636,7 @@ export default function PostCard({
         </button>
         <div className="flex items-center gap-3">
           <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{post.comments?.length || 0} bình luận</span>
-          <span>{post.sharesCount || 0} chia sẻ</span>
+          <span>{localSharesCount} chia sẻ</span>
         </div>
       </div>
 
@@ -750,6 +819,14 @@ export default function PostCard({
         onCancel={() => setShowDeleteModal(false)}
         onConfirm={handleConfirmDelete}
       />
+      {showShareModal && (
+        <SharePostModal
+          post={post}
+          currentUser={currentUser}
+          onConfirm={handleConfirmShare}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
     </div>
   );
 }

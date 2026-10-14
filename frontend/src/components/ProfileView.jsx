@@ -11,8 +11,9 @@ import {
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
-import { updatePostReaction } from '../api/client';
+import { updatePostReaction, sharePost } from '../api/client';
 import EditProfileModal from './EditProfileModal';
+import SharePostModal from './SharePostModal';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -168,6 +169,7 @@ export default function ProfileView({
   const [profileReactions, setProfileReactions] = useState({});
   const [hoverReactionPostId, setHoverReactionPostId] = useState(null);
   const [activePostMenuId, setActivePostMenuId] = useState(null);
+  const [sharingPost, setSharingPost] = useState(null);
 
   // ── 1. Fetch Profile từ DB ──────────────────────────────────
   useEffect(() => {
@@ -518,6 +520,36 @@ export default function ProfileView({
     });
 
     setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+  };
+
+  // Chia sẻ bài viết trong trang cá nhân
+  const handleConfirmShare = async (content) => {
+    if (!sharingPost) return;
+    const result = await sharePost({
+      userId: currentUser?.id,
+      user: currentUser,
+      postId: sharingPost.id,
+      content,
+    });
+
+    // Tăng số lượt chia sẻ trên UI của bài được share
+    setProfilePosts(prev => {
+      if (!prev) return prev;
+      return prev.map(p => {
+        if (p.id === sharingPost.id) {
+          return { ...p, sharesCount: (p.sharesCount || 0) + 1 };
+        }
+        return p;
+      });
+    });
+
+    // Nếu đang ở trang cá nhân của chính mình, thêm bài chia sẻ mới vào đầu danh sách
+    if (isOwnProfile && result?.data) {
+      setProfilePosts(prev => prev ? [result.data, ...prev] : [result.data]);
+    }
+
+    // Cập nhật lên Feed trang chủ ngoài App
+    onAddPost && onAddPost(result?.data);
   };
 
   return (
@@ -1288,6 +1320,49 @@ export default function ProfileView({
                           </div>
                         )}
 
+                        {/* Khung hiển thị bài viết gốc nếu là bài viết chia sẻ */}
+                        {(post.originalPost || post.original_post) && (() => {
+                          const orig = post.originalPost || post.original_post;
+                          return (
+                            <div className="mx-4 mb-3 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200/80 space-y-2.5">
+                              <div className="flex items-center gap-2.5">
+                                <img
+                                  src={orig.author?.avatar || DEFAULT_AVATAR}
+                                  alt={orig.author?.name || 'Tác giả'}
+                                  className="w-8 h-8 rounded-full object-cover border border-slate-200"
+                                  onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                                />
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1 font-semibold text-xs text-slate-900 truncate">
+                                    <span className="truncate">{orig.author?.name || 'Người dùng'}</span>
+                                    {orig.author?.isVerified && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                                  </div>
+                                  {orig.createdAt && (
+                                    <span className="text-[11px] text-slate-400">{orig.createdAt}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {orig.content && (
+                                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line line-clamp-3">
+                                  {orig.content}
+                                </p>
+                              )}
+                              {orig.image && (
+                                <div 
+                                  onClick={() => setLightboxImage(orig.image)}
+                                  className="rounded-xl overflow-hidden max-h-60 bg-slate-100 border border-slate-200/60 cursor-pointer"
+                                >
+                                  <img
+                                    src={orig.image}
+                                    alt="Original media"
+                                    className="w-full h-full object-cover max-h-60 hover:scale-[1.01] transition"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         {/* Thống kê tương tác */}
                         {(() => {
                           const curRId = getPostCurrentReaction(post);
@@ -1370,8 +1445,11 @@ export default function ProfileView({
 
                           <button
                             onClick={() => {
-                              navigator.clipboard?.writeText(window.location.href);
-                              alert("Đã sao chép liên kết bài viết!");
+                              if (!currentUser?.id) {
+                                onRequireAuth ? onRequireAuth("Vui lòng đăng nhập để chia sẻ bài viết") : alert("Vui lòng đăng nhập để chia sẻ");
+                                return;
+                              }
+                              setSharingPost(post);
                             }}
                             className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl hover:bg-slate-50 transition cursor-pointer"
                           >
@@ -1887,6 +1965,16 @@ export default function ProfileView({
             className="max-h-[88vh] max-w-[92vw] object-contain rounded-2xl shadow-2xl"
           />
         </div>
+      )}
+
+      {/* ================= MODAL CHIA SẺ BÀI VIẾT ================= */}
+      {sharingPost && (
+        <SharePostModal
+          post={sharingPost}
+          currentUser={currentUser}
+          onConfirm={handleConfirmShare}
+          onClose={() => setSharingPost(null)}
+        />
       )}
 
     </div>
