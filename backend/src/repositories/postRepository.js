@@ -14,6 +14,7 @@ const postSelect = `
     p.created_at,
     p.updated_at,
     p.edited_at,
+    p.original_post_id,
     u.username,
     u.full_name,
     u.avatar_url,
@@ -124,7 +125,22 @@ export function createPostRepository({ pool }) {
         [postId]
       );
 
-      return attachReactionAndCommentsData(result.rows, [], [], commentResult.rows)[0];
+      const post = attachReactionAndCommentsData(result.rows, [], [], commentResult.rows)[0];
+
+      // Nếu là bài chia sẻ, lấy thêm thông tin bài gốc
+      if (post && post.original_post_id) {
+        const originalResult = await pool.query(
+          `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  u.id AS author_id, u.full_name, u.username, u.avatar_url
+           FROM posts p
+           JOIN users u ON u.id = p.author_id
+           WHERE p.id = $1`,
+          [post.original_post_id]
+        );
+        post.original_post = originalResult.rows[0] || null;
+      }
+
+      return post;
     },
 
     async updatePost({ postId, authorId, content, imageUrl }) {
@@ -247,7 +263,61 @@ export function createPostRepository({ pool }) {
         [postIds]
       );
 
-      return attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);
+      const posts = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);
+
+      // Lấy thông tin bài gốc cho các bài chia sẻ
+      const originalPostIds = posts
+        .filter((p) => p.original_post_id)
+        .map((p) => p.original_post_id);
+
+      if (originalPostIds.length > 0) {
+        const originalPostsResult = await pool.query(
+          `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  u.id AS author_id, u.full_name, u.username, u.avatar_url
+           FROM posts p
+           JOIN users u ON u.id = p.author_id
+           WHERE p.id = ANY($1::bigint[])`,
+          [originalPostIds]
+        );
+        const originalPostMap = new Map(originalPostsResult.rows.map((op) => [Number(op.id), op]));
+        return posts.map((p) => ({
+          ...p,
+          original_post: p.original_post_id ? (originalPostMap.get(Number(p.original_post_id)) || null) : null,
+        }));
+      }
+
+      return posts;
+    },
+
+    async sharePost({ sharerId, originalPostId, content }) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Tạo bài chia sẻ mới liên kết tới bài gốc
+        const insertResult = await client.query(
+          `INSERT INTO posts (author_id, content, original_post_id, privacy)
+           VALUES ($1, $2, $3, 'public')
+           RETURNING id`,
+          [sharerId, content || '', originalPostId]
+        );
+
+        const newPostId = insertResult.rows[0].id;
+
+        // Tăng shares_count của bài gốc
+        await client.query(
+          `UPDATE posts SET shares_count = shares_count + 1 WHERE id = $1`,
+          [originalPostId]
+        );
+
+        await client.query('COMMIT');
+        return this.findById(newPostId);
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
   };
 }

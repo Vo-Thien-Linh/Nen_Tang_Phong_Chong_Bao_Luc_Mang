@@ -37,7 +37,26 @@ export function createAuthMiddleware({ userRepository }) {
       return null;
     }
 
-    const user = await userRepository.findById(userId);
+    let user = await userRepository.findById(userId);
+    if (!user && process.env.NODE_ENV !== 'production' && uuidPattern.test(userId)) {
+      try {
+        const headerName = req.header('x-user-name')
+          ? decodeURIComponent(req.header('x-user-name'))
+          : null;
+        const headerAvatar = req.header('x-user-avatar')
+          ? decodeURIComponent(req.header('x-user-avatar'))
+          : null;
+        user = await userRepository.ensureUserExists({
+          id: userId,
+          username: `user_${userId.replace(/-/g, '').slice(0, 8)}`,
+          fullName: headerName || 'Người dùng mới',
+          avatarUrl: headerAvatar || null,
+        });
+      } catch (err) {
+        warnRejectedAuth(`Lỗi tạo dev user: ${err.message}`);
+      }
+    }
+
     if (!user) {
       warnRejectedAuth('không tìm thấy user trong DB');
       if (required) {
