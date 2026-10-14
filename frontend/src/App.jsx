@@ -4,9 +4,11 @@ import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
 import MessagesView from './components/MessagesView';
 import NotificationsView from './components/NotificationsView';
+import NotificationToast from './components/NotificationToast';
 import ProfileView from './components/ProfileView';
 import AdminDashboardView from './components/AdminDashboardView';
 import SettingsView from './components/SettingsView';
+import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
@@ -50,7 +52,21 @@ export default function App() {
   const [posts, setPosts] = useState([]);
   const [openPostMenuId, setOpenPostMenuId] = useState(null);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const {
+    notifications,
+    unreadCount,
+    isLoading: notifLoading,
+    activeFilter: notifFilter,
+    setActiveFilter: setNotifFilter,
+    toastNotification,
+    setToastNotification,
+    refreshNotifications,
+    handleMarkAsRead,
+    handleMarkAllAsRead,
+    handleDeleteNotification,
+    handleClearReadNotifications,
+    addLocalNotification,
+  } = useNotifications({ currentUser, activeTab });
   
   // Quản lý Chế độ Giao diện Sáng / Tối (Theme Mode)
   const [theme, setTheme] = useState(() => {
@@ -109,9 +125,6 @@ export default function App() {
   const pendingReportsCount = reports.filter(r => r.status === 'pending').length;
   const pendingAppealsCount = appeals.filter(a => a.status === 'pending').length;
   const pendingModerationCount = pendingReportsCount + pendingAppealsCount;
-
-  // Đếm số thông báo chưa đọc
-  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   // Lắng nghe sự kiện Back/Forward của trình duyệt để điều hướng trang
   useEffect(() => {
@@ -402,7 +415,7 @@ export default function App() {
       time: 'Vừa xong',
       isRead: false
     };
-    setNotifications(prev => [notif, ...prev]);
+    addLocalNotification(notif);
   };
 
   const handleResolveReport = (reportId, status, adminNotes) => {
@@ -458,7 +471,7 @@ export default function App() {
       time: 'Vừa xong',
       isRead: false
     };
-    setNotifications(prev => [notif, ...prev]);
+    addLocalNotification(notif);
   };
 
   const handleResolveAppeal = (appealId, status, adminNotes) => {
@@ -511,7 +524,7 @@ export default function App() {
         time: 'Vừa xong',
         isRead: false
       };
-      setNotifications(prev => [apologyNotif, ...prev]);
+      addLocalNotification(apologyNotif);
     } else {
       // Nếu từ chối khiếu nại
       setPosts(prev => prev.map(p => {
@@ -588,7 +601,7 @@ export default function App() {
         time: 'Vừa xong',
         isRead: false
       };
-      setNotifications(prev => [notif, ...prev]);
+      addLocalNotification(notif);
     }
   };
 
@@ -610,19 +623,6 @@ export default function App() {
     setPosts(prev => prev.filter(p => p.id !== postId));
   };
 
-  // Đánh dấu tất cả thông báo đã đọc
-  const handleMarkAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-  };
-
-
-  const handleMarkAsRead = (id) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
-  };
-
-  const handleDeleteNotification = (id) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
 
   // Mở đoạn chat từ trang Bạn bè hoặc Trang cá nhân người khác
   const handleOpenChatFromFriends = (user) => {
@@ -740,6 +740,16 @@ export default function App() {
             onMarkAllAsRead={handleMarkAllAsRead}
             onMarkAsRead={handleMarkAsRead}
             onDeleteNotification={handleDeleteNotification}
+            onClearReadNotifications={handleClearReadNotifications}
+            onRefresh={() => refreshNotifications(notifFilter, true)}
+            isLoading={notifLoading}
+            onOpenProfile={handleOpenUserProfile}
+            activeFilter={notifFilter}
+            onFilterChange={setNotifFilter}
+            onViewPost={(_postId) => {
+              setHomeSearchQuery('');
+              handleTabChange('home');
+            }}
           />
         )}
 
@@ -841,6 +851,16 @@ export default function App() {
           setCurrentUser(user);
           setIsAuthModalOpen(false);
           setAuthNoticeMessage('');
+        }}
+      />
+
+      {/* Floating Notification Toast (Real-time pop-up) */}
+      <NotificationToast 
+        notification={toastNotification}
+        onClose={() => setToastNotification(null)}
+        onClick={() => {
+          setToastNotification(null);
+          handleTabChange('notifications');
         }}
       />
 
