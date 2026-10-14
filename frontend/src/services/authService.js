@@ -279,6 +279,37 @@ export const authService = {
     }
   },
 
+  // XÁC THỰC MÃ OTP QUÊN MẬT KHẨU
+  verifyResetOtp: async (identifier, otp) => {
+    if (!identifier || !identifier.trim()) {
+      throw new Error("Vui lòng nhập email hoặc số điện thoại");
+    }
+    if (!otp || !otp.trim() || otp.trim().length !== 6) {
+      throw new Error("Mã xác thực OTP phải gồm 6 chữ số");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/verify-reset-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          otp: otp.trim()
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || "Mã xác thực không chính xác hoặc đã hết hạn");
+      }
+      return data;
+    } catch (err) {
+      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
+      }
+      throw err;
+    }
+  },
+
   // ĐẶT LẠI MẬT KHẨU MỚI BẰNG OTP THẬT
   resetPassword: async (identifier, otp, newPassword, confirmPassword) => {
     if (!identifier || !identifier.trim()) {
