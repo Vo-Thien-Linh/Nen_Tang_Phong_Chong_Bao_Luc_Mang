@@ -196,60 +196,6 @@ export const authService = {
       clearTimeout(regTimeoutId);
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
         throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000). Vui lòng đảm bảo backend FastAPI đang chạy.");
-      const isNetworkOrTimeout = err.name === 'AbortError' || 
-                                 err.message.includes('Failed to fetch') || 
-                                 err.message.includes('NetworkError') ||
-                                 err.message.includes('aborted');
-
-      if (isNetworkOrTimeout) {
-        // Fallback offline mock test (so khớp không phân biệt hoa/thường và chuẩn hóa số điện thoại)
-        if (MOCK_DEMO_USERS.some(u => (u.name || u.full_name)?.trim().toLowerCase() === trimmedName.toLowerCase())) {
-          throw new Error("Tên đã được tồn tại");
-        }
-        if (MOCK_DEMO_USERS.some(u => u.email?.trim().toLowerCase() === email.trim().toLowerCase())) {
-          throw new Error("Email đã được sử dụng");
-        }
-        const cleanRegPhone = phone.trim().replace(/\D/g, '');
-        const normRegPhone = cleanRegPhone.startsWith('84') ? '0' + cleanRegPhone.slice(2) : cleanRegPhone;
-        if (MOCK_DEMO_USERS.some(u => {
-          const uClean = (u.phone || '').trim().replace(/\D/g, '');
-          const uNorm = uClean.startsWith('84') ? '0' + uClean.slice(2) : uClean;
-          return uNorm === normRegPhone || u.phone === phone.trim();
-        })) {
-          throw new Error("Số điện thoại đã được sử dụng");
-        }
-
-
-        const newMockUser = {
-          id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "b0000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12)),
-          name: trimmedName,
-          full_name: trimmedName,
-          username: email.trim().split('@')[0],
-          email: email.trim(),
-          phone: phone.trim(),
-          role: "USER",
-          status: "active",
-          avatar: null,
-          avatar_url: null,
-          cover: null,
-          cover_url: null,
-          postsCount: 0,
-          friendsCount: 0,
-          isVerified: false,
-          _rawPassword: password
-        };
-        MOCK_DEMO_USERS.push(newMockUser);
-
-        return { 
-          success: true, 
-          message: "Đăng kí thành công",
-          data: {
-            user_id: newMockUser.id,
-            email: newMockUser.email,
-            demo_otp: "123456",
-            requires_email_verification: true
-          }
-        };
       }
       throw err;
     }
