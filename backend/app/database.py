@@ -17,7 +17,7 @@ try:
         engine = create_engine(
             DATABASE_URL,
             pool_pre_ping=True,
-            connect_args={"sslmode": "require"} if "supabase" in DATABASE_URL else {}
+            connect_args={"sslmode": "require", "connect_timeout": 3} if "supabase" in DATABASE_URL else {"connect_timeout": 3}
         )
         # Test kết nối nhanh
         with engine.connect() as conn:

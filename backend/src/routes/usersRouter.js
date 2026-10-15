@@ -158,6 +158,22 @@ export function createUsersRouter({ pool }) {
           content: c.content,
           time: c.created_at,
         })),
+        originalPost: p.original_post_id && p.orig_id ? {
+          id: String(p.orig_id),
+          content: p.orig_content,
+          image: p.orig_image_url || null,
+          createdAt: p.orig_created_at,
+          likesCount: Number(p.orig_likes_count || 0),
+          commentsCount: Number(p.orig_comments_count || 0),
+          sharesCount: Number(p.orig_shares_count || 0),
+          author: {
+            id: p.orig_author_id,
+            name: p.orig_author_name,
+            username: p.orig_author_username,
+            avatar: p.orig_author_avatar,
+            isVerified: p.orig_author_is_verified,
+          },
+        } : null,
       }));
 
       res.json({ success: true, data: formatted });

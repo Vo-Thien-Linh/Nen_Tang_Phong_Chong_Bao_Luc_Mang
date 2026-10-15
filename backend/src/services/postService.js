@@ -45,7 +45,7 @@ export function createPostService({ postRepository, moderationHook, clock = () =
     },
 
     async getVisiblePost({ user, postId }) {
-      const post = await postRepository.findById(postId);
+      const post = await postRepository.findById(postId, user?.id || null);
       if (!post || (post.ai_status !== 'approved' && post.author_id !== user?.id)) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
@@ -126,6 +126,45 @@ export function createPostService({ postRepository, moderationHook, clock = () =
 
       await postRepository.deletePost({ postId, authorId: user.id });
       return { id: String(postId) };
+    },
+
+    async sharePost({ user, originalPostId, content }) {
+      // 1. Kiểm tra đăng nhập
+      if (!user?.id) {
+        const error = new Error('Bạn cần đăng nhập để chia sẻ bài viết');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      // 2. Kiểm tra tài khoản không bị hạn chế
+      if (isRestrictedUser(user)) {
+        const error = new Error('Tài khoản của bạn đang bị hạn chế, không thể chia sẻ bài viết');
+        error.statusCode = 403;
+        throw error;
+      }
+
+      // 3. Kiểm tra bài gốc tồn tại và không bị ẩn
+      const originalPost = await postRepository.findById(originalPostId);
+      if (!originalPost) {
+        const error = new Error('Bài viết gốc không tồn tại');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (originalPost.ai_status === 'hidden') {
+        const error = new Error('Không thể chia sẻ bài viết đã bị ẩn');
+        error.statusCode = 403;
+        throw error;
+      }
+
+      // 4. Thực hiện chia sẻ
+      const sharedPost = await postRepository.sharePost({
+        sharerId: user.id,
+        originalPostId,
+        content: (content || '').trim(),
+      });
+
+      return sharedPost;
     },
   };
 }

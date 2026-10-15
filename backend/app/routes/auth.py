@@ -4,7 +4,8 @@ from typing import Optional, List
 from ..database import get_db
 from ..schemas.auth import (
     RegisterRequest, LoginRequest, TokenResponse, UserResponse, ApiResponse,
-    VerifyEmailRequest, ResendOtpRequest, ForgotPasswordRequest, ResetPasswordRequest
+    VerifyEmailRequest, ResendOtpRequest, ForgotPasswordRequest, ResetPasswordRequest,
+    VerifyResetOtpRequest
 )
 from ..services.auth_service import AuthService
 from ..utils.security import decode_access_token
@@ -64,6 +65,20 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
     return ApiResponse(
         success=True,
         message=res.get("message", "Mã xác thực đã được gửi tới email"),
+        data=res
+    )
+
+@router.post(
+    "/verify-reset-otp",
+    response_model=ApiResponse,
+    summary="Kiểm tra mã OTP quên mật khẩu",
+    description="Xác thực xem mã OTP nhập vào có hợp lệ hay không trước khi chuyển sang bước đặt mật khẩu mới"
+)
+def verify_reset_otp(request: VerifyResetOtpRequest, db: Session = Depends(get_db)):
+    res = AuthService.verify_reset_otp(request.identifier, request.otp, db)
+    return ApiResponse(
+        success=True,
+        message=res.get("message", "Mã xác thực OTP hợp lệ!"),
         data=res
     )
 

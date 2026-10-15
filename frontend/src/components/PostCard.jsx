@@ -2,9 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
-  CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2
+  CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink
 } from 'lucide-react';
-import { updatePostReaction } from '../api/client';
+import { sharePost, updatePostReaction } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -21,6 +21,9 @@ import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
+import SharePostModal from './SharePostModal';
+import OriginalPostModal from './OriginalPostModal';
+import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
   const popoverRef = useRef(null);
@@ -112,7 +115,10 @@ export default function PostCard({
   openPostMenuId,
   onTogglePostMenu,
   onClosePostMenu,
-  onDismissNotice
+  onDismissNotice,
+  onSharePost,
+  allPosts = [],
+  onUpdatePost
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -130,6 +136,9 @@ export default function PostCard({
   const [localShowPostMenu, setLocalShowPostMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showOriginalModal, setShowOriginalModal] = useState(false);
+  const [localSharesCount, setLocalSharesCount] = useState(post.sharesCount || 0);
   const [postError, setPostError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const reactionSummaryRef = useRef(null);
@@ -318,9 +327,28 @@ export default function PostCard({
   };
 
   const handleShare = () => {
-    navigator.clipboard?.writeText(window.location.href);
-    setCopiedToast(true);
-    setTimeout(() => setCopiedToast(false), 2000);
+    if (!currentUser?.id) {
+      if (onRequireAuth) {
+        onRequireAuth('Vui lòng đăng nhập để chia sẻ bài viết');
+      } else if (onRequireLogin) {
+        onRequireLogin();
+      }
+      return;
+    }
+    setShowShareModal(true);
+  };
+
+  const handleConfirmShare = async (content) => {
+    const result = await sharePost({
+      userId: currentUser.id,
+      user: currentUser,
+      postId: post.id,
+      content,
+    });
+    // Optimistic: tăng đếm ngay sau khi API thành công
+    setLocalSharesCount((prev) => prev + 1);
+    // Thông báo ra ngoài nếu cần cập nhật Feed
+    onSharePost?.(result?.data);
   };
 
   const handleSaveEdit = async ({ content, imageUrl }) => {
@@ -383,10 +411,11 @@ export default function PostCard({
       <div className="p-4 sm:p-5 flex items-center justify-between pb-3">
         <div className="flex items-center gap-3">
           <img 
-            src={post.author.avatar} 
-            alt={post.author.name} 
+            src={post.author?.avatar || DEFAULT_AVATAR} 
+            alt={post.author?.name || 'Tác giả'} 
+            onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
             onClick={() => onOpenProfile && onOpenProfile(post.author)}
-            className="w-11 h-11 rounded-full object-cover ring-2 ring-slate-100 cursor-pointer hover:opacity-90 transition"
+            className="w-11 h-11 rounded-full object-cover ring-2 ring-slate-100 cursor-pointer hover:opacity-90 transition shrink-0"
           />
           <div>
             <div className="flex items-center gap-1.5">
@@ -394,16 +423,16 @@ export default function PostCard({
                 onClick={() => onOpenProfile && onOpenProfile(post.author)}
                 className="text-sm font-bold text-slate-900 hover:text-blue-600 cursor-pointer transition"
               >
-                {post.author.name}
+                {post.author?.name || 'Người dùng'}
               </h3>
-              {post.author.isVerified && (
+              {post.author?.isVerified && (
                 <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
               )}
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span>@{post.author.username}</span>
-              <span>•</span>
-              <span>{post.createdAt}</span>
+              {post.author?.username && <span>@{post.author.username}</span>}
+              {post.author?.username && <span>•</span>}
+              <span>{formatRelativeTime(post.createdAt || post.created_at)}</span>
               {post.isEdited && (
                 <>
                   <span>•</span>
@@ -567,6 +596,81 @@ export default function PostCard({
         </div>
       )}
 
+      {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
+      {post.originalPost !== undefined && (
+        <div className="mx-4 sm:mx-5 mb-3 mt-1">
+          {post.originalPost ? (
+            <div 
+              onClick={() => setShowOriginalModal(true)}
+              className="border border-slate-200/90 hover:border-blue-300 hover:shadow-xs rounded-2xl overflow-hidden bg-slate-50/80 text-xs transition-all duration-200 cursor-pointer group/orig"
+              title="Nhấn để xem chi tiết bài viết gốc"
+            >
+              {/* Header tác giả bài gốc */}
+              <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
+                <div className="flex items-center gap-2.5">
+                  <img
+                    src={post.originalPost.author?.avatar || DEFAULT_AVATAR}
+                    alt={post.originalPost.author?.name}
+                    onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenProfile && post.originalPost.author && onOpenProfile(post.originalPost.author);
+                    }}
+                    className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-blue-300 transition"
+                  />
+                  <div>
+                    <div className="flex items-center gap-1 font-semibold text-slate-800 leading-tight">
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenProfile && post.originalPost.author && onOpenProfile(post.originalPost.author);
+                        }}
+                        className="hover:text-blue-600 transition"
+                      >
+                        {post.originalPost.author?.name || 'Người dùng'}
+                      </span>
+                      {post.originalPost.author?.isVerified && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {formatRelativeTime(post.originalPost.createdAt || post.originalPost.created_at)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400 group-hover/orig:text-blue-600 transition font-medium">
+                  <span>Xem bài viết gốc</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              {/* Nội dung bài gốc */}
+              {post.originalPost.content && (
+                <p className="px-3.5 pb-2 text-slate-700 leading-relaxed line-clamp-3">
+                  {post.originalPost.content}
+                </p>
+              )}
+              {/* Ảnh bài gốc */}
+              {(post.originalPost.image || post.originalPost.imageUrl || post.originalPost.image_url) && (
+                <div className="border-t border-slate-200/80 bg-slate-100">
+                  <img
+                    src={post.originalPost.image || post.originalPost.imageUrl || post.originalPost.image_url}
+                    alt="Ảnh bài gốc"
+                    className="w-full max-h-52 object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Bài gốc đã bị xóa */
+            <div className="border border-slate-200 rounded-xl px-3.5 py-3 bg-slate-50 text-xs text-slate-400 flex items-center gap-2">
+              <Share2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Bài viết gốc đã bị xóa hoặc không còn tồn tại</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Thống kê tương tác cảm xúc */}
       <div className="px-4 sm:px-5 py-2.5 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
         <button
@@ -615,7 +719,7 @@ export default function PostCard({
         </button>
         <div className="flex items-center gap-3">
           <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{post.comments?.length || 0} bình luận</span>
-          <span>{post.sharesCount || 0} chia sẻ</span>
+          <span>{localSharesCount} chia sẻ</span>
         </div>
       </div>
 
@@ -798,12 +902,33 @@ export default function PostCard({
         onSave={handleSaveEdit}
       />
       <DeletePostModal
+        post={post}
         isOpen={showDeleteModal}
         isDeleting={isDeleting}
         errorMessage={postError}
         onCancel={() => setShowDeleteModal(false)}
         onConfirm={handleConfirmDelete}
       />
+      {showShareModal && (
+        <SharePostModal
+          post={post}
+          currentUser={currentUser}
+          onConfirm={handleConfirmShare}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
+      {showOriginalModal && (
+        <OriginalPostModal
+          post={post.originalPost}
+          isOpen={showOriginalModal}
+          onClose={() => setShowOriginalModal(false)}
+          currentUser={currentUser}
+          onOpenProfile={onOpenProfile}
+          onRequireAuth={onRequireAuth}
+          allPosts={allPosts}
+          onUpdatePost={onUpdatePost}
+        />
+      )}
     </div>
   );
 }

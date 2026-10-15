@@ -20,6 +20,7 @@ export function createPostsRouter({ pool }) {
   router.put('/:postId', requireAuth, postsController.editPost);
   router.delete('/:postId', requireAuth, postsController.deletePost);
   router.post('/:postId/comments', requireAuth, postsController.createComment);
+  router.post('/:postId/share', requireAuth, postsController.sharePost);
 
   return router;
 }

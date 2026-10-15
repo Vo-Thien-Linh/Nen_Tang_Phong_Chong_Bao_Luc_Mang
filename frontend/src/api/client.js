@@ -34,6 +34,12 @@ export async function fetchPosts({ userId } = {}) {
   });
 }
 
+export async function fetchPostById({ postId, userId } = {}) {
+  return request(`/api/posts/${postId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function createPost({ userId, content, imageUrl }) {
   return request('/api/posts', {
     method: 'POST',
@@ -99,4 +105,71 @@ export async function uploadPostImage(file) {
   }
 
   return data.url;
+}
+
+export async function sharePost({ userId, postId, content = '', user = null }) {
+  const headers = {};
+  if (userId) {
+    headers['x-user-id'] = userId;
+    const name = user?.name || user?.full_name;
+    if (name) {
+      headers['x-user-name'] = encodeURIComponent(name);
+    }
+    const avatar = user?.avatar || user?.avatar_url;
+    if (avatar) {
+      headers['x-user-avatar'] = encodeURIComponent(avatar);
+    }
+  }
+
+  return request(`/api/posts/${postId}/share`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function fetchNotifications({ userId, limit = 30, offset = 0, filter = 'all' } = {}) {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    filter,
+  }).toString();
+
+  return request(`/api/notifications?${query}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchUnreadNotificationsCount({ userId } = {}) {
+  return request('/api/notifications/unread-count', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function markNotificationAsRead({ userId, notificationId }) {
+  return request(`/api/notifications/${notificationId}/read`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function markAllNotificationsAsRead({ userId }) {
+  return request('/api/notifications/read-all', {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function deleteNotificationApi({ userId, notificationId }) {
+  return request(`/api/notifications/${notificationId}`, {
+    method: 'DELETE',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function clearReadNotificationsApi({ userId }) {
+  return request('/api/notifications/read', {
+    method: 'DELETE',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
 }

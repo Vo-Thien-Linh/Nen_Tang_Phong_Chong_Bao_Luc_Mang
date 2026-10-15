@@ -6,13 +6,18 @@ import {
   Share2, CheckCircle2, Globe, Lock, Settings,
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
-  UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert
+  UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert,
+  ShieldCheck, ExternalLink
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
-import { updatePostReaction } from '../api/client';
+import { updatePostReaction, sharePost } from '../api/client';
 import EditProfileModal from './EditProfileModal';
+import SharePostModal from './SharePostModal';
+import CreatePostCard from './CreatePostCard';
+import OriginalPostModal from './OriginalPostModal';
+import { formatRelativeTime } from '../utils/timeAgo';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -61,6 +66,7 @@ export default function ProfileView({
 
   // ── Modal xem ảnh phóng to (Lightbox) ──────────────────────
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [viewingOriginalPost, setViewingOriginalPost] = useState(null);
 
   // ── Quan hệ bạn bè khi xem profile người khác ──────────────
   const [friendshipStatus, setFriendshipStatus] = useState('none'); // 'none' | 'friends' | 'pending_sent' | 'pending_received' | 'self'
@@ -196,6 +202,7 @@ export default function ProfileView({
   }, []);
 
   const [activePostMenuId, setActivePostMenuId] = useState(null);
+  const [sharingPost, setSharingPost] = useState(null);
 
 
   // ── 1. Fetch Profile từ DB ──────────────────────────────────
@@ -554,6 +561,36 @@ export default function ProfileView({
     setCommentInputs(prev => ({ ...prev, [postId]: '' }));
   };
 
+  // Chia sẻ bài viết trong trang cá nhân
+  const handleConfirmShare = async (content) => {
+    if (!sharingPost) return;
+    const result = await sharePost({
+      userId: currentUser?.id,
+      user: currentUser,
+      postId: sharingPost.id,
+      content,
+    });
+
+    // Tăng số lượt chia sẻ trên UI của bài được share
+    setProfilePosts(prev => {
+      if (!prev) return prev;
+      return prev.map(p => {
+        if (p.id === sharingPost.id) {
+          return { ...p, sharesCount: (p.sharesCount || 0) + 1 };
+        }
+        return p;
+      });
+    });
+
+    // Nếu đang ở trang cá nhân của chính mình, thêm bài chia sẻ mới vào đầu danh sách
+    if (isOwnProfile && result?.data) {
+      setProfilePosts(prev => prev ? [result.data, ...prev] : [result.data]);
+    }
+
+    // Cập nhật lên Feed trang chủ ngoài App
+    onAddPost && onAddPost(result?.data);
+  };
+
   return (
     <div className="bg-slate-100 min-h-screen pb-16">
 
@@ -597,24 +634,31 @@ export default function ProfileView({
         </div>
       )}
 
-      {/* Thanh điều hướng khi xem trang cá nhân người khác */}
-      {!isOwnProfile && (
-        <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-slate-50 border-b border-blue-100/80 py-2.5 px-4 sm:px-6 lg:px-8">
-          <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto flex items-center justify-between gap-3">
-            <button
-              onClick={() => onOpenUserProfile && onOpenUserProfile(null)}
-              className="flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-700 hover:text-blue-600 bg-white hover:bg-slate-50 border border-slate-200/90 px-3 py-1.5 rounded-xl transition cursor-pointer shadow-2xs shrink-0"
-            >
-              <ArrowLeft className="w-4 h-4 text-blue-600" />
-              <span>Quay lại trang cá nhân của bạn</span>
-            </button>
+      {/* Thanh điều hướng Quay lại Bảng tin / Trang trước */}
+      <div className="bg-white/85 backdrop-blur-xs border-b border-slate-200/70 py-2.5 px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) {
+                window.history.back();
+              } else {
+                window.location.hash = '#home';
+              }
+            }}
+            className="flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-700 hover:text-blue-600 bg-white hover:bg-slate-50 border border-slate-200/90 px-3.5 py-1.5 rounded-xl transition active:scale-95 cursor-pointer shadow-2xs shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4 text-blue-600" />
+            <span>{isOwnProfile ? 'Quay lại Bảng tin Trang chủ' : 'Quay lại trang trước'}</span>
+          </button>
+          {!isOwnProfile && (
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 truncate">
               <Eye className="w-4 h-4 text-blue-500 shrink-0" />
-              <span className="truncate">Đang xem trang cá nhân của <strong className="text-slate-900 font-extrabold">{activeUser.name || activeUser.full_name}</strong> (Chế độ xem công khai)</span>
+              <span className="truncate">Đang xem hồ sơ của <strong className="text-slate-900 font-extrabold">{activeUser.name || activeUser.full_name}</strong> (Chế độ xem công khai)</span>
             </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ================= PHẦN TRÊN: HEADER TRANG CÁ NHÂN (CHUẨN FACEBOOK) ================= */}
       <div className="bg-white border-b border-slate-200/80 shadow-2xs">
@@ -1150,6 +1194,23 @@ export default function ProfileView({
                 </div>
               )}
 
+              {/* Ô đăng bài viết trực tiếp trên trang cá nhân của chính mình */}
+              {isOwnProfile && (
+                <div className="mb-4">
+                  <CreatePostCard
+                    currentUser={currentUser}
+                    onAddPost={(newPost) => {
+                      if (newPost) {
+                        setProfilePosts(prev => prev ? [newPost, ...prev] : [newPost]);
+                        onAddPost && onAddPost(newPost);
+                      }
+                    }}
+                    onRequireAuth={onRequireAuth}
+                    onRequireLogin={onRequireAuth}
+                  />
+                </div>
+              )}
+
               {/* Box 2: Header "Bài viết" & Chuyển đổi Danh sách / Lưới */}
               <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
@@ -1221,25 +1282,32 @@ export default function ProfileView({
                         <div className="p-4 flex items-center justify-between pb-3">
                           <div className="flex items-center gap-3">
                             <img 
-                              src={post.author.avatar || DEFAULT_AVATAR} 
-                              alt={post.author.name} 
+                              src={post.author?.avatar || DEFAULT_AVATAR} 
+                              alt={post.author?.name || 'Tác giả'} 
+                              onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
                               onClick={() => onOpenUserProfile && onOpenUserProfile(post.author)}
-                              className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
+                              className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200 cursor-pointer hover:ring-2 hover:ring-blue-400 transition shrink-0"
                             />
                             <div>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <h4 
                                   onClick={() => onOpenUserProfile && onOpenUserProfile(post.author)}
                                   className="text-sm font-extrabold text-slate-900 cursor-pointer hover:text-blue-600 transition"
                                 >
-                                  {post.author.name}
+                                  {post.author?.name || 'Người dùng'}
                                 </h4>
-                                {post.author.isVerified && (
+                                {post.author?.isVerified && (
                                   <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+                                )}
+                                {(post.ai_label || post.aiLabel) && (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
+                                    <ShieldCheck className="w-3 h-3" />
+                                    <span>{post.ai_label || post.aiLabel}</span>
+                                  </span>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 text-xs text-slate-400">
-                                <span>{post.createdAt || (post.created_at ? new Date(post.created_at).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')}</span>
+                                <span>{formatRelativeTime(post.createdAt || post.created_at)}</span>
                                 <span>•</span>
                                 <Globe className="w-3.5 h-3.5 text-slate-400" />
                               </div>
@@ -1322,6 +1390,75 @@ export default function ProfileView({
                           </div>
                         )}
 
+                        {/* Khung hiển thị bài viết gốc nếu là bài viết chia sẻ */}
+                        {(post.originalPost || post.original_post) && (() => {
+                          const orig = post.originalPost || post.original_post;
+                          return (
+                            <div 
+                              onClick={() => setViewingOriginalPost(orig)}
+                              className="mx-4 mb-3 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200/80 hover:border-blue-300 hover:shadow-xs transition duration-200 space-y-2.5 cursor-pointer group/orig"
+                              title="Nhấn để xem chi tiết bài viết gốc"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                  <img
+                                    src={orig.author?.avatar || DEFAULT_AVATAR}
+                                    alt={orig.author?.name || 'Tác giả'}
+                                    className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-blue-300 transition"
+                                    onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenUserProfile && orig.author && onOpenUserProfile(orig.author);
+                                    }}
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1 font-semibold text-xs text-slate-900 truncate">
+                                      <span 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenUserProfile && orig.author && onOpenUserProfile(orig.author);
+                                        }}
+                                        className="truncate hover:text-blue-600 transition"
+                                      >
+                                        {orig.author?.name || 'Người dùng'}
+                                      </span>
+                                      {orig.author?.isVerified && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                                    </div>
+                                    <span className="text-[11px] text-slate-400">
+                                      {formatRelativeTime(orig.createdAt || orig.created_at)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 text-[11px] text-slate-400 group-hover/orig:text-blue-600 transition font-medium">
+                                  <span>Xem bài gốc</span>
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </div>
+                              </div>
+                              {orig.content && (
+                                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line line-clamp-3">
+                                  {orig.content}
+                                </p>
+                              )}
+                              {(orig.image || orig.imageUrl || orig.image_url) && (
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxImage(orig.image || orig.imageUrl || orig.image_url);
+                                  }}
+                                  className="rounded-xl overflow-hidden max-h-60 bg-slate-100 border border-slate-200/60 cursor-pointer"
+                                >
+                                  <img
+                                    src={orig.image || orig.imageUrl || orig.image_url}
+                                    alt="Original media"
+                                    className="w-full h-full object-cover max-h-60 hover:scale-[1.01] transition"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         {/* Thống kê tương tác */}
                         {(() => {
                           const curRId = getPostCurrentReaction(post);
@@ -1334,9 +1471,15 @@ export default function ProfileView({
                           return (
                             <div className="px-4 py-2 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
                               <div className="flex items-center gap-1.5">
-                                <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px]">👍</span>
-                                <span className="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[9px] -ml-2">❤️</span>
-                                <span>{displayCount} lượt tương tác</span>
+                                {displayCount > 0 ? (
+                                  <>
+                                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px]">👍</span>
+                                    <span className="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[9px] -ml-2">❤️</span>
+                                    <span>{displayCount} lượt tương tác</span>
+                                  </>
+                                ) : (
+                                  <span>0 cảm xúc</span>
+                                )}
                               </div>
                               <div className="flex items-center gap-3">
                                 <span>{post.comments?.length || post.commentsCount || 0} bình luận</span>
@@ -1411,8 +1554,11 @@ export default function ProfileView({
 
                           <button
                             onClick={() => {
-                              navigator.clipboard?.writeText(window.location.href);
-                              alert("Đã sao chép liên kết bài viết!");
+                              if (!currentUser?.id) {
+                                onRequireAuth ? onRequireAuth("Vui lòng đăng nhập để chia sẻ bài viết") : alert("Vui lòng đăng nhập để chia sẻ");
+                                return;
+                              }
+                              setSharingPost(post);
                             }}
                             className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl hover:bg-slate-50 transition cursor-pointer"
                           >
@@ -1928,6 +2074,30 @@ export default function ProfileView({
             className="max-h-[88vh] max-w-[92vw] object-contain rounded-2xl shadow-2xl"
           />
         </div>
+      )}
+
+      {/* ================= MODAL CHIA SẺ BÀI VIẾT ================= */}
+      {sharingPost && (
+        <SharePostModal
+          post={sharingPost}
+          currentUser={currentUser}
+          onConfirm={handleConfirmShare}
+          onClose={() => setSharingPost(null)}
+        />
+      )}
+
+      {/* ================= MODAL XEM BÀI VIẾT GỐC ================= */}
+      {viewingOriginalPost && (
+        <OriginalPostModal
+          post={viewingOriginalPost}
+          isOpen={Boolean(viewingOriginalPost)}
+          onClose={() => setViewingOriginalPost(null)}
+          currentUser={currentUser}
+          onOpenProfile={onOpenUserProfile}
+          onOpenLightbox={setLightboxImage}
+          onRequireAuth={onRequireAuth}
+          allPosts={[...(profilePosts || []), ...(posts || [])]}
+        />
       )}
 
     </div>

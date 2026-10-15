@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   X, Mail, Lock, Phone, User, Eye, EyeOff, ShieldAlert, 
   CheckCircle2, Sparkles, ArrowRight, ArrowLeft, Clock, Trash2,
-  KeyRound, MailCheck, RefreshCw
+  KeyRound, MailCheck, RefreshCw, ShieldCheck
 } from 'lucide-react';
 import { authService } from '../services/authService';
 
@@ -34,14 +34,16 @@ export default function AuthModal({
   // Email Verification States
   const [verifyEmailAddress, setVerifyEmailAddress] = useState('');
   const [verifyOtp, setVerifyOtp] = useState('');
-  const [verifyDemoOtp, setVerifyDemoOtp] = useState('');
+  const [verifyEmailSent, setVerifyEmailSent] = useState(false);
+  const [verifyFallbackOtp, setVerifyFallbackOtp] = useState('');
 
   // Forgot Password States
   const [forgotStep, setForgotStep] = useState(1); // 1: request OTP, 2: input OTP & new pwd
   const [forgotIdentifier, setForgotIdentifier] = useState('');
   const [forgotOtp, setForgotOtp] = useState('');
-  const [forgotDemoOtp, setForgotDemoOtp] = useState('');
   const [forgotMaskedEmail, setForgotMaskedEmail] = useState('');
+  const [forgotEmailSent, setForgotEmailSent] = useState(false);
+  const [forgotFallbackOtp, setForgotFallbackOtp] = useState('');
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
   const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
@@ -143,10 +145,9 @@ export default function AuthModal({
 
       const emailToVerify = regEmail.trim();
       setVerifyEmailAddress(emailToVerify);
-      if (res.data?.demo_otp) {
-        setVerifyDemoOtp(res.data.demo_otp);
-      }
-      setSuccessMessage("Đăng kí thành công! Mã OTP xác nhận đã được gửi về Gmail của bạn.");
+      setVerifyEmailSent(res.data?.email_sent === true);
+      setVerifyFallbackOtp(res.data?.demo_otp || '');
+      setSuccessMessage("Đăng kí thành công!");
       setTab('verify-email');
       setResendCountdown(60);
     } catch (err) {
@@ -189,10 +190,9 @@ export default function AuthModal({
 
     try {
       const res = await authService.resendVerificationOtp(verifyEmailAddress);
+      setVerifyEmailSent(res.data?.email_sent === true);
+      setVerifyFallbackOtp(res.data?.demo_otp || '');
       setSuccessMessage(res.message || "Đã gửi lại mã xác thực OTP qua email!");
-      if (res.data?.demo_otp) {
-        setVerifyDemoOtp(res.data.demo_otp);
-      }
       setResendCountdown(60);
     } catch (err) {
       setErrorMessage(err.message || "Không thể gửi lại mã OTP");
@@ -211,9 +211,8 @@ export default function AuthModal({
     try {
       const res = await authService.forgotPassword(forgotIdentifier);
       setForgotMaskedEmail(res.data?.masked_email || res.data?.email || forgotIdentifier);
-      if (res.data?.demo_otp) {
-        setForgotDemoOtp(res.data.demo_otp);
-      }
+      setForgotEmailSent(res.data?.email_sent === true);
+      setForgotFallbackOtp(res.data?.demo_otp || '');
       setSuccessMessage(res.message || "Đã gửi mã xác nhận đến email của bạn!");
       setForgotStep(2);
       setResendCountdown(60);
@@ -224,11 +223,47 @@ export default function AuthModal({
     }
   };
 
-  // Xử lý ĐẶT LẠI MẬT KHẨU MỚI
+  // Xử lý XÁC THỰC MÃ OTP QUÊN MẬT KHẨU (BƯỚC 2: MÀN HÌNH NHẬP OTP RIÊNG)
+  const handleVerifyForgotOtp = async (e) => {
+    e.preventDefault();
+    if (!forgotOtp || forgotOtp.trim().length !== 6) {
+      setErrorMessage("Vui lòng nhập đầy đủ mã xác thực OTP gồm 6 chữ số");
+      return;
+    }
+    setErrorMessage('');
+    setSuccessMessage('');
+    setIsLoading(true);
+
+    try {
+      const res = await authService.verifyResetOtp(forgotIdentifier, forgotOtp);
+      setSuccessMessage(res.message || "Mã xác thực OTP chính xác! Bạn có thể đặt mật khẩu mới.");
+      setForgotStep(3); // Chuyển sang màn hình đặt lại mật khẩu riêng
+    } catch (err) {
+      setErrorMessage(err.message || "Mã xác thực không chính xác hoặc đã hết hạn");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Xử lý ĐẶT LẠI MẬT KHẨU MỚI (BƯỚC 3: MÀN HÌNH ĐẶT LẠI MẬT KHẨU RIÊNG)
   const handleResetPasswordSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
+
+    if (!forgotNewPassword || forgotNewPassword.length < 8) {
+      setErrorMessage("Mật khẩu mới bắt buộc từ 8 kí tự đổ lên");
+      return;
+    }
+    if (!forgotPasswordCriteria.hasUpper || !forgotPasswordCriteria.hasLower || !forgotPasswordCriteria.hasNumber) {
+      setErrorMessage("Mật khẩu mới bắt buộc có kí tự hoa, thường và số");
+      return;
+    }
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setErrorMessage("Mật khẩu xác nhận không khớp");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -265,10 +300,9 @@ export default function AuthModal({
 
     try {
       const res = await authService.forgotPassword(forgotIdentifier);
+      setForgotEmailSent(res.data?.email_sent === true);
+      setForgotFallbackOtp(res.data?.demo_otp || '');
       setSuccessMessage(res.message || "Đã gửi lại mã OTP qua email!");
-      if (res.data?.demo_otp) {
-        setForgotDemoOtp(res.data.demo_otp);
-      }
       setResendCountdown(60);
     } catch (err) {
       setErrorMessage(err.message || "Không thể gửi lại mã OTP");
@@ -370,14 +404,39 @@ export default function AuthModal({
 
           {tab === 'forgot-password' && (
             <div className="mt-3 flex items-center justify-between text-xs font-semibold text-blue-100 bg-white/10 px-3 py-1.5 rounded-lg">
-              <span>Khôi phục & Đặt lại mật khẩu</span>
+              <div className="flex items-center gap-2">
+                <span>
+                  {forgotStep === 1 && "Bước 1/3: Nhập tài khoản"}
+                  {forgotStep === 2 && "Bước 2/3: Xác thực OTP"}
+                  {forgotStep === 3 && "Bước 3/3: Đặt lại mật khẩu"}
+                </span>
+                <span className="flex gap-1 items-center">
+                  <span className={`w-2 h-2 rounded-full transition-colors ${forgotStep >= 1 ? 'bg-amber-300 ring-2 ring-amber-300/30' : 'bg-white/30'}`} />
+                  <span className={`w-2 h-2 rounded-full transition-colors ${forgotStep >= 2 ? 'bg-amber-300 ring-2 ring-amber-300/30' : 'bg-white/30'}`} />
+                  <span className={`w-2 h-2 rounded-full transition-colors ${forgotStep >= 3 ? 'bg-amber-300 ring-2 ring-amber-300/30' : 'bg-white/30'}`} />
+                </span>
+              </div>
               <button 
                 type="button"
-                onClick={() => { setTab('login'); setErrorMessage(''); setSuccessMessage(''); }}
+                onClick={() => { 
+                  if (forgotStep === 3) {
+                    setForgotStep(2);
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                  } else if (forgotStep === 2) {
+                    setForgotStep(1);
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                  } else {
+                    setTab('login');
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                  }
+                }}
                 className="hover:text-white underline cursor-pointer flex items-center gap-1"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Quay lại</span>
+                <span>{forgotStep > 1 ? "Quay lại" : "Đăng nhập"}</span>
               </button>
             </div>
           )}
@@ -704,11 +763,25 @@ export default function AuthModal({
                   {verifyEmailAddress || "Email của bạn"}
                 </div>
                 
-                {/* Gợi ý mã OTP khi chạy ở môi trường test/dev */}
-                {verifyDemoOtp && (
-                  <div className="mt-2 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-1 px-2.5 inline-flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Mã OTP thử nghiệm: <strong>{verifyDemoOtp}</strong></span>
+                {verifyEmailSent ? (
+                  <div className="mt-2.5 text-[11.5px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 text-center">
+                    <MailCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Mã OTP đã được gửi thành công đến hòm thư Gmail của bạn. Vui lòng kiểm tra hộp thư đến hoặc Spam.</span>
+                  </div>
+                ) : (
+                  <div className="mt-2.5 text-[11.5px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-left space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                      <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Máy chủ chưa cấu hình gửi Gmail thật (.env)</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      Để nhận thư vào Gmail thật, vui lòng điền <code>SMTP_USER</code> và <code>SMTP_PASSWORD</code> vào file <code>backend/.env</code>.
+                    </p>
+                    {verifyFallbackOtp && (
+                      <p className="text-[11.5px] font-bold text-blue-700 pt-0.5">
+                        👉 Mã OTP để bạn kích hoạt ngay: <span className="bg-blue-100 text-blue-900 px-2 py-0.5 rounded font-mono text-sm tracking-wider">{verifyFallbackOtp}</span>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -835,36 +908,110 @@ export default function AuthModal({
                 </form>
               )}
 
-              {/* BƯỚC 2: NHẬP OTP & ĐẶT MẬT KHẨU MỚI */}
+              {/* BƯỚC 2: MÀN HÌNH NHẬP OTP RIÊNG */}
               {forgotStep === 2 && (
-                <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
-                  <div className="text-center py-1">
-                    <h3 className="text-base font-extrabold text-slate-900">Đặt lại mật khẩu mới</h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Mã xác nhận đã được gửi đến: <strong className="text-blue-600">{forgotMaskedEmail}</strong>
+                <form onSubmit={handleVerifyForgotOtp} className="space-y-4">
+                  <div className="text-center py-2">
+                    <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm border border-blue-100">
+                      <KeyRound className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base font-extrabold text-slate-900">Xác thực mã OTP</h3>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                      Mã xác nhận 6 chữ số đã được gửi đến:
                     </p>
-                    {forgotDemoOtp && (
-                      <div className="mt-1.5 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-1 px-2.5 inline-flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Mã OTP thử nghiệm: <strong>{forgotDemoOtp}</strong></span>
+                    <p className="text-sm font-bold text-blue-600 mt-0.5">
+                      {forgotMaskedEmail}
+                    </p>
+
+                    {forgotEmailSent ? (
+                      <div className="mt-2.5 text-[11.5px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 text-center">
+                        <MailCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Mã OTP đã được gửi thành công đến hòm thư Gmail của bạn. Vui lòng kiểm tra hộp thư đến hoặc Spam.</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2.5 text-[11.5px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-left space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                          <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Máy chủ chưa cấu hình gửi Gmail thật (.env)</span>
+                        </div>
+                        {forgotFallbackOtp && (
+                          <p className="text-[11.5px] font-bold text-blue-700 pt-0.5">
+                            👉 Mã OTP để bạn đổi mật khẩu ngay: <span className="bg-blue-100 text-blue-900 px-2 py-0.5 rounded font-mono text-sm tracking-wider">{forgotFallbackOtp}</span>
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Mã OTP */}
+                  {/* Ô nhập mã OTP 6 số to rõ ràng */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Mã OTP (6 chữ số) <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 text-center">
+                      Nhập mã OTP gồm 6 chữ số <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
                       maxLength={6}
                       value={forgotOtp}
                       onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ''))}
-                      placeholder="Nhập mã 6 chữ số"
-                      className="w-full px-3.5 py-2.5 text-center font-mono font-bold tracking-[0.2em] bg-slate-50 border border-slate-200 rounded-xl text-base text-slate-900 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+                      placeholder="------"
+                      className="w-full px-4 py-3.5 text-center font-mono font-black text-2xl tracking-[0.4em] bg-slate-50 border-2 border-slate-200 rounded-2xl text-slate-900 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition shadow-inner"
                       autoFocus
                     />
+                  </div>
+
+                  {/* Nút xác nhận mã OTP */}
+                  <button
+                    type="submit"
+                    disabled={isLoading || forgotOtp.length !== 6}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isLoading ? (
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Xác nhận mã OTP</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+
+                  {/* Nút gửi lại mã & Đổi Email */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleResendForgotOtp}
+                      disabled={resendCountdown > 0 || isLoading}
+                      className="font-semibold text-blue-600 hover:text-blue-700 disabled:text-slate-400 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                      <span>
+                        {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : 'Gửi lại mã OTP'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setForgotStep(1); setErrorMessage(''); setSuccessMessage(''); }}
+                      className="font-medium text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      Đổi Email/SĐT khác
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* BƯỚC 3: MÀN HÌNH ĐẶT LẠI MẬT KHẨU RIÊNG */}
+              {forgotStep === 3 && (
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
+                  <div className="text-center py-1">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2 shadow-sm border border-emerald-100">
+                      <Lock className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-base font-extrabold text-slate-900">Đặt lại mật khẩu mới</h3>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                      Mã OTP đã được xác nhận thành công. Vui lòng thiết lập mật khẩu mới cho tài khoản của bạn.
+                    </p>
                   </div>
 
                   {/* Mật khẩu mới */}
@@ -882,6 +1029,7 @@ export default function AuthModal({
                         onChange={(e) => setForgotNewPassword(e.target.value)}
                         placeholder="Tối thiểu 8 ký tự, có hoa, thường, số"
                         className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+                        autoFocus
                       />
                       <button
                         type="button"
@@ -935,12 +1083,26 @@ export default function AuthModal({
                         {showForgotConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
+
+                    {forgotConfirmPassword && forgotNewPassword !== forgotConfirmPassword && (
+                      <p className="text-[11px] text-rose-500 font-medium mt-1">
+                        Mật khẩu xác nhận chưa khớp với mật khẩu mới
+                      </p>
+                    )}
                   </div>
 
                   {/* Nút lưu mật khẩu mới */}
                   <button
                     type="submit"
-                    disabled={isLoading || forgotOtp.length !== 6 || !forgotNewPassword}
+                    disabled={
+                      isLoading || 
+                      !forgotNewPassword || 
+                      forgotNewPassword.length < 8 || 
+                      !forgotPasswordCriteria.hasUpper || 
+                      !forgotPasswordCriteria.hasLower || 
+                      !forgotPasswordCriteria.hasNumber || 
+                      forgotNewPassword !== forgotConfirmPassword
+                    }
                     className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
                   >
                     {isLoading ? (
@@ -948,31 +1110,28 @@ export default function AuthModal({
                     ) : (
                       <>
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>Lưu mật khẩu mới</span>
+                        <span>Lưu mật khẩu mới & Đăng nhập</span>
                       </>
                     )}
                   </button>
 
-                  {/* Nút gửi lại mã & Quay lại */}
+                  {/* Nút quay lại bước trước */}
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
                     <button
                       type="button"
-                      onClick={handleResendForgotOtp}
-                      disabled={resendCountdown > 0 || isLoading}
-                      className="font-semibold text-blue-600 hover:text-blue-700 disabled:text-slate-400 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1"
+                      onClick={() => { setForgotStep(2); setErrorMessage(''); setSuccessMessage(''); }}
+                      className="font-medium text-slate-500 hover:text-slate-800 cursor-pointer flex items-center gap-1"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                      <span>
-                        {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : 'Gửi lại mã OTP'}
-                      </span>
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Nhập lại mã OTP</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => setForgotStep(1)}
-                      className="font-medium text-slate-500 hover:text-slate-800 cursor-pointer"
+                      onClick={() => { setTab('login'); setErrorMessage(''); setSuccessMessage(''); }}
+                      className="font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
                     >
-                      Đổi Email/SĐT khác
+                      Hủy bỏ & Đăng nhập
                     </button>
                   </div>
                 </form>

@@ -13,6 +13,26 @@ export function createUserRepository({ pool }) {
       return result.rows[0] || null;
     },
 
+    async ensureUserExists({ id, username, fullName, avatarUrl }) {
+      const existing = await this.findById(id);
+      if (existing) return existing;
+
+      const cleanUsername = (username || `user_${id.replace(/-/g, '').slice(0, 8)}`).toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      const cleanFullName = fullName || 'Người dùng';
+
+      const result = await pool.query(
+        `INSERT INTO users (id, username, full_name, avatar_url, role, status)
+         VALUES ($1, $2, $3, $4, 'USER', 'active')
+         ON CONFLICT (id) DO UPDATE SET full_name = COALESCE(EXCLUDED.full_name, users.full_name)
+         RETURNING id, username, full_name, avatar_url, cover_url, role, is_verified,
+                   bio, location, hometown, education, high_school, relationship_status,
+                   phone, status, cooldown_until, created_at`,
+        [id, cleanUsername, cleanFullName, avatarUrl || null]
+      );
+
+      return result.rows[0] || null;
+    },
+
     async findProfileById(userId) {
       // Thông tin profile đầy đủ kèm số lượng bài viết và bạn bè
       const result = await pool.query(
@@ -83,16 +103,30 @@ export function createUserRepository({ pool }) {
     },
 
     async findUserPosts(userId, viewerId) {
-      // Lấy bài viết của một user cụ thể
+      // Lấy bài viết của một user cụ thể (kèm thông tin bài gốc nếu là bài chia sẻ)
       const result = await pool.query(
         `SELECT
            p.id, p.author_id, p.content, p.image_url, p.privacy,
            p.ai_label, p.ai_confidence, p.ai_status,
            p.likes_count, p.comments_count, p.shares_count,
-           p.created_at,
-           u.username, u.full_name, u.avatar_url, u.is_verified
+           p.created_at, p.original_post_id,
+           u.username, u.full_name, u.avatar_url, u.is_verified,
+           orig_p.id AS orig_id,
+           orig_p.content AS orig_content,
+           orig_p.image_url AS orig_image_url,
+           orig_p.created_at AS orig_created_at,
+           orig_p.likes_count AS orig_likes_count,
+           orig_p.comments_count AS orig_comments_count,
+           orig_p.shares_count AS orig_shares_count,
+           orig_u.id AS orig_author_id,
+           orig_u.full_name AS orig_author_name,
+           orig_u.username AS orig_author_username,
+           orig_u.avatar_url AS orig_author_avatar,
+           orig_u.is_verified AS orig_author_is_verified
          FROM posts p
          JOIN users u ON u.id = p.author_id
+         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id
+         LEFT JOIN users orig_u ON orig_u.id = orig_p.author_id
          WHERE p.author_id = $1
            AND (p.ai_status != 'hidden' OR p.author_id = $2)
          ORDER BY p.created_at DESC`,

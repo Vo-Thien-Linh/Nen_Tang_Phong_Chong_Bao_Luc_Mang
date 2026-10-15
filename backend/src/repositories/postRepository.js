@@ -14,6 +14,7 @@ const postSelect = `
     p.created_at,
     p.updated_at,
     p.edited_at,
+    p.original_post_id,
     u.username,
     u.full_name,
     u.avatar_url,
@@ -105,7 +106,7 @@ export function createPostRepository({ pool }) {
       return this.findById(result.rows[0].id);
     },
 
-    async findById(postId) {
+    async findById(postId, viewerId = null) {
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1`,
@@ -113,6 +114,23 @@ export function createPostRepository({ pool }) {
       );
 
       if (!result.rows[0]) return null;
+
+      const countResult = await pool.query(
+        `SELECT post_id, reaction_type, COUNT(*)::int AS count
+         FROM post_reactions
+         WHERE post_id = $1
+         GROUP BY post_id, reaction_type`,
+        [postId]
+      );
+
+      const myReactionResult = viewerId
+        ? await pool.query(
+            `SELECT post_id, reaction_type
+             FROM post_reactions
+             WHERE user_id = $1 AND post_id = $2`,
+            [viewerId, postId]
+          )
+        : { rows: [] };
 
       const commentResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.created_at,
@@ -124,7 +142,23 @@ export function createPostRepository({ pool }) {
         [postId]
       );
 
-      return attachReactionAndCommentsData(result.rows, [], [], commentResult.rows)[0];
+      const post = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentResult.rows)[0];
+
+      // Nếu là bài chia sẻ, lấy thêm thông tin bài gốc
+      if (post && post.original_post_id) {
+        const originalResult = await pool.query(
+          `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  p.likes_count, p.comments_count, p.shares_count,
+                  u.id AS author_id, u.full_name, u.username, u.avatar_url
+           FROM posts p
+           JOIN users u ON u.id = p.author_id
+           WHERE p.id = $1`,
+          [post.original_post_id]
+        );
+        post.original_post = originalResult.rows[0] || null;
+      }
+
+      return post;
     },
 
     async updatePost({ postId, authorId, content, imageUrl }) {
@@ -195,6 +229,23 @@ export function createPostRepository({ pool }) {
         [res.rows[0].id]
       );
 
+      // Gửi thông báo cho chủ bài viết (nếu người bình luận không phải chính tác giả)
+      try {
+        const postRes = await pool.query(`SELECT author_id FROM posts WHERE id = $1`, [postId]);
+        if (postRes.rows.length > 0) {
+          const postAuthorId = postRes.rows[0].author_id;
+          if (postAuthorId && postAuthorId !== authorId) {
+            await pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'comment', $3, $4)`,
+              [postAuthorId, authorId, 'đã bình luận về bài viết của bạn', postId]
+            );
+          }
+        }
+      } catch (notifErr) {
+        console.error('Lỗi gửi thông báo bình luận:', notifErr.message);
+      }
+
       return detail.rows[0];
     },
 
@@ -247,7 +298,75 @@ export function createPostRepository({ pool }) {
         [postIds]
       );
 
-      return attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);
+      const posts = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);
+
+      // Lấy thông tin bài gốc cho các bài chia sẻ
+      const originalPostIds = posts
+        .filter((p) => p.original_post_id)
+        .map((p) => p.original_post_id);
+
+      if (originalPostIds.length > 0) {
+        const originalPostsResult = await pool.query(
+          `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  p.likes_count, p.comments_count, p.shares_count,
+                  u.id AS author_id, u.full_name, u.username, u.avatar_url
+           FROM posts p
+           JOIN users u ON u.id = p.author_id
+           WHERE p.id = ANY($1::bigint[])`,
+          [originalPostIds]
+        );
+        const originalPostMap = new Map(originalPostsResult.rows.map((op) => [Number(op.id), op]));
+        return posts.map((p) => ({
+          ...p,
+          original_post: p.original_post_id ? (originalPostMap.get(Number(p.original_post_id)) || null) : null,
+        }));
+      }
+
+      return posts;
+    },
+
+    async sharePost({ sharerId, originalPostId, content }) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Tạo bài chia sẻ mới liên kết tới bài gốc
+        const insertResult = await client.query(
+          `INSERT INTO posts (author_id, content, original_post_id, privacy)
+           VALUES ($1, $2, $3, 'public')
+           RETURNING id`,
+          [sharerId, content || '', originalPostId]
+        );
+
+        const newPostId = insertResult.rows[0].id;
+
+        // Tăng shares_count của bài gốc
+        await client.query(
+          `UPDATE posts SET shares_count = shares_count + 1 WHERE id = $1`,
+          [originalPostId]
+        );
+
+        // Gửi thông báo cho tác giả bài viết gốc nếu người chia sẻ không phải chính họ
+        const origPostRes = await client.query(`SELECT author_id FROM posts WHERE id = $1`, [originalPostId]);
+        if (origPostRes.rows.length > 0) {
+          const originalAuthorId = origPostRes.rows[0].author_id;
+          if (originalAuthorId && originalAuthorId !== sharerId) {
+            await client.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'share', $3, $4)`,
+              [originalAuthorId, sharerId, 'đã chia sẻ bài viết của bạn', originalPostId]
+            );
+          }
+        }
+
+        await client.query('COMMIT');
+        return this.findById(newPostId);
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
   };
 }
