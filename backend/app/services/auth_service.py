@@ -1,9 +1,11 @@
 import uuid
 import random
+import re
 from datetime import datetime, timedelta
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from ..models.user import User
 from ..models.verification_code import VerificationCode
@@ -11,7 +13,19 @@ from ..schemas.auth import RegisterRequest, LoginRequest, UserResponse, TokenRes
 from ..utils.security import hash_password, verify_password, create_access_token
 from ..utils.email_service import send_otp_email
 
+def normalize_phone_vn(phone_str: str) -> str:
+    """Chuẩn hóa số điện thoại Việt Nam về định dạng 10 số bắt đầu bằng 0 (ví dụ: +84912345678 -> 0912345678)"""
+    if not phone_str:
+        return ""
+    cleaned = re.sub(r"[^\d+]", "", str(phone_str).strip())
+    if cleaned.startswith("+84"):
+        return "0" + cleaned[3:]
+    if cleaned.startswith("84") and len(cleaned) == 11:
+        return "0" + cleaned[2:]
+    return cleaned
+
 def seed_default_users(db: Session):
+
     """Tự động nạp các tài khoản mẫu cho việc kiểm thử nếu chưa có dữ liệu"""
     try:
         if db.query(User).count() == 0:
@@ -82,9 +96,18 @@ class AuthService:
         - số điện thoại nếu đã tồn tại: 'Số điện thoại đã được sử dụng'
         - Mật khẩu bắt buộc mã hóa, không lưu plain text
         """
-        # 1. Kiểm tra Tên hiển thị đã tồn tại hay chưa
+        trimmed_name = req.full_name.strip()
+        clean_email = req.email.strip().lower()
+        raw_phone = req.phone.strip()
+        norm_phone = normalize_phone_vn(raw_phone)
+        alt_phone = "+84" + norm_phone[1:] if norm_phone.startswith("0") else norm_phone
+
+        # 1. Kiểm tra Tên hiển thị đã tồn tại hay chưa (không phân biệt hoa/thường)
         existing_name = db.query(User).filter(
-            or_(User.full_name == req.full_name, User.username == req.full_name)
+            or_(
+                func.lower(User.full_name) == trimmed_name.lower(),
+                func.lower(User.username) == trimmed_name.lower()
+            )
         ).first()
         if existing_name:
             raise HTTPException(
@@ -92,16 +115,24 @@ class AuthService:
                 detail="Tên đã được tồn tại"
             )
 
-        # 2. Kiểm tra Email đã tồn tại hay chưa
-        existing_email = db.query(User).filter(User.email == req.email.lower()).first()
+        # 2. Kiểm tra Email đã tồn tại hay chưa (so khớp không phân biệt hoa/thường)
+        existing_email = db.query(User).filter(
+            func.lower(User.email) == clean_email
+        ).first()
         if existing_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email đã được sử dụng"
             )
 
-        # 3. Kiểm tra Số điện thoại đã tồn tại hay chưa
-        existing_phone = db.query(User).filter(User.phone == req.phone).first()
+        # 3. Kiểm tra Số điện thoại đã tồn tại hay chưa (bao gồm cả định dạng 0xxx, +84xxx, raw)
+        existing_phone = db.query(User).filter(
+            or_(
+                User.phone == raw_phone,
+                User.phone == norm_phone,
+                User.phone == alt_phone
+            )
+        ).first()
         if existing_phone:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -109,7 +140,7 @@ class AuthService:
             )
 
         # 4. Tạo username tự động từ tên hiển thị nếu chưa có
-        safe_username = req.email.split("@")[0] + "_" + str(uuid.uuid4())[:4]
+        safe_username = clean_email.split("@")[0] + "_" + str(uuid.uuid4())[:4]
 
         # 5. Mã hóa mật khẩu an toàn qua Bcrypt
         hashed_pwd = hash_password(req.password)
@@ -117,10 +148,10 @@ class AuthService:
         new_user = User(
             id=str(uuid.uuid4()),
             username=safe_username,
-            email=req.email.lower(),
-            phone=req.phone,
+            email=clean_email,
+            phone=norm_phone,
             password_hash=hashed_pwd,
-            full_name=req.full_name,
+            full_name=trimmed_name,
             role="USER",
             status="active",
             avatar_url=None,
@@ -128,9 +159,20 @@ class AuthService:
             is_verified=False
         )
 
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
+        try:
+            db.add(new_user)
+            db.commit()
+            db.refresh(new_user)
+        except IntegrityError as e:
+            db.rollback()
+            err_str = str(e.orig).lower() if hasattr(e, "orig") else str(e).lower()
+            if "email" in err_str:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email đã được sử dụng")
+            elif "phone" in err_str:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số điện thoại đã được sử dụng")
+            elif "full_name" in err_str or "username" in err_str:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tên đã được tồn tại")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thông tin tài khoản đã tồn tại trên hệ thống")
 
         # 6. Tạo mã xác thực OTP gửi qua email
         otp_code = f"{random.randint(100000, 999999)}"
@@ -171,12 +213,18 @@ class AuthService:
                 detail="Vui lòng nhập đầy đủ thông tin"
             )
 
-        # Tìm người dùng theo Email HOẶC Số điện thoại HOẶC Username
+        # Chuẩn hóa identifier nếu người dùng nhập số điện thoại
+        norm_phone = normalize_phone_vn(identifier)
+        alt_phone = "+84" + norm_phone[1:] if norm_phone.startswith("0") else norm_phone
+
+        # Tìm người dùng theo Email HOẶC Số điện thoại HOẶC Username (không phân biệt chữ hoa/thường)
         user = db.query(User).filter(
             or_(
-                User.email == identifier.lower(),
+                func.lower(User.email) == identifier.lower(),
                 User.phone == identifier,
-                User.username == identifier
+                User.phone == norm_phone,
+                User.phone == alt_phone,
+                func.lower(User.username) == identifier.lower()
             )
         ).first()
 
@@ -186,6 +234,7 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Email hoặc mật khẩu không chính xác"
             )
+
 
         # Kiểm tra tài khoản có bị khóa hay không
         if user.status == "banned":

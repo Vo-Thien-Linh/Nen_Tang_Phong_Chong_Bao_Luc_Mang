@@ -268,18 +268,6 @@ export default function Navbar({
                       <span>Cài đặt & Khiên an toàn</span>
                     </button>
 
-                    <button
-                      onClick={() => { onToggleTheme && onToggleTheme(); }}
-                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center justify-between font-medium cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-indigo-500" />}
-                        <span>Chế độ: {theme === 'dark' ? 'Tối (Dark)' : 'Sáng (Light)'}</span>
-                      </div>
-                      <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                        {theme === 'dark' ? '☀️ Bật sáng' : '🌙 Bật tối'}
-                      </span>
-                    </button>
 
                     {isAdmin && (
                       <button

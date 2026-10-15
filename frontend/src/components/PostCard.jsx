@@ -25,9 +25,10 @@ import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
 import { formatRelativeTime } from '../utils/timeAgo';
 
-function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose }) {
+function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
   const popoverRef = useRef(null);
   const [style, setStyle] = useState({ position: 'fixed', left: 0, top: 0, visibility: 'hidden', pointerEvents: 'none' });
+  const [placement, setPlacement] = useState('top');
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -49,6 +50,7 @@ function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onR
         return;
       }
 
+      setPlacement(next.placement);
       setStyle({
         position: 'fixed',
         top: `${next.top}px`,
@@ -79,12 +81,24 @@ function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onR
   if (!open) return null;
 
   return createPortal(
-    <div ref={popoverRef} style={style} className={`z-50 ${className}`}>
+    <div 
+      ref={popoverRef} 
+      style={style} 
+      className={`z-50 ${className}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {/* Cầu nối vô hình giúp con trỏ chuột di chuyển qua khoảng cách gap giữa nút và thanh cảm xúc mà không bị mất hover */}
+      <div 
+        className={`absolute inset-x-0 pointer-events-auto ${placement === 'bottom' ? '-top-3.5 h-4' : '-bottom-3.5 h-4'}`}
+        aria-hidden="true" 
+      />
       {children}
     </div>,
     document.body
   );
 }
+
 
 export default function PostCard({ 
   post, 
@@ -128,7 +142,36 @@ export default function PostCard({
   const [postError, setPostError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const reactionSummaryRef = useRef(null);
+
   const reactionPickerRef = useRef(null);
+  const reactionPickerTimeoutRef = useRef(null);
+
+  const handleOpenReactionPicker = useCallback(() => {
+    if (reactionPickerTimeoutRef.current) {
+      clearTimeout(reactionPickerTimeoutRef.current);
+      reactionPickerTimeoutRef.current = null;
+    }
+    setShowReactionPicker(true);
+  }, []);
+
+  const handleCloseReactionPicker = useCallback((delay = 350) => {
+    if (reactionPickerTimeoutRef.current) {
+      clearTimeout(reactionPickerTimeoutRef.current);
+    }
+    reactionPickerTimeoutRef.current = setTimeout(() => {
+      setShowReactionPicker(false);
+      reactionPickerTimeoutRef.current = null;
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (reactionPickerTimeoutRef.current) {
+        clearTimeout(reactionPickerTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const menuRef = useRef(null);
   const menuButtonRef = useRef(null);
   const usesSharedMenuState = openPostMenuId !== undefined && onTogglePostMenu && onClosePostMenu;
@@ -189,8 +232,13 @@ export default function PostCard({
   }, [post.reactionCounts, post.counts, post.totalReactions, post.likesCount]);
 
   const handleSelectReaction = async (reactionId = 'like') => {
+    if (reactionPickerTimeoutRef.current) {
+      clearTimeout(reactionPickerTimeoutRef.current);
+      reactionPickerTimeoutRef.current = null;
+    }
     setShowReactionPicker(false);
     setReactionError('');
+
 
     if (!currentUser?.id) {
       if (onRequireAuth) {
@@ -688,17 +736,23 @@ export default function PostCard({
         <div 
           ref={reactionPickerRef}
           className="flex-1 relative"
-          onMouseEnter={() => setShowReactionPicker(true)}
-          onMouseLeave={() => setShowReactionPicker(false)}
+          onMouseEnter={handleOpenReactionPicker}
+          onMouseLeave={() => handleCloseReactionPicker(350)}
         >
           {/* Thanh Popover chọn 6 cảm xúc */}
           <PortalPopover
             anchorRef={reactionPickerRef}
             open={showReactionPicker}
-            gap={10}
-            onRequestClose={() => setShowReactionPicker(false)}
+            gap={8}
+            onRequestClose={() => {
+              if (reactionPickerTimeoutRef.current) clearTimeout(reactionPickerTimeoutRef.current);
+              setShowReactionPicker(false);
+            }}
+            onMouseEnter={handleOpenReactionPicker}
+            onMouseLeave={() => handleCloseReactionPicker(350)}
             className="rounded-full border border-slate-200 bg-white px-2.5 py-1.5 shadow-xl animate-fade-in"
           >
+
             <div className="flex items-center gap-2">
               {REACTIONS.map((r) => (
                 <button
