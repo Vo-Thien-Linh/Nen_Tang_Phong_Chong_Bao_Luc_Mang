@@ -31,3 +31,10 @@ htmlcov/
 .idea/
 *.swp
 *.swo
+
+# Large AI Models (>100MB rejected by GitHub)
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.onnx
