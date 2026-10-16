@@ -31,6 +31,8 @@ class ConversationItem(BaseModel):
     id: int
     user: ConversationPartner
     status: str = "accepted"  # 'accepted', 'pending'
+    initiated_by: Optional[str] = None
+    is_requester: bool = False
     last_message: Optional[str] = None
     last_message_at: Optional[datetime] = None
     unread_count: int = 0

@@ -100,7 +100,7 @@ class FriendService:
                 else:
                     existing.status = "accepted"
 
-                    # TỰ ĐỘNG THÊM BẠN BÈ VÀO Ô CHÁT (Tạo/kích hoạt hội thoại 'accepted')
+                    # Nếu đã có cuộc trò chuyện từ trước, cập nhật sang 'accepted'
                     partner_id = str(existing.requester_id)
                     u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
                     conv = db.query(Conversation).filter(
@@ -112,17 +112,6 @@ class FriendService:
                     if conv:
                         conv.status = "accepted"
                         conv.last_message_at = func.now()
-                    else:
-                        new_conv = Conversation(
-                            user1_id=u1,
-                            user2_id=u2,
-                            status="accepted",
-                            initiated_by=current_user_id,
-                            last_message_at=func.now(),
-                            created_at=func.now(),
-                            updated_at=func.now()
-                        )
-                        db.add(new_conv)
 
                     db.commit()
                     return FriendshipActionResponse(
@@ -172,7 +161,7 @@ class FriendService:
 
         friendship.status = "accepted"
 
-        # TỰ ĐỘNG THÊM BẠN BÈ VÀO Ô CHÁT (Tạo/kích hoạt hội thoại 'accepted')
+        # Nếu đã có cuộc trò chuyện từ trước, cập nhật sang 'accepted'
         partner_id = str(friendship.requester_id)
         u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
         conv = db.query(Conversation).filter(
@@ -184,17 +173,6 @@ class FriendService:
         if conv:
             conv.status = "accepted"
             conv.last_message_at = func.now()
-        else:
-            new_conv = Conversation(
-                user1_id=u1,
-                user2_id=u2,
-                status="accepted",
-                initiated_by=current_user_id,
-                last_message_at=func.now(),
-                created_at=func.now(),
-                updated_at=func.now()
-            )
-            db.add(new_conv)
 
         db.commit()
 

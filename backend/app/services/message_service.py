@@ -75,7 +75,7 @@ class MessageService:
 
     @staticmethod
     def get_conversations(current_user_id: str, tab: Optional[str], db: Session) -> List[ConversationItem]:
-        # Tự động đảm bảo tất cả bạn bè đã kết bạn (accepted) đều có mặt trong ô chát
+        # Tự động đảm bảo tất cả bạn bè chính thức (accepted) đều có cuộc trò chuyện sẵn sàng
         try:
             accepted_friendships = db.query(Friendship).filter(
                 or_(
@@ -101,9 +101,9 @@ class MessageService:
                         user2_id=u2,
                         status="accepted",
                         initiated_by=current_user_id,
-                        last_message_at=func.now(),
-                        created_at=func.now(),
-                        updated_at=func.now()
+                        last_message_at=f.updated_at or func.now(),
+                        created_at=f.created_at or func.now(),
+                        updated_at=f.updated_at or func.now()
                     )
                     db.add(new_conv)
                     has_new_conv = True
@@ -124,9 +124,18 @@ class MessageService:
         )
 
         if tab == "pending":
-            query = query.filter(Conversation.status == "pending")
+            # Chỉ bên người nhận mới xuất hiện trong tin nhắn chờ
+            query = query.filter(
+                and_(Conversation.status == "pending", Conversation.initiated_by != current_user_id)
+            )
         elif tab == "accepted":
-            query = query.filter(Conversation.status == "accepted")
+            # Hộp thư chính gồm các hội thoại đã accepted HOẶC hội thoại pending do chính mình gửi đi
+            query = query.filter(
+                or_(
+                    Conversation.status == "accepted",
+                    and_(Conversation.status == "pending", Conversation.initiated_by == current_user_id)
+                )
+            )
 
         conversations = query.order_by(desc(Conversation.last_message_at)).all()
 
@@ -141,12 +150,6 @@ class MessageService:
                 Message.conversation_id == c.id
             ).order_by(desc(Message.created_at)).first()
 
-            unread_count = db.query(Message).filter(
-                Message.conversation_id == c.id,
-                Message.receiver_id == current_user_id,
-                Message.is_read == False
-            ).count()
-
             is_friend = db.query(Friendship).filter(
                 or_(
                     and_(Friendship.requester_id == current_user_id, Friendship.addressee_id == partner_id),
@@ -154,6 +157,16 @@ class MessageService:
                 ),
                 Friendship.status == "accepted"
             ).first() is not None
+
+            # Nếu KHÔNG PHẢI BẠN BÈ và KHÔNG CÓ TIN NHẮN THỰC TẾ -> Bỏ qua, không kẹt trong list chat
+            if not is_friend and not last_msg:
+                continue
+
+            unread_count = db.query(Message).filter(
+                Message.conversation_id == c.id,
+                Message.receiver_id == current_user_id,
+                Message.is_read == False
+            ).count()
 
             partner_info = ConversationPartner(
                 id=str(partner_user.id),
@@ -165,11 +178,15 @@ class MessageService:
                 is_friend=is_friend
             )
 
+            is_requester = (str(c.initiated_by) == str(current_user_id))
+
             result.append(ConversationItem(
                 id=c.id,
                 user=partner_info,
                 status=c.status,
-                last_message=last_msg.content if last_msg else None,
+                initiated_by=str(c.initiated_by) if c.initiated_by else None,
+                is_requester=is_requester,
+                last_message=last_msg.content if last_msg else ("Bắt đầu cuộc trò chuyện" if is_friend else None),
                 last_message_at=last_msg.created_at if last_msg else c.last_message_at,
                 unread_count=unread_count,
                 last_message_status=last_msg.status if last_msg else None,

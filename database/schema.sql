@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS comments (
     author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     parent_id BIGINT REFERENCES comments(id) ON DELETE CASCADE, -- Hỗ trợ trả lời bình luận
     content TEXT NOT NULL,
+    image_url TEXT,
+    image_label VARCHAR(50) DEFAULT 'Safe',
     
     -- Kiểm duyệt AI cho bình luận
     ai_label VARCHAR(50) DEFAULT 'Normal',
