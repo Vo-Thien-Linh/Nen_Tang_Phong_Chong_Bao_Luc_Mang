@@ -61,11 +61,15 @@ export default function MessagesView({
   const selectedConversationIdRef = useRef(selectedConversationId);
   selectedConversationIdRef.current = selectedConversationId;
 
-  // Đếm số lượng tin nhắn chờ từ người lạ
-  const pendingRequestsCount = conversations.filter(c => c.status === 'pending').length;
+  // Cuộc trò chuyện nháp khi bấm 'Nhắn tin' từ profile mà chưa gửi gì (không kẹt trong list chat)
+  const [draftConversation, setDraftConversation] = useState(null);
 
-  // Lấy hội thoại hiện tại
-  const currentConversation = conversations.find(c => String(c.id) === String(selectedConversationId));
+  // Đếm số lượng tin nhắn chờ từ người lạ (chỉ tính nếu mình là người nhận)
+  const pendingRequestsCount = conversations.filter(c => c.status === 'pending' && c.initiatedBy !== currentUser?.id).length;
+
+  // Lấy hội thoại hiện tại (ưu tiên tìm trong danh sách chính thức, nếu không có lấy draftConversation)
+  const currentConversation = conversations.find(c => String(c.id) === String(selectedConversationId)) ||
+    (draftConversation && String(draftConversation.id) === String(selectedConversationId) ? draftConversation : null);
 
   const targetInitialUserId = initialChatUser?.id || initialChatUserId;
   const targetInitialUserTs = initialChatUser?._ts || 0;
@@ -82,6 +86,8 @@ export default function MessagesView({
             return {
               id: String(c.id),
               status: c.status,
+              initiatedBy: c.initiated_by || '',
+              isRequester: Boolean(c.is_requester ?? (c.initiated_by === currentUser?.id)),
               user: {
                 id: c.user?.id || '',
                 name: c.user?.name || 'Người dùng',
@@ -92,7 +98,7 @@ export default function MessagesView({
                 bio: c.user?.bio || '',
                 lastSeen: 'Vừa xong'
               },
-              lastMessage: c.last_message || 'Các bạn đã trở thành bạn bè! 👋',
+              lastMessage: c.last_message || (c.user?.is_friend ? 'Bắt đầu cuộc trò chuyện' : ''),
               lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
               unreadCount: c.unread_count || 0,
               messages: existing ? (existing.messages || []) : []
@@ -100,7 +106,14 @@ export default function MessagesView({
           });
         });
 
-        if (autoSelect && data.length > 0 && !selectedConversationIdRef.current && !targetInitialUserId) {
+        if (targetInitialUserId) {
+          const targetIdStr = String(targetInitialUserId);
+          const found = data.find(c => String(c.user?.id) === targetIdStr);
+          if (found) {
+            setSelectedConversationId(String(found.id));
+            setDraftConversation(null);
+          }
+        } else if (autoSelect && data.length > 0 && !selectedConversationIdRef.current) {
           const firstId = String(data[0].id);
           setSelectedConversationId(firstId);
         }
@@ -124,6 +137,10 @@ export default function MessagesView({
   // Tải tin nhắn của cuộc trò chuyện đang chọn từ CSDL
   const loadMessages = async (convId) => {
     if (!convId || !currentUser) return;
+    if (String(convId).startsWith('draft_')) {
+      setActiveMessages([]);
+      return;
+    }
     try {
       const msgs = await messageService.getMessages(convId);
       if (msgs && Array.isArray(msgs)) {
@@ -167,15 +184,140 @@ export default function MessagesView({
     }
   }, [selectedConversationId]);
 
-  // Polling chu kỳ 3s để đồng bộ tin nhắn mới và trạng thái xem từ người khác
+  // 1. Kết nối Realtime WebSocket tới Backend FastAPI (Port 8000)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    let ws = null;
+    let pingInterval = null;
+    let isMounted = true;
+
+    const connectWs = () => {
+      try {
+        ws = new WebSocket(`ws://localhost:8000/api/v1/messages/ws/${currentUser.id}`);
+
+        ws.onopen = () => {
+          pingInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send('ping');
+            }
+          }, 20000);
+        };
+
+        ws.onmessage = (event) => {
+          if (event.data === 'pong') return;
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'NEW_MESSAGE') {
+              const msg = data.message;
+              const convIdStr = String(data.conversation_id);
+
+              // Cập nhật tin nhắn trong khung chat đang mở ngay lập tức
+              if (String(selectedConversationIdRef.current) === convIdStr) {
+                setActiveMessages((prev) => {
+                  const exists = prev.some((m) => String(m.id) === String(msg.id));
+                  if (exists) return prev;
+                  // Thay thế tin nhắn optimistic sending (nếu có)
+                  const hasSending = prev.some((m) => m.status === 'sending' && m.text === msg.content);
+                  if (hasSending) {
+                    return prev.map((m) =>
+                      m.status === 'sending' && m.text === msg.content
+                        ? {
+                            id: msg.id,
+                            senderId: msg.sender_id === currentUser.id ? 'current' : msg.sender_id,
+                            text: msg.content,
+                            time: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                            status: msg.status || 'sent',
+                          }
+                        : m
+                    );
+                  }
+                  return [
+                    ...prev,
+                    {
+                      id: msg.id,
+                      senderId: msg.sender_id === currentUser.id ? 'current' : msg.sender_id,
+                      text: msg.content,
+                      time: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                      status: msg.status || 'sent',
+                    },
+                  ];
+                });
+
+                if (msg.receiver_id === currentUser.id) {
+                  messageService.markRead(convIdStr);
+                }
+              }
+
+              // Cập nhật danh sách conversations tức thì
+              setConversations((prev) => {
+                const found = prev.some((c) => String(c.id) === convIdStr);
+                if (!found) {
+                  loadServerConversations(false);
+                  return prev;
+                }
+                return prev.map((c) => {
+                  if (String(c.id) === convIdStr) {
+                    const isCurrentChat = String(selectedConversationIdRef.current) === convIdStr;
+                    return {
+                      ...c,
+                      lastMessage: msg.content,
+                      lastTime: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                      unreadCount: isCurrentChat ? 0 : (c.unreadCount || 0) + 1,
+                    };
+                  }
+                  return c;
+                });
+              });
+            } else if (data.type === 'CONVERSATION_ACCEPTED') {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  String(c.id) === String(data.conversation_id)
+                    ? { ...c, status: 'accepted' }
+                    : c
+                )
+              );
+            }
+          } catch (e) {
+            console.warn('Lỗi xử lý WebSocket message:', e);
+          }
+        };
+
+        ws.onclose = () => {
+          clearInterval(pingInterval);
+          if (isMounted) {
+            setTimeout(connectWs, 3000);
+          }
+        };
+
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch (err) {
+        console.warn('Lỗi khởi tạo WebSocket tin nhắn:', err);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      isMounted = false;
+      clearInterval(pingInterval);
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [currentUser?.id]);
+
+  // 2. Polling dự phòng (fallback) để đồng bộ dữ liệu
   useEffect(() => {
     if (!currentUser) return;
     const interval = setInterval(() => {
       loadServerConversations(false);
-      if (selectedConversationIdRef.current) {
+      if (selectedConversationIdRef.current && !String(selectedConversationIdRef.current).startsWith('draft_')) {
         loadMessages(selectedConversationIdRef.current);
       }
-    }, 3000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [currentUser]);
 
@@ -187,40 +329,84 @@ export default function MessagesView({
 
     let isSubscribed = true;
 
-    const activateConversation = async () => {
-      // 1. Kiểm tra xem cuộc trò chuyện đã có trong state conversations chưa
-      const existing = conversations.find(c => String(c.user?.id) === targetIdStr);
-      if (existing) {
-        if (existing.status === 'accepted') setInboxTab('main');
-        else setInboxTab('requests');
-        setSelectedConversationId(String(existing.id));
-        setMobileShowChat(true);
-        return;
-      }
+    // 1. Kiểm tra xem cuộc trò chuyện đã có sẵn trong state conversations chưa
+    const existing = conversations.find(c => String(c.user?.id) === targetIdStr);
+    if (existing) {
+      setDraftConversation(null);
+      setInboxTab(existing.status === 'pending' && existing.initiatedBy !== currentUser?.id ? 'requests' : 'main');
+      setSelectedConversationId(String(existing.id));
+      setMobileShowChat(true);
+      return;
+    }
 
-      // 2. Nếu chưa có trong danh sách hiển thị, gọi API tạo/lấy hội thoại
+    // 2. MỞ KHUNG CHAT + Ô NHẬP TIN NHẮN TỨC THÌ (0ms) bằng initialChatUser
+    // Đảm bảo người dùng luôn thấy ngay ô nhập tin nhắn mà không bị chậm hoặc màn hình trống
+    const immediateDraft = {
+      id: 'draft_' + targetIdStr,
+      status: 'pending',
+      initiatedBy: currentUser?.id || '',
+      isRequester: true,
+      isDraft: true,
+      user: {
+        id: targetIdStr,
+        name: initialChatUser?.name || 'Người dùng',
+        username: initialChatUser?.username || '',
+        avatar: initialChatUser?.avatar || DEFAULT_AVATAR,
+        isOnline: true,
+        isFriend: Boolean(initialChatUser?.isFriend ?? initialChatUser?.is_friend),
+        bio: initialChatUser?.bio || '',
+        lastSeen: 'Vừa xong'
+      },
+      lastMessage: '',
+      lastTime: 'Vừa xong',
+      unreadCount: 0,
+      messages: []
+    };
+
+    setDraftConversation(immediateDraft);
+    setSelectedConversationId(immediateDraft.id);
+    setActiveMessages([]);
+    setInboxTab('main');
+    setMobileShowChat(true);
+
+    // 3. Trong nền, đồng bộ thêm chi tiết từ backend (nếu có cuộc trò chuyện cũ hoặc bạn bè)
+    const syncPartnerInfo = async () => {
       try {
         const res = await messageService.getOrCreateConversation(targetIdStr);
         if (!isSubscribed) return;
-        if (res && res.conversation_id) {
-          const convId = String(res.conversation_id);
-          const targetTab = res.status === 'pending' ? 'requests' : 'main';
-          setInboxTab(targetTab);
-          setSelectedConversationId(convId);
-          setMobileShowChat(true);
 
-          // Cập nhật lại danh sách cuộc trò chuyện từ server
-          await loadServerConversations(false);
-          if (isSubscribed) {
+        if (res) {
+          if (res.conversation_id) {
+            const convId = String(res.conversation_id);
+            setDraftConversation(null);
             setSelectedConversationId(convId);
+            loadMessages(convId);
+            loadServerConversations(false);
+          } else if (res.user) {
+            setDraftConversation(prev => {
+              if (!prev || prev.id !== immediateDraft.id) return prev;
+              return {
+                ...prev,
+                status: res.status || prev.status,
+                user: {
+                  ...prev.user,
+                  name: res.user.name || prev.user.name,
+                  username: res.user.username || prev.user.username,
+                  avatar: res.user.avatar || prev.user.avatar,
+                  bio: res.user.bio || prev.user.bio,
+                  isFriend: Boolean(res.user.is_friend ?? prev.user.isFriend),
+                  isOnline: Boolean(res.user.is_online ?? prev.user.isOnline)
+                }
+              };
+            });
           }
         }
       } catch (err) {
-        console.warn("Lỗi tự động mở cuộc trò chuyện:", err);
+        console.warn("Lỗi đồng bộ thông tin đối tác nhắn tin:", err);
       }
     };
 
-    activateConversation();
+    syncPartnerInfo();
 
     return () => {
       isSubscribed = false;
@@ -257,6 +443,9 @@ export default function MessagesView({
   // Chọn hội thoại và đánh dấu đã xem
   const handleSelectConversation = (convId) => {
     if (String(convId) === String(selectedConversationId)) return;
+    // Hủy bỏ trạng thái draft khi người dùng chuyển sang chat khác mà không gửi gì
+    setDraftConversation(null);
+
     const strId = String(convId);
     setSelectedConversationId(strId);
     setMobileShowChat(true);
@@ -339,7 +528,7 @@ export default function MessagesView({
     }));
 
     // Gửi tin nhắn qua Backend
-    const targetUserId = currentConversation?.user?.id;
+    const targetUserId = currentConversation?.user?.id || targetInitialUserId;
     try {
       let serverMsg = null;
       if (currentUser && targetUserId) {
@@ -352,6 +541,12 @@ export default function MessagesView({
         id: serverMsg ? serverMsg.id : m.id,
         status: serverMsg?.status || 'sent'
       } : m));
+
+      if (serverMsg?.conversation_id) {
+        const realConvId = String(serverMsg.conversation_id);
+        setSelectedConversationId(realConvId);
+        setDraftConversation(null);
+      }
 
       setConversations(prev => prev.map(c => {
         if (String(c.id) === String(selectedConversationId)) {
@@ -367,7 +562,7 @@ export default function MessagesView({
         return c;
       }));
 
-      loadServerConversations(false);
+      await loadServerConversations(false);
     } catch (err) {
       console.warn("Lỗi gửi tin nhắn:", err);
       // Sự cố hệ thống / Mất kết nối mạng: Chuyển sang 'failed' (Gửi thất bại kèm nút Gửi lại)
@@ -405,7 +600,7 @@ export default function MessagesView({
       return c;
     }));
 
-    const targetUserId = currentConversation?.user?.id;
+    const targetUserId = currentConversation?.user?.id || targetInitialUserId;
     try {
       let serverMsg = null;
       if (currentUser && targetUserId) {
@@ -418,6 +613,12 @@ export default function MessagesView({
         id: serverMsg ? serverMsg.id : m.id,
         status: serverMsg?.status || 'sent'
       } : m));
+
+      if (serverMsg?.conversation_id) {
+        const realConvId = String(serverMsg.conversation_id);
+        setSelectedConversationId(realConvId);
+        setDraftConversation(null);
+      }
 
       setConversations(prev => prev.map(c => {
         if (String(c.id) === String(selectedConversationId)) {
@@ -433,7 +634,7 @@ export default function MessagesView({
         return c;
       }));
 
-      loadServerConversations(false);
+      await loadServerConversations(false);
     } catch (err) {
       setActiveMessages(prev => prev.map(m => m.id === failedMsg.id ? {
         ...m,
@@ -458,7 +659,8 @@ export default function MessagesView({
   // Lọc cuộc trò chuyện theo Tab (Chính hay Tin nhắn chờ) và theo ô tìm kiếm
   const displayedConversations = conversations.filter(c => {
     if (!c) return false;
-    const matchTab = c.status === (inboxTab === 'main' ? 'accepted' : 'pending');
+    const isPendingForMe = c.status === 'pending' && c.initiatedBy !== currentUser?.id;
+    const matchTab = (inboxTab === 'requests') ? isPendingForMe : !isPendingForMe;
     const nameStr = c.user?.name || '';
     const usernameStr = c.user?.username || '';
     const searchLower = (searchTerm || '').toLowerCase();
@@ -523,7 +725,10 @@ export default function MessagesView({
             {/* 2 Tab: Hộp thư chính & Tin nhắn chờ (Người lạ) - ĐỂ YÊN CỐ ĐỊNH */}
             <div className="flex px-3 pt-2 pb-2 bg-slate-50/80 gap-1.5 border-b border-slate-100">
               <button
-                onClick={() => setInboxTab('main')}
+                onClick={() => {
+                  setInboxTab('main');
+                  if (draftConversation) setDraftConversation(null);
+                }}
                 className={
                   'flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ' +
                   (inboxTab === 'main'
@@ -535,7 +740,10 @@ export default function MessagesView({
               </button>
 
               <button
-                onClick={() => setInboxTab('requests')}
+                onClick={() => {
+                  setInboxTab('requests');
+                  if (draftConversation) setDraftConversation(null);
+                }}
                 className={
                   'flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 relative ' +
                   (inboxTab === 'requests'
@@ -667,7 +875,10 @@ export default function MessagesView({
               <div className="shrink-0 p-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setMobileShowChat(false)}
+                    onClick={() => {
+                      setMobileShowChat(false);
+                      if (draftConversation) setDraftConversation(null);
+                    }}
                     className="md:hidden p-1.5 text-slate-500 hover:bg-slate-100 rounded-lg cursor-pointer"
                   >
                     <ArrowLeft className="w-5 h-5" />
@@ -771,8 +982,8 @@ export default function MessagesView({
                 </div>
               </div>
 
-              {/* BANNER XÁC NHẬN TIN NHẮN CHỜ TỪ NGƯỜI LẠ (NẾU CHƯA CHẤP NHẬN) */}
-              {currentConversation.status === 'pending' && (
+              {/* BANNER XÁC NHẬN TIN NHẮN CHỜ TỪ NGƯỜI LẠ (CHỈ BÊN NGƯỜI NHẬN MỚI CẦN XÁC NHẬN) */}
+              {currentConversation.status === 'pending' && currentConversation.initiatedBy !== currentUser?.id && (
                 <div className="shrink-0 p-4 bg-amber-50/90 border-b border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 animate-fadeIn">
                   <div className="flex items-center gap-2.5">
                     <div className="p-2 bg-amber-100 text-amber-700 rounded-xl shrink-0">
@@ -799,6 +1010,16 @@ export default function MessagesView({
                     >
                       <UserX className="w-3.5 h-3.5" /> Từ chối
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* THÔNG BÁO NHẸ NHÀNG DÀNH CHO BÊN NGƯỜI GỬI (KHÔNG CHẶN NHẮN TIN) */}
+              {currentConversation.status === 'pending' && currentConversation.initiatedBy === currentUser?.id && activeMessages.length > 0 && (
+                <div className="shrink-0 px-4 py-2 bg-blue-50/80 border-b border-blue-100 flex items-center justify-between text-blue-800 text-xs animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>Tin nhắn đã gửi. Đối phương sẽ thấy trong mục <strong>Tin nhắn chờ</strong> và cần xác nhận để chuyển sang Hộp thư chính.</span>
                   </div>
                 </div>
               )}
@@ -834,7 +1055,7 @@ export default function MessagesView({
                     {currentConversation.user.name}
                   </h4>
                   <p className="text-[11px] text-slate-400 max-w-xs">
-                    {currentConversation.user.bio || 'Các bạn đã kết nối trò chuyện trên mạng xã hội WINGS'}
+                    {currentConversation.user.bio || (currentConversation.user.isFriend ? 'Bạn bè trên WINGS' : 'Trò chuyện trên WINGS')}
                   </p>
                   <div className="pt-0.5">
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200/60">
@@ -847,7 +1068,7 @@ export default function MessagesView({
                     <div className="pt-3 flex flex-col items-center gap-2">
                       <p className="text-xs text-slate-400 font-medium">Gợi ý gửi lời chào:</p>
                       <div className="flex flex-wrap justify-center gap-2">
-                        {['Xin chào! 👋', 'Chào bạn nhé! 😊', 'Rất vui được kết bạn! 🎉'].map((greeting, gIdx) => (
+                        {['Xin chào! 👋', 'Chào bạn nhé! 😊', 'Rất vui được làm quen! 🎉'].map((greeting, gIdx) => (
                           <button
                             key={gIdx}
                             onClick={() => {

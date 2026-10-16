@@ -63,11 +63,15 @@ export async function deletePost({ userId, postId }) {
   });
 }
 
-export async function createComment({ userId, postId, content }) {
+export async function createComment({ userId, postId, content, imageUrl, imageLabel }) {
   return request(`/api/posts/${postId}/comments`, {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      content,
+      imageUrl: imageUrl || null,
+      imageLabel: imageLabel || 'Safe',
+    }),
   });
 }
 

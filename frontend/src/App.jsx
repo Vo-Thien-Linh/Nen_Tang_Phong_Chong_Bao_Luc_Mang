@@ -271,6 +271,66 @@ export default function App() {
     };
   }, [currentUser?.id]);
 
+  // Lắng nghe Realtime SSE cho Bài viết & Chia sẻ (Realtime Feed)
+  useEffect(() => {
+    let eventSource = null;
+    try {
+      eventSource = new EventSource('http://localhost:5000/api/realtime/stream');
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'POST_SHARED') {
+            const { post: sharedPost, originalPostId } = payload;
+            setPosts((prev) => {
+              const exists = prev.some((p) => String(p.id) === String(sharedPost.id));
+              const updated = prev.map((p) =>
+                String(p.id) === String(originalPostId)
+                  ? { ...p, sharesCount: (p.sharesCount || 0) + 1 }
+                  : p
+              );
+              return exists ? updated : [sharedPost, ...updated];
+            });
+          } else if (payload.type === 'POST_CREATED') {
+            const newPost = payload.post;
+            setPosts((prev) => {
+              if (prev.some((p) => String(p.id) === String(newPost.id))) return prev;
+              return [newPost, ...prev];
+            });
+          } else if (payload.type === 'POST_DELETED') {
+            const deletedId = payload.postId;
+            setPosts((prev) => prev.filter((p) => String(p.id) !== String(deletedId)));
+          } else if (payload.type === 'COMMENT_CREATED') {
+            const { postId, comment } = payload;
+            setPosts((prev) =>
+              prev.map((p) => {
+                if (String(p.id) === String(postId)) {
+                  const commentExists = (p.comments || []).some((c) => String(c.id) === String(comment.id));
+                  if (commentExists) return p;
+                  return {
+                    ...p,
+                    commentsCount: (p.commentsCount || 0) + 1,
+                    comments: [...(p.comments || []), comment],
+                  };
+                }
+                return p;
+              })
+            );
+          }
+        } catch (parseErr) {
+          console.warn('Realtime parse error:', parseErr);
+        }
+      };
+    } catch (err) {
+      console.warn('EventSource connection error:', err);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, []);
+
   // Thêm bài viết mới
   const handleAddPost = (newPost) => {
     if (!currentUser) {
@@ -374,7 +434,9 @@ export default function App() {
       const res = await createComment({
         userId: currentUser.id,
         postId,
-        content: newComment.content
+        content: newComment.content || '',
+        imageUrl: newComment.image || null,
+        imageLabel: newComment.imageLabel || 'Safe'
       });
       const savedComment = res.data || newComment;
       setPosts(prev => prev.map(post => {

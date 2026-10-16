@@ -2,9 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
-  CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink
+  CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
+  Image as ImageIcon, X, Eye, EyeOff, Loader2
 } from 'lucide-react';
-import { sharePost, updatePostReaction } from '../api/client';
+import { sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -122,6 +123,34 @@ export default function PostCard({
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [commentImageFile, setCommentImageFile] = useState(null);
+  const [commentImagePreview, setCommentImagePreview] = useState('');
+  const [commentImageLabel, setCommentImageLabel] = useState('Safe');
+  const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
+  const [unblurredComments, setUnblurredComments] = useState({});
+  const commentFileInputRef = useRef(null);
+
+  const handleCommentImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Vui lòng chọn tệp hình ảnh hợp lệ.');
+      return;
+    }
+    setCommentImageFile(file);
+    setCommentImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleRemoveCommentImage = () => {
+    setCommentImageFile(null);
+    if (commentImagePreview) {
+      URL.revokeObjectURL(commentImagePreview);
+    }
+    setCommentImagePreview('');
+    if (commentFileInputRef.current) {
+      commentFileInputRef.current.value = '';
+    }
+  };
   const [isSaved, setIsSaved] = useState(post.isSaved || false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
@@ -304,26 +333,46 @@ export default function PostCard({
     }
   };
 
-  const handleCommentSubmit = (e) => {
+  const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!currentUser) {
       if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
       return;
     }
-    if (!commentText.trim()) return;
+    if (!commentText.trim() && !commentImageFile) return;
+
+    let uploadedUrl = null;
+    if (commentImageFile) {
+      try {
+        setIsUploadingCommentImage(true);
+        uploadedUrl = await uploadPostImage(commentImageFile);
+      } catch (err) {
+        console.error('Lỗi tải ảnh bình luận:', err);
+        alert('Không thể tải ảnh bình luận lên. Vui lòng thử lại!');
+        setIsUploadingCommentImage(false);
+        return;
+      } finally {
+        setIsUploadingCommentImage(false);
+      }
+    }
 
     onAddComment(post.id, {
       id: `cmt-${Date.now()}`,
       author: {
+        id: currentUser.id,
         name: currentUser.name,
         avatar: currentUser.avatar
       },
       content: commentText.trim(),
+      image: uploadedUrl,
+      imageLabel: commentImageLabel || 'Safe',
       time: "Vừa xong",
       likes: 0
     });
 
     setCommentText('');
+    handleRemoveCommentImage();
+    setCommentImageLabel('Safe');
   };
 
   const handleShare = () => {
@@ -819,32 +868,101 @@ export default function PostCard({
         <div className="px-4 sm:px-5 py-4 bg-slate-50/70 border-t border-slate-100 space-y-3">
           
           {/* Form nhập bình luận mới */}
-          <form onSubmit={handleCommentSubmit} className="flex gap-2">
-            <img 
-              src={currentUser?.avatar || DEFAULT_AVATAR} 
-              alt={currentUser?.name || "Khách"} 
-              className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
-            />
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                value={commentText}
-                onClick={() => {
-                  if (!currentUser && onRequireAuth) {
-                    onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
-                  }
-                }}
-                onChange={(e) => setCommentText(e.target.value)}
-                placeholder={currentUser ? "Viết bình luận công khai..." : "Đăng nhập để viết bình luận..."}
-                className="w-full pl-3 pr-10 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+          <form onSubmit={handleCommentSubmit} className="space-y-2">
+            {commentImagePreview && (
+              <div className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <div className="relative group">
+                  <img
+                    src={commentImagePreview}
+                    alt="Ảnh bình luận"
+                    className="w-14 h-14 object-cover rounded-lg border border-slate-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemoveCommentImage}
+                    className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-0.5 shadow hover:bg-rose-600 transition cursor-pointer"
+                    title="Xóa ảnh"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="flex-1 text-xs">
+                  <span className="text-[11px] text-slate-500 block mb-1">Ảnh đính kèm sẽ được đăng cùng bình luận</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-600">Nhãn test ảnh:</span>
+                    <select
+                      value={commentImageLabel}
+                      onChange={(e) => setCommentImageLabel(e.target.value)}
+                      className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md px-2 py-0.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
+                    >
+                      <option value="Safe">Safe (An toàn)</option>
+                      <option value="NSFW">NSFW (Nhạy cảm - che mờ)</option>
+                      <option value="Violence">Violence (Bạo lực)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 items-center">
+              <img 
+                src={currentUser?.avatar || DEFAULT_AVATAR} 
+                alt={currentUser?.name || "Khách"} 
+                className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
               />
-              <button
-                type="submit"
-                disabled={!commentText.trim()}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-blue-600 hover:text-blue-700 disabled:opacity-30 disabled:hover:text-blue-600"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex-1 relative flex items-center">
+                <input
+                  type="text"
+                  value={commentText}
+                  onClick={() => {
+                    if (!currentUser && onRequireAuth) {
+                      onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+                    }
+                  }}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder={currentUser ? "Viết bình luận công khai..." : "Đăng nhập để viết bình luận..."}
+                  className="w-full pl-3 pr-16 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+
+                <input
+                  ref={commentFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleCommentImageSelect}
+                  className="hidden"
+                />
+
+                <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!currentUser && onRequireAuth) {
+                        onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+                        return;
+                      }
+                      commentFileInputRef.current?.click();
+                    }}
+                    disabled={isUploadingCommentImage}
+                    title="Đính kèm ảnh vào bình luận"
+                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={(!commentText.trim() && !commentImageFile) || isUploadingCommentImage}
+                    title="Gửi bình luận"
+                    className="p-1 text-blue-600 hover:text-blue-700 disabled:opacity-30 disabled:hover:text-blue-600 cursor-pointer"
+                  >
+                    {isUploadingCommentImage ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           </form>
 
@@ -874,7 +992,7 @@ export default function PostCard({
                             targetType: 'comment',
                             targetId: comment.id,
                             targetAuthor: comment.author,
-                            contentExcerpt: comment.content
+                            contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : '')
                           })}
                           title="Báo cáo bình luận này"
                           className="text-slate-300 hover:text-rose-500 transition cursor-pointer p-0.5"
@@ -883,7 +1001,52 @@ export default function PostCard({
                         </button>
                       </div>
                     </div>
-                    <p className="text-slate-700">{comment.content}</p>
+                    {comment.content && <p className="text-slate-700">{comment.content}</p>}
+
+                    {comment.image && (
+                      <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
+                        {comment.imageLabel === 'NSFW' && !unblurredComments[comment.id] ? (
+                          <div className="relative">
+                            <img
+                              src={comment.image}
+                              alt="Bình luận có ảnh"
+                              className="w-full max-h-52 object-cover filter blur-xl select-none scale-105 transition duration-300"
+                            />
+                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center text-white">
+                              <ShieldAlert className="w-5 h-5 text-amber-400 mb-1" />
+                              <span className="text-[11px] font-semibold">Nội dung nhạy cảm (NSFW)</span>
+                              <span className="text-[9px] text-slate-200 mb-2">Ảnh này được gắn nhãn nhạy cảm</span>
+                              <button
+                                type="button"
+                                onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: true }))}
+                                className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-[10px] font-medium backdrop-blur-sm transition flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" /> Xem ảnh
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="relative">
+                            <img
+                              src={comment.image}
+                              alt="Bình luận có ảnh"
+                              className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
+                              onClick={() => window.open(comment.image, '_blank')}
+                            />
+                            {comment.imageLabel === 'NSFW' && unblurredComments[comment.id] && (
+                              <button
+                                type="button"
+                                onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: false }))}
+                                className="absolute top-1.5 right-1.5 px-2 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded text-[9px] flex items-center gap-1 backdrop-blur-xs transition cursor-pointer"
+                                title="Ẩn lại ảnh này"
+                              >
+                                <EyeOff className="w-2.5 h-2.5" /> Ẩn lại
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))

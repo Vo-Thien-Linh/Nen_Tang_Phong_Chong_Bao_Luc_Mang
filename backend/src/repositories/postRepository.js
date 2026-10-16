@@ -75,6 +75,8 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
           avatar: c.avatar_url,
         },
         content: c.content,
+        image: c.image_url || null,
+        imageLabel: c.image_label || 'Safe',
         created_at: c.created_at,
       });
     }
@@ -133,7 +135,7 @@ export function createPostRepository({ pool }) {
         : { rows: [] };
 
       const commentResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
@@ -207,12 +209,12 @@ export function createPostRepository({ pool }) {
       }
     },
 
-    async createComment({ postId, authorId, content }) {
+    async createComment({ postId, authorId, content, imageUrl = null, imageLabel = 'Safe' }) {
       const res = await pool.query(
-        `INSERT INTO comments (post_id, author_id, content)
-         VALUES ($1, $2, $3)
-         RETURNING id, post_id, author_id, content, created_at`,
-        [postId, authorId, content]
+        `INSERT INTO comments (post_id, author_id, content, image_url, image_label)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, post_id, author_id, content, image_url, image_label, created_at`,
+        [postId, authorId, content || '', imageUrl, imageLabel]
       );
 
       await pool.query(
@@ -221,7 +223,7 @@ export function createPostRepository({ pool }) {
       );
 
       const detail = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
@@ -289,7 +291,7 @@ export function createPostRepository({ pool }) {
         : { rows: [] };
 
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
