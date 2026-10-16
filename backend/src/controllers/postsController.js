@@ -1,3 +1,4 @@
+import { realtimeService } from '../services/realtimeService.js';
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -52,6 +53,8 @@ export function mapPostToResponse(post) {
         avatar: c.author?.avatar || c.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
       },
       content: c.content,
+      image: c.image || c.image_url || null,
+      imageLabel: c.imageLabel || c.image_label || 'Safe',
       time: formatRelativeTime(c.created_at),
       createdAt: c.created_at,
     })),
@@ -94,10 +97,16 @@ export function createPostsController({ postService, postRepository }) {
           imageUrl: req.body?.imageUrl,
         });
 
+        const mappedPost = mapPostToResponse(post);
+        realtimeService.broadcast({
+          type: 'POST_CREATED',
+          post: mappedPost,
+        });
+
         res.status(201).json({
           success: true,
           message: 'Đăng bài thành công',
-          data: mapPostToResponse(post),
+          data: mappedPost,
         });
       } catch (error) {
         next(error);
@@ -146,6 +155,11 @@ export function createPostsController({ postService, postRepository }) {
           postId: req.params.postId,
         });
 
+        realtimeService.broadcast({
+          type: 'POST_DELETED',
+          postId: String(req.params.postId),
+        });
+
         res.json({
           success: true,
           message: 'Xóa bài viết thành công',
@@ -170,32 +184,44 @@ export function createPostsController({ postService, postRepository }) {
     async createComment(req, res, next) {
       try {
         const { postId } = req.params;
-        const { content } = req.body;
+        const { content, imageUrl, imageLabel } = req.body || {};
 
-        if (!content || !content.trim()) {
-          return res.status(400).json({ success: false, message: 'Nội dung bình luận không được rỗng' });
+        if ((!content || !content.trim()) && !imageUrl) {
+          return res.status(400).json({ success: false, message: 'Nội dung hoặc ảnh bình luận không được rỗng' });
         }
 
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
-          content: content.trim(),
+          content: (content || '').trim(),
+          imageUrl: imageUrl || null,
+          imageLabel: imageLabel || 'Safe',
+        });
+
+        const commentData = {
+          id: String(comment.id),
+          author: {
+            id: comment.author_id,
+            name: comment.full_name,
+            avatar: comment.avatar_url,
+          },
+          content: comment.content,
+          image: comment.image_url || null,
+          imageLabel: comment.image_label || 'Safe',
+          time: 'Vừa xong',
+          createdAt: comment.created_at,
+        };
+
+        realtimeService.broadcast({
+          type: 'COMMENT_CREATED',
+          postId: String(postId),
+          comment: commentData,
         });
 
         res.status(201).json({
           success: true,
           message: 'Bình luận thành công',
-          data: {
-            id: String(comment.id),
-            author: {
-              id: comment.author_id,
-              name: comment.full_name,
-              avatar: comment.avatar_url,
-            },
-            content: comment.content,
-            time: 'Vừa xong',
-            createdAt: comment.created_at,
-          },
+          data: commentData,
         });
       } catch (error) {
         next(error);
@@ -213,10 +239,17 @@ export function createPostsController({ postService, postRepository }) {
           content: content || '',
         });
 
+        const mappedSharedPost = mapPostToResponse(sharedPost);
+        realtimeService.broadcast({
+          type: 'POST_SHARED',
+          post: mappedSharedPost,
+          originalPostId: String(postId),
+        });
+
         res.status(201).json({
           success: true,
           message: 'Chia sẻ bài viết thành công',
-          data: mapPostToResponse(sharedPost),
+          data: mappedSharedPost,
         });
       } catch (error) {
         next(error);

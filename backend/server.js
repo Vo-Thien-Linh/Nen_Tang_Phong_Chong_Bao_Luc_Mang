@@ -9,6 +9,7 @@ import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
 import { createPostsRouter } from './src/routes/postsRouter.js';
 import { createUsersRouter } from './src/routes/usersRouter.js';
 import { createNotificationsRouter } from './src/routes/notificationsRouter.js';
+import { realtimeService } from './src/services/realtimeService.js';
 
 dotenv.config();
 
@@ -92,6 +93,31 @@ app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
 app.use('/api/users', createUsersRouter({ pool }));
 app.use('/api/notifications', createNotificationsRouter({ pool }));
+
+// Realtime SSE Stream cho Bài viết, Chia sẻ và Bình luận
+app.get('/api/realtime/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED' })}\n\n`);
+  realtimeService.addClient(res);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keep-alive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    realtimeService.removeClient(res);
+  });
+});
 
 // ========================================================
 // 4. IN-MEMORY STORE: BÁO CÁO, KHIẾU NẠI & HIỆU CHỈNH NHÃN AI
