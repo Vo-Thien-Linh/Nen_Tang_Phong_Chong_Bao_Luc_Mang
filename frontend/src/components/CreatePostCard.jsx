@@ -149,7 +149,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               setContent(e.target.value);
               if (aiPreview) setAiPreview(null);
             }}
-            placeholder={currentUser ? `${currentUser.name} ơi, bạn đang nghĩ gì thế?` : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."}
+            placeholder={currentUser ? `${currentUser.name || currentUser.full_name || currentUser.username || 'Bạn'} ơi, bạn đang nghĩ gì thế?` : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."}
             className="w-full resize-none p-3 text-slate-800 placeholder-slate-400 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm transition duration-150"
           />
 

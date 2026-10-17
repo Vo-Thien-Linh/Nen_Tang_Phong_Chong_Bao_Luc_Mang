@@ -340,4 +340,62 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 .animate-slide-up-fade {
   animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Hiệu ứng nổi bật khi điều hướng tới bài viết từ thông báo */
+@keyframes targetHighlightGlow {
+  0% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.7), 0 10px 25px -5px rgba(37, 99, 235, 0.25);
+    border-color: #2563eb;
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.95), 0 20px 35px -5px rgba(37, 99, 235, 0.4);
+    border-color: #1d4ed8;
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.7), 0 10px 25px -5px rgba(37, 99, 235, 0.25);
+    border-color: #2563eb;
+  }
+}
+
+.target-post-highlight {
+  animation: targetHighlightGlow 1.6s ease-in-out infinite;
+}
+
+html.dark .target-post-highlight {
+  border-color: #3b82f6 !important;
+}
+
+/* Thanh tiến trình loading tinh tế ở đầu trang */
+@keyframes topBarLoadingProgress {
+  0% {
+    transform: translateX(-100%) scaleX(0.2);
+  }
+  50% {
+    transform: translateX(0%) scaleX(0.7);
+  }
+  100% {
+    transform: translateX(100%) scaleX(0.2);
+  }
+}
+
+.animate-top-loading {
+  animation: topBarLoadingProgress 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Hiệu ứng chuyển động mượt mà khi load trang / chuyển tab */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 

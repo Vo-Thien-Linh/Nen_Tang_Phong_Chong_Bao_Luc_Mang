@@ -74,7 +74,7 @@ export default function NotificationsView({
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 animate-fade-in">
       {/* Container chính với hiệu ứng bo góc và shadow mềm */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm overflow-hidden transition-all">
         
@@ -196,7 +196,20 @@ export default function NotificationsView({
               return (
                 <div
                   key={item.id}
-                  onClick={() => onMarkAsRead(item.id)}
+                  onClick={() => {
+                    onMarkAsRead(item.id);
+                    const targetPostId = item.targetPost?.id || item.targetPostId;
+                    if (targetPostId && onViewPost) {
+                      onViewPost(targetPostId, {
+                        type: item.type,
+                        actor,
+                        targetCommentId: item.targetCommentId || item.commentId,
+                        notificationId: item.id
+                      });
+                    } else if (['follow', 'friend_request', 'friend_accept'].includes(item.type) && onOpenProfile && actor.id && actor.id !== 'system') {
+                      onOpenProfile(actor);
+                    }
+                  }}
                   className={`group relative p-4 sm:p-5 flex items-start gap-3.5 sm:gap-4 transition-all duration-150 cursor-pointer ${
                     !item.isRead
                       ? 'bg-blue-50/40 dark:bg-blue-950/20 hover:bg-blue-50/70 dark:hover:bg-blue-950/30'
@@ -244,17 +257,24 @@ export default function NotificationsView({
                     </div>
 
                     {/* Preview bài viết liên quan nếu có */}
-                    {item.targetPost && (
+                    {(item.targetPost || item.targetPostId) && (
                       <div
                         onClick={(e) => {
-                          if (onViewPost && item.targetPost?.id) {
-                            e.stopPropagation();
-                            onViewPost(item.targetPost.id);
+                          e.stopPropagation();
+                          onMarkAsRead(item.id);
+                          const targetPostId = item.targetPost?.id || item.targetPostId;
+                          if (onViewPost && targetPostId) {
+                            onViewPost(targetPostId, {
+                              type: item.type,
+                              actor,
+                              targetCommentId: item.targetCommentId || item.commentId,
+                              notificationId: item.id
+                            });
                           }
                         }}
-                        className="mt-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-center gap-3 hover:border-blue-300 dark:hover:border-blue-700 transition group/post"
+                        className="mt-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-center gap-3 hover:border-blue-300 dark:hover:border-blue-700 transition group/post cursor-pointer"
                       >
-                        {item.targetPost.image && (
+                        {item.targetPost?.image && (
                           <img
                             src={item.targetPost.image}
                             alt="Post snippet"
@@ -263,7 +283,7 @@ export default function NotificationsView({
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 italic">
-                            &ldquo;{item.targetPost.contentSnippet || 'Xem chi tiết bài viết'}&rdquo;
+                            &ldquo;{item.targetPost?.contentSnippet || 'Xem chi tiết bài viết'}&rdquo;
                           </p>
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 group-hover/post:underline mt-0.5">
                             Xem bài viết <ChevronRight className="w-3 h-3" />

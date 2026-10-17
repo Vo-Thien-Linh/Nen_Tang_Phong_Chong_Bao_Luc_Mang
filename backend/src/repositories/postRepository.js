@@ -109,10 +109,13 @@ export function createPostRepository({ pool }) {
     },
 
     async findById(postId, viewerId = null) {
+      const cleanId = Number(String(postId).replace(/^post-/, ''));
+      if (Number.isNaN(cleanId)) return null;
+
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1`,
-        [postId]
+        [cleanId]
       );
 
       if (!result.rows[0]) return null;
@@ -122,7 +125,7 @@ export function createPostRepository({ pool }) {
          FROM post_reactions
          WHERE post_id = $1
          GROUP BY post_id, reaction_type`,
-        [postId]
+        [cleanId]
       );
 
       const myReactionResult = viewerId
@@ -130,7 +133,7 @@ export function createPostRepository({ pool }) {
             `SELECT post_id, reaction_type
              FROM post_reactions
              WHERE user_id = $1 AND post_id = $2`,
-            [viewerId, postId]
+            [viewerId, cleanId]
           )
         : { rows: [] };
 
@@ -141,7 +144,7 @@ export function createPostRepository({ pool }) {
          JOIN users u ON u.id = c.author_id
          WHERE c.post_id = $1 AND c.is_hidden = false
          ORDER BY c.created_at ASC`,
-        [postId]
+        [cleanId]
       );
 
       const post = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentResult.rows)[0];
