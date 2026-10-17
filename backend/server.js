@@ -9,6 +9,7 @@ import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
 import { createPostsRouter } from './src/routes/postsRouter.js';
 import { createUsersRouter } from './src/routes/usersRouter.js';
 import { createNotificationsRouter } from './src/routes/notificationsRouter.js';
+import { createImageModerationRouter } from './src/routes/imageModerationRouter.js';
 import { realtimeService } from './src/services/realtimeService.js';
 
 dotenv.config();
@@ -93,6 +94,7 @@ app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
 app.use('/api/users', createUsersRouter({ pool }));
 app.use('/api/notifications', createNotificationsRouter({ pool }));
+app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
 
 // Realtime SSE Stream cho Bài viết, Chia sẻ và Bình luận
 app.get('/api/realtime/stream', (req, res) => {
