@@ -110,6 +110,19 @@ export async function uploadPostImage(file) {
   return data.url;
 }
 
+export async function previewPostImage(file, userId) {
+  const formData = new FormData();
+  formData.append('image', file);
+  const response = await fetch(`${API_URL}/api/posts/preview-image`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || 'Không thể duyệt ảnh');
+  return data.data;
+}
+
 export async function fetchPendingImageModeration(userId) {
   return request('/api/admin/image-moderation/pending', { headers: userId ? { 'x-user-id': userId } : {} });
 }
@@ -119,6 +132,14 @@ export async function reviewImageModeration({ userId, contentType, id, decision 
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
   });
+}
+
+export async function appealPostModeration({ userId, postId }) {
+  return request(`/api/posts/${postId}/appeal`, { method: 'POST', headers: userId ? { 'x-user-id': userId } : {} });
+}
+
+export async function appealCommentModeration({ userId, postId, commentId }) {
+  return request(`/api/posts/${postId}/comments/${commentId}/appeal`, { method: 'POST', headers: userId ? { 'x-user-id': userId } : {} });
 }
 
 export async function sharePost({ userId, postId, content = '', user = null }) {

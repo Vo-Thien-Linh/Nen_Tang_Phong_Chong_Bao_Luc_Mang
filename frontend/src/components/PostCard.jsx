@@ -5,7 +5,7 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
   Image as ImageIcon, X, Eye, EyeOff, Loader2
 } from 'lucide-react';
-import { sharePost, updatePostReaction, uploadPostImage } from '../api/client';
+import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -128,7 +128,17 @@ export default function PostCard({
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
   const [unblurredPosts, setUnblurredPosts] = useState({});
+  const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
   const commentFileInputRef = useRef(null);
+  useEffect(() => {
+    if (post.imageModeration?.status !== 'rejected_hold' || holdRemaining == null) return undefined;
+    const timer = setInterval(() => setHoldRemaining((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [post.imageModeration?.status, holdRemaining]);
+  const handleModerationAppeal = async () => {
+    await appealPostModeration({ userId: currentUser?.id, postId: post.id });
+    onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'pending_review', moderationExpiresAt: null, remainingSeconds: null } });
+  };
 
   const handleCommentImageSelect = (e) => {
     const file = e.target.files?.[0];
@@ -436,6 +446,7 @@ export default function PostCard({
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
   const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
+  if (post.imageModeration?.status === 'rejected_hold' && holdRemaining === 0) return null;
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs mb-5 overflow-hidden transition-all hover:border-slate-300/80">
       
@@ -617,6 +628,12 @@ export default function PostCard({
         )}
         {post.imageModeration?.status === 'pending_review' && post.author?.id === currentUser?.id && (
           <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Đang chờ quản trị viên duyệt</div>
+        )}
+        {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
+          <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
+            <span>Bài viết của bạn vi phạm quy định cộng đồng. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
+            <button type="button" onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white">Kháng cáo</button>
+          </div>
         )}
         {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
           <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
@@ -971,14 +988,14 @@ export default function PostCard({
           <div className="space-y-2.5 pt-1">
             {post.comments && post.comments.length > 0 ? (
               post.comments.map((comment) => (
-                <div key={comment.id} className={`flex gap-2.5 items-start text-xs ${comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? 'relative' : ''}`}>
+                <div key={comment.id} className={`flex gap-2.5 items-start text-xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'relative' : ''}`}>
                   <img 
                     src={comment.author.avatar} 
                     alt={comment.author.name} 
                     onClick={() => onOpenProfile && onOpenProfile(comment.author)}
                     className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                   />
-                  <div className={`flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs ${comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? 'blur-sm' : ''}`}>
+                  <div className={`flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'blur-sm' : ''}`}>
                     <div className="flex items-center justify-between mb-1">
                       <span 
                         onClick={() => onOpenProfile && onOpenProfile(comment.author)}
@@ -1049,10 +1066,11 @@ export default function PostCard({
                       </div>
                     )}
                   </div>
-                  {comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] && (
+                  {['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] && (
                     <div className="absolute inset-0 bg-slate-900/60 rounded-xl flex items-center justify-center text-white gap-2">
-                      <span className="text-[11px] font-semibold">Nội dung nhạy cảm</span>
+                      <span className="text-[11px] font-semibold">{comment.imageModeration?.status === 'rejected_hold' ? 'Bài viết của bạn vi phạm quy định cộng đồng' : 'Nội dung nhạy cảm'}</span>
                       <button type="button" className="px-2 py-1 rounded bg-white/20 text-[10px]" onClick={() => setUnblurredComments((prev) => ({ ...prev, [comment.id]: true }))}>Xem</button>
+                      {comment.imageModeration?.status === 'rejected_hold' && comment.author?.id === currentUser?.id && <button type="button" className="px-2 py-1 rounded bg-rose-500 text-[10px]" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: comment.id })}>Kháng cáo</button>}
                     </div>
                   )}
                 </div>
