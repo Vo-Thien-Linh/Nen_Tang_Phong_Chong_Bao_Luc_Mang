@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatRelativeTime } from '../utils/timeAgo';
-import { createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
+import { appealCommentModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
 import { 
   REACTIONS, 
   normalizeReactionCounts, 
@@ -599,7 +599,7 @@ export default function OriginalPostModal({
 
                       {cmt.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                          {cmt.imageModeration?.status === 'sensitive' && !unblurredComments[cmt.id] ? (
+                          {['sensitive', 'rejected_hold'].includes(cmt.imageModeration?.status) && !unblurredComments[cmt.id] ? (
                             <div className="relative">
                               <img
                                 src={cmt.image}
@@ -608,7 +608,7 @@ export default function OriginalPostModal({
                               />
                               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center text-white">
                                 <ShieldAlert className="w-5 h-5 text-amber-400 mb-1" />
-                                <span className="text-[11px] font-semibold">Nội dung nhạy cảm (NSFW)</span>
+                                <span className="text-[11px] font-semibold">{cmt.imageModeration?.status === 'rejected_hold' ? 'Bài viết của bạn vi phạm quy định cộng đồng' : 'Nội dung nhạy cảm (NSFW)'}</span>
                                 <span className="text-[9px] text-slate-200 mb-2">Ảnh này được gắn nhãn nhạy cảm</span>
                                 <button
                                   type="button"
@@ -617,6 +617,7 @@ export default function OriginalPostModal({
                                 >
                                   <Eye className="w-3 h-3" /> Xem ảnh
                                 </button>
+                                {cmt.imageModeration?.status === 'rejected_hold' && cmt.author?.id === currentUser?.id && <button type="button" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: cmt.id })} className="mt-1 px-2.5 py-1 bg-rose-500 text-white rounded text-[10px]">Kháng cáo</button>}
                               </div>
                             </div>
                           ) : (
