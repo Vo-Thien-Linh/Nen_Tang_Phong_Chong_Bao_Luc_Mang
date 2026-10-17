@@ -18,12 +18,12 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
         name: currentUser.name,
         avatar: currentUser.avatar
       },
-      contentType: contentItem.contentType || 'post',
-      contentId: contentItem.id,
-      originalText: contentItem.content || contentItem.originalText || '',
-      aiPredictedLabel: contentItem.aiStatus?.label || 'Toxic',
-      aiConfidence: contentItem.aiStatus?.confidence || 0.90,
-      aiActionTaken: contentItem.aiStatus?.action || 'warn_user',
+      contentType: contentItem.contentType || contentItem.targetType || 'post',
+      contentId: contentItem.id || contentItem.targetId,
+      originalText: contentItem.content || contentItem.originalText || contentItem.contentExcerpt || '',
+      aiPredictedLabel: contentItem.aiStatus?.label || contentItem.ai_label || contentItem.aiLabel || 'Hate Speech',
+      aiConfidence: contentItem.aiStatus?.confidence || contentItem.ai_confidence || 0.90,
+      aiActionTaken: contentItem.aiStatus?.action || 'hide',
       appealReason: appealReason.trim(),
       status: 'pending',
       adminNotes: '',
@@ -99,8 +99,8 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
                     <AlertOctagon className="w-4 h-4 text-amber-600" />
                     Phán quyết từ mô hình AI:
                   </span>
-                  <span className={`text-xs px-2.5 py-0.5 rounded-md font-bold border ${getBadgeColor(contentItem.aiStatus?.label)}`}>
-                    {contentItem.aiStatus?.label || 'Bị cảnh báo'} ({((contentItem.aiStatus?.confidence || 0.9) * 100).toFixed(0)}%)
+                  <span className={`text-xs px-2.5 py-0.5 rounded-md font-bold border ${getBadgeColor(contentItem.aiStatus?.label || contentItem.ai_label || contentItem.aiLabel || 'Hate Speech')}`}>
+                    {contentItem.aiStatus?.label || contentItem.ai_label || contentItem.aiLabel || 'Cảnh báo'} ({(((contentItem.aiStatus?.confidence || contentItem.ai_confidence || 0.9)) * 100).toFixed(0)}%)
                   </span>
                 </div>
                 {contentItem.aiStatus?.reason && (
@@ -116,7 +116,7 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
                   Nội dung bị ảnh hưởng:
                 </label>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-700 italic">
-                  "{contentItem.content || contentItem.originalText}"
+                  "{contentItem.content || contentItem.originalText || contentItem.contentExcerpt || '[Nội dung tệp đính kèm]'}"
                 </div>
               </div>
 
