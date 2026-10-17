@@ -103,11 +103,22 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      const imageModeration = imageUrl && imageModerationClient
+        ? await imageModerationClient(imageUrl)
+        : null;
+      if (imageModeration?.decision === 'rejected') {
+        const error = new Error('Bài viết của bạn vi phạm quy định cộng đồng');
+        error.statusCode = 422;
+        error.code = 'CONTENT_VIOLATION';
+        throw error;
+      }
+
       const post = await postRepository.updatePost({
         postId,
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeImageUrl(imageUrl),
+        ...(imageModeration ? { imageModeration } : {}),
       });
 
       await moderationHook.afterPostEdited(post);

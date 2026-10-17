@@ -184,13 +184,24 @@ export function createPostRepository({ pool }) {
       return post;
     },
 
-    async updatePost({ postId, authorId, content, imageUrl }) {
+    async updatePost({ postId, authorId, content, imageUrl, imageModeration }) {
+      const moderationFields = imageModeration ? `,
+         image_moderation_status = $5,
+         image_moderation_safe = $6,
+         image_moderation_nsfw = $7,
+         image_moderation_violence = $8,
+         image_moderation_thresholds = $9` : '';
       const result = await pool.query(
         `UPDATE posts
-         SET content = $3, image_url = $4, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         SET content = $3, image_url = $4${moderationFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND author_id = $2
          RETURNING id`,
-        [postId, authorId, content, imageUrl]
+        [postId, authorId, content, imageUrl,
+          imageModeration?.decision || null,
+          imageModeration?.images?.[0]?.scores?.safe || null,
+          imageModeration?.images?.[0]?.scores?.nsfw || null,
+          imageModeration?.images?.[0]?.scores?.violence || null,
+          imageModeration?.thresholds || null].slice(imageModeration ? 0 : 4)
       );
 
       if (!result.rows[0]) {
