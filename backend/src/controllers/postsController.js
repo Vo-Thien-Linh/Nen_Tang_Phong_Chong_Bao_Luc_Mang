@@ -104,10 +104,12 @@ export function createPostsController({ postService, postRepository, imageModera
         });
 
         const mappedPost = mapPostToResponse(post);
-        realtimeService.broadcast({
-          type: 'POST_CREATED',
-          post: mappedPost,
-        });
+        if (mappedPost.imageModeration?.status !== 'pending_review') {
+          realtimeService.broadcast({
+            type: 'POST_CREATED',
+            post: mappedPost,
+          });
+        }
 
         res.status(201).json({
           success: true,
@@ -229,11 +231,13 @@ export function createPostsController({ postService, postRepository, imageModera
           createdAt: comment.created_at,
         };
 
-        realtimeService.broadcast({
-          type: 'COMMENT_CREATED',
-          postId: String(postId),
-          comment: commentData,
-        });
+        if (commentData.imageModeration?.status !== 'pending_review') {
+          realtimeService.broadcast({
+            type: 'COMMENT_CREATED',
+            postId: String(postId),
+            comment: commentData,
+          });
+        }
 
         res.status(201).json({
           success: true,
