@@ -128,6 +128,7 @@ export default function PostCard({
   const [commentImageLabel, setCommentImageLabel] = useState('Safe');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
+  const [unblurredPosts, setUnblurredPosts] = useState({});
   const commentFileInputRef = useRef(null);
 
   const handleCommentImageSelect = (e) => {
@@ -611,6 +612,15 @@ export default function PostCard({
 
       {/* Nội dung bài viết */}
       <div className="px-4 sm:px-5 pb-3">
+        {post.imageModeration?.status === 'sensitive' && post.author?.id === currentUser?.id && (
+          <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+            <span>Bài viết của bạn vi phạm quy định cộng đồng</span>
+            <button type="button" disabled title="Sắp ra mắt" className="ml-3 rounded bg-slate-300 px-2 py-1 text-[11px] text-slate-600">Kháng cáo</button>
+          </div>
+        )}
+        {post.imageModeration?.status === 'pending_review' && post.author?.id === currentUser?.id && (
+          <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Đang chờ quản trị viên duyệt</div>
+        )}
         {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
           <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
             Trạng thái: {post.moderationStatus}
@@ -634,14 +644,20 @@ export default function PostCard({
 
       {/* Ảnh bài viết (nếu có) */}
       {post.image && (
-        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center">
+        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center relative">
           <img 
             src={post.image} 
             alt="Ảnh đính kèm bài viết" 
-            className="block h-auto max-h-[75vh] w-full object-contain"
             loading="lazy"
             decoding="async"
+            className={`block h-auto max-h-[75vh] w-full object-contain ${post.imageModeration?.status === 'sensitive' && !unblurredPosts[post.id] ? 'blur-xl scale-105' : ''}`}
           />
+          {post.imageModeration?.status === 'sensitive' && !unblurredPosts[post.id] && (
+            <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center text-white gap-2">
+              <span className="font-semibold">Nội dung nhạy cảm</span>
+              <button type="button" className="px-3 py-1 rounded bg-white/20" onClick={() => setUnblurredPosts((prev) => ({ ...prev, [post.id]: true }))}>Xem</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -970,14 +986,14 @@ export default function PostCard({
           <div className="space-y-2.5 pt-1">
             {post.comments && post.comments.length > 0 ? (
               post.comments.map((comment) => (
-                <div key={comment.id} className="flex gap-2.5 items-start text-xs">
+                <div key={comment.id} className={`flex gap-2.5 items-start text-xs ${comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? 'relative' : ''}`}>
                   <img 
                     src={comment.author.avatar} 
                     alt={comment.author.name} 
                     onClick={() => onOpenProfile && onOpenProfile(comment.author)}
                     className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                   />
-                  <div className="flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <div className={`flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs ${comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? 'blur-sm' : ''}`}>
                     <div className="flex items-center justify-between mb-1">
                       <span 
                         onClick={() => onOpenProfile && onOpenProfile(comment.author)}
@@ -1048,6 +1064,12 @@ export default function PostCard({
                       </div>
                     )}
                   </div>
+                  {comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] && (
+                    <div className="absolute inset-0 bg-slate-900/60 rounded-xl flex items-center justify-center text-white gap-2">
+                      <span className="text-[11px] font-semibold">Nội dung nhạy cảm</span>
+                      <button type="button" className="px-2 py-1 rounded bg-white/20 text-[10px]" onClick={() => setUnblurredComments((prev) => ({ ...prev, [comment.id]: true }))}>Xem</button>
+                    </div>
+                  )}
                 </div>
               ))
             ) : (
