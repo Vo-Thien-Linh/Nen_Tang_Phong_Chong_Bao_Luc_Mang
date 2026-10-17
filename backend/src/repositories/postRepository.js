@@ -83,6 +83,11 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
         content: c.content,
         image: c.image_url || null,
         imageLabel: c.image_label || 'Safe',
+        imageModeration: c.image_moderation_status ? {
+          status: c.image_moderation_status,
+          scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+          thresholds: c.image_moderation_thresholds,
+        } : null,
         created_at: c.created_at,
       });
     }
@@ -148,13 +153,16 @@ export function createPostRepository({ pool }) {
         : { rows: [] };
 
       const commentResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
+                c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
+                c.image_moderation_violence, c.image_moderation_thresholds, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
-         WHERE c.post_id = $1 AND c.is_hidden = false
+           WHERE c.post_id = $1 AND c.is_hidden = false
+             AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive') OR c.author_id = $2)
          ORDER BY c.created_at ASC`,
-        [postId]
+        [postId, viewerId]
       );
 
       const post = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentResult.rows)[0];
@@ -244,7 +252,9 @@ export function createPostRepository({ pool }) {
       );
 
       const detail = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
+                c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
+                c.image_moderation_violence, c.image_moderation_thresholds, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
@@ -274,11 +284,14 @@ export function createPostRepository({ pool }) {
 
     async findVisiblePosts({ viewerId }) {
       const params = [];
-      let visibilityWhere = `p.ai_status = 'approved'`;
+      let visibilityWhere = `p.ai_status = 'approved'
+        AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`;
 
       if (viewerId) {
         params.push(viewerId);
-        visibilityWhere = `(p.ai_status = 'approved' OR p.author_id = $1)`;
+        visibilityWhere = `((p.ai_status = 'approved'
+          AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
+          OR p.author_id = $1)`;
       }
 
       const result = await pool.query(
@@ -316,9 +329,10 @@ export function createPostRepository({ pool }) {
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
-         WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+           WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+             AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive') OR c.author_id = $2)
          ORDER BY c.created_at ASC`,
-        [postIds]
+        [postIds, viewerId]
       );
 
       const posts = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);

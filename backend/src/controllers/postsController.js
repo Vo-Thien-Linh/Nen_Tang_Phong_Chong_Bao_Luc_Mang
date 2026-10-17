@@ -60,6 +60,7 @@ export function mapPostToResponse(post) {
       content: c.content,
       image: c.image || c.image_url || null,
       imageLabel: c.imageLabel || c.image_label || 'Safe',
+      imageModeration: c.imageModeration || null,
       time: formatRelativeTime(c.created_at),
       createdAt: c.created_at,
     })),
@@ -220,6 +221,10 @@ export function createPostsController({ postService, postRepository, imageModera
           content: comment.content,
           image: comment.image_url || null,
           imageLabel: comment.image_label || 'Safe',
+          imageModeration: comment.image_moderation_status ? {
+            status: comment.image_moderation_status,
+            scores: { safe: comment.image_moderation_safe, nsfw: comment.image_moderation_nsfw, violence: comment.image_moderation_violence },
+          } : null,
           time: 'Vừa xong',
           createdAt: comment.created_at,
         };
