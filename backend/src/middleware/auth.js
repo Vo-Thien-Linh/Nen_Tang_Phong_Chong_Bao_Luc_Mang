@@ -1,3 +1,6 @@
+import jwt from 'jsonwebtoken';
+import { hasRole, normalizeRole } from '../utils/rbac.js';
+
 export function createAuthMiddleware({ userRepository }) {
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const authMessage = 'Bạn cần đăng nhập để tiếp tục';
@@ -9,19 +12,31 @@ export function createAuthMiddleware({ userRepository }) {
   };
 
   const warnRejectedAuth = (reason) => {
-    console.warn(`Từ chối xác thực x-user-id: ${reason}`);
+    console.warn(`Từ chối xác thực: ${reason}`);
   };
 
   const resolveUser = async (req, { required = false } = {}) => {
-    // TODO: Replace this temporary development auth with JWT when US-2 is implemented.
-    if (process.env.NODE_ENV === 'production') {
-      if (required) {
-        warnRejectedAuth('cơ chế x-user-id đang tắt do NODE_ENV=production');
+    let userId = null;
+
+    // 1. Thử lấy từ Bearer Token (nếu có)
+    const authHeader = req.header('authorization')?.trim();
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7).trim();
+      try {
+        const decoded = jwt.decode(token);
+        if (decoded && (decoded.sub || decoded.user_id || decoded.id)) {
+          userId = decoded.sub || decoded.user_id || decoded.id;
+        }
+      } catch (err) {
+        warnRejectedAuth(`Lỗi giải mã token: ${err.message}`);
       }
-      return null;
     }
 
-    const userId = req.header('x-user-id')?.trim();
+    // 2. Nếu chưa có userId từ token, lấy từ header x-user-id (hỗ trợ dev / frontend hiện có)
+    if (!userId) {
+      userId = req.header('x-user-id')?.trim();
+    }
+
     if (!userId) {
       if (required) {
         warnRejectedAuth('thiếu header x-user-id');
@@ -65,6 +80,8 @@ export function createAuthMiddleware({ userRepository }) {
       return null;
     }
 
+    // Đảm bảo role được chuẩn hóa chữ thường
+    user.role = normalizeRole(user.role);
     return user;
   };
 
@@ -108,5 +125,53 @@ export function createAuthMiddleware({ userRepository }) {
     }
   };
 
-  return { requireAuth, optionalAuth };
+  /**
+   * Middleware kiểm tra vai trò người dùng (RBAC Guard)
+   * Luôn đọc lại vai trò trực tiếp từ DB để đảm bảo dữ liệu mới nhất (chống giả mạo qua token/cache)
+   */
+  const requireRole = (requiredRole) => {
+    return async (req, res, next) => {
+      try {
+        const user = await resolveUser(req, { required: true });
+        if (!user) {
+          return res.status(401).json({
+            success: false,
+            message: authMessage,
+          });
+        }
+
+        // Đọc lại vai trò tươi mới nhất từ Database
+        const freshUser = await userRepository.findById(user.id);
+        if (!freshUser) {
+          return res.status(401).json({
+            success: false,
+            message: authMessage,
+          });
+        }
+
+        freshUser.role = normalizeRole(freshUser.role);
+
+        if (!hasRole(freshUser, requiredRole)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Bạn không có quyền thực hiện thao tác này.',
+          });
+        }
+
+        req.user = freshUser;
+        next();
+      } catch (error) {
+        if (error.statusCode === 401) {
+          return res.status(401).json({
+            success: false,
+            message: error.message,
+          });
+        }
+
+        next(error);
+      }
+    };
+  };
+
+  return { requireAuth, optionalAuth, requireRole };
 }
