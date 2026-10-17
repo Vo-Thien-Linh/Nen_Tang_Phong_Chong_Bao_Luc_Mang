@@ -383,6 +383,7 @@ app.use((err, _req, res, _next) => {
   logApiError(err);
   res.status(err.statusCode || 500).json({
     success: false,
+    code: err.code,
     message: err.statusCode ? err.message : 'Đã có lỗi hệ thống',
   });
 });

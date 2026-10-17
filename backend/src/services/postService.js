@@ -1,4 +1,4 @@
-export function createPostService({ postRepository, moderationHook, clock = () => new Date() }) {
+export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
   const normalizeImageUrl = (value) => {
     if (value === null) return null;
@@ -29,11 +29,21 @@ export function createPostService({ postRepository, moderationHook, clock = () =
         throw error;
       }
 
+      const imageModeration = imageUrl && imageModerationClient
+        ? await imageModerationClient(imageUrl)
+        : null;
+      if (imageModeration?.decision === 'rejected') {
+        const error = new Error('Bài viết của bạn vi phạm quy định cộng đồng');
+        error.statusCode = 422;
+        error.code = 'CONTENT_VIOLATION';
+        throw error;
+      }
       const post = await postRepository.createPost({
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
+        imageModeration,
       });
 
       await moderationHook.afterPostCreated(post);

@@ -4,6 +4,12 @@ const postSelect = `
     p.author_id,
     p.content,
     p.image_url,
+    p.image_moderation_status,
+    p.image_moderation_label,
+    p.image_moderation_safe,
+    p.image_moderation_nsfw,
+    p.image_moderation_violence,
+    p.image_moderation_thresholds,
     p.privacy,
     p.ai_label,
     p.ai_confidence,
@@ -97,12 +103,19 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
 
 export function createPostRepository({ pool }) {
   return {
-    async createPost({ authorId, content, imageUrl, privacy = 'public' }) {
+    async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public' }) {
       const result = await pool.query(
-        `INSERT INTO posts (author_id, content, image_url, privacy)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO posts (author_id, content, image_url, privacy, image_moderation_status,
+                            image_moderation_label, image_moderation_safe, image_moderation_nsfw,
+                            image_moderation_violence, image_moderation_thresholds)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id`,
-        [authorId, content, imageUrl, privacy]
+        [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
+          imageModeration?.images?.[0]?.scores ? null : null,
+          imageModeration?.images?.[0]?.scores?.safe || null,
+          imageModeration?.images?.[0]?.scores?.nsfw || null,
+          imageModeration?.images?.[0]?.scores?.violence || null,
+          imageModeration?.thresholds || null]
       );
 
       return this.findById(result.rows[0].id);
@@ -209,12 +222,20 @@ export function createPostRepository({ pool }) {
       }
     },
 
-    async createComment({ postId, authorId, content, imageUrl = null, imageLabel = 'Safe' }) {
+    async createComment({ postId, authorId, content, imageUrl = null, imageLabel = 'Safe', imageModeration = null }) {
       const res = await pool.query(
-        `INSERT INTO comments (post_id, author_id, content, image_url, image_label)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, post_id, author_id, content, image_url, image_label, created_at`,
-        [postId, authorId, content || '', imageUrl, imageLabel]
+        `INSERT INTO comments (post_id, author_id, content, image_url, image_label,
+                              image_moderation_status, image_moderation_safe, image_moderation_nsfw,
+                              image_moderation_violence, image_moderation_thresholds)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING id, post_id, author_id, content, image_url, image_label,
+                   image_moderation_status, image_moderation_safe, image_moderation_nsfw,
+                   image_moderation_violence, image_moderation_thresholds, created_at`,
+        [postId, authorId, content || '', imageUrl, imageLabel, imageModeration?.decision || null,
+          imageModeration?.images?.[0]?.scores?.safe || null,
+          imageModeration?.images?.[0]?.scores?.nsfw || null,
+          imageModeration?.images?.[0]?.scores?.violence || null,
+          imageModeration?.thresholds || null]
       );
 
       await pool.query(

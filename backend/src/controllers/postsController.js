@@ -21,6 +21,11 @@ export function mapPostToResponse(post) {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
+    imageModeration: post.image_moderation_status ? {
+      status: post.image_moderation_status,
+      label: post.image_moderation_label,
+      scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
+    } : null,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
     editedAt: post.edited_at || null,
@@ -87,7 +92,7 @@ export function mapPostToResponse(post) {
   };
 }
 
-export function createPostsController({ postService, postRepository }) {
+export function createPostsController({ postService, postRepository, imageModerationClient }) {
   return {
     async createPost(req, res, next) {
       try {
@@ -190,12 +195,19 @@ export function createPostsController({ postService, postRepository }) {
           return res.status(400).json({ success: false, message: 'Nội dung hoặc ảnh bình luận không được rỗng' });
         }
 
+        const imageModeration = imageUrl && imageModerationClient
+          ? await imageModerationClient(imageUrl)
+          : null;
+        if (imageModeration?.decision === 'rejected') {
+          return res.status(422).json({ success: false, code: 'CONTENT_VIOLATION', message: 'Bài viết của bạn vi phạm quy định cộng đồng' });
+        }
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
           content: (content || '').trim(),
           imageUrl: imageUrl || null,
           imageLabel: imageLabel || 'Safe',
+          imageModeration,
         });
 
         const commentData = {
