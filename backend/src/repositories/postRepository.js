@@ -125,7 +125,30 @@ export function createPostRepository({ pool }) {
           imageModeration?.moderationExpiresAt || null]
       );
 
-      return this.findById(result.rows[0].id);
+      const inserted = result.rows[0];
+      const post = await this.findById(inserted.id, authorId);
+      if (post) return post;
+
+      // Keep the create response usable if a visibility race hides the row
+      // immediately after INSERT. The database row already exists, so return
+      // the inserted values rather than turning a successful write into 500.
+      return {
+        id: String(inserted.id),
+        author_id: authorId,
+        content,
+        image_url: imageUrl,
+        privacy,
+        image_moderation_status: imageModeration?.decision || null,
+        image_moderation_safe: imageModeration?.images?.[0]?.scores?.safe || null,
+        image_moderation_nsfw: imageModeration?.images?.[0]?.scores?.nsfw || null,
+        image_moderation_violence: imageModeration?.images?.[0]?.scores?.violence || null,
+        image_moderation_thresholds: imageModeration?.thresholds || null,
+        moderation_expires_at: imageModeration?.moderationExpiresAt || null,
+        likes_count: 0,
+        comments_count: 0,
+        shares_count: 0,
+        ai_status: 'approved',
+      };
     },
 
     async findById(postId, viewerId = null) {
