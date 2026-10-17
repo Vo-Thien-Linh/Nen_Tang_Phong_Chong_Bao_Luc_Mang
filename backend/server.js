@@ -14,12 +14,17 @@ import { realtimeService } from './src/services/realtimeService.js';
 import { startModerationExpirySweeper } from './src/services/moderationExpirySweeper.js';
 import { createModerationAppealRouter } from './src/routes/moderationAppealRouter.js';
 import { createImagePreviewRouter } from './src/routes/imagePreviewRouter.js';
+import { createUserRepository } from './src/repositories/userRepository.js';
+import { createAuthMiddleware } from './src/middleware/auth.js';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const userRepository = createUserRepository({ pool });
+const { requireRole } = createAuthMiddleware({ userRepository });
 
 function logApiError(error) {
   console.error('Lỗi API:', {
@@ -228,8 +233,8 @@ let aiOverrideLogsStore = [
 // 5. REST APIs: DASHBOARD ADMIN & KIỂM DUYỆT NỘI DUNG
 // ========================================================
 
-// 5.1 Thống kê KPI Tổng quan
-app.get('/api/admin/stats', (req, res) => {
+// 5.1 Thống kê KPI Tổng quan (Yêu cầu quyền Quản trị viên)
+app.get('/api/admin/stats', requireRole('admin'), (req, res) => {
   const pendingReports = reportsStore.filter(r => r.status === 'pending').length;
   const pendingAppeals = appealsStore.filter(a => a.status === 'pending').length;
   const falsePositivesOverridden = aiOverrideLogsStore.length;
@@ -253,12 +258,12 @@ app.get('/api/admin/stats', (req, res) => {
   });
 });
 
-// 5.2 Lấy danh sách Báo cáo
-app.get('/api/reports', (req, res) => {
+// 5.2 Lấy danh sách Báo cáo (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.get('/api/reports', requireRole('moderator'), (req, res) => {
   res.json({ success: true, data: reportsStore });
 });
 
-// 5.3 Gửi Báo cáo người dùng mới
+// 5.3 Gửi Báo cáo người dùng mới (Người dùng đăng nhập gửi báo cáo)
 app.post('/api/reports', (req, res) => {
   const { reporter, targetType, targetId, targetAuthor, contentExcerpt, reason, reasonLabel, details } = req.body;
   
@@ -282,8 +287,8 @@ app.post('/api/reports', (req, res) => {
   res.json({ success: true, message: 'Đã gửi báo cáo thành công!', data: newReport });
 });
 
-// 5.4 Xử lý Báo cáo (Chấp thuận vi phạm hoặc Bác bỏ)
-app.patch('/api/reports/:id', (req, res) => {
+// 5.4 Xử lý Báo cáo (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.patch('/api/reports/:id', requireRole('moderator'), (req, res) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body; // status: 'resolved_violation' | 'dismissed'
 
@@ -298,8 +303,8 @@ app.patch('/api/reports/:id', (req, res) => {
   res.json({ success: true, message: 'Cập nhật trạng thái báo cáo thành công', data: report });
 });
 
-// 5.5 Lấy danh sách Khiếu nại
-app.get('/api/appeals', (req, res) => {
+// 5.5 Lấy danh sách Khiếu nại (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.get('/api/appeals', requireRole('moderator'), (req, res) => {
   res.json({ success: true, data: appealsStore });
 });
 
@@ -326,8 +331,8 @@ app.post('/api/appeals', (req, res) => {
   res.json({ success: true, message: 'Đã gửi khiếu nại thành công đến Quản trị viên!', data: newAppeal });
 });
 
-// 5.7 Xử lý Khiếu nại (Chấp thuận minh oan hoặc Bác bỏ)
-app.patch('/api/appeals/:id', (req, res) => {
+// 5.7 Xử lý Khiếu nại (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.patch('/api/appeals/:id', requireRole('moderator'), (req, res) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body; // status: 'approved' | 'rejected'
 
@@ -343,7 +348,7 @@ app.patch('/api/appeals/:id', (req, res) => {
   if (status === 'approved') {
     aiOverrideLogsStore.unshift({
       id: `ovr-${Date.now()}`,
-      adminName: 'Quản Trị Viên Hệ Thống',
+      adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
       contentType: appeal.contentType,
       contentId: appeal.contentId,
       rawText: appeal.originalText,
@@ -359,20 +364,20 @@ app.patch('/api/appeals/:id', (req, res) => {
   res.json({ success: true, message: 'Đã xử lý khiếu nại thành công', data: appeal });
 });
 
-// 5.8 Admin can thiệp sửa nhãn AI trực tiếp (Override / Re-classify)
-app.post('/api/admin/override-ai-label', (req, res) => {
+// 5.8 Hiệu chỉnh nhãn AI trực tiếp (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.post('/api/admin/override-ai-label', requireRole('moderator'), (req, res) => {
   const { contentType, contentId, rawText, originalAiLabel, correctedLabel, overrideReason } = req.body;
 
   const newLog = {
     id: `ovr-${Date.now()}`,
-    adminName: 'Quản Trị Viên Hệ Thống',
+    adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
     contentType: contentType || 'post',
     contentId: contentId || 'item-id',
     rawText: rawText || '',
     originalAiLabel: originalAiLabel || 'Normal',
     originalConfidence: 0.95,
     correctedLabel: correctedLabel || 'Normal',
-    overrideReason: overrideReason || 'Hiệu chỉnh thủ công bởi Quản trị viên',
+    overrideReason: overrideReason || 'Hiệu chỉnh thủ công bởi Điều hành viên / Quản trị viên',
     isExportedForRetraining: false,
     createdAt: 'Vừa xong'
   };
@@ -381,8 +386,8 @@ app.post('/api/admin/override-ai-label', (req, res) => {
   res.json({ success: true, message: 'Đã hiệu chỉnh nhãn AI và ghi nhật ký huấn luyện lại!', data: newLog });
 });
 
-// 5.9 Lấy danh sách Logs hiệu chỉnh AI / Xuất tập dữ liệu tái huấn luyện
-app.get('/api/admin/ai-overrides', (req, res) => {
+// 5.9 Lấy danh sách Logs hiệu chỉnh AI (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.get('/api/admin/ai-overrides', requireRole('moderator'), (req, res) => {
   res.json({ success: true, data: aiOverrideLogsStore });
 });
 

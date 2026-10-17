@@ -260,5 +260,107 @@ export function createUserRepository({ pool }) {
         };
       });
     },
+
+    async findAllUsers({ search = '', role = 'all', page = 1, limit = 10 } = {}) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions = [];
+      const values = [];
+      let paramIndex = 1;
+
+      if (search && search.trim()) {
+        const queryTerm = `%${search.trim().toLowerCase()}%`;
+        conditions.push(`(LOWER(username) LIKE $${paramIndex} OR LOWER(full_name) LIKE $${paramIndex} OR LOWER(COALESCE(email, '')) LIKE $${paramIndex} OR LOWER(COALESCE(phone, '')) LIKE $${paramIndex})`);
+        values.push(queryTerm);
+        paramIndex++;
+      }
+
+      if (role && role !== 'all') {
+        conditions.push(`LOWER(role) = $${paramIndex}`);
+        values.push(role.trim().toLowerCase());
+        paramIndex++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const countResult = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM users ${whereClause}`,
+        values
+      );
+      const total = countResult.rows[0]?.total || 0;
+
+      const queryValues = [...values, limitNum, offset];
+      const usersResult = await pool.query(
+        `SELECT id, username, email, full_name, avatar_url, cover_url, role, status, is_verified, phone, created_at
+         FROM users
+         ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        queryValues
+      );
+
+      return {
+        users: usersResult.rows,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum) || 1,
+      };
+    },
+
+    async countAdmins() {
+      const result = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM users WHERE LOWER(role) = 'admin' AND status = 'active'`
+      );
+      return result.rows[0]?.count || 0;
+    },
+
+    async updateUserRole({ targetUserId, newRole, actorId }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const oldRole = (user.role || 'user').toLowerCase();
+      const normalizedNewRole = newRole.toLowerCase();
+
+      // Chặn admin tự hạ quyền mình
+      if (targetUserId === actorId && normalizedNewRole !== 'admin') {
+        const error = new Error('Bạn không thể tự hạ vai trò quản trị viên của chính mình.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // Chặn hạ quyền admin cuối cùng
+      if (oldRole === 'admin' && normalizedNewRole !== 'admin') {
+        const adminCount = await this.countAdmins();
+        if (adminCount <= 1) {
+          const error = new Error('Không thể hạ vai trò vì đây là tài khoản quản trị viên duy nhất còn lại.');
+          error.statusCode = 400;
+          throw error;
+        }
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET role = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified`,
+        [normalizedNewRole, targetUserId]
+      );
+
+      // Ghi audit log
+      await pool.query(
+        `INSERT INTO role_audit_logs (actor_id, target_user_id, old_role, new_role)
+         VALUES ($1, $2, $3, $4)`,
+        [actorId, targetUserId, oldRole, normalizedNewRole]
+      );
+
+      return updateResult.rows[0];
+    },
   };
 }

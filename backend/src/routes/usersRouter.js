@@ -1,6 +1,7 @@
 import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
+import { VALID_ROLES, normalizeRole } from '../utils/rbac.js';
 
 /**
  * Chuyển đổi dữ liệu user từ DB sang format chuẩn cho Frontend
@@ -52,7 +53,89 @@ function formatFriend(row) {
 export function createUsersRouter({ pool }) {
   const router = express.Router();
   const userRepository = createUserRepository({ pool });
-  const { requireAuth, optionalAuth } = createAuthMiddleware({ userRepository });
+  const { requireAuth, optionalAuth, requireRole } = createAuthMiddleware({ userRepository });
+
+  /**
+   * GET /api/users
+   * Quản trị viên lấy danh sách toàn bộ người dùng hệ thống (tìm kiếm, lọc vai trò, phân trang)
+   * Yêu cầu quyền admin
+   */
+  router.get('/', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { search, role, page, limit } = req.query;
+      const result = await userRepository.findAllUsers({ search, role, page, limit });
+      res.json({
+        success: true,
+        data: result.users.map(u => ({
+          id: u.id,
+          username: u.username,
+          name: u.full_name,
+          email: u.email,
+          phone: u.phone,
+          avatar: u.avatar_url,
+          avatar_url: u.avatar_url,
+          cover_url: u.cover_url,
+          role: u.role,
+          status: u.status,
+          isVerified: u.is_verified,
+          createdAt: u.created_at,
+        })),
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          totalPages: result.totalPages,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * PATCH /api/users/:userId/role
+   * Thay đổi vai trò người dùng (user / moderator / admin)
+   * Yêu cầu quyền admin
+   */
+  router.patch('/:userId/role', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body;
+
+      if (!role) {
+        return res.status(400).json({ success: false, message: 'Vui lòng cung cấp vai trò mới.' });
+      }
+
+      const normalizedRole = normalizeRole(role);
+      if (!VALID_ROLES.includes(normalizedRole)) {
+        return res.status(400).json({
+          success: false,
+          message: `Vai trò "${role}" không hợp lệ. Chỉ chấp nhận: user, moderator, admin.`,
+        });
+      }
+
+      const updatedUser = await userRepository.updateUserRole({
+        targetUserId: userId,
+        newRole: normalizedRole,
+        actorId: req.user.id,
+      });
+
+      res.json({
+        success: true,
+        message: `Đã cập nhật vai trò người dùng sang ${normalizedRole}.`,
+        data: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          name: updatedUser.full_name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          status: updatedUser.status,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   /**
    * GET /api/users/:userId/profile

@@ -26,6 +26,17 @@ async function runMigration() {
       console.log('✅ seed.sql thành công!');
     }
 
+    const migrationsDir = path.resolve(__dirname, '../../../database/migrations');
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+      for (const file of files) {
+        console.log(`📦 Đang chạy migration: ${file}...`);
+        const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+        await pool.query(sql);
+        console.log(`✅ ${file} thành công!`);
+      }
+    }
+
     const res = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;");
     console.log('🎉 Danh sách 12 bảng hiện tại trong Supabase:');
     console.table(res.rows);
