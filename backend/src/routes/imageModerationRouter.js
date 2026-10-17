@@ -47,8 +47,8 @@ async function review(req, res, next, pool, decision) {
   try {
     const rejectionColumn = decision === 'rejected' ? (table === 'posts' ? ', ai_status = \'hidden\'' : ', is_hidden = TRUE') : '';
     const result = await pool.query(
-      `UPDATE ${table} SET image_moderation_status = $1, image_moderation_reviewed_by = $2,
-       image_moderation_reviewed_at = CURRENT_TIMESTAMP${rejectionColumn}
+      `UPDATE ${table} SET image_moderation_status = $1, moderation_expires_at = NULL,
+       image_moderation_reviewed_by = $2, image_moderation_reviewed_at = CURRENT_TIMESTAMP${rejectionColumn}
        WHERE id = $3 AND image_moderation_status = 'pending_review'
        RETURNING id, author_id`,
       [decision, req.user.id, req.params.id]
