@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS posts (
     image_moderation_thresholds JSONB DEFAULT NULL,
     image_moderation_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     image_moderation_reviewed_at TIMESTAMPTZ DEFAULT NULL,
+    moderation_expires_at TIMESTAMPTZ DEFAULT NULL,
     privacy VARCHAR(20) DEFAULT 'public', -- 'public', 'friends', 'private'
     
     -- Kiểm duyệt nội dung AI
@@ -105,6 +106,7 @@ CREATE TABLE IF NOT EXISTS comments (
     image_moderation_thresholds JSONB DEFAULT NULL,
     image_moderation_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     image_moderation_reviewed_at TIMESTAMPTZ DEFAULT NULL,
+    moderation_expires_at TIMESTAMPTZ DEFAULT NULL,
     
     -- Kiểm duyệt AI cho bình luận
     ai_label VARCHAR(50) DEFAULT 'Normal',
