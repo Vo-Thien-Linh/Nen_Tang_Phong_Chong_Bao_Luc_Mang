@@ -131,6 +131,7 @@ export default function PostCard({
   const [unblurredComments, setUnblurredComments] = useState({});
   const [unblurredPosts, setUnblurredPosts] = useState({});
   const [revealedComments, setRevealedComments] = useState({});
+  const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
   const isBanned = currentUser?.status === 'banned';
   const isCooldown = currentUser?.status === 'cooldown' && currentUser?.cooldown_until && new Date(currentUser.cooldown_until) > new Date();
   const commentFileInputRef = useRef(null);
