@@ -2,6 +2,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 import time
 from app.services.ai_services import predict_vi_content
+from app.image_moderation.inference import ImageModerationFailure, infer_image
+from app.image_moderation.policy import decide_image_moderation
 
 router = APIRouter(prefix="", tags=["Kiểm duyệt nội dung AI (Moderation)"])
 
@@ -41,3 +43,16 @@ def moderate_text(req: ModerateRequest):
         reason=result["reason"],
         cooldown_seconds=cooldown
     )
+
+
+class ImageModerateRequest(BaseModel):
+    image_url: str
+
+
+@router.post("/moderate/image", summary="Phân tích kiểm duyệt ảnh bằng EfficientNet-B1")
+def moderate_image(req: ImageModerateRequest):
+    try:
+        result = infer_image(req.image_url)
+        return decide_image_moderation(result["scores"])
+    except ImageModerationFailure:
+        return decide_image_moderation(None, failed=True)
