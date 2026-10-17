@@ -31,3 +31,11 @@ test('creation is blocked while a request is pending', () => {
   assert.equal(canStartCreation(false), true);
   assert.equal(canStartCreation(true), false);
 });
+
+test('comment submit guard stays closed until the request finishes', () => {
+  let pending = false;
+  pending = true;
+  assert.equal(canStartCreation(pending), false);
+  pending = false;
+  assert.equal(canStartCreation(pending), true);
+});
