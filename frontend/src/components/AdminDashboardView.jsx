@@ -27,7 +27,6 @@ export default function AdminDashboardView({
   // Tab phân hệ chính: 'overview' | 'content' | 'reports' | 'appeals' | 'users' | 'retraining'
   const [activeSubTab, setActiveSubTab] = useState('overview');
 
-  
 
   // Bộ lọc nội dung
   const [searchQuery, setSearchQuery] = useState('');

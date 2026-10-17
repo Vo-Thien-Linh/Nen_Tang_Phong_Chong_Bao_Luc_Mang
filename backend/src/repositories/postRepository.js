@@ -289,9 +289,8 @@ export function createPostRepository({ pool }) {
 
       if (viewerId) {
         params.push(viewerId);
-        visibilityWhere = `((p.ai_status = 'approved'
-          AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
-          OR p.author_id = $1)`;
+        visibilityWhere = `(p.ai_status = 'approved' OR p.author_id = $1)
+          AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive') OR p.author_id = $1)`;
       }
 
       const result = await pool.query(

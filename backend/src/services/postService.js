@@ -43,7 +43,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
-        imageModeration,
+        ...(imageModeration ? { imageModeration } : {}),
       });
 
       await moderationHook.afterPostCreated(post);
