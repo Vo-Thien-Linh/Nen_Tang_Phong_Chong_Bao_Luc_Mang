@@ -1,4 +1,5 @@
 import { realtimeService } from '../services/realtimeService.js';
+import { moderateTextContent } from '../utils/textModerator.js';
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -195,8 +196,53 @@ export function createPostsController({ postService, postRepository, imageModera
         const { postId } = req.params;
         const { content, imageUrl } = req.body || {};
 
+        if (req.user?.status === 'banned') {
+          return res.status(403).json({
+            success: false,
+            message: 'Tài khoản của bạn đã bị khóa, không thể bình luận.',
+          });
+        }
+        if (req.user?.status === 'cooldown' && req.user?.cooldown_until && new Date(req.user.cooldown_until) > new Date()) {
+          return res.status(403).json({
+            success: false,
+            message: 'Bạn đang trong thời gian bị hạn chế đăng bài và bình luận.',
+          });
+        }
+
         if ((!content || !content.trim()) && !imageUrl) {
           return res.status(400).json({ success: false, message: 'Nội dung hoặc ảnh bình luận không được rỗng' });
+        }
+
+        const normalizedContent = (content || '').trim();
+        const textMod = await moderateTextContent(normalizedContent);
+
+        let isHidden = false;
+        let isSoftHidden = false;
+        let aiStatus = 'approved';
+
+        if (textMod.label === 'Toxic') {
+          isSoftHidden = true;
+          isHidden = false;
+          aiStatus = 'approved';
+        } else if (textMod.label === 'Hate Speech') {
+          isHidden = true;
+          isSoftHidden = false;
+          aiStatus = 'hidden';
+        } else if (textMod.label === 'Violence') {
+          isHidden = true;
+          isSoftHidden = false;
+          aiStatus = 'hidden';
+
+          if (postRepository.pool) {
+            const d = new Date();
+            d.setHours(d.getHours() + 24);
+            await postRepository.pool.query(
+              `UPDATE users
+               SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực trong bình luận', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [d.toISOString(), normalizedContent, req.user.id]
+            );
+          }
         }
 
         const imageModeration = imageUrl && imageModerationClient
@@ -205,12 +251,18 @@ export function createPostsController({ postService, postRepository, imageModera
         const heldModeration = imageModeration?.decision === 'rejected'
           ? { ...imageModeration, decision: 'rejected_hold', moderationExpiresAt: new Date(Date.now() + Number(imageModeration.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
           : imageModeration;
+
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
-          content: (content || '').trim(),
+          content: normalizedContent,
           imageUrl: imageUrl || null,
           imageModeration: heldModeration,
+          aiLabel: textMod.label,
+          aiConfidence: textMod.confidence,
+          isHidden,
+          isSoftHidden,
+          aiStatus,
         });
 
         const commentData = {
@@ -219,9 +271,18 @@ export function createPostsController({ postService, postRepository, imageModera
             id: comment.author_id,
             name: comment.full_name,
             avatar: comment.avatar_url,
+            isVerified: Boolean(comment.is_verified),
           },
           content: comment.content,
           image: comment.image_url || null,
+          is_hidden: Boolean(comment.is_hidden),
+          isHidden: Boolean(comment.is_hidden),
+          is_soft_hidden: Boolean(comment.is_soft_hidden),
+          isSoftHidden: Boolean(comment.is_soft_hidden),
+          ai_label: comment.ai_label,
+          aiLabel: comment.ai_label,
+          ai_status: comment.ai_status,
+          aiStatus: comment.ai_status,
           imageModeration: comment.image_moderation_status ? {
             status: comment.image_moderation_status,
             moderationExpiresAt: comment.moderation_expires_at || null,
@@ -232,7 +293,7 @@ export function createPostsController({ postService, postRepository, imageModera
           createdAt: comment.created_at,
         };
 
-        if (!['pending_review', 'rejected_hold'].includes(commentData.imageModeration?.status)) {
+        if (!isHidden && !['pending_review', 'rejected_hold'].includes(commentData.imageModeration?.status)) {
           realtimeService.broadcast({
             type: 'COMMENT_CREATED',
             postId: String(postId),

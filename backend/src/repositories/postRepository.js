@@ -80,9 +80,19 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
           name: c.full_name,
           username: c.username,
           avatar: c.avatar_url,
+          isVerified: Boolean(c.is_verified),
+          is_verified: Boolean(c.is_verified),
         },
         content: c.content,
         image: c.image_url || null,
+        is_hidden: Boolean(c.is_hidden),
+        isHidden: Boolean(c.is_hidden),
+        is_soft_hidden: Boolean(c.is_soft_hidden),
+        isSoftHidden: Boolean(c.is_soft_hidden),
+        ai_label: c.ai_label || null,
+        aiLabel: c.ai_label || null,
+        ai_status: c.ai_status || 'approved',
+        aiStatus: c.ai_status || 'approved',
         imageModeration: c.image_moderation_status ? {
           status: c.image_moderation_status,
           scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
@@ -90,6 +100,7 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
           moderationExpiresAt: c.moderation_expires_at || null,
         } : null,
         created_at: c.created_at,
+        time: 'Vừa xong',
       });
     }
   }
@@ -109,12 +120,14 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
 
 export function createPostRepository({ pool }) {
   return {
-    async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public' }) {
+    pool,
+    async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public', aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
       const result = await pool.query(
         `INSERT INTO posts (author_id, content, image_url, privacy, image_moderation_status,
                             image_moderation_label, image_moderation_safe, image_moderation_nsfw,
-                            image_moderation_violence, image_moderation_thresholds, moderation_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            image_moderation_violence, image_moderation_thresholds, moderation_expires_at,
+                            ai_label, ai_confidence, ai_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING id`,
         [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
           imageModeration?.images?.[0]?.scores ? null : null,
@@ -122,7 +135,8 @@ export function createPostRepository({ pool }) {
           imageModeration?.images?.[0]?.scores?.nsfw || null,
           imageModeration?.images?.[0]?.scores?.violence || null,
           imageModeration?.thresholds || null,
-          imageModeration?.moderationExpiresAt || null]
+          imageModeration?.moderationExpiresAt || null,
+          aiLabel, aiConfidence, aiStatus]
       );
 
       const inserted = result.rows[0];
@@ -189,10 +203,11 @@ export function createPostRepository({ pool }) {
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
-                u.id AS author_id, u.full_name, u.username, u.avatar_url
+                c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
-           WHERE c.post_id = $1 AND c.is_hidden = false
+           WHERE c.post_id = $1 AND (c.is_hidden = false OR c.author_id = $2)
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.image_moderation_status = 'rejected_hold' AND c.moderation_expires_at > CURRENT_TIMESTAMP AND c.author_id = $2))
          ORDER BY c.created_at ASC`,
@@ -277,23 +292,26 @@ export function createPostRepository({ pool }) {
       }
     },
 
-    async createComment({ postId, authorId, content, imageUrl = null, imageModeration = null }) {
+    async createComment({ postId, authorId, content, imageUrl = null, imageModeration = null, aiLabel = 'Normal', aiConfidence = 1.0, isHidden = false, isSoftHidden = false, aiStatus = 'approved' }) {
       const res = await pool.query(
         `INSERT INTO comments (post_id, author_id, content, image_url, image_label,
                               image_moderation_status, image_moderation_safe, image_moderation_nsfw,
-                              image_moderation_violence, image_moderation_thresholds, moderation_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                              image_moderation_violence, image_moderation_thresholds, moderation_expires_at,
+                              ai_label, ai_confidence, is_hidden, is_soft_hidden, ai_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING id, post_id, author_id, content, image_url, image_label,
                    image_moderation_status, image_moderation_safe, image_moderation_nsfw,
-                   image_moderation_violence, image_moderation_thresholds, created_at`,
+                   image_moderation_violence, image_moderation_thresholds,
+                   ai_label, ai_confidence, is_hidden, is_soft_hidden, ai_status, created_at`,
         [postId, authorId, content || '', imageUrl, 'Safe', imageModeration?.decision || null,
           imageModeration?.images?.[0]?.scores?.safe || null,
           imageModeration?.images?.[0]?.scores?.nsfw || null,
           imageModeration?.images?.[0]?.scores?.violence || null,
-          imageModeration?.thresholds || null, imageModeration?.moderationExpiresAt || null]
+          imageModeration?.thresholds || null, imageModeration?.moderationExpiresAt || null,
+          aiLabel, aiConfidence, Boolean(isHidden), Boolean(isSoftHidden), aiStatus]
       );
 
-      if (!['pending_review', 'rejected_hold'].includes(imageModeration?.decision)) {
+      if (!['pending_review', 'rejected_hold'].includes(imageModeration?.decision) && !isHidden) {
         await pool.query(`UPDATE posts SET comments_count = comments_count + 1 WHERE id = $1`, [postId]);
       }
 
@@ -301,7 +319,8 @@ export function createPostRepository({ pool }) {
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
-                u.id AS author_id, u.full_name, u.username, u.avatar_url
+                c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
          WHERE c.id = $1`,
@@ -375,10 +394,11 @@ export function createPostRepository({ pool }) {
 
       const commentsResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
-                u.id AS author_id, u.full_name, u.username, u.avatar_url
+                c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
-           WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+           WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.image_moderation_status = 'rejected_hold' AND c.moderation_expires_at > CURRENT_TIMESTAMP AND c.author_id = $2))
          ORDER BY c.created_at ASC`,

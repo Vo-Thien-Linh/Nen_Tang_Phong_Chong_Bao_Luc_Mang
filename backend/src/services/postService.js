@@ -1,3 +1,5 @@
+import { moderateTextContent } from '../utils/textModerator.js';
+
 export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const holdViolent = (result) => result?.decision === 'rejected'
     ? { ...result, decision: 'rejected_hold', moderationExpiresAt: new Date(clock().getTime() + Number(result.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
@@ -24,12 +26,34 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      if (isRestrictedUser(user)) {
+        const error = new Error('Tài khoản của bạn đang bị hạn chế đăng bài và bình luận');
+        error.statusCode = 403;
+        throw error;
+      }
+
       const normalizedContent = normalizeText(content);
 
       if (!normalizedContent) {
         const error = new Error('Nội dung là bắt buộc');
         error.statusCode = 400;
         throw error;
+      }
+
+      const textMod = await moderateTextContent(normalizedContent);
+      let aiStatus = 'approved';
+      if (textMod.label === 'Violence' || textMod.label === 'Hate Speech') {
+        aiStatus = 'hidden';
+      }
+
+      if (textMod.label === 'Violence' && postRepository.pool) {
+        const d = new Date(clock().getTime() + 24 * 3600 * 1000);
+        await postRepository.pool.query(
+          `UPDATE users
+           SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực trong bài viết', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [d.toISOString(), normalizedContent, user.id]
+        );
       }
 
       const imageModeration = imageUrl && imageModerationClient
@@ -41,6 +65,11 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
+        ...(textMod.label !== 'Normal' || aiStatus !== 'approved' ? {
+          aiLabel: textMod.label,
+          aiConfidence: textMod.confidence,
+          aiStatus,
+        } : {}),
         ...(heldModeration ? { imageModeration: heldModeration } : {}),
       });
 

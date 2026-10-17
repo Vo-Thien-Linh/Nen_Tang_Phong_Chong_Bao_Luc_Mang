@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Image, Sparkles, Send, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer } from 'lucide-react';
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
@@ -19,6 +19,40 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const submitLockRef = useRef(false);
+
+  // Trạng thái xử phạt / cấm đăng bài
+  const isBanned = currentUser?.status === 'banned';
+  const cooldownUntil = currentUser?.cooldown_until ? new Date(currentUser.cooldown_until) : null;
+  const isCooldown = currentUser?.status === 'cooldown' && cooldownUntil && cooldownUntil > new Date();
+  const [remainingTimeStr, setRemainingTimeStr] = useState('');
+
+  useEffect(() => {
+    if (!isCooldown || !cooldownUntil) {
+      setRemainingTimeStr('');
+      return;
+    }
+    const updateCountdown = () => {
+      const now = new Date();
+      const diff = cooldownUntil - now;
+      if (diff <= 0) {
+        setRemainingTimeStr('0 giây (đã hết hạn)');
+        return;
+      }
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      if (hours > 0) {
+        setRemainingTimeStr(`${hours} giờ ${minutes} phút ${seconds} giây`);
+      } else if (minutes > 0) {
+        setRemainingTimeStr(`${minutes} phút ${seconds} giây`);
+      } else {
+        setRemainingTimeStr(`${seconds} giây`);
+      }
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isCooldown, currentUser?.cooldown_until]);
 
   const handleCheckSafety = async () => {
     if (!content.trim()) return;
@@ -106,6 +140,16 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       return;
     }
 
+    if (isBanned) {
+      setErrorMessage('Tài khoản của bạn đang bị khóa. Không thể tạo bài viết mới.');
+      return;
+    }
+
+    if (isCooldown) {
+      setErrorMessage(`Bạn đang bị cấm đăng bài và bình luận. Thời gian còn lại: ${remainingTimeStr}`);
+      return;
+    }
+
     if (!content.trim()) {
       setErrorMessage('Nội dung là bắt buộc');
       return;
@@ -147,6 +191,33 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
 
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs mb-5 transition duration-200">
+      {/* Banner cảnh báo bị khóa tài khoản hoặc đang chịu án phạt cooldown */}
+      {isBanned && (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2.5 text-xs">
+          <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+          <div>
+            <strong className="font-semibold">Tài khoản của bạn đã bị khóa:</strong> Bạn không thể đăng bài hoặc bình luận trong hệ thống.
+          </div>
+        </div>
+      )}
+
+      {isCooldown && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5 text-xs">
+          <Timer className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <div className="font-semibold flex items-center gap-1.5">
+              <span>Đang bị hạn chế đăng bài và bình luận</span>
+              <span className="font-mono bg-amber-200/70 px-1.5 py-0.5 rounded text-[11px] text-amber-950 font-bold">
+                {remainingTimeStr || 'Đang đếm ngược...'}
+              </span>
+            </div>
+            <div className="text-[11px] text-amber-800">
+              Lý do: {currentUser?.cooldown_reason || 'Vi phạm tiêu chuẩn cộng đồng (bạo lực)'}. Khi countdown về 0 bạn sẽ tự động được mở quyền.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3">
         <img 
           src={currentUser?.avatar || DEFAULT_AVATAR} 
@@ -157,6 +228,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
           <textarea
             rows={2}
             value={content}
+            disabled={isBanned || isCooldown}
             onClick={() => {
               if (!currentUser && onRequireAuth) {
                 onRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
@@ -166,8 +238,18 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               setContent(e.target.value);
               if (aiPreview) setAiPreview(null);
             }}
-            placeholder={currentUser ? `${currentUser.name} ơi, bạn đang nghĩ gì thế?` : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."}
-            className="w-full resize-none p-3 text-slate-800 placeholder-slate-400 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm transition duration-150"
+            placeholder={
+              isBanned 
+                ? "Tài khoản của bạn đang bị khóa..." 
+                : isCooldown 
+                ? "Bạn đang trong thời gian bị hạn chế đăng bài..." 
+                : currentUser 
+                ? `${currentUser.name} ơi, bạn đang nghĩ gì thế?` 
+                : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."
+            }
+            className={`w-full resize-none p-3 text-slate-800 placeholder-slate-400 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm transition duration-150 ${
+              (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''
+            }`}
           />
 
           {message && (
