@@ -10,6 +10,10 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>&1
 )
 
-python main.py
+if exist .venv\Scripts\python.exe (
+    .venv\Scripts\python.exe main.py
+) else (
+    python main.py
+)
 pause
 
