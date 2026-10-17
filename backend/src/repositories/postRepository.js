@@ -281,6 +281,9 @@ export function createPostRepository({ pool }) {
 
       // Gửi thông báo cho chủ bài viết (nếu người bình luận không phải chính tác giả)
       try {
+        if (['pending_review', 'rejected_hold'].includes(imageModeration?.decision)) {
+          return detail.rows[0];
+        }
         const postRes = await pool.query(`SELECT author_id FROM posts WHERE id = $1`, [postId]);
         if (postRes.rows.length > 0) {
           const postAuthorId = postRes.rows[0].author_id;

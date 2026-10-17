@@ -33,7 +33,7 @@ export function createUserRepository({ pool }) {
       return result.rows[0] || null;
     },
 
-    async findProfileById(userId) {
+    async findProfileById(userId, viewerId = null) {
       // Thông tin profile đầy đủ kèm số lượng bài viết và bạn bè
       const result = await pool.query(
         `SELECT
@@ -41,13 +41,22 @@ export function createUserRepository({ pool }) {
            u.role, u.is_verified, u.bio, u.location, u.hometown,
            u.education, u.high_school, u.relationship_status,
            u.phone, u.status, u.created_at,
-           (SELECT COUNT(*) FROM posts WHERE author_id = u.id AND ai_status != 'hidden')::int AS posts_count,
+           (SELECT COUNT(*) FROM posts p
+            WHERE p.author_id = u.id
+              AND (
+                p.author_id = $2
+                OR (p.ai_status = 'approved'
+                    AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
+              )
+              AND (p.image_moderation_status IS NULL
+                   OR p.image_moderation_status <> 'rejected_hold'
+                   OR p.moderation_expires_at > CURRENT_TIMESTAMP))::int AS posts_count,
            (SELECT COUNT(*) FROM friendships
             WHERE (requester_id = u.id OR addressee_id = u.id)
               AND status = 'accepted')::int AS friends_count
          FROM users u
          WHERE u.id = $1`,
-        [userId]
+        [userId, viewerId]
       );
 
       return result.rows[0] || null;
@@ -108,6 +117,8 @@ export function createUserRepository({ pool }) {
         `SELECT
            p.id, p.author_id, p.content, p.image_url, p.privacy,
            p.ai_label, p.ai_confidence, p.ai_status,
+           p.image_moderation_status, p.image_moderation_safe, p.image_moderation_nsfw,
+           p.image_moderation_violence, p.image_moderation_thresholds, p.moderation_expires_at,
            p.likes_count, p.comments_count, p.shares_count,
            p.created_at, p.original_post_id,
            u.username, u.full_name, u.avatar_url, u.is_verified,
@@ -128,7 +139,14 @@ export function createUserRepository({ pool }) {
          LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id
          LEFT JOIN users orig_u ON orig_u.id = orig_p.author_id
          WHERE p.author_id = $1
-           AND (p.ai_status != 'hidden' OR p.author_id = $2)
+           AND (
+             p.author_id = $2
+             OR (p.ai_status = 'approved'
+                 AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
+           )
+           AND (p.image_moderation_status IS NULL
+                OR p.image_moderation_status <> 'rejected_hold'
+                OR p.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY p.created_at DESC`,
         [userId, viewerId || userId]
       );
@@ -158,13 +176,23 @@ export function createUserRepository({ pool }) {
 
       // Lấy comments
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status,
+                c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
+                c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
          WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+           AND (
+             c.author_id = $2
+             OR c.image_moderation_status IS NULL
+             OR c.image_moderation_status IN ('safe', 'sensitive')
+           )
+           AND (c.image_moderation_status IS NULL
+                OR c.image_moderation_status <> 'rejected_hold'
+                OR c.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY c.created_at ASC`,
-        [postIds]
+        [postIds, viewerId || userId]
       );
 
       // Nhóm reactions và comments theo post
@@ -201,6 +229,13 @@ export function createUserRepository({ pool }) {
               avatar: c.avatar_url,
             },
             content: c.content,
+            image: c.image_url || null,
+            imageModeration: c.image_moderation_status ? {
+              status: c.image_moderation_status,
+              scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+              thresholds: c.image_moderation_thresholds || null,
+              moderationExpiresAt: c.moderation_expires_at || null,
+            } : null,
             created_at: c.created_at,
           });
         }
@@ -216,6 +251,12 @@ export function createUserRepository({ pool }) {
           total_reactions: total,
           my_reaction: myReactionByPost.get(pid) || null,
           comments: commentsByPost.get(pid) || [],
+          imageModeration: post.image_moderation_status ? {
+            status: post.image_moderation_status,
+            scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
+            thresholds: post.image_moderation_thresholds || null,
+            moderationExpiresAt: post.moderation_expires_at || null,
+          } : null,
         };
       });
     },
