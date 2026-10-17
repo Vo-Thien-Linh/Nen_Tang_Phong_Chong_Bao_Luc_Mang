@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatRelativeTime } from '../utils/timeAgo';
-import { createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
+import { appealCommentModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
+import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
 import { 
   REACTIONS, 
   normalizeReactionCounts, 
@@ -38,7 +39,6 @@ export default function OriginalPostModal({
   const commentInputRef = useRef(null);
   const [commentImageFile, setCommentImageFile] = useState(null);
   const [commentImagePreview, setCommentImagePreview] = useState('');
-  const [commentImageLabel, setCommentImageLabel] = useState('Safe');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
   const commentFileInputRef = useRef(null);
@@ -201,8 +201,7 @@ export default function OriginalPostModal({
         userId: currentUser.id,
         postId: post.id,
         content: trimmed,
-        imageUrl: uploadedUrl,
-        imageLabel: commentImageLabel || 'Safe'
+        imageUrl: uploadedUrl
       });
 
       const newComment = res.data || {
@@ -214,7 +213,6 @@ export default function OriginalPostModal({
         },
         content: trimmed,
         image: uploadedUrl,
-        imageLabel: commentImageLabel || 'Safe',
         time: 'Vừa xong'
       };
 
@@ -222,7 +220,6 @@ export default function OriginalPostModal({
       setComments(updatedList);
       setCommentText('');
       handleRemoveCommentImage();
-      setCommentImageLabel('Safe');
       if (onUpdatePost) {
         onUpdatePost(post.id, {
           comments: updatedList,
@@ -498,18 +495,6 @@ export default function OriginalPostModal({
                   </div>
                   <div className="flex-1 text-xs">
                     <span className="text-[11px] text-slate-500 block mb-1">Ảnh đính kèm sẽ được đăng cùng bình luận</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-semibold text-slate-600">Nhãn test ảnh:</span>
-                      <select
-                        value={commentImageLabel}
-                        onChange={(e) => setCommentImageLabel(e.target.value)}
-                        className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md px-2 py-0.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
-                      >
-                        <option value="Safe">Safe (An toàn)</option>
-                        <option value="NSFW">NSFW (Nhạy cảm - che mờ)</option>
-                        <option value="Violence">Violence (Bạo lực)</option>
-                      </select>
-                    </div>
                   </div>
                 </div>
               )}
@@ -615,7 +600,7 @@ export default function OriginalPostModal({
 
                       {cmt.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                          {cmt.imageLabel === 'NSFW' && !unblurredComments[cmt.id] ? (
+                          {['sensitive', 'rejected_hold'].includes(cmt.imageModeration?.status) && !unblurredComments[cmt.id] ? (
                             <div className="relative">
                               <img
                                 src={cmt.image}
@@ -624,7 +609,7 @@ export default function OriginalPostModal({
                               />
                               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center text-white">
                                 <ShieldAlert className="w-5 h-5 text-amber-400 mb-1" />
-                                <span className="text-[11px] font-semibold">Nội dung nhạy cảm (NSFW)</span>
+                                <span className="text-[11px] font-semibold">{cmt.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm (NSFW)'}</span>
                                 <span className="text-[9px] text-slate-200 mb-2">Ảnh này được gắn nhãn nhạy cảm</span>
                                 <button
                                   type="button"
@@ -633,6 +618,7 @@ export default function OriginalPostModal({
                                 >
                                   <Eye className="w-3 h-3" /> Xem ảnh
                                 </button>
+                                {cmt.imageModeration?.status === 'rejected_hold' && cmt.author?.id === currentUser?.id && <button type="button" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: cmt.id })} className="mt-1 px-2.5 py-1 bg-rose-500 text-white rounded text-[10px]">Kháng cáo</button>}
                               </div>
                             </div>
                           ) : (
@@ -643,7 +629,7 @@ export default function OriginalPostModal({
                                 className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
                                 onClick={() => window.open(cmt.image, '_blank')}
                               />
-                              {cmt.imageLabel === 'NSFW' && unblurredComments[cmt.id] && (
+                              {cmt.imageModeration?.status === 'sensitive' && unblurredComments[cmt.id] && (
                                 <button
                                   type="button"
                                   onClick={() => setUnblurredComments(prev => ({ ...prev, [cmt.id]: false }))}

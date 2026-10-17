@@ -5,7 +5,7 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
   Image as ImageIcon, X, Eye, EyeOff, Loader2
 } from 'lucide-react';
-import { sharePost, updatePostReaction, uploadPostImage } from '../api/client';
+import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -18,6 +18,7 @@ import {
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { computeMeasuredPopoverPlacement } from '../utils/popoverLogic';
 import { canDeletePost, canEditPost, canReportPost } from '../utils/postActionLogic';
+import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
@@ -125,10 +126,21 @@ export default function PostCard({
   const [commentText, setCommentText] = useState('');
   const [commentImageFile, setCommentImageFile] = useState(null);
   const [commentImagePreview, setCommentImagePreview] = useState('');
-  const [commentImageLabel, setCommentImageLabel] = useState('Safe');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
+  const [unblurredPosts, setUnblurredPosts] = useState({});
+  const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
   const commentFileInputRef = useRef(null);
+  const commentSubmitLockRef = useRef(false);
+  useEffect(() => {
+    if (post.imageModeration?.status !== 'rejected_hold' || holdRemaining == null) return undefined;
+    const timer = setInterval(() => setHoldRemaining((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [post.imageModeration?.status, holdRemaining]);
+  const handleModerationAppeal = async () => {
+    await appealPostModeration({ userId: currentUser?.id, postId: post.id });
+    onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'pending_review', moderationExpiresAt: null, remainingSeconds: null } });
+  };
 
   const handleCommentImageSelect = (e) => {
     const file = e.target.files?.[0];
@@ -335,11 +347,13 @@ export default function PostCard({
 
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
+    if (commentSubmitLockRef.current) return;
     if (!currentUser) {
       if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
       return;
     }
     if (!commentText.trim() && !commentImageFile) return;
+    commentSubmitLockRef.current = true;
 
     let uploadedUrl = null;
     if (commentImageFile) {
@@ -350,6 +364,7 @@ export default function PostCard({
         console.error('Lỗi tải ảnh bình luận:', err);
         alert('Không thể tải ảnh bình luận lên. Vui lòng thử lại!');
         setIsUploadingCommentImage(false);
+        commentSubmitLockRef.current = false;
         return;
       } finally {
         setIsUploadingCommentImage(false);
@@ -365,14 +380,13 @@ export default function PostCard({
       },
       content: commentText.trim(),
       image: uploadedUrl,
-      imageLabel: commentImageLabel || 'Safe',
       time: "Vừa xong",
       likes: 0
     });
 
     setCommentText('');
     handleRemoveCommentImage();
-    setCommentImageLabel('Safe');
+    commentSubmitLockRef.current = false;
   };
 
   const handleShare = () => {
@@ -438,6 +452,7 @@ export default function PostCard({
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
   const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
+  if (post.imageModeration?.status === 'rejected_hold' && holdRemaining === 0) return null;
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs mb-5 overflow-hidden transition-all hover:border-slate-300/80">
       
@@ -611,6 +626,21 @@ export default function PostCard({
 
       {/* Nội dung bài viết */}
       <div className="px-4 sm:px-5 pb-3">
+        {post.imageModeration?.status === 'sensitive' && post.author?.id === currentUser?.id && (
+          <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+            <span>{moderationViolationNotice('post')}</span>
+            <button type="button" disabled title="Sắp ra mắt" className="ml-3 rounded bg-slate-300 px-2 py-1 text-[11px] text-slate-600">Kháng cáo</button>
+          </div>
+        )}
+        {post.imageModeration?.status === 'pending_review' && post.author?.id === currentUser?.id && (
+          <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Đang chờ quản trị viên duyệt</div>
+        )}
+        {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
+          <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
+              <span>{moderationViolationNotice('post')}. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
+            <button type="button" onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white">Kháng cáo</button>
+          </div>
+        )}
         {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
           <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
             Trạng thái: {post.moderationStatus}
@@ -634,14 +664,20 @@ export default function PostCard({
 
       {/* Ảnh bài viết (nếu có) */}
       {post.image && (
-        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center">
+        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center relative">
           <img 
             src={post.image} 
             alt="Ảnh đính kèm bài viết" 
-            className="block h-auto max-h-[75vh] w-full object-contain"
             loading="lazy"
             decoding="async"
+            className={`block h-auto max-h-[75vh] w-full object-contain ${post.imageModeration?.status === 'sensitive' && !unblurredPosts[post.id] ? 'blur-xl scale-105' : ''}`}
           />
+          {post.imageModeration?.status === 'sensitive' && !unblurredPosts[post.id] && (
+            <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center text-white gap-2">
+              <span className="font-semibold">Nội dung nhạy cảm</span>
+              <button type="button" className="px-3 py-1 rounded bg-white/20" onClick={() => setUnblurredPosts((prev) => ({ ...prev, [post.id]: true }))}>Xem</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -888,18 +924,6 @@ export default function PostCard({
                 </div>
                 <div className="flex-1 text-xs">
                   <span className="text-[11px] text-slate-500 block mb-1">Ảnh đính kèm sẽ được đăng cùng bình luận</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-semibold text-slate-600">Nhãn test ảnh:</span>
-                    <select
-                      value={commentImageLabel}
-                      onChange={(e) => setCommentImageLabel(e.target.value)}
-                      className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md px-2 py-0.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
-                    >
-                      <option value="Safe">Safe (An toàn)</option>
-                      <option value="NSFW">NSFW (Nhạy cảm - che mờ)</option>
-                      <option value="Violence">Violence (Bạo lực)</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             )}
@@ -970,14 +994,14 @@ export default function PostCard({
           <div className="space-y-2.5 pt-1">
             {post.comments && post.comments.length > 0 ? (
               post.comments.map((comment) => (
-                <div key={comment.id} className="flex gap-2.5 items-start text-xs">
+                <div key={comment.id} className={`flex gap-2.5 items-start text-xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'relative' : ''}`}>
                   <img 
                     src={comment.author.avatar} 
                     alt={comment.author.name} 
                     onClick={() => onOpenProfile && onOpenProfile(comment.author)}
                     className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                   />
-                  <div className="flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <div className={`flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'blur-sm' : ''}`}>
                     <div className="flex items-center justify-between mb-1">
                       <span 
                         onClick={() => onOpenProfile && onOpenProfile(comment.author)}
@@ -1005,7 +1029,7 @@ export default function PostCard({
 
                     {comment.image && (
                       <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                        {comment.imageLabel === 'NSFW' && !unblurredComments[comment.id] ? (
+                        {comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? (
                           <div className="relative">
                             <img
                               src={comment.image}
@@ -1033,7 +1057,7 @@ export default function PostCard({
                               className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
                               onClick={() => window.open(comment.image, '_blank')}
                             />
-                            {comment.imageLabel === 'NSFW' && unblurredComments[comment.id] && (
+                            {comment.imageModeration?.status === 'sensitive' && unblurredComments[comment.id] && (
                               <button
                                 type="button"
                                 onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: false }))}
@@ -1048,6 +1072,13 @@ export default function PostCard({
                       </div>
                     )}
                   </div>
+                  {['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] && (
+                    <div className="absolute inset-0 bg-slate-900/60 rounded-xl flex items-center justify-center text-white gap-2">
+                      <span className="text-[11px] font-semibold">{comment.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm'}</span>
+                      <button type="button" className="px-2 py-1 rounded bg-white/20 text-[10px]" onClick={() => setUnblurredComments((prev) => ({ ...prev, [comment.id]: true }))}>Xem</button>
+                      {comment.imageModeration?.status === 'rejected_hold' && comment.author?.id === currentUser?.id && <button type="button" className="px-2 py-1 rounded bg-rose-500 text-[10px]" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: comment.id })}>Kháng cáo</button>}
+                    </div>
+                  )}
                 </div>
               ))
             ) : (
