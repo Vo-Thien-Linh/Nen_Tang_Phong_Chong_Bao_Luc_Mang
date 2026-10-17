@@ -78,6 +78,10 @@ export function createUsersRouter({ pool }) {
           role: u.role,
           status: u.status,
           isVerified: u.is_verified,
+          bannedUntil: u.banned_until,
+          banReason: u.ban_reason,
+          cooldownUntil: u.cooldown_until,
+          cooldownReason: u.cooldown_reason,
           createdAt: u.created_at,
         })),
         pagination: {
@@ -167,6 +171,67 @@ export function createUsersRouter({ pool }) {
           role: updatedUser.role,
           status: updatedUser.status,
           isVerified: updatedUser.is_verified,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * POST /api/users/:userId/sanction
+   * Áp dụng hoặc gỡ bỏ xử phạt người dùng:
+   * - action: 'ban' (với durationDays hoặc vĩnh viễn)
+   * - action: 'unban' (mở khóa tài khoản)
+   * - action: 'clear_cooldown' (gỡ phạt oan cấm đăng bài & comment, reset countdown về 0)
+   * Yêu cầu quyền admin
+   */
+  router.post('/:userId/sanction', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { action, durationDays, reason } = req.body;
+
+      if (!action || !['ban', 'unban', 'clear_cooldown'].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Hành động không hợp lệ. Chỉ chấp nhận: ban, unban, clear_cooldown.',
+        });
+      }
+
+      const updatedUser = await userRepository.updateSanctionStatus({
+        targetUserId: userId,
+        action,
+        durationDays,
+        reason,
+        actorId: req.user.id,
+      });
+
+      let message = 'Cập nhật trạng thái xử phạt thành công.';
+      if (action === 'ban') {
+        message = durationDays
+          ? `Đã khóa tài khoản tạm thời trong ${durationDays} ngày.`
+          : 'Đã khóa tài khoản vĩnh viễn.';
+      } else if (action === 'unban') {
+        message = 'Đã mở khóa tài khoản thành công.';
+      } else if (action === 'clear_cooldown') {
+        message = 'Đã gỡ án phạt oan. Người dùng có thể đăng bài và bình luận ngay lập tức.';
+      }
+
+      res.json({
+        success: true,
+        message,
+        data: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          name: updatedUser.full_name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          status: updatedUser.status,
+          isVerified: updatedUser.is_verified,
+          bannedUntil: updatedUser.banned_until,
+          banReason: updatedUser.ban_reason,
+          cooldownUntil: updatedUser.cooldown_until,
+          cooldownReason: updatedUser.cooldown_reason,
         },
       });
     } catch (err) {

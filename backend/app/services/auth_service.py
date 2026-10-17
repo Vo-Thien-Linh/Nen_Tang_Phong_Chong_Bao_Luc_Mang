@@ -1,7 +1,7 @@
 import uuid
 import random
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
@@ -238,10 +238,34 @@ class AuthService:
 
         # Kiểm tra tài khoản có bị khóa hay không
         if user.status == "banned":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Tài khoản của bạn đã bị khóa"
-            )
+            if user.banned_until:
+                now = datetime.now(timezone.utc)
+                banned_until = user.banned_until
+                if banned_until.tzinfo is None:
+                    banned_until = banned_until.replace(tzinfo=timezone.utc)
+
+                if banned_until > now:
+                    diff = banned_until - now
+                    hours = int(diff.total_seconds() // 3600)
+                    minutes = int((diff.total_seconds() % 3600) // 60)
+                    time_str = f"{hours} giờ {minutes} phút" if hours > 0 else f"{max(1, minutes)} phút"
+                    reason_str = f" Lý do: {user.ban_reason}" if user.ban_reason else ""
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Tài khoản của bạn tạm thời bị khóa. Vui lòng thử lại sau {time_str}.{reason_str}"
+                    )
+                else:
+                    # Đã hết thời hạn khóa tạm thời -> tự động mở lại
+                    user.status = "active"
+                    user.banned_until = None
+                    user.ban_reason = None
+                    db.commit()
+            else:
+                reason_str = f" Lý do: {user.ban_reason}" if user.ban_reason else ""
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Tài khoản của bạn đã bị khóa vĩnh viễn do vi phạm nghiêm trọng.{reason_str}"
+                )
 
         # Cấp access token
         access_token = create_access_token({

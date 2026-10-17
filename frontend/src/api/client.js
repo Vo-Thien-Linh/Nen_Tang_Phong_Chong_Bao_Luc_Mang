@@ -240,3 +240,11 @@ export async function updateUserVerificationApi({ targetUserId, isVerified, user
   });
 }
 
+export async function updateUserSanctionApi({ targetUserId, action, durationDays = null, reason = '', userId }) {
+  return request(`/api/users/${targetUserId}/sanction`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ action, durationDays, reason }),
+  });
+}
+
