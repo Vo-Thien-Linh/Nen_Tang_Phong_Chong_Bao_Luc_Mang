@@ -131,6 +131,7 @@ export default function PostCard({
   const [unblurredPosts, setUnblurredPosts] = useState({});
   const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
   const commentFileInputRef = useRef(null);
+  const commentSubmitLockRef = useRef(false);
   useEffect(() => {
     if (post.imageModeration?.status !== 'rejected_hold' || holdRemaining == null) return undefined;
     const timer = setInterval(() => setHoldRemaining((value) => Math.max(0, value - 1)), 1000);
@@ -346,11 +347,13 @@ export default function PostCard({
 
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
+    if (commentSubmitLockRef.current) return;
     if (!currentUser) {
       if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
       return;
     }
     if (!commentText.trim() && !commentImageFile) return;
+    commentSubmitLockRef.current = true;
 
     let uploadedUrl = null;
     if (commentImageFile) {
@@ -361,6 +364,7 @@ export default function PostCard({
         console.error('Lỗi tải ảnh bình luận:', err);
         alert('Không thể tải ảnh bình luận lên. Vui lòng thử lại!');
         setIsUploadingCommentImage(false);
+        commentSubmitLockRef.current = false;
         return;
       } finally {
         setIsUploadingCommentImage(false);
@@ -382,6 +386,7 @@ export default function PostCard({
 
     setCommentText('');
     handleRemoveCommentImage();
+    commentSubmitLockRef.current = false;
   };
 
   const handleShare = () => {
