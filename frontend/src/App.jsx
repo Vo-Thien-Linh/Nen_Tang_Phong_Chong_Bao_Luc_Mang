@@ -849,6 +849,7 @@ export default function App() {
               onDeletePost={handleDeletePost}
               onUpdateUserStatus={handleUpdateUserStatus}
               onUpdateUserRole={handleUpdateUserRole}
+              currentUser={currentUser}
             />
           ) : (
             <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200 text-center shadow-xs">

@@ -111,6 +111,17 @@ export async function uploadPostImage(file) {
   return data.url;
 }
 
+export async function fetchPendingImageModeration(userId) {
+  return request('/api/admin/image-moderation/pending', { headers: userId ? { 'x-user-id': userId } : {} });
+}
+
+export async function reviewImageModeration({ userId, contentType, id, decision }) {
+  return request(`/api/admin/image-moderation/${contentType}/${id}/${decision}`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function sharePost({ userId, postId, content = '', user = null }) {
   const headers = {};
   if (userId) {

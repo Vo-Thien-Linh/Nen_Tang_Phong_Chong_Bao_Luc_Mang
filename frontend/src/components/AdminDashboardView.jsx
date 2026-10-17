@@ -7,6 +7,7 @@ import {
   Users, UserCheck, UserX, UserMinus, Shield, Lock, Unlock, AlertOctagon,
   UserCog
 } from 'lucide-react';
+import ImageModerationQueue from './ImageModerationQueue';
 
 export default function AdminDashboardView({ 
   posts = [], 
@@ -21,9 +22,12 @@ export default function AdminDashboardView({
   onDeletePost,
   onUpdateUserStatus,
   onUpdateUserRole
+  ,currentUser
 }) {
   // Tab phân hệ chính: 'overview' | 'content' | 'reports' | 'appeals' | 'users' | 'retraining'
   const [activeSubTab, setActiveSubTab] = useState('overview');
+
+  
 
   // Bộ lọc nội dung
   const [searchQuery, setSearchQuery] = useState('');
@@ -250,6 +254,7 @@ export default function AdminDashboardView({
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-5 space-y-5">
+      <ImageModerationQueue currentUser={currentUser} />
       
       {/* Toast thông báo hành động */}
       {actionToast && (
