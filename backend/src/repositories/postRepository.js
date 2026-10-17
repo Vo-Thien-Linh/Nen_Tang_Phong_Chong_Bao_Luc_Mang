@@ -82,7 +82,6 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
         },
         content: c.content,
         image: c.image_url || null,
-        imageLabel: c.image_label || 'Safe',
         imageModeration: c.image_moderation_status ? {
           status: c.image_moderation_status,
           scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
@@ -241,7 +240,7 @@ export function createPostRepository({ pool }) {
       }
     },
 
-    async createComment({ postId, authorId, content, imageUrl = null, imageLabel = 'Safe', imageModeration = null }) {
+    async createComment({ postId, authorId, content, imageUrl = null, imageModeration = null }) {
       const res = await pool.query(
         `INSERT INTO comments (post_id, author_id, content, image_url, image_label,
                               image_moderation_status, image_moderation_safe, image_moderation_nsfw,
@@ -250,7 +249,7 @@ export function createPostRepository({ pool }) {
          RETURNING id, post_id, author_id, content, image_url, image_label,
                    image_moderation_status, image_moderation_safe, image_moderation_nsfw,
                    image_moderation_violence, image_moderation_thresholds, created_at`,
-        [postId, authorId, content || '', imageUrl, imageLabel, imageModeration?.decision || null,
+        [postId, authorId, content || '', imageUrl, 'Safe', imageModeration?.decision || null,
           imageModeration?.images?.[0]?.scores?.safe || null,
           imageModeration?.images?.[0]?.scores?.nsfw || null,
           imageModeration?.images?.[0]?.scores?.violence || null,

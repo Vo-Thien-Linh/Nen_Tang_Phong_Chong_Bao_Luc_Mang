@@ -38,7 +38,6 @@ export default function OriginalPostModal({
   const commentInputRef = useRef(null);
   const [commentImageFile, setCommentImageFile] = useState(null);
   const [commentImagePreview, setCommentImagePreview] = useState('');
-  const [commentImageLabel, setCommentImageLabel] = useState('Safe');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
   const commentFileInputRef = useRef(null);
@@ -201,8 +200,7 @@ export default function OriginalPostModal({
         userId: currentUser.id,
         postId: post.id,
         content: trimmed,
-        imageUrl: uploadedUrl,
-        imageLabel: commentImageLabel || 'Safe'
+        imageUrl: uploadedUrl
       });
 
       const newComment = res.data || {
@@ -214,7 +212,6 @@ export default function OriginalPostModal({
         },
         content: trimmed,
         image: uploadedUrl,
-        imageLabel: commentImageLabel || 'Safe',
         time: 'Vừa xong'
       };
 
@@ -222,7 +219,6 @@ export default function OriginalPostModal({
       setComments(updatedList);
       setCommentText('');
       handleRemoveCommentImage();
-      setCommentImageLabel('Safe');
       if (onUpdatePost) {
         onUpdatePost(post.id, {
           comments: updatedList,
@@ -498,18 +494,6 @@ export default function OriginalPostModal({
                   </div>
                   <div className="flex-1 text-xs">
                     <span className="text-[11px] text-slate-500 block mb-1">Ảnh đính kèm sẽ được đăng cùng bình luận</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-semibold text-slate-600">Nhãn test ảnh:</span>
-                      <select
-                        value={commentImageLabel}
-                        onChange={(e) => setCommentImageLabel(e.target.value)}
-                        className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md px-2 py-0.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
-                      >
-                        <option value="Safe">Safe (An toàn)</option>
-                        <option value="NSFW">NSFW (Nhạy cảm - che mờ)</option>
-                        <option value="Violence">Violence (Bạo lực)</option>
-                      </select>
-                    </div>
                   </div>
                 </div>
               )}
@@ -615,7 +599,7 @@ export default function OriginalPostModal({
 
                       {cmt.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                          {cmt.imageLabel === 'NSFW' && !unblurredComments[cmt.id] ? (
+                          {cmt.imageModeration?.status === 'sensitive' && !unblurredComments[cmt.id] ? (
                             <div className="relative">
                               <img
                                 src={cmt.image}
@@ -643,7 +627,7 @@ export default function OriginalPostModal({
                                 className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
                                 onClick={() => window.open(cmt.image, '_blank')}
                               />
-                              {cmt.imageLabel === 'NSFW' && unblurredComments[cmt.id] && (
+                              {cmt.imageModeration?.status === 'sensitive' && unblurredComments[cmt.id] && (
                                 <button
                                   type="button"
                                   onClick={() => setUnblurredComments(prev => ({ ...prev, [cmt.id]: false }))}

@@ -435,8 +435,7 @@ export default function App() {
         userId: currentUser.id,
         postId,
         content: newComment.content || '',
-        imageUrl: newComment.image || null,
-        imageLabel: newComment.imageLabel || 'Safe'
+        imageUrl: newComment.image || null
       });
       const savedComment = res.data || newComment;
       setPosts(prev => prev.map(post => {

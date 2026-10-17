@@ -125,7 +125,6 @@ export default function PostCard({
   const [commentText, setCommentText] = useState('');
   const [commentImageFile, setCommentImageFile] = useState(null);
   const [commentImagePreview, setCommentImagePreview] = useState('');
-  const [commentImageLabel, setCommentImageLabel] = useState('Safe');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
   const [unblurredPosts, setUnblurredPosts] = useState({});
@@ -366,14 +365,12 @@ export default function PostCard({
       },
       content: commentText.trim(),
       image: uploadedUrl,
-      imageLabel: commentImageLabel || 'Safe',
       time: "Vừa xong",
       likes: 0
     });
 
     setCommentText('');
     handleRemoveCommentImage();
-    setCommentImageLabel('Safe');
   };
 
   const handleShare = () => {
@@ -904,18 +901,6 @@ export default function PostCard({
                 </div>
                 <div className="flex-1 text-xs">
                   <span className="text-[11px] text-slate-500 block mb-1">Ảnh đính kèm sẽ được đăng cùng bình luận</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-semibold text-slate-600">Nhãn test ảnh:</span>
-                    <select
-                      value={commentImageLabel}
-                      onChange={(e) => setCommentImageLabel(e.target.value)}
-                      className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md px-2 py-0.5 font-medium text-slate-700 focus:outline-none cursor-pointer"
-                    >
-                      <option value="Safe">Safe (An toàn)</option>
-                      <option value="NSFW">NSFW (Nhạy cảm - che mờ)</option>
-                      <option value="Violence">Violence (Bạo lực)</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             )}
@@ -1021,7 +1006,7 @@ export default function PostCard({
 
                     {comment.image && (
                       <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                        {comment.imageLabel === 'NSFW' && !unblurredComments[comment.id] ? (
+                        {comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? (
                           <div className="relative">
                             <img
                               src={comment.image}
@@ -1049,7 +1034,7 @@ export default function PostCard({
                               className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
                               onClick={() => window.open(comment.image, '_blank')}
                             />
-                            {comment.imageLabel === 'NSFW' && unblurredComments[comment.id] && (
+                            {comment.imageModeration?.status === 'sensitive' && unblurredComments[comment.id] && (
                               <button
                                 type="button"
                                 onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: false }))}
