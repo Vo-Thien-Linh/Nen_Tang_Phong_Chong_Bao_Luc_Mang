@@ -21,6 +21,13 @@ export function mapPostToResponse(post) {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
+    imageModeration: post.image_moderation_status ? {
+      status: post.image_moderation_status,
+      moderationExpiresAt: post.moderation_expires_at || null,
+      remainingSeconds: post.moderation_expires_at ? Math.max(0, Math.ceil((new Date(post.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
+      label: post.image_moderation_label,
+      scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
+    } : null,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
     editedAt: post.edited_at || null,
@@ -54,7 +61,7 @@ export function mapPostToResponse(post) {
       },
       content: c.content,
       image: c.image || c.image_url || null,
-      imageLabel: c.imageLabel || c.image_label || 'Safe',
+      imageModeration: c.imageModeration || null,
       time: formatRelativeTime(c.created_at),
       createdAt: c.created_at,
     })),
@@ -87,7 +94,7 @@ export function mapPostToResponse(post) {
   };
 }
 
-export function createPostsController({ postService, postRepository }) {
+export function createPostsController({ postService, postRepository, imageModerationClient }) {
   return {
     async createPost(req, res, next) {
       try {
@@ -98,10 +105,12 @@ export function createPostsController({ postService, postRepository }) {
         });
 
         const mappedPost = mapPostToResponse(post);
-        realtimeService.broadcast({
-          type: 'POST_CREATED',
-          post: mappedPost,
-        });
+        if (!['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
+          realtimeService.broadcast({
+            type: 'POST_CREATED',
+            post: mappedPost,
+          });
+        }
 
         res.status(201).json({
           success: true,
@@ -184,18 +193,24 @@ export function createPostsController({ postService, postRepository }) {
     async createComment(req, res, next) {
       try {
         const { postId } = req.params;
-        const { content, imageUrl, imageLabel } = req.body || {};
+        const { content, imageUrl } = req.body || {};
 
         if ((!content || !content.trim()) && !imageUrl) {
           return res.status(400).json({ success: false, message: 'Nội dung hoặc ảnh bình luận không được rỗng' });
         }
 
+        const imageModeration = imageUrl && imageModerationClient
+          ? await imageModerationClient(imageUrl)
+          : null;
+        const heldModeration = imageModeration?.decision === 'rejected'
+          ? { ...imageModeration, decision: 'rejected_hold', moderationExpiresAt: new Date(Date.now() + Number(imageModeration.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
+          : imageModeration;
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
           content: (content || '').trim(),
           imageUrl: imageUrl || null,
-          imageLabel: imageLabel || 'Safe',
+          imageModeration: heldModeration,
         });
 
         const commentData = {
@@ -207,16 +222,23 @@ export function createPostsController({ postService, postRepository }) {
           },
           content: comment.content,
           image: comment.image_url || null,
-          imageLabel: comment.image_label || 'Safe',
+          imageModeration: comment.image_moderation_status ? {
+            status: comment.image_moderation_status,
+            moderationExpiresAt: comment.moderation_expires_at || null,
+            remainingSeconds: comment.moderation_expires_at ? Math.max(0, Math.ceil((new Date(comment.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
+            scores: { safe: comment.image_moderation_safe, nsfw: comment.image_moderation_nsfw, violence: comment.image_moderation_violence },
+          } : null,
           time: 'Vừa xong',
           createdAt: comment.created_at,
         };
 
-        realtimeService.broadcast({
-          type: 'COMMENT_CREATED',
-          postId: String(postId),
-          comment: commentData,
-        });
+        if (!['pending_review', 'rejected_hold'].includes(commentData.imageModeration?.status)) {
+          realtimeService.broadcast({
+            type: 'COMMENT_CREATED',
+            postId: String(postId),
+            comment: commentData,
+          });
+        }
 
         res.status(201).json({
           success: true,

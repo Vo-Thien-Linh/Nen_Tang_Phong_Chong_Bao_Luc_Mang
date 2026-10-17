@@ -1,20 +1,24 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Image, Sparkles, Send, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { createPost, uploadPostImage } from '../api/client';
+import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
 import { validateImageFile } from '../utils/imageLogic';
+import { canStartCreation } from '../utils/creationFlowLogic';
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
+  const [imageFile, setImageFile] = useState(null);
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [aiPreview, setAiPreview] = useState(null);
+  const [imageAiPreview, setImageAiPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const submitLockRef = useRef(false);
 
   const handleCheckSafety = async () => {
     if (!content.trim()) return;
@@ -49,6 +53,14 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         latency_ms: 38.5
       });
     } finally {
+      if (imageFile) {
+        try {
+          const result = await previewPostImage(imageFile, currentUser?.id);
+          setImageAiPreview(result?.category || 'PENDING_REVIEW');
+        } catch {
+          setImageAiPreview('PENDING_REVIEW');
+        }
+      }
       setIsAiChecking(false);
     }
   };
@@ -68,6 +80,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     }
 
     setImagePreview(URL.createObjectURL(file));
+    setImageFile(file);
 
     try {
       const uploadedUrl = await uploadPostImage(file);
@@ -75,12 +88,14 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     } catch (error) {
       setImageUrl('');
       setImagePreview('');
+      setImageFile(null);
       setErrorMessage(error.message || 'Tải ảnh thất bại');
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canStartCreation(submitLockRef.current)) return;
     setMessage('');
     setErrorMessage('');
 
@@ -103,6 +118,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       if (!confirmed) return;
     }
 
+    submitLockRef.current = true;
     setIsSubmitting(true);
     try {
       const result = await createPost({
@@ -124,6 +140,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         : (error.message || 'Đăng bài thất bại');
       setErrorMessage(msg);
     } finally {
+      submitLockRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -179,6 +196,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 onRemove={() => {
                   setImageUrl('');
                   setImagePreview('');
+                  setImageFile(null);
+                  setImageAiPreview(null);
                 }}
               />
             </div>
@@ -205,6 +224,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/80 shadow-xs">
                 {aiPreview.action || 'analyzed'}
               </span>
+            </div>
+          )}
+          {imageAiPreview && (
+            <div className="mt-2 text-xs font-semibold text-slate-700">
+              {imageAiPreview === 'SAFE' ? 'Ảnh: An toàn' : imageAiPreview === 'SENSITIVE' ? 'Ảnh: Nhạy cảm (sẽ bị che mờ)' : imageAiPreview === 'VIOLATION' ? 'Ảnh: Vi phạm (bài sẽ bị chặn)' : 'Ảnh: Cần quản trị viên duyệt'}
             </div>
           )}
 

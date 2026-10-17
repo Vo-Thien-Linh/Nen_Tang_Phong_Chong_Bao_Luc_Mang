@@ -5,13 +5,14 @@ import { createPostRepository } from '../repositories/postRepository.js';
 import { createUserRepository } from '../repositories/userRepository.js';
 import { createPostService } from '../services/postService.js';
 import { moderationHook } from '../services/moderationHook.js';
+import { moderateImageUrl } from '../services/imageModerationClient.js';
 
 export function createPostsRouter({ pool }) {
   const router = express.Router();
   const userRepository = createUserRepository({ pool });
   const postRepository = createPostRepository({ pool });
-  const postService = createPostService({ postRepository, moderationHook });
-  const postsController = createPostsController({ postService, postRepository });
+  const postService = createPostService({ postRepository, moderationHook, imageModerationClient: moderateImageUrl });
+  const postsController = createPostsController({ postService, postRepository, imageModerationClient: moderateImageUrl });
   const { requireAuth, optionalAuth } = createAuthMiddleware({ userRepository });
 
   router.get('/', optionalAuth, postsController.listPosts);

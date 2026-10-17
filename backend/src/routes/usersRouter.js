@@ -144,7 +144,7 @@ export function createUsersRouter({ pool }) {
   router.get('/:userId/profile', optionalAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const row = await userRepository.findProfileById(userId);
+      const row = await userRepository.findProfileById(userId, req.user?.id || null);
 
       if (!row) {
         return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
@@ -223,6 +223,7 @@ export function createUsersRouter({ pool }) {
         },
         content: p.content,
         image: p.image_url || null,
+        imageModeration: p.imageModeration || null,
         createdAt: p.created_at,
         likesCount: p.likes_count || 0,
         commentsCount: p.comments_count || 0,
@@ -239,6 +240,8 @@ export function createUsersRouter({ pool }) {
           id: c.id,
           author: c.author,
           content: c.content,
+          image: c.image || null,
+          imageModeration: c.imageModeration || null,
           time: c.created_at,
         })),
         originalPost: p.original_post_id && p.orig_id ? {

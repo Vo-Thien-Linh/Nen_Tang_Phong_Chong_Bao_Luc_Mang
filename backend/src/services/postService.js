@@ -1,4 +1,7 @@
-export function createPostService({ postRepository, moderationHook, clock = () => new Date() }) {
+export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
+  const holdViolent = (result) => result?.decision === 'rejected'
+    ? { ...result, decision: 'rejected_hold', moderationExpiresAt: new Date(clock().getTime() + Number(result.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
+    : result;
   const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
   const normalizeImageUrl = (value) => {
     if (value === null) return null;
@@ -29,11 +32,16 @@ export function createPostService({ postRepository, moderationHook, clock = () =
         throw error;
       }
 
+      const imageModeration = imageUrl && imageModerationClient
+        ? await imageModerationClient(imageUrl)
+        : null;
+      const heldModeration = holdViolent(imageModeration);
       const post = await postRepository.createPost({
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
+        ...(heldModeration ? { imageModeration: heldModeration } : {}),
       });
 
       await moderationHook.afterPostCreated(post);
@@ -79,6 +87,11 @@ export function createPostService({ postRepository, moderationHook, clock = () =
         error.statusCode = 403;
         throw error;
       }
+      if (existingPost.image_moderation_status === 'rejected_hold' && new Date(existingPost.moderation_expires_at) > clock()) {
+        const error = new Error('Bài viết đang trong thời gian kháng cáo và không thể chỉnh sửa');
+        error.statusCode = 409;
+        throw error;
+      }
 
       if (isRestrictedUser(user)) {
         const error = new Error('Tài khoản của bạn đang bị hạn chế');
@@ -93,11 +106,17 @@ export function createPostService({ postRepository, moderationHook, clock = () =
         throw error;
       }
 
+      const imageModeration = imageUrl && imageModerationClient
+        ? await imageModerationClient(imageUrl)
+        : null;
+      const heldModeration = holdViolent(imageModeration);
+
       const post = await postRepository.updatePost({
         postId,
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeImageUrl(imageUrl),
+        ...(heldModeration ? { imageModeration: heldModeration } : {}),
       });
 
       await moderationHook.afterPostEdited(post);

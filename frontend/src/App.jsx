@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -12,6 +12,7 @@ import SettingsView from './components/SettingsView';
 import PostDetailView from './components/PostDetailView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
+import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost } from './utils/creationFlowLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
@@ -64,6 +65,8 @@ export default function App() {
       return 1;
     }
   }); // Bộ đếm xoay vòng đề xuất bài viết bảng tin (lưu session để F5 giữ nguyên bài)
+  const createdPostIdsRef = useRef(new Set());
+  const pendingCommentKeysRef = useRef(new Set());
   const [openPostMenuId, setOpenPostMenuId] = useState(null);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const {
@@ -564,11 +567,12 @@ export default function App() {
       handleRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
       return;
     }
-    setPosts(prev => [newPost, ...prev]);
-    setCurrentUser(prev => ({
-      ...prev,
-      postsCount: ((prev && prev.postsCount) || 0) + 1
-    }));
+    const postId = String(newPost?.id || '');
+    const alreadyAdded = !postId || createdPostIdsRef.current.has(postId);
+    if (alreadyAdded) return;
+    createdPostIdsRef.current.add(postId);
+    setPosts(prev => prependCreatedPost(prev, newPost));
+    setCurrentUser(prev => incrementPostCountOnce(prev, newPost, alreadyAdded));
   };
 
   const handleRequireLogin = () => {
@@ -657,27 +661,24 @@ export default function App() {
       handleRequireAuth("Chỉ đăng nhập mới được bình luận (User Story 5)");
       return;
     }
+    const commentKey = `${postId}:${newComment.id || `${newComment.content || ''}:${newComment.image || ''}`}`;
+    if (pendingCommentKeysRef.current.has(commentKey)) return;
+    pendingCommentKeysRef.current.add(commentKey);
     try {
       const res = await createComment({
         userId: currentUser.id,
         postId,
         content: newComment.content || '',
-        imageUrl: newComment.image || null,
-        imageLabel: newComment.imageLabel || 'Safe'
+        imageUrl: newComment.image || null
       });
       const savedComment = res.data || newComment;
-      setPosts(prev => prev.map(post => {
-        if (String(post.id) === String(postId)) {
-          return {
-            ...post,
-            comments: [...(post.comments || []), savedComment],
-            commentsCount: (post.commentsCount || 0) + 1
-          };
-        }
-        return post;
-      }));
+      setPosts(prev => prev.map(post => String(post.id) === String(postId)
+        ? appendCreatedComment(post, savedComment)
+        : post));
     } catch (err) {
       console.error('Lỗi lưu bình luận vào Supabase:', err);
+    } finally {
+      pendingCommentKeysRef.current.delete(commentKey);
     }
   };
 
