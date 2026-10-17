@@ -11,6 +11,9 @@ import { createUsersRouter } from './src/routes/usersRouter.js';
 import { createNotificationsRouter } from './src/routes/notificationsRouter.js';
 import { createImageModerationRouter } from './src/routes/imageModerationRouter.js';
 import { realtimeService } from './src/services/realtimeService.js';
+import { startModerationExpirySweeper } from './src/services/moderationExpirySweeper.js';
+import { createModerationAppealRouter } from './src/routes/moderationAppealRouter.js';
+import { createImagePreviewRouter } from './src/routes/imagePreviewRouter.js';
 
 dotenv.config();
 
@@ -95,6 +98,8 @@ app.use('/api/posts', createPostsRouter({ pool }));
 app.use('/api/users', createUsersRouter({ pool }));
 app.use('/api/notifications', createNotificationsRouter({ pool }));
 app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
+app.use('/api/posts', createModerationAppealRouter({ pool }));
+app.use('/api/posts/preview-image', createImagePreviewRouter({ pool }));
 
 // Realtime SSE Stream cho Bài viết, Chia sẻ và Bình luận
 app.get('/api/realtime/stream', (req, res) => {
@@ -391,6 +396,9 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 5000;
+const stopModerationExpirySweeper = startModerationExpirySweeper(pool);
+process.once('SIGINT', () => { stopModerationExpirySweeper(); process.exit(0); });
+process.once('SIGTERM', () => { stopModerationExpirySweeper(); process.exit(0); });
 app.listen(PORT, async () => {
   console.log('Server Backend đang chạy tại http://localhost:' + PORT);
   if (process.env.NODE_ENV === 'production') {
