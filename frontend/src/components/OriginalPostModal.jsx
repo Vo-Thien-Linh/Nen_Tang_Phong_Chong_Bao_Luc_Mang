@@ -7,6 +7,7 @@ import {
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatRelativeTime } from '../utils/timeAgo';
 import { appealCommentModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
+import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
 import { 
   REACTIONS, 
   normalizeReactionCounts, 
@@ -608,7 +609,7 @@ export default function OriginalPostModal({
                               />
                               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center text-white">
                                 <ShieldAlert className="w-5 h-5 text-amber-400 mb-1" />
-                                <span className="text-[11px] font-semibold">{cmt.imageModeration?.status === 'rejected_hold' ? 'Bài viết của bạn vi phạm quy định cộng đồng' : 'Nội dung nhạy cảm (NSFW)'}</span>
+                                <span className="text-[11px] font-semibold">{cmt.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm (NSFW)'}</span>
                                 <span className="text-[9px] text-slate-200 mb-2">Ảnh này được gắn nhãn nhạy cảm</span>
                                 <button
                                   type="button"

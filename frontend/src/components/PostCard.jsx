@@ -18,6 +18,7 @@ import {
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { computeMeasuredPopoverPlacement } from '../utils/popoverLogic';
 import { canDeletePost, canEditPost, canReportPost } from '../utils/postActionLogic';
+import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
@@ -622,7 +623,7 @@ export default function PostCard({
       <div className="px-4 sm:px-5 pb-3">
         {post.imageModeration?.status === 'sensitive' && post.author?.id === currentUser?.id && (
           <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-            <span>Bài viết của bạn vi phạm quy định cộng đồng</span>
+            <span>{moderationViolationNotice('post')}</span>
             <button type="button" disabled title="Sắp ra mắt" className="ml-3 rounded bg-slate-300 px-2 py-1 text-[11px] text-slate-600">Kháng cáo</button>
           </div>
         )}
@@ -631,7 +632,7 @@ export default function PostCard({
         )}
         {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
           <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
-            <span>Bài viết của bạn vi phạm quy định cộng đồng. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
+              <span>{moderationViolationNotice('post')}. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
             <button type="button" onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white">Kháng cáo</button>
           </div>
         )}
@@ -1068,7 +1069,7 @@ export default function PostCard({
                   </div>
                   {['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] && (
                     <div className="absolute inset-0 bg-slate-900/60 rounded-xl flex items-center justify-center text-white gap-2">
-                      <span className="text-[11px] font-semibold">{comment.imageModeration?.status === 'rejected_hold' ? 'Bài viết của bạn vi phạm quy định cộng đồng' : 'Nội dung nhạy cảm'}</span>
+                      <span className="text-[11px] font-semibold">{comment.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm'}</span>
                       <button type="button" className="px-2 py-1 rounded bg-white/20 text-[10px]" onClick={() => setUnblurredComments((prev) => ({ ...prev, [comment.id]: true }))}>Xem</button>
                       {comment.imageModeration?.status === 'rejected_hold' && comment.author?.id === currentUser?.id && <button type="button" className="px-2 py-1 rounded bg-rose-500 text-[10px]" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: comment.id })}>Kháng cáo</button>}
                     </div>

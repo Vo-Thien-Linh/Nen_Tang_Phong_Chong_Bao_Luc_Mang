@@ -1,6 +1,7 @@
 import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
+import { moderationRejectionNotification } from '../services/moderationNotificationText.js';
 
 const adminOnly = (req, res, next) => {
   const role = String(req.user?.role || '').toUpperCase();
@@ -55,7 +56,7 @@ async function review(req, res, next, pool, decision) {
     );
     if (!result.rows[0]) return res.status(404).json({ success: false, message: 'Không tìm thấy nội dung chờ duyệt' });
     if (decision === 'rejected') {
-      await pool.query(`INSERT INTO notifications (recipient_id, type, content, target_post_id) VALUES ($1, 'system', $2, $3)`, [result.rows[0].author_id, 'Ảnh của bạn bị từ chối sau khi quản trị viên xem xét', table === 'posts' ? result.rows[0].id : null]);
+      await pool.query(`INSERT INTO notifications (recipient_id, type, content, target_post_id) VALUES ($1, 'system', $2, $3)`, [result.rows[0].author_id, moderationRejectionNotification(table === 'posts' ? 'post' : 'comment'), table === 'posts' ? result.rows[0].id : null]);
     }
     res.json({ success: true, data: { id: result.rows[0].id, decision } });
   } catch (error) { next(error); }
