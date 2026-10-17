@@ -70,18 +70,31 @@ def _runtime():
     return model, preprocess, labels
 
 
+def _infer_pil(image):
+    model, preprocess, labels = _runtime()
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    with torch.no_grad():
+        probabilities = torch.softmax(model(preprocess(image).unsqueeze(0)), dim=1)[0].tolist()
+    scores = dict(zip(labels, probabilities))
+    if set(scores) != {"safe", "nsfw", "violence"} or not all(math.isfinite(value) for value in scores.values()) or abs(sum(scores.values()) - 1) > 0.01:
+        raise ImageModerationFailure("invalid model probabilities")
+    return {"scores": scores}
+
+
+def infer_image_bytes(data):
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+        return _infer_pil(image)
+    except ImageModerationFailure:
+        raise
+    except Exception as exc:
+        raise ImageModerationFailure("image cannot be decoded") from exc
+
+
 def infer_image(url):
     try:
-        model, preprocess, labels = _runtime()
-        image = ImageOps.exif_transpose(_fetch_image(url)).convert("RGB")
-        with torch.no_grad():
-            probabilities = torch.softmax(model(preprocess(image).unsqueeze(0)), dim=1)[0].tolist()
-        scores = dict(zip(labels, probabilities))
-        if set(scores) != {"safe", "nsfw", "violence"} or not all(math.isfinite(value) for value in scores.values()):
-            raise ImageModerationFailure("invalid model probabilities")
-        if abs(sum(scores.values()) - 1) > 0.01:
-            raise ImageModerationFailure("probabilities do not sum to one")
-        return {"scores": scores}
+        return _infer_pil(_fetch_image(url))
     except ImageModerationFailure:
         raise
     except Exception as exc:
