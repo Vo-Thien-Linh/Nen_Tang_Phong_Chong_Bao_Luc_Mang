@@ -155,8 +155,14 @@ export function createPostRepository({ pool }) {
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1
-           AND (p.image_moderation_status IS NULL OR p.image_moderation_status <> 'rejected_hold'
-                OR (p.moderation_expires_at > CURRENT_TIMESTAMP AND p.author_id = $2))`,
+           AND (
+             p.image_moderation_status IS NULL
+             OR p.image_moderation_status IN ('safe', 'sensitive')
+             OR (p.image_moderation_status IN ('pending_review', 'rejected_hold')
+                 AND p.author_id = $2
+                 AND (p.image_moderation_status <> 'rejected_hold'
+                      OR p.moderation_expires_at > CURRENT_TIMESTAMP))
+           )`,
         [postId, viewerId]
       );
 
