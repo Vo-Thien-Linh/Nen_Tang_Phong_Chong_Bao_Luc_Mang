@@ -17,6 +17,7 @@ import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
 import OriginalPostModal from './OriginalPostModal';
+import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
@@ -731,8 +732,8 @@ export default function ProfileView({
                   <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                     {activeUser.name || activeUser.full_name}
                   </h1>
-                  {activeUser.isVerified && (
-                    <CheckCircle2 className="w-5 h-5 text-blue-500 fill-blue-500 shrink-0" />
+                  {(activeUser.isVerified || activeUser.is_verified) && (
+                    <VerifiedBadge size="md" />
                   )}
                 </div>
 
@@ -1422,7 +1423,7 @@ export default function ProfileView({
                                       >
                                         {orig.author?.name || 'Người dùng'}
                                       </span>
-                                      {orig.author?.isVerified && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                                      {(orig.author?.isVerified || orig.author?.is_verified) && <VerifiedBadge size="sm" />}
                                     </div>
                                     <span className="text-[11px] text-slate-400">
                                       {formatRelativeTime(orig.createdAt || orig.created_at)}
@@ -1953,8 +1954,8 @@ export default function ProfileView({
                           <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 truncate group-hover:text-blue-600">
                             {friend.name}
                           </h4>
-                          {friend.isVerified && (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500 shrink-0" />
+                          {(friend.isVerified || friend.is_verified) && (
+                            <VerifiedBadge size="xs" />
                           )}
                         </div>
                         <p className="text-[11px] text-slate-400 truncate">@{friend.username}</p>

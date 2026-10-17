@@ -4,7 +4,8 @@ export function createUserRepository({ pool }) {
       const result = await pool.query(
         `SELECT id, username, full_name, avatar_url, cover_url, role, is_verified,
                 bio, location, hometown, education, high_school, relationship_status,
-                phone, status, cooldown_until, created_at
+                phone, status, cooldown_until, cooldown_reason, cooldown_violation_text,
+                banned_until, ban_reason, created_at
          FROM users
          WHERE id = $1`,
         [userId]
@@ -293,7 +294,8 @@ export function createUserRepository({ pool }) {
 
       const queryValues = [...values, limitNum, offset];
       const usersResult = await pool.query(
-        `SELECT id, username, email, full_name, avatar_url, cover_url, role, status, is_verified, phone, created_at
+        `SELECT id, username, email, full_name, avatar_url, cover_url, role, status, is_verified, phone,
+                cooldown_until, cooldown_reason, banned_until, ban_reason, created_at
          FROM users
          ${whereClause}
          ORDER BY created_at DESC
@@ -358,6 +360,87 @@ export function createUserRepository({ pool }) {
         `INSERT INTO role_audit_logs (actor_id, target_user_id, old_role, new_role)
          VALUES ($1, $2, $3, $4)`,
         [actorId, targetUserId, oldRole, normalizedNewRole]
+      );
+
+      return updateResult.rows[0];
+    },
+
+    async updateVerification({ targetUserId, isVerified }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET is_verified = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified`,
+        [Boolean(isVerified), targetUserId]
+      );
+
+      return updateResult.rows[0];
+    },
+
+    async updateSanctionStatus({ targetUserId, action, durationDays = null, reason = '', actorId }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (targetUserId === actorId && (action === 'ban' || action === 'temporary_ban')) {
+        const error = new Error('Bạn không thể tự khóa tài khoản của chính mình.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      let status = user.status;
+      let bannedUntil = user.banned_until;
+      let banReason = user.ban_reason;
+      let cooldownUntil = user.cooldown_until;
+      let cooldownReason = user.cooldown_reason;
+      let cooldownViolationText = user.cooldown_violation_text;
+
+      if (action === 'ban') {
+        status = 'banned';
+        if (durationDays && Number(durationDays) > 0) {
+          const d = new Date();
+          d.setDate(d.getDate() + Number(durationDays));
+          bannedUntil = d.toISOString();
+        } else {
+          bannedUntil = null; // vĩnh viễn
+        }
+        banReason = reason || (bannedUntil ? 'Khóa tài khoản tạm thời theo quy định' : 'Vi phạm nghiêm trọng tiêu chuẩn cộng đồng');
+      } else if (action === 'unban') {
+        status = 'active';
+        bannedUntil = null;
+        banReason = null;
+      } else if (action === 'clear_cooldown') {
+        if (status === 'cooldown') {
+          status = 'active';
+        }
+        cooldownUntil = null;
+        cooldownReason = null;
+        cooldownViolationText = null;
+      } else {
+        const error = new Error(`Hành động xử phạt không hợp lệ: ${action}`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET status = $1, banned_until = $2, ban_reason = $3,
+             cooldown_until = $4, cooldown_reason = $5, cooldown_violation_text = $6,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified,
+                   banned_until, ban_reason, cooldown_until, cooldown_reason`,
+        [status, bannedUntil, banReason, cooldownUntil, cooldownReason, cooldownViolationText, targetUserId]
       );
 
       return updateResult.rows[0];

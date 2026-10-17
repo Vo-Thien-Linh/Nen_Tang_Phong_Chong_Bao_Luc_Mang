@@ -233,3 +233,19 @@ export async function updateUserRoleApi({ targetUserId, newRole, userId }) {
   });
 }
 
+export async function updateUserVerificationApi({ targetUserId, isVerified, userId }) {
+  return request(`/api/users/${targetUserId}/verification`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ isVerified }),
+  });
+}
+
+export async function updateUserSanctionApi({ targetUserId, action, durationDays = null, reason = '', userId }) {
+  return request(`/api/users/${targetUserId}/sanction`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ action, durationDays, reason }),
+  });
+}
+

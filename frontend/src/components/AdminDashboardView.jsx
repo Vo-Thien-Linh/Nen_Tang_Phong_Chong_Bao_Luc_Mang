@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   Users, LayoutDashboard, Shield, Search, RefreshCw, 
   ChevronLeft, ChevronRight, AlertCircle, CheckCircle, 
-  ExternalLink, UserCheck, ArrowRight, X
+  ExternalLink, UserCheck, ArrowRight, X,
+  Lock, Unlock, ShieldAlert, Timer, RotateCcw, AlertTriangle
 } from 'lucide-react';
-import { fetchUsersList, updateUserRoleApi } from '../api/client';
+import { fetchUsersList, updateUserRoleApi, updateUserVerificationApi, updateUserSanctionApi } from '../api/client';
 import { ROLES, ROLE_LABELS, normalizeRole } from '../utils/rbac';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import VerifiedBadge from './VerifiedBadge';
 
 export default function AdminDashboardView({ 
   currentUser,
@@ -26,6 +28,10 @@ export default function AdminDashboardView({
   // Modal xác nhận đổi vai trò
   const [confirmDialog, setConfirmDialog] = useState(null); // { user, newRole }
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Modal xử phạt tài khoản
+  const [sanctionDialog, setSanctionDialog] = useState(null); // { user, isTemp: true, durationDays: 3, reason: '' }
+  const [isSanctioning, setIsSanctioning] = useState(false);
 
   // Toast thông báo
   const [toast, setToast] = useState(null); // { type: 'success' | 'error', message }
@@ -119,6 +125,120 @@ export default function AdminDashboardView({
       showToast(err.message || 'Không đổi được vai trò người dùng.', 'error');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleToggleVerification = async (user) => {
+    const nextStatus = !user.isVerified;
+    try {
+      const response = await updateUserVerificationApi({
+        targetUserId: user.id,
+        isVerified: nextStatus,
+        userId: currentUser?.id,
+      });
+
+      if (response && response.success) {
+        showToast(
+          nextStatus 
+            ? `Đã cấp tích xanh cho ${user.name || user.username}.`
+            : `Đã thu hồi tích xanh của ${user.name || user.username}.`,
+          'success'
+        );
+        setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isVerified: nextStatus } : u)));
+      } else {
+        throw new Error(response?.message || 'Không thể cập nhật tích xanh.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Không thể cập nhật tích xanh.', 'error');
+    }
+  };
+
+  const handleOpenSanctionDialog = (user) => {
+    setSanctionDialog({
+      user,
+      isTemp: true,
+      durationDays: 3,
+      reason: 'Vi phạm tiêu chuẩn cộng đồng',
+    });
+  };
+
+  const handleConfirmSanction = async () => {
+    if (!sanctionDialog) return;
+    const { user, isTemp, durationDays, reason } = sanctionDialog;
+    setIsSanctioning(true);
+    try {
+      const response = await updateUserSanctionApi({
+        targetUserId: user.id,
+        action: 'ban',
+        durationDays: isTemp ? Number(durationDays) : null,
+        reason: reason.trim() || (isTemp ? `Khóa tạm thời ${durationDays} ngày` : 'Vi phạm nghiêm trọng tiêu chuẩn cộng đồng'),
+        userId: currentUser?.id,
+      });
+
+      if (response && response.success) {
+        showToast(response.message || 'Đã áp dụng xử phạt tài khoản thành công.', 'success');
+        setUsers(prev => prev.map(u => (u.id === user.id ? { 
+          ...u, 
+          status: 'banned', 
+          bannedUntil: response.data?.bannedUntil,
+          banReason: response.data?.banReason,
+        } : u)));
+        setSanctionDialog(null);
+      } else {
+        throw new Error(response?.message || 'Không thể xử phạt tài khoản.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Không thể xử phạt tài khoản.', 'error');
+    } finally {
+      setIsSanctioning(false);
+    }
+  };
+
+  const handleUnbanUser = async (user) => {
+    try {
+      const response = await updateUserSanctionApi({
+        targetUserId: user.id,
+        action: 'unban',
+        userId: currentUser?.id,
+      });
+
+      if (response && response.success) {
+        showToast(`Đã mở khóa tài khoản cho ${user.name || user.username}.`, 'success');
+        setUsers(prev => prev.map(u => (u.id === user.id ? { 
+          ...u, 
+          status: 'active', 
+          bannedUntil: null,
+          banReason: null,
+        } : u)));
+      } else {
+        throw new Error(response?.message || 'Không thể mở khóa tài khoản.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Không thể mở khóa tài khoản.', 'error');
+    }
+  };
+
+  const handleClearCooldown = async (user) => {
+    try {
+      const response = await updateUserSanctionApi({
+        targetUserId: user.id,
+        action: 'clear_cooldown',
+        userId: currentUser?.id,
+      });
+
+      if (response && response.success) {
+        showToast(`Đã gỡ án phạt oan cho ${user.name || user.username}. Countdown đã được đưa về 0!`, 'success');
+        setUsers(prev => prev.map(u => (u.id === user.id ? { 
+          ...u, 
+          status: 'active', 
+          cooldownUntil: null,
+          cooldownReason: null,
+        } : u)));
+      } else {
+        throw new Error(response?.message || 'Không thể gỡ án phạt.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Không thể gỡ án phạt.', 'error');
     }
   };
 
@@ -344,6 +464,7 @@ export default function AdminDashboardView({
                     <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                       <th className="py-3 px-4">Người dùng</th>
                       <th className="py-3 px-4">Liên hệ</th>
+                      <th className="py-3 px-4">Tích xanh</th>
                       <th className="py-3 px-4">Vai trò hiện tại</th>
                       <th className="py-3 px-4">Trạng thái</th>
                       <th className="py-3 px-4 text-right">Phân vai trò</th>
@@ -367,6 +488,7 @@ export default function AdminDashboardView({
                               <div>
                                 <div className="font-medium text-slate-900 flex items-center gap-1.5">
                                   <span>{user.name || user.full_name || 'Người dùng'}</span>
+                                  {user.isVerified && <VerifiedBadge size="sm" />}
                                   {isSelf && (
                                     <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
                                       Bạn
@@ -388,7 +510,23 @@ export default function AdminDashboardView({
                             )}
                           </td>
 
-                          {/* Cột 3: Vai trò hiện tại */}
+                          {/* Cột 3: Tích xanh */}
+                          <td className="py-3 px-4">
+                            <button
+                              onClick={() => handleToggleVerification(user)}
+                              title={user.isVerified ? 'Nhấn để thu hồi tích xanh' : 'Nhấn để cấp tích xanh'}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition cursor-pointer ${
+                                user.isVerified
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <VerifiedBadge size="xs" />
+                              <span>{user.isVerified ? 'Đã cấp' : 'Cấp tích'}</span>
+                            </button>
+                          </td>
+
+                          {/* Cột 4: Vai trò hiện tại */}
                           <td className="py-3 px-4">
                             <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium border ${
                               userRole === ROLES.ADMIN
@@ -401,32 +539,95 @@ export default function AdminDashboardView({
                             </span>
                           </td>
 
-                          {/* Cột 4: Trạng thái tài khoản */}
+                          {/* Cột 5: Trạng thái & Xử phạt */}
                           <td className="py-3 px-4">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium ${
-                              user.status === 'banned'
-                                ? 'bg-rose-50 text-rose-700'
-                                : user.status === 'cooldown'
-                                ? 'bg-amber-50 text-amber-700'
-                                : 'bg-emerald-50 text-emerald-700'
-                            }`}>
-                              {user.status === 'banned' ? 'Đã khóa' : user.status === 'cooldown' ? 'Tạm giữ' : 'Hoạt động'}
-                            </span>
+                            <div className="space-y-1">
+                              {user.status === 'banned' ? (
+                                <div>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">
+                                    <Lock className="w-3 h-3 text-rose-600" />
+                                    {user.bannedUntil ? 'Khóa tạm thời' : 'Khóa vĩnh viễn'}
+                                  </span>
+                                  {user.bannedUntil && (
+                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                      Đến: {new Date(user.bannedUntil).toLocaleDateString('vi-VN')}
+                                    </div>
+                                  )}
+                                  {user.banReason && (
+                                    <div className="text-[10px] text-rose-600 truncate max-w-[140px]" title={user.banReason}>
+                                      {user.banReason}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : user.status === 'cooldown' ? (
+                                <div>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                    <Timer className="w-3 h-3 text-amber-600" />
+                                    Cấm đăng/cmt
+                                  </span>
+                                  {user.cooldownUntil && (
+                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                      Đến: {new Date(user.cooldownUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                  Hoạt động
+                                </span>
+                              )}
+                            </div>
                           </td>
 
-                          {/* Cột 5: Đổi vai trò */}
+                          {/* Cột 6: Phân vai trò & Xử phạt */}
                           <td className="py-3 px-4 text-right">
-                            <select
-                              value={userRole}
-                              disabled={isSelf}
-                              title={isSelf ? 'Bạn không thể tự đổi vai trò của chính mình' : 'Chọn vai trò mới cho người dùng này'}
-                              onChange={(e) => handleOpenConfirmDialog(user, e.target.value)}
-                              className="h-8 px-2 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                            >
-                              <option value="user">Người dùng</option>
-                              <option value="moderator">Điều hành viên</option>
-                              <option value="admin">Quản trị viên</option>
-                            </select>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <select
+                                value={userRole}
+                                disabled={isSelf}
+                                title={isSelf ? 'Bạn không thể tự đổi vai trò của chính mình' : 'Chọn vai trò mới cho người dùng này'}
+                                onChange={(e) => handleOpenConfirmDialog(user, e.target.value)}
+                                className="h-8 px-2 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                              >
+                                <option value="user">Người dùng</option>
+                                <option value="moderator">Điều hành viên</option>
+                                <option value="admin">Quản trị viên</option>
+                              </select>
+
+                              {!isSelf && (
+                                <>
+                                  {user.status === 'banned' ? (
+                                    <button
+                                      onClick={() => handleUnbanUser(user)}
+                                      title="Mở khóa tài khoản ngay lập tức"
+                                      className="h-8 px-2.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+                                    >
+                                      <Unlock className="w-3.5 h-3.5" />
+                                      <span>Mở khóa</span>
+                                    </button>
+                                  ) : user.status === 'cooldown' ? (
+                                    <button
+                                      onClick={() => handleClearCooldown(user)}
+                                      title="Minh oan: Gỡ phạt cấm đăng bài và bình luận, đưa countdown về 0"
+                                      className="h-8 px-2.5 rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                      <span>Gỡ phạt oan</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleOpenSanctionDialog(user)}
+                                      title="Khóa tài khoản (tạm thời hoặc vĩnh viễn)"
+                                      className="h-8 px-2.5 rounded-md border border-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+                                    >
+                                      <Lock className="w-3.5 h-3.5" />
+                                      <span>Khóa TK</span>
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -587,6 +788,135 @@ export default function AdminDashboardView({
                 className="h-8 px-3.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition cursor-pointer disabled:opacity-50"
               >
                 {isUpdating ? 'Đang cập nhật...' : 'Đổi vai trò'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XỬ PHẠT TÀI KHOẢN (Khóa tạm thời hoặc Khóa vĩnh viễn) */}
+      {sanctionDialog && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-slate-200 max-w-md w-full p-5 shadow-lg animate-fade-in">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900">Xử phạt & Khóa tài khoản</h3>
+              </div>
+              <button
+                onClick={() => setSanctionDialog(null)}
+                className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-xs leading-relaxed text-slate-700">
+              <p>
+                Bạn đang thực hiện khóa tài khoản của người dùng{' '}
+                <strong className="text-slate-900 font-semibold">
+                  {sanctionDialog.user.name || sanctionDialog.user.username}
+                </strong>{' '}
+                (@{sanctionDialog.user.username}).
+              </p>
+
+              {/* Lựa chọn loại khóa */}
+              <div className="space-y-2">
+                <label className="font-semibold text-slate-800 block">Hình thức xử phạt:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSanctionDialog(prev => ({ ...prev, isTemp: true }))}
+                    className={`p-2.5 rounded-md border text-left cursor-pointer transition ${
+                      sanctionDialog.isTemp
+                        ? 'border-blue-600 bg-blue-50 text-blue-800'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="font-semibold flex items-center gap-1.5">
+                      <Timer className="w-3.5 h-3.5" />
+                      <span>Khóa tạm thời</span>
+                    </div>
+                    <div className="text-[11px] opacity-80 mt-0.5">Không cho đăng nhập có thời hạn</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSanctionDialog(prev => ({ ...prev, isTemp: false }))}
+                    className={`p-2.5 rounded-md border text-left cursor-pointer transition ${
+                      !sanctionDialog.isTemp
+                        ? 'border-rose-600 bg-rose-50 text-rose-800'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="font-semibold flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      <span>Khóa vĩnh viễn</span>
+                    </div>
+                    <div className="text-[11px] opacity-80 mt-0.5">Vi phạm nghiêm trọng tiêu chuẩn</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Thời hạn khóa nếu là tạm thời */}
+              {sanctionDialog.isTemp && (
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-slate-800 block">Thời gian khóa:</label>
+                  <select
+                    value={sanctionDialog.durationDays}
+                    onChange={(e) => setSanctionDialog(prev => ({ ...prev, durationDays: Number(e.target.value) }))}
+                    className="w-full h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
+                  >
+                    <option value={1}>1 ngày (24 giờ)</option>
+                    <option value={3}>3 ngày (72 giờ)</option>
+                    <option value={7}>7 ngày (1 tuần)</option>
+                    <option value={30}>30 ngày (1 tháng)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Lý do khóa */}
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-800 block">Lý do khóa tài khoản:</label>
+                <input
+                  type="text"
+                  value={sanctionDialog.reason}
+                  onChange={(e) => setSanctionDialog(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="Nhập lý do vi phạm (ví dụ: Vi phạm bạo lực, ngôn từ thù địch...)"
+                  className="w-full h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-md border border-slate-200 text-slate-600">
+                {sanctionDialog.isTemp
+                  ? `Người dùng sẽ không thể đăng nhập trong ${sanctionDialog.durationDays} ngày. Sau khi hết thời hạn, hệ thống sẽ tự động khôi phục quyền truy cập.`
+                  : 'Tài khoản này sẽ bị khóa hoàn toàn và không thể đăng nhập cho đến khi Admin chủ động mở khóa thủ công.'}
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => setSanctionDialog(null)}
+                disabled={isSanctioning}
+                className="h-8 px-3 rounded-md border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-700 transition cursor-pointer"
+              >
+                Hủy
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmSanction}
+                disabled={isSanctioning}
+                className={`h-8 px-3.5 rounded-md text-white text-xs font-medium transition cursor-pointer disabled:opacity-50 ${
+                  sanctionDialog.isTemp
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-rose-600 hover:bg-rose-700'
+                }`}
+              >
+                {isSanctioning ? 'Đang thực hiện...' : 'Xác nhận khóa tài khoản'}
               </button>
             </div>
           </div>

@@ -27,7 +27,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost } from './api/client';
+import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -764,7 +764,7 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveAppeal = (appealId, status, adminNotes) => {
+  const handleResolveAppeal = async (appealId, status, adminNotes) => {
     const appeal = appeals.find(a => a.id === appealId);
     if (!appeal) return;
 
@@ -773,24 +773,72 @@ export default function App() {
 
     // Nếu chấp thuận khiếu nại (Minh oan False Positive):
     if (status === 'approved') {
-      // 1. Phục hồi bài viết: đổi nhãn thành Normal, bỏ ẩn
-      setPosts(prev => prev.map(p => {
-        if (p.id === appeal.contentId) {
-          return {
-            ...p,
-            isHidden: false,
-            aiStatus: { label: 'Normal', confidence: 0.99 },
-            appeal: { ...p.appeal, status: 'approved' }
-          };
-        }
-        return p;
-      }));
+      // 1. Phục hồi bài viết hoặc bình luận: bỏ ẩn, đặt nhãn Normal / approved
+      if (appeal.contentType === 'comment') {
+        setPosts(prev => prev.map(p => {
+          const updatedComments = (p.comments || []).map(c => {
+            if (c.id === appeal.contentId) {
+              return {
+                ...c,
+                isHidden: false,
+                isSoftHidden: false,
+                ai_status: 'approved',
+                aiStatus: { label: 'Normal', confidence: 0.99 },
+                appeal: { ...c.appeal, status: 'approved' }
+              };
+            }
+            return c;
+          });
+          return { ...p, comments: updatedComments };
+        }));
+      } else {
+        setPosts(prev => prev.map(p => {
+          if (p.id === appeal.contentId) {
+            return {
+              ...p,
+              isHidden: false,
+              isSoftHidden: false,
+              ai_status: 'approved',
+              aiStatus: { label: 'Normal', confidence: 0.99 },
+              appeal: { ...p.appeal, status: 'approved' }
+            };
+          }
+          return p;
+        }));
+      }
 
-      // 2. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
+      // 2. Mở khóa tài khoản khi bị phạt oan (Reset countdown về 0 ngay lập tức)
+      const targetUserId = appeal.user?.id || appeal.userId;
+      if (targetUserId) {
+        try {
+          await updateUserSanctionApi({
+            targetUserId,
+            action: 'clear_cooldown'
+          });
+        } catch (err) {
+          console.error('Lỗi khi gỡ cooldown phạt oan:', err);
+        }
+
+        // Cập nhật state nếu trùng với currentUser
+        if (currentUser && currentUser.id === targetUserId) {
+          setCurrentUser(prev => ({
+            ...prev,
+            status: 'active',
+            cooldownUntil: null,
+            cooldown_until: null,
+            cooldownReason: null,
+            cooldown_reason: null,
+            cooldownViolationText: null,
+            cooldown_violation_text: null
+          }));
+        }
+      }
+
+      // 3. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
       const newOverride = {
         id: `ovr-${Date.now()}`,
-        adminName: `${currentUser.name} (Admin)`,
-        contentType: appeal.contentType,
+        adminName: `${currentUser?.name || 'Admin'} (Admin)`,
+        contentType: appeal.contentType || 'post',
         contentId: appeal.contentId,
         rawText: appeal.originalText,
         originalAiLabel: appeal.aiPredictedLabel,
@@ -802,7 +850,7 @@ export default function App() {
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // 3. Gửi thông báo chúc mừng / xin lỗi cho user
+      // 4. Gửi thông báo chúc mừng / xin lỗi cho user
       const apologyNotif = {
         id: `notif-${Date.now()}`,
         type: 'system',
@@ -810,22 +858,37 @@ export default function App() {
           name: 'Nexus Support Admin',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
         },
-        content: `Khiếu nại được chấp thuận! Nội dung "${appeal.originalText.slice(0, 40)}..." đã được xác nhận là AI False Positive và khôi phục về trạng thái an toàn.`,
+        content: `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận là AI False Positive, án phạt được gỡ bỏ ngay lập tức.`,
         time: 'Vừa xong',
         isRead: false
       };
       addLocalNotification(apologyNotif);
     } else {
-      // Nếu từ chối khiếu nại
-      setPosts(prev => prev.map(p => {
-        if (p.id === appeal.contentId) {
-          return {
-            ...p,
-            appeal: { ...p.appeal, status: 'rejected' }
-          };
-        }
-        return p;
-      }));
+      // Nếu từ chối khiếu nại (bác bỏ)
+      if (appeal.contentType === 'comment') {
+        setPosts(prev => prev.map(p => {
+          const updatedComments = (p.comments || []).map(c => {
+            if (c.id === appeal.contentId) {
+              return {
+                ...c,
+                appeal: { ...c.appeal, status: 'rejected' }
+              };
+            }
+            return c;
+          });
+          return { ...p, comments: updatedComments };
+        }));
+      } else {
+        setPosts(prev => prev.map(p => {
+          if (p.id === appeal.contentId) {
+            return {
+              ...p,
+              appeal: { ...p.appeal, status: 'rejected' }
+            };
+          }
+          return p;
+        }));
+      }
     }
   };
 
@@ -1128,6 +1191,13 @@ export default function App() {
             <ModeratorView 
               isAdmin={hasRole(currentUser, ROLES.ADMIN)}
               onBackToAdmin={() => handleTabChange('admin')}
+              appeals={appeals}
+              onResolveAppeal={handleResolveAppeal}
+              reports={reports}
+              onResolveReport={handleResolveReport}
+              posts={posts}
+              onUnhidePost={(postId) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved' } : p))}
+              currentUser={currentUser}
             />
           ) : (
             <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">

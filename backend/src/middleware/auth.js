@@ -95,6 +95,34 @@ export function createAuthMiddleware({ userRepository }) {
         });
       }
 
+      if (user.status === 'banned') {
+        if (user.banned_until) {
+          const now = new Date();
+          const bannedUntil = new Date(user.banned_until);
+          if (bannedUntil > now) {
+            const diffMs = bannedUntil - now;
+            const hours = Math.floor(diffMs / 3600000);
+            const minutes = Math.floor((diffMs % 3600000) / 60000);
+            const timeStr = hours > 0 ? `${hours} giờ ${minutes} phút` : `${Math.max(1, minutes)} phút`;
+            const reasonStr = user.ban_reason ? ` Lý do: ${user.ban_reason}` : '';
+            return res.status(403).json({
+              success: false,
+              message: `Tài khoản của bạn tạm thời bị khóa. Vui lòng thử lại sau ${timeStr}.${reasonStr}`,
+            });
+          } else {
+            user.status = 'active';
+            user.banned_until = null;
+            user.ban_reason = null;
+          }
+        } else {
+          const reasonStr = user.ban_reason ? ` Lý do: ${user.ban_reason}` : '';
+          return res.status(403).json({
+            success: false,
+            message: `Tài khoản của bạn đã bị khóa vĩnh viễn do vi phạm nghiêm trọng.${reasonStr}`,
+          });
+        }
+      }
+
       req.user = user;
       next();
     } catch (error) {

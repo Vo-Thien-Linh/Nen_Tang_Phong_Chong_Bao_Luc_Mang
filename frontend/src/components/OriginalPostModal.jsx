@@ -7,6 +7,7 @@ import {
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatRelativeTime } from '../utils/timeAgo';
 import { appealCommentModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
+import VerifiedBadge from './VerifiedBadge';
 import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
 import { 
   REACTIONS, 
@@ -311,8 +312,8 @@ export default function OriginalPostModal({
                     >
                       {authorName}
                     </h4>
-                    {post.author?.isVerified && (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    {(post.author?.isVerified || post.author?.is_verified) && (
+                      <VerifiedBadge size="sm" />
                     )}
                     {(post.ai_label || post.aiLabel) && (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
