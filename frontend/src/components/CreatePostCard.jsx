@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Image, Sparkles, Send, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
 import { validateImageFile } from '../utils/imageLogic';
+import { canStartCreation } from '../utils/creationFlowLogic';
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
   const [content, setContent] = useState('');
@@ -17,6 +18,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [imageAiPreview, setImageAiPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const submitLockRef = useRef(false);
 
   const handleCheckSafety = async () => {
     if (!content.trim()) return;
@@ -93,6 +95,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canStartCreation(submitLockRef.current)) return;
     setMessage('');
     setErrorMessage('');
 
@@ -115,6 +118,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       if (!confirmed) return;
     }
 
+    submitLockRef.current = true;
     setIsSubmitting(true);
     try {
       const result = await createPost({
@@ -136,6 +140,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         : (error.message || 'Đăng bài thất bại');
       setErrorMessage(msg);
     } finally {
+      submitLockRef.current = false;
       setIsSubmitting(false);
     }
   };
