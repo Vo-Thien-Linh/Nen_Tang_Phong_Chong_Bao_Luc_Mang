@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   TrendingUp, UserPlus, Users, MessageCircle, 
-  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X
+  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
@@ -34,9 +34,73 @@ export default function HomeView({
   searchQuery = '',
   onClearSearch,
   onSelectHashtag,
-  onSharePost
+  onSharePost,
+  focusedPostTarget = null,
+  isLoadingPosts = false,
+  onRefreshFeed,
+  refreshKey = 0
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
+  const [activeTargetPostId, setActiveTargetPostId] = useState(null);
+
+  // Tự động chuyển về tab 'forYou' khi làm mới bảng tin
+  useEffect(() => {
+    if (refreshKey > 0 && feedFilter !== 'forYou') {
+      setFeedFilter('forYou');
+    }
+  }, [refreshKey]);
+
+  // Xử lý scroll và highlight bài viết khi được điều hướng từ thông báo
+  useEffect(() => {
+    if (!focusedPostTarget?.postId) return;
+
+    const targetId = String(focusedPostTarget.postId);
+    setActiveTargetPostId(targetId);
+
+    // Tự động chuyển bộ lọc Feed về 'forYou' nếu đang ở bộ lọc khác để hiển thị bài viết
+    if (feedFilter !== 'forYou') {
+      setFeedFilter('forYou');
+    }
+
+    // Hàm cuộn mượt mà đến bài viết mục tiêu
+    const scrollToTarget = () => {
+      const el =
+        document.getElementById(`post-${targetId}`) ||
+        document.getElementById(`post-${targetId.replace(/^post-/, '')}`) ||
+        document.getElementById(`post-post-${targetId}`);
+
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+      }
+      return false;
+    };
+
+    if (!scrollToTarget()) {
+      const t1 = setTimeout(scrollToTarget, 120);
+      const t2 = setTimeout(scrollToTarget, 350);
+      const t3 = setTimeout(scrollToTarget, 700);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    }
+
+    // Duy trì hiệu ứng nổi bật trong 4.5 giây để người dùng nhận diện rõ
+    const timer = setTimeout(() => {
+      setActiveTargetPostId(null);
+    }, 4500);
+
+    return () => clearTimeout(timer);
+  }, [focusedPostTarget?.timestamp, focusedPostTarget?.postId]);
+
+  const isPostTargeted = (postId) => {
+    if (!activeTargetPostId) return false;
+    const strP = String(postId);
+    const strT = String(activeTargetPostId);
+    return strP === strT || strP === strT.replace(/^post-/, '') || `post-${strP}` === strT;
+  };
   const [friendsList, setFriendsList] = useState(() => {
     // Sắp xếp người có nhiều bạn bè chung nhất lên đầu lần lượt xuống dưới
     return [...suggestedFriends].sort((a, b) => {
@@ -52,11 +116,87 @@ export default function HomeView({
     ));
   };
 
+  // Tính điểm tương tác để xếp hạng bài viết nổi bật (Engagement / Hot ranking)
+  const getPostEngagementScore = (post) => {
+    const reactions = Number(post.reactionCount || post.likesCount || post.totalReactions || 
+      (post.reactionCounts ? Object.values(post.reactionCounts).reduce((a, b) => a + Number(b || 0), 0) : 0) || 0);
+    const comments = (Array.isArray(post.comments) ? post.comments.length : Number(post.commentsCount || 0)) || 0;
+    const shares = Number(post.sharesCount || 0);
+    return (reactions * 1.5) + (comments * 3) + (shares * 4);
+  };
+
+  // Phân bổ bảng tin thông minh: Xen kẽ bài mới nhất & bài có tương tác nổi trội với cơ chế xoay vòng động mỗi lần làm mới
+  const rankAndInterleaveFeed = (postsList, seed = 0) => {
+    if (!Array.isArray(postsList) || postsList.length <= 2) return postsList;
+
+    const scored = postsList.map(p => ({
+      ...p,
+      _score: getPostEngagementScore(p)
+    }));
+
+    // Bài viết hot có điểm tương tác >= 6
+    const hotPosts = scored
+      .filter(p => p._score >= 6 && !p.inlineNotice)
+      .sort((a, b) => b._score - a._score);
+
+    if (hotPosts.length === 0) return postsList;
+
+    const hotIds = new Set(hotPosts.map(p => String(p.id)));
+    const regularPosts = scored.filter(p => !hotIds.has(String(p.id)));
+
+    // Xoay vòng danh sách bài hot dựa trên số lần làm mới để người dùng luôn thấy bài viết đa dạng, không bị lặp 1 bài
+    const hotOffset = seed % Math.max(1, hotPosts.length);
+    const rotatedHotPosts = [
+      ...hotPosts.slice(hotOffset),
+      ...hotPosts.slice(0, hotOffset)
+    ];
+
+    const result = [];
+    const seenIds = new Set();
+    let rIdx = 0;
+    let hIdx = 0;
+
+    // Luân phiên vị trí mở đầu: Lần này bắt đầu bằng bài mới nhất, lần làm mới sau bắt đầu bằng bài viết nổi trội/thịnh hành
+    const startWithHot = (seed % 2 === 1) && rotatedHotPosts.length > 0;
+    if (startWithHot) {
+      const firstHot = { ...rotatedHotPosts[hIdx++], isHotPost: true };
+      seenIds.add(String(firstHot.id));
+      result.push(firstHot);
+    }
+
+    // Xen kẽ nhịp nhàng: Bài mới -> Bài hot -> 2 bài mới -> Bài hot...
+    while (rIdx < regularPosts.length || hIdx < rotatedHotPosts.length) {
+      if (rIdx < regularPosts.length) {
+        const reg = regularPosts[rIdx++];
+        if (!seenIds.has(String(reg.id))) {
+          seenIds.add(String(reg.id));
+          result.push(reg);
+        }
+      }
+      if (hIdx < rotatedHotPosts.length) {
+        const hot = { ...rotatedHotPosts[hIdx++], isHotPost: true };
+        if (!seenIds.has(String(hot.id))) {
+          seenIds.add(String(hot.id));
+          result.push(hot);
+        }
+      }
+      if (rIdx < regularPosts.length && hIdx % 2 === 0) {
+        const reg2 = regularPosts[rIdx++];
+        if (!seenIds.has(String(reg2.id))) {
+          seenIds.add(String(reg2.id));
+          result.push(reg2);
+        }
+      }
+    }
+
+    return result;
+  };
+
   const trimmedSearch = (searchQuery || '').trim().toLowerCase();
 
   let filteredPosts = feedFilter === 'following'
     ? posts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
-    : posts;
+    : rankAndInterleaveFeed(posts, refreshKey);
 
   if (trimmedSearch) {
     filteredPosts = filteredPosts.filter(p => {
@@ -74,7 +214,7 @@ export default function HomeView({
   const isAdmin = Boolean(currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin));
 
   return (
-    <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
       <div className="flex justify-center items-start gap-6 lg:gap-8">
         
         {/* ================= CỘT TRÁI: LỐI TẮT NHANH & PROFILE (HIỆN TRÊN MÀN HÌNH RỘNG XL) ================= */}
@@ -94,7 +234,7 @@ export default function HomeView({
                 />
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-slate-800 truncate hover:text-blue-600 transition">
-                    {currentUser.name}
+                    {currentUser.name || currentUser.full_name || currentUser.username || 'Người dùng'}
                   </h3>
                   <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700 bg-blue-50 border border-blue-200 rounded uppercase">
                     {currentUser.role || 'USER'}
@@ -208,12 +348,6 @@ export default function HomeView({
             onRequireLogin={onRequireLogin}
           />
 
-          {feedWarning && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">
-              {feedWarning}
-            </div>
-          )}
-
           {/* Banner thông báo kết quả tìm kiếm */}
           {trimmedSearch && (
             <div className="flex items-center justify-between bg-blue-50/90 border border-blue-200/90 px-4 py-3 rounded-2xl shadow-2xs text-blue-900 transition-all">
@@ -260,14 +394,75 @@ export default function HomeView({
                 Đang theo dõi
               </button>
             </div>
-            <span className="text-[11px] text-slate-400 font-normal">
-              {visiblePostCount} bài viết
-            </span>
+            <div className="flex items-center gap-2.5">
+              {onRefreshFeed && (
+                <button
+                  onClick={onRefreshFeed}
+                  disabled={isLoadingPosts}
+                  title="Làm mới bảng tin"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer text-[11px] font-semibold"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPosts ? 'animate-spin text-blue-600' : ''}`} />
+                  <span className="hidden sm:inline">Làm mới</span>
+                </button>
+              )}
+              <span className="text-[11px] text-slate-400 font-normal">
+                {visiblePostCount} bài viết
+              </span>
+            </div>
           </div>
+
+          {/* Biểu tượng vòng xoay làm mới kiểu Facebook */}
+          {isLoadingPosts && posts && posts.length > 0 && (
+            <div className="flex justify-center py-2 animate-fade-in">
+              <div className="w-9 h-9 rounded-full bg-white dark:bg-slate-800 shadow-md border border-slate-200/90 dark:border-slate-700 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            </div>
+          )}
 
           {/* Danh sách bài viết Feed */}
           <div className="space-y-4">
-            {filteredPosts.length > 0 ? (
+            {isLoadingPosts && (!posts || posts.length === 0) ? (
+              /* Hiệu ứng Skeleton Loading cho Bảng tin khi load lại trang */
+              <div className="space-y-4">
+                {[1, 2, 3].map((skeletonId) => (
+                  <div
+                    key={skeletonId}
+                    className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-xs animate-pulse space-y-4"
+                  >
+                    {/* Skeleton Author Header */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3.5 bg-slate-200 dark:bg-slate-800 rounded-md w-36" />
+                        <div className="h-2.5 bg-slate-100 dark:bg-slate-800/60 rounded-md w-24" />
+                      </div>
+                      <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800/40" />
+                    </div>
+
+                    {/* Skeleton Post Content lines */}
+                    <div className="space-y-2.5 pt-1">
+                      <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-full" />
+                      <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-11/12" />
+                      <div className="h-3 bg-slate-100 dark:bg-slate-800/60 rounded w-2/3" />
+                    </div>
+
+                    {/* Skeleton Image Placeholder */}
+                    {skeletonId !== 2 && (
+                      <div className="h-48 sm:h-56 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-full" />
+                    )}
+
+                    {/* Skeleton Interaction Bar */}
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                      <div className="h-8 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-24" />
+                      <div className="h-8 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-24" />
+                      <div className="h-8 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-24" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredPosts.length > 0 ? (
               filteredPosts.map(post => (
                 isDeletedNoticePost(post) ? (
                   <InlineNotice
@@ -297,6 +492,10 @@ export default function HomeView({
                     onClosePostMenu={onClosePostMenu}
                     onDismissNotice={onDismissNotice}
                     onSharePost={onSharePost}
+                    isTargeted={isPostTargeted(post.id) && focusedPostTarget?.type === 'comment'}
+                    targetType={focusedPostTarget?.type}
+                    targetActor={focusedPostTarget?.actor}
+                    targetCommentId={focusedPostTarget?.targetCommentId}
                   />
                 )
               ))

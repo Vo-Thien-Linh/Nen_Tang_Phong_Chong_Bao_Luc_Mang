@@ -9,6 +9,7 @@ import ProfileView from './components/ProfileView';
 import AdminDashboardView from './components/AdminDashboardView';
 import ModeratorView from './components/ModeratorView';
 import SettingsView from './components/SettingsView';
+import PostDetailView from './components/PostDetailView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
 import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost } from './utils/creationFlowLogic';
@@ -26,7 +27,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
+import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -51,8 +52,19 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
-  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
-  const [posts, setPosts] = useState([]);
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [posts, setPosts] = useState(initialPosts);
+  const [isLoadingPosts, setIsLoadingPosts] = useState(true);
+  const [focusedPostTarget, setFocusedPostTarget] = useState(null);
+  const [viewedPostDetail, setViewedPostDetail] = useState(null); // Chi tiết bài viết khi xem từ thông báo
+  const [feedRefreshKey, setFeedRefreshKey] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('wings_feed_refresh_key');
+      return saved !== null ? Number(saved) : 1;
+    } catch {
+      return 1;
+    }
+  }); // Bộ đếm xoay vòng đề xuất bài viết bảng tin (lưu session để F5 giữ nguyên bài)
   const createdPostIdsRef = useRef(new Set());
   const pendingCommentKeysRef = useRef(new Set());
   const [openPostMenuId, setOpenPostMenuId] = useState(null);
@@ -135,29 +147,80 @@ export default function App() {
   useEffect(() => {
     const rawHash = window.location.hash.replace('#', '') || 'home';
     let initialHash = rawHash;
+    let initialPostId = null;
 
-    if (!currentUser && (rawHash === 'admin' || rawHash === 'moderation')) {
+    if (rawHash.startsWith('post-')) {
+      initialHash = 'post';
+      initialPostId = rawHash.replace('post-', '');
+    } else if (rawHash === 'post') {
+      initialHash = 'post';
+      initialPostId = sessionStorage.getItem('wings_viewed_post_id');
+    }
+
+    if (initialHash === 'post') {
+      if (initialPostId) {
+        setViewedPostDetail({
+          postId: initialPostId,
+          post: null,
+          meta: { type: 'view' },
+          previousTab: 'home',
+        });
+      } else {
+        initialHash = 'home';
+      }
+    }
+
+    if (!currentUser && (initialHash === 'admin' || initialHash === 'moderation')) {
       initialHash = 'home';
       setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
       setAuthModalTab('login');
       setIsAuthModalOpen(true);
     } else if (currentUser) {
-      if (rawHash === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+      if (initialHash === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
         initialHash = getDefaultTabForUser(currentUser);
-      } else if (rawHash === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+      } else if (initialHash === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
         initialHash = getDefaultTabForUser(currentUser);
       }
     }
 
     setActiveTab(initialHash);
     if (!window.history.state) {
-      window.history.replaceState({ tab: initialHash, viewedUser: null }, '', `#${initialHash}`);
+      const stateHash = initialPostId ? `post-${initialPostId}` : initialHash;
+      window.history.replaceState({ tab: initialHash, postId: initialPostId, viewedUser: null }, '', `#${stateHash}`);
     }
 
     const handlePopState = (event) => {
       const state = event.state;
       const hash = window.location.hash.replace('#', '') || 'home';
       let targetTab = state?.tab || hash || 'home';
+      let targetPostId = state?.postId || null;
+
+      if (targetTab.startsWith('post-')) {
+        targetPostId = targetTab.replace('post-', '');
+        targetTab = 'post';
+      } else if (targetTab === 'post' && !targetPostId) {
+        targetPostId = sessionStorage.getItem('wings_viewed_post_id');
+      }
+
+      if (targetTab === 'post') {
+        if (targetPostId) {
+          setViewedPostDetail((prev) =>
+            prev?.postId === targetPostId
+              ? prev
+              : {
+                  postId: targetPostId,
+                  post: null,
+                  meta: { type: 'view' },
+                  previousTab: 'home',
+                }
+          );
+        } else {
+          targetTab = 'home';
+          setViewedPostDetail(null);
+        }
+      } else {
+        setViewedPostDetail(null);
+      }
 
       if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation')) {
         targetTab = 'home';
@@ -231,6 +294,9 @@ export default function App() {
       setViewedProfileUser(targetUser || null);
     } else {
       setViewedProfileUser(null);
+    }
+    if (effectiveTab !== 'post') {
+      setViewedPostDetail(null);
     }
     setActiveTab(effectiveTab);
 
@@ -306,20 +372,14 @@ export default function App() {
     let isMounted = true;
     const effectiveUserId = currentUser?.id || configuredUserId;
 
-    if (!effectiveUserId) {
-      if (import.meta.env.DEV) {
-        console.warn('Missing userId; keeping mock feed and local fallback behavior.');
-      }
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    fetchPosts({ userId: effectiveUserId })
+    setIsLoadingPosts(true);
+    fetchPosts({ userId: effectiveUserId || undefined })
       .then((result) => {
-        if (isMounted && Array.isArray(result.data)) {
+        if (isMounted && Array.isArray(result.data) && result.data.length > 0) {
           setPosts(result.data);
           setFeedWarning('');
+        } else if (isMounted && (!result.data || result.data.length === 0)) {
+          setPosts(initialPosts);
         }
       })
       .catch((error) => {
@@ -330,12 +390,116 @@ export default function App() {
         if (isMounted) {
           setPosts(initialPosts);
         }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingPosts(false);
+        }
       });
 
     return () => {
       isMounted = false;
     };
   }, [currentUser?.id]);
+
+  // Làm mới bảng tin khi nhấn nút Trang chủ, Logo hoặc nút Làm mới
+  const handleRefreshHome = async () => {
+    if (activeTab !== 'home') {
+      handleTabChange('home');
+    }
+    setHomeSearchQuery(''); // Xóa bộ lọc tìm kiếm để tải lại toàn bộ bảng tin
+    setFocusedPostTarget(null); // Xóa bài viết highlight cũ
+    setViewedPostDetail(null); // Thoát khỏi chi tiết bài viết nếu có
+    setFeedRefreshKey((prev) => {
+      const nextKey = prev + 1;
+      try {
+        sessionStorage.setItem('wings_feed_refresh_key', String(nextKey));
+      } catch {}
+      return nextKey;
+    }); // Xoay vòng thuật toán đề xuất để mang lại nội dung mới mẻ khi chủ động nhấn Trang chủ/Logo
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setIsLoadingPosts(true);
+    const effectiveUserId = currentUser?.id || configuredUserId;
+    try {
+      // Mặc định thời gian hiển thị vòng quay là 1s + thời gian tải dữ liệu thực tế từ máy chủ
+      const minDelay = new Promise((resolve) => setTimeout(resolve, 1000));
+      const fetchPromise = fetchPosts({ userId: effectiveUserId || undefined });
+      const [result] = await Promise.all([fetchPromise, minDelay]);
+
+      if (Array.isArray(result?.data)) {
+        setPosts(result.data);
+        setFeedWarning('');
+      }
+    } catch (err) {
+      console.warn('Lỗi khi làm mới bảng tin:', err);
+    } finally {
+      setIsLoadingPosts(false);
+    }
+  };
+
+  // Điều hướng trực tiếp tới chi tiết bài viết mục tiêu (chuyên nghiệp như Facebook/Twitter)
+  const handleViewPost = async (targetPostId, meta = {}) => {
+    if (!targetPostId) return;
+
+    const strTargetId = String(targetPostId);
+    const prevTab = activeTab;
+
+    // Tìm bài viết trong danh sách hiện có
+    const existingPost = posts.find(
+      (p) =>
+        String(p.id) === strTargetId ||
+        String(p.id) === strTargetId.replace(/^post-/, '') ||
+        `post-${p.id}` === strTargetId
+    );
+
+    // Mở màn hình xem chi tiết riêng biệt cho bài viết này
+    setViewedPostDetail({
+      postId: strTargetId,
+      post: existingPost || null,
+      meta: {
+        type: meta.type || 'interaction',
+        actor: meta.actor || null,
+        targetCommentId: meta.targetCommentId || null,
+        notificationId: meta.notificationId || null,
+      },
+      previousTab: prevTab === 'post' ? 'notifications' : prevTab,
+    });
+
+    sessionStorage.setItem('wings_viewed_post_id', strTargetId);
+    setActiveTab('post');
+    window.history.pushState(
+      { tab: 'post', postId: strTargetId },
+      '',
+      `#post-${strTargetId}`
+    );
+
+    // Nếu bài viết chưa có sẵn trong danh sách (bài viết từ lâu), fetch trực tiếp từ API
+    if (!existingPost) {
+      try {
+        setIsLoadingPosts(true);
+        const res = await fetchPostById({ postId: strTargetId, userId: currentUser?.id });
+        if (res && (res.data || res.id)) {
+          const fetchedPost = res.data || res;
+          setViewedPostDetail((prev) => (prev ? { ...prev, post: fetchedPost } : prev));
+          setPosts((prev) => {
+            const alreadyIn = prev.some(
+              (p) =>
+                String(p.id) === String(fetchedPost.id) ||
+                String(p.id) === String(fetchedPost.id).replace(/^post-/, '')
+            );
+            if (!alreadyIn) {
+              return [fetchedPost, ...prev];
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.warn('Không thể tải bài viết từ API:', err);
+      } finally {
+        setIsLoadingPosts(false);
+      }
+    }
+  };
 
   // Lắng nghe Realtime SSE cho Bài viết & Chia sẻ (Realtime Feed)
   useEffect(() => {
@@ -833,7 +997,8 @@ export default function App() {
 
   return (
     <div className={`bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
-      
+
+
       {/* Thanh điều hướng chính */}
       <Navbar 
         activeTab={activeTab} 
@@ -860,6 +1025,8 @@ export default function App() {
         clientPosts={posts}
         activeFilterQuery={homeSearchQuery}
         onClearFilter={() => setHomeSearchQuery('')}
+        onRefreshHome={handleRefreshHome}
+        isLoadingPosts={isLoadingPosts}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -899,6 +1066,44 @@ export default function App() {
               setActiveTab('home');
             }}
             onSharePost={handleSharePost}
+            focusedPostTarget={focusedPostTarget}
+            isLoadingPosts={isLoadingPosts}
+            onRefreshFeed={handleRefreshHome}
+            refreshKey={feedRefreshKey}
+          />
+        )}
+
+        {/* Tab Xem chi tiết bài viết chuyên biệt (khi bấm vào thông báo) */}
+        {activeTab === 'post' && viewedPostDetail && (
+          <PostDetailView
+            postId={viewedPostDetail.postId}
+            post={viewedPostDetail.post}
+            meta={viewedPostDetail.meta}
+            currentUser={currentUser}
+            onBack={() => {
+              const backTarget = viewedPostDetail.previousTab || 'notifications';
+              handleTabChange(backTarget);
+              setViewedPostDetail(null);
+            }}
+            allPosts={posts}
+            onUpdatePost={handleUpdatePost}
+            onToggleLike={handleToggleLike}
+            onAddComment={handleAddComment}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onRequireAuth={handleRequireAuth}
+            onRequireLogin={handleRequireLogin}
+            onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={(delPostId) => {
+              handleDeleteOwnPost(delPostId);
+              handleTabChange(viewedPostDetail.previousTab || 'notifications');
+            }}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
+            onSharePost={handleSharePost}
           />
         )}
 
@@ -935,10 +1140,7 @@ export default function App() {
             onOpenProfile={handleOpenUserProfile}
             activeFilter={notifFilter}
             onFilterChange={setNotifFilter}
-            onViewPost={(_postId) => {
-              setHomeSearchQuery('');
-              handleTabChange('home');
-            }}
+            onViewPost={handleViewPost}
           />
         )}
 
@@ -1070,8 +1272,20 @@ export default function App() {
         notification={toastNotification}
         onClose={() => setToastNotification(null)}
         onClick={() => {
+          const targetId = toastNotification?.targetPost?.id || toastNotification?.targetPostId;
+          if (targetId) {
+            handleViewPost(targetId, {
+              type: toastNotification.type,
+              actor: toastNotification.user,
+              targetCommentId: toastNotification.targetCommentId || toastNotification.commentId,
+              notificationId: toastNotification.id,
+            });
+          } else if (toastNotification?.user?.id && toastNotification.user?.id !== 'system') {
+            handleOpenUserProfile(toastNotification.user);
+          } else {
+            handleTabChange('notifications');
+          }
           setToastNotification(null);
-          handleTabChange('notifications');
         }}
       />
 

@@ -38,7 +38,8 @@ export async function fetchPosts({ userId } = {}) {
 }
 
 export async function fetchPostById({ postId, userId } = {}) {
-  return request(`/api/posts/${postId}`, {
+  const cleanId = String(postId || '').replace(/^post-/, '');
+  return request(`/api/posts/${cleanId}`, {
     headers: userId ? { 'x-user-id': userId } : {},
   });
 }

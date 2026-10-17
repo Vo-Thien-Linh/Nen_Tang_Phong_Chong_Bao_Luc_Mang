@@ -166,6 +166,9 @@ export function createPostRepository({ pool }) {
     },
 
     async findById(postId, viewerId = null) {
+      const cleanId = Number(String(postId).replace(/^post-/, ''));
+      if (Number.isNaN(cleanId)) return null;
+
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1
@@ -177,7 +180,7 @@ export function createPostRepository({ pool }) {
                  AND (p.image_moderation_status <> 'rejected_hold'
                       OR p.moderation_expires_at > CURRENT_TIMESTAMP))
            )`,
-        [postId, viewerId]
+        [cleanId, viewerId]
       );
 
       if (!result.rows[0]) return null;
@@ -187,7 +190,7 @@ export function createPostRepository({ pool }) {
          FROM post_reactions
          WHERE post_id = $1
          GROUP BY post_id, reaction_type`,
-        [postId]
+        [cleanId]
       );
 
       const myReactionResult = viewerId
@@ -195,7 +198,7 @@ export function createPostRepository({ pool }) {
             `SELECT post_id, reaction_type
              FROM post_reactions
              WHERE user_id = $1 AND post_id = $2`,
-            [viewerId, postId]
+            [viewerId, cleanId]
           )
         : { rows: [] };
 
@@ -211,7 +214,7 @@ export function createPostRepository({ pool }) {
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.image_moderation_status = 'rejected_hold' AND c.moderation_expires_at > CURRENT_TIMESTAMP AND c.author_id = $2))
          ORDER BY c.created_at ASC`,
-        [postId, viewerId]
+        [cleanId, viewerId]
       );
 
       const post = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentResult.rows)[0];

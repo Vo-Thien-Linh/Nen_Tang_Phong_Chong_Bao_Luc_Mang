@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
-  Image as ImageIcon, X, Eye, EyeOff, Loader2
+  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles
 } from 'lucide-react';
 import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
@@ -26,6 +26,7 @@ import InlineNotice from './InlineNotice';
 import VerifiedBadge from './VerifiedBadge';
 import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
+import PostReactionsModal from './PostReactionsModal';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
@@ -121,9 +122,14 @@ export default function PostCard({
   onDismissNotice,
   onSharePost,
   allPosts = [],
-  onUpdatePost
+  onUpdatePost,
+  isTargeted = false,
+  targetType = null,
+  targetActor = null,
+  targetCommentId = null
 }) {
   const [showComments, setShowComments] = useState(false);
+  const [highlightedCommentId, setHighlightedCommentId] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [commentImageFile, setCommentImageFile] = useState(null);
   const [commentImagePreview, setCommentImagePreview] = useState('');
@@ -145,6 +151,46 @@ export default function PostCard({
     await appealPostModeration({ userId: currentUser?.id, postId: post.id });
     onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'pending_review', moderationExpiresAt: null, remainingSeconds: null } });
   };
+
+  // Tự động mở khung bình luận và highlight đúng bình luận được nhắc đến từ thông báo
+  useEffect(() => {
+    if (isTargeted && targetType === 'comment') {
+      setShowComments(true);
+
+      const timer = setTimeout(() => {
+        let target = null;
+        // 1. Thử tìm theo mã bình luận targetCommentId
+        if (targetCommentId) {
+          target = post.comments?.find(c => String(c.id) === String(targetCommentId));
+        }
+        // 2. Thử tìm theo người gửi bình luận (actor)
+        if (!target && targetActor) {
+          target = [...(post.comments || [])].reverse().find(c => 
+            (c.author?.id && (String(c.author.id) === String(targetActor.id) || String(c.author.id) === String(targetActor.userId))) ||
+            (c.author?.name && targetActor?.name && c.author.name.trim().toLowerCase() === targetActor.name.trim().toLowerCase())
+          );
+        }
+        // 3. Fallback: Lấy bình luận mới nhất trong bài
+        if (!target && post.comments && post.comments.length > 0) {
+          target = post.comments[post.comments.length - 1];
+        }
+
+        if (target) {
+          setHighlightedCommentId(target.id);
+          const el = document.getElementById(`comment-${target.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          const clearTimer = setTimeout(() => {
+            setHighlightedCommentId(null);
+          }, 4500);
+          return () => clearTimeout(clearTimer);
+        }
+      }, 250);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isTargeted, targetType, targetCommentId, targetActor, post.comments]);
 
   const handleCommentImageSelect = (e) => {
     const file = e.target.files?.[0];
@@ -178,6 +224,11 @@ export default function PostCard({
   const [reactionError, setReactionError] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showReactionSummary, setShowReactionSummary] = useState(false);
+  const [hoveredReactionId, setHoveredReactionId] = useState(null);
+  const [isReactionsModalOpen, setIsReactionsModalOpen] = useState(false);
+  const longPressTimerRef = useRef(null);
+  const isLongPressingRef = useRef(false);
+
   const [localShowPostMenu, setLocalShowPostMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -205,14 +256,71 @@ export default function PostCard({
     }
     reactionPickerTimeoutRef.current = setTimeout(() => {
       setShowReactionPicker(false);
+      setHoveredReactionId(null);
       reactionPickerTimeoutRef.current = null;
     }, delay);
   }, []);
+
+  // Xử lý nhấn giữ (Long press) mở bảng chọn cảm xúc & kéo chọn
+  const handleReactionButtonMouseDown = (e) => {
+    if (e.button !== 0) return;
+    isLongPressingRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressingRef.current = true;
+      setShowReactionPicker(true);
+    }, 260);
+  };
+
+  const handleReactionButtonMouseUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    if (!isLongPressingRef.current) {
+      if (hoveredReactionId) {
+        handleSelectReaction(hoveredReactionId);
+        setHoveredReactionId(null);
+      } else {
+        handleSelectReaction(currentReaction || 'like');
+      }
+    } else {
+      if (hoveredReactionId) {
+        handleSelectReaction(hoveredReactionId);
+        setHoveredReactionId(null);
+        setShowReactionPicker(false);
+      }
+    }
+    isLongPressingRef.current = false;
+  };
+
+  const handleReactionTouchStart = () => {
+    isLongPressingRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressingRef.current = true;
+      setShowReactionPicker(true);
+    }, 260);
+  };
+
+  const handleReactionTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    if (isLongPressingRef.current && hoveredReactionId) {
+      handleSelectReaction(hoveredReactionId);
+      setHoveredReactionId(null);
+      setShowReactionPicker(false);
+    } else if (!isLongPressingRef.current) {
+      handleSelectReaction(currentReaction || 'like');
+    }
+    isLongPressingRef.current = false;
+  };
 
   useEffect(() => {
     return () => {
       if (reactionPickerTimeoutRef.current) {
         clearTimeout(reactionPickerTimeoutRef.current);
+      }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
       }
     };
   }, []);
@@ -474,9 +582,12 @@ export default function PostCard({
   }
 
   return (
-    <div className={`bg-white rounded-2xl border shadow-xs mb-5 overflow-hidden transition-all hover:border-slate-300/80 ${
-      post.ai_status === 'hidden' ? 'border-rose-300 bg-rose-50/20' : 'border-slate-200/80'
-    }`}>
+    <div 
+      id={`post-${post.id}`}
+      className={`bg-white dark:bg-slate-900 rounded-2xl border mb-5 overflow-hidden shadow-xs hover:border-slate-300/80 dark:hover:border-slate-700 transition-all duration-300 ${
+        post.ai_status === 'hidden' ? 'border-rose-300 bg-rose-50/20' : 'border-slate-200/80 dark:border-slate-800'
+      }`}
+    >
       {/* Banner cảnh báo bài viết bị ẩn cứng */}
       {post.ai_status === 'hidden' && (
         <div className="p-3.5 bg-rose-50 border-b border-rose-200 text-xs flex items-center justify-between gap-3 text-rose-900">
@@ -808,20 +919,24 @@ export default function PostCard({
         <button
           type="button"
           ref={reactionSummaryRef}
-          className="flex min-w-0 items-center gap-1.5 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="flex min-w-0 items-center gap-1.5 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900 group/reactors cursor-pointer transition"
           onMouseEnter={() => setShowReactionSummary(true)}
           onMouseLeave={() => setShowReactionSummary(false)}
           onFocus={() => setShowReactionSummary(true)}
           onBlur={() => setShowReactionSummary(false)}
-          onClick={() => setShowReactionSummary((value) => !value)}
-          aria-label="Xem số lượng từng loại cảm xúc"
+          onClick={() => {
+            setShowReactionSummary(false);
+            setIsReactionsModalOpen(true);
+          }}
+          title="Nhấn để xem ai đã bày tỏ cảm xúc"
+          aria-label="Xem ai đã bày tỏ cảm xúc về bài viết"
         >
           {summaryReactions.length > 0 && (
-            <div className="flex items-center -space-x-1">
+            <div className="flex items-center -space-x-1 group-hover/reactors:scale-105 transition-transform">
               {summaryReactions.map((reaction) => (
                 <span
                   key={reaction.id}
-                  className="w-4 h-4 rounded-full bg-white flex items-center justify-center text-[10px] shadow-2xs ring-1 ring-white"
+                  className="w-4 h-4 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center text-[10px] shadow-2xs ring-1 ring-white dark:ring-slate-700"
                   title={reaction.label}
                 >
                   {reaction.emoji}
@@ -829,7 +944,7 @@ export default function PostCard({
               ))}
             </div>
           )}
-          <span className="font-medium text-slate-600 pl-1">
+          <span className="font-semibold text-slate-600 dark:text-slate-300 group-hover/reactors:text-blue-600 dark:group-hover/reactors:text-blue-400 pl-1 transition">
             {reactionCount} cảm xúc
           </span>
           <PortalPopover
@@ -871,38 +986,70 @@ export default function PostCard({
           onMouseEnter={handleOpenReactionPicker}
           onMouseLeave={() => handleCloseReactionPicker(350)}
         >
-          {/* Thanh Popover chọn 6 cảm xúc */}
+          {/* Thanh Popover chọn 6 cảm xúc với hiệu ứng nổi bật */}
           <PortalPopover
             anchorRef={reactionPickerRef}
             open={showReactionPicker}
-            gap={8}
+            gap={10}
             onRequestClose={() => {
               if (reactionPickerTimeoutRef.current) clearTimeout(reactionPickerTimeoutRef.current);
               setShowReactionPicker(false);
+              setHoveredReactionId(null);
             }}
             onMouseEnter={handleOpenReactionPicker}
             onMouseLeave={() => handleCloseReactionPicker(350)}
-            className="rounded-full border border-slate-200 bg-white px-2.5 py-1.5 shadow-xl animate-fade-in"
+            className="rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 shadow-2xl animate-fade-in z-50 select-none"
           >
+            <div className="flex items-center gap-1 sm:gap-2">
+              {REACTIONS.map((r) => {
+                const isHovered = hoveredReactionId === r.id;
+                return (
+                  <div key={r.id} className="relative flex flex-col items-center">
+                    {/* Tooltip hiển thị tên cảm xúc khi rê qua */}
+                    {isHovered && (
+                      <div className="absolute -top-8 px-2 py-0.5 bg-slate-900/95 dark:bg-slate-800 text-white text-[10px] font-bold rounded-full shadow-lg whitespace-nowrap animate-fade-in pointer-events-none z-20">
+                        {r.label}
+                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-slate-900/95 dark:bg-slate-800 rotate-45" />
+                      </div>
+                    )}
 
-            <div className="flex items-center gap-2">
-              {REACTIONS.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => handleSelectReaction(r.id)}
-                  title={r.label}
-                  className="text-2xl hover:scale-135 transition-transform duration-150 p-1 cursor-pointer"
-                >
-                  {r.emoji}
-                </button>
-              ))}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectReaction(r.id);
+                        setShowReactionPicker(false);
+                        setHoveredReactionId(null);
+                      }}
+                      onMouseEnter={() => setHoveredReactionId(r.id)}
+                      onMouseLeave={() => setHoveredReactionId(null)}
+                      title={r.label}
+                      className={`text-2xl sm:text-3xl p-1 cursor-pointer transition-all duration-200 ease-out select-none ${
+                        isHovered 
+                          ? 'scale-150 -translate-y-2.5 z-10 drop-shadow-md' 
+                          : 'hover:scale-125 hover:-translate-y-1'
+                      }`}
+                    >
+                      <span className="inline-block transform active:scale-90 transition-transform">{r.emoji}</span>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </PortalPopover>
 
           <button
-            onClick={() => handleSelectReaction(currentReaction || 'like')}
-            className={`w-full py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 hover:bg-slate-50 cursor-pointer ${
-              activeReactionObj ? `${activeReactionObj.color} font-bold` : 'text-slate-600'
+            onClick={() => {
+              if (!isLongPressingRef.current) {
+                handleSelectReaction(currentReaction || 'like');
+              }
+            }}
+            onMouseDown={handleReactionButtonMouseDown}
+            onMouseUp={handleReactionButtonMouseUp}
+            onTouchStart={handleReactionTouchStart}
+            onTouchEnd={handleReactionTouchEnd}
+            className={`w-full py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none ${
+              activeReactionObj ? `${activeReactionObj.color} font-bold` : 'text-slate-600 dark:text-slate-300'
             }`}
           >
             {activeReactionObj ? (
@@ -1064,12 +1211,14 @@ export default function PostCard({
                 const isHardHidden = comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden';
                 const isSoftHidden = comment.is_soft_hidden || comment.isSoftHidden || comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic';
                 const isRevealed = Boolean(revealedComments[comment.id]);
+                const isThisCommentHighlighted = highlightedCommentId && String(comment.id) === String(highlightedCommentId);
+                const isSensitiveOrHeld = ['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id];
 
                 // 1. Trường hợp bình luận bị ẩn cứng (Hate Speech hoặc Violence)
                 if (isHardHidden) {
                   if (!canViewHiddenComment) return null;
                   return (
-                    <div key={comment.id} className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900">
+                    <div key={comment.id} id={`comment-${comment.id}`} className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900">
                       <div className="flex items-center gap-2">
                         <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
                         <div>
@@ -1097,7 +1246,7 @@ export default function PostCard({
                 // 2. Trường hợp bình luận Toxic: ẩn mềm ở cuối danh sách, bấm vào thì hiện
                 if (isSoftHidden && !isRevealed) {
                   return (
-                    <div key={comment.id} className="p-2.5 bg-amber-50/80 border border-amber-200/90 rounded-xl text-xs flex items-center justify-between gap-2 text-amber-900">
+                    <div key={comment.id} id={`comment-${comment.id}`} className="p-2.5 bg-amber-50/80 border border-amber-200/90 rounded-xl text-xs flex items-center justify-between gap-2 text-amber-900">
                       <div className="flex items-center gap-2">
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span className="text-[11px]">Bình luận này bị nghi ngờ độc hại và đã được làm mờ ở cuối danh sách.</span>
@@ -1115,14 +1264,26 @@ export default function PostCard({
                 }
 
                 return (
-                  <div key={comment.id} className={`flex gap-2.5 items-start text-xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'relative' : ''}`}>
+                  <div 
+                    key={comment.id} 
+                    id={`comment-${comment.id}`}
+                    className={`flex gap-2.5 items-start text-xs rounded-2xl p-1.5 transition-all duration-500 ${
+                      isSensitiveOrHeld ? 'relative' : ''
+                    } ${
+                      isThisCommentHighlighted
+                        ? 'bg-blue-50/90 dark:bg-blue-950/60 ring-2 ring-blue-500 dark:ring-blue-400 shadow-sm'
+                        : ''
+                    }`}
+                  >
                     <img 
-                      src={comment.author.avatar} 
-                      alt={comment.author.name} 
+                      src={comment.author?.avatar || DEFAULT_AVATAR} 
+                      alt={comment.author?.name || 'Người dùng'} 
                       onClick={() => onOpenProfile && onOpenProfile(comment.author)}
                       className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                     />
-                    <div className={`flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'blur-sm' : ''} ${isSoftHidden ? 'border-amber-200 bg-amber-50/20' : ''}`}>
+                    <div className={`flex-1 bg-white dark:bg-slate-800/90 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${
+                      isSensitiveOrHeld ? 'blur-sm' : ''
+                    } ${isSoftHidden ? 'border-amber-200 bg-amber-50/20' : ''}`}>
                       {/* Tiêu đề cảnh báo nếu đang mở xem bình luận Toxic */}
                       {isSoftHidden && isRevealed && (
                         <div className="text-[10px] text-amber-800 flex items-center justify-between pb-1 border-b border-amber-100 mb-1.5">
@@ -1141,15 +1302,20 @@ export default function PostCard({
                       )}
 
                       <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2">
                           <span 
                             onClick={() => onOpenProfile && onOpenProfile(comment.author)}
-                            className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition"
+                            className="font-bold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition"
                           >
-                            {comment.author.name}
+                            {comment.author?.name}
                           </span>
                           {(comment.author?.isVerified || comment.author?.is_verified) && (
                             <VerifiedBadge size="xs" />
+                          )}
+                          {isThisCommentHighlighted && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-600 text-white rounded-full flex items-center gap-1 animate-pulse">
+                              <span>Bình luận được nhắc đến</span>
+                            </span>
                           )}
                         </div>
                         <div className="flex items-center gap-2">
@@ -1168,11 +1334,11 @@ export default function PostCard({
                           </button>
                         </div>
                       </div>
-                      {comment.content && <p className="text-slate-700">{comment.content}</p>}
+                      {comment.content && <p className="text-slate-700 dark:text-slate-200">{comment.content}</p>}
 
                       {comment.image && (
-                        <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                          {comment.imageModeration?.status === 'sensitive' && !unblurredComments[comment.id] ? (
+                        <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 max-w-xs group">
+                          {(comment.imageModeration?.status === 'sensitive' || comment.imageLabel === 'NSFW') && !unblurredComments[comment.id] ? (
                             <div className="relative">
                               <img
                                 src={comment.image}
@@ -1200,7 +1366,7 @@ export default function PostCard({
                                 className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
                                 onClick={() => window.open(comment.image, '_blank')}
                               />
-                              {comment.imageModeration?.status === 'sensitive' && unblurredComments[comment.id] && (
+                              {(comment.imageModeration?.status === 'sensitive' || comment.imageLabel === 'NSFW') && unblurredComments[comment.id] && (
                                 <button
                                   type="button"
                                   onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: false }))}
@@ -1219,7 +1385,9 @@ export default function PostCard({
                       <div className="absolute inset-0 bg-slate-900/60 rounded-xl flex items-center justify-center text-white gap-2">
                         <span className="text-[11px] font-semibold">{comment.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm'}</span>
                         <button type="button" className="px-2 py-1 rounded bg-white/20 text-[10px]" onClick={() => setUnblurredComments((prev) => ({ ...prev, [comment.id]: true }))}>Xem</button>
-                        {comment.imageModeration?.status === 'rejected_hold' && comment.author?.id === currentUser?.id && <button type="button" className="px-2 py-1 rounded bg-rose-500 text-[10px]" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: comment.id })}>Kháng cáo</button>}
+                        {comment.imageModeration?.status === 'rejected_hold' && comment.author?.id === currentUser?.id && typeof appealCommentModeration === 'function' && (
+                          <button type="button" className="px-2 py-1 rounded bg-rose-500 text-[10px]" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: comment.id })}>Kháng cáo</button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1265,6 +1433,17 @@ export default function PostCard({
           onRequireAuth={onRequireAuth}
           allPosts={allPosts}
           onUpdatePost={onUpdatePost}
+        />
+      )}
+      {isReactionsModalOpen && (
+        <PostReactionsModal
+          isOpen={isReactionsModalOpen}
+          onClose={() => setIsReactionsModalOpen(false)}
+          postId={post.id}
+          post={post}
+          currentUser={currentUser}
+          onOpenProfile={onOpenProfile}
+          onRequireAuth={onRequireAuth}
         />
       )}
     </div>

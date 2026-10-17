@@ -137,5 +137,31 @@ export function createReactionRepository({ pool }) {
         client.release();
       }
     },
+
+    async getPostReactions({ postId }) {
+      try {
+        const cleanId = Number(String(postId).replace(/^post-/, ''));
+        if (Number.isNaN(cleanId)) return [];
+
+        const result = await pool.query(
+          `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
+           FROM post_reactions pr
+           JOIN users u ON pr.user_id = u.id
+           WHERE pr.post_id = $1
+           ORDER BY pr.created_at DESC`,
+          [cleanId]
+        );
+        return result.rows.map(r => ({
+          userId: r.id,
+          name: r.name,
+          avatar: r.avatar,
+          username: r.username,
+          reactionType: r.reaction_type,
+          createdAt: r.created_at
+        }));
+      } catch (err) {
+        return [];
+      }
+    },
   };
 }

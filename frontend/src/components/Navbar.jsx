@@ -24,7 +24,9 @@ export default function Navbar({
   onSearchPosts,
   clientPosts = [],
   activeFilterQuery = '',
-  onClearFilter
+  onClearFilter,
+  onRefreshHome,
+  isLoadingPosts = false
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef(null);
@@ -42,6 +44,15 @@ export default function Navbar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const handleHomeClick = () => {
+    if (activeTab === 'home') {
+      onRefreshHome?.();
+    } else {
+      setActiveTab('home');
+      onRefreshHome?.();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-all shadow-xs shrink-0">
       <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 sm:gap-4">
@@ -50,7 +61,8 @@ export default function Navbar({
         <div className="flex items-center gap-3 sm:gap-4 shrink-0">
           {/* Logo & Brand */}
           <button 
-            onClick={() => setActiveTab('home')}
+            onClick={handleHomeClick}
+            title="WINGS - Bảng tin (Nhấn để làm mới)"
             className="flex items-center gap-2.5 text-left group focus:outline-none cursor-pointer shrink-0"
           >
             <img 
@@ -85,13 +97,13 @@ export default function Navbar({
           
           {/* Nút Tab Trang chủ */}
           <button
-            onClick={() => setActiveTab('home')}
-            title="Trang chủ"
+            onClick={handleHomeClick}
+            title="Trang chủ (Nhấn để làm mới bảng tin)"
             className={
               'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
               (activeTab === 'home'
-                ? 'bg-blue-50 text-blue-600 font-bold'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+                ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-950/40 dark:text-blue-400'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800')
             }
           >
             <Home className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />

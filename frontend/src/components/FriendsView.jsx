@@ -7,7 +7,7 @@ import { DEFAULT_AVATAR } from '../constants/defaults';
 export default function FriendsView({ onOpenChat, onOpenProfile }) {
   const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Danh sách lời mời kết bạn (Pending) - Mặc định rỗng, chỉ hiển thị lời mời thật từ DB
   const [friendRequests, setFriendRequests] = useState([]);
@@ -21,9 +21,9 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
   // Tải dữ liệu thật từ Backend API song song độc lập (không chặn nhau)
   useEffect(() => {
     let isMounted = true;
+    setIsLoading(true);
 
-    // 1. Tải danh sách bạn bè siêu tốc (hiển thị tức thì)
-    friendService.getFriendsList().then(friends => {
+    const p1 = friendService.getFriendsList().then(friends => {
       if (!isMounted) return;
       if (friends && Array.isArray(friends)) {
         setFriendsList(friends.map(f => ({
@@ -36,8 +36,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
       }
     }).catch(err => console.warn('Lỗi tải bạn bè:', err));
 
-    // 2. Tải lời mời kết bạn (chỉ lấy dữ liệu thật, không dùng mock)
-    friendService.getFriendRequests().then(reqs => {
+    const p2 = friendService.getFriendRequests().then(reqs => {
       if (!isMounted) return;
       if (reqs && Array.isArray(reqs)) {
         setFriendRequests(reqs.map(r => ({
@@ -55,8 +54,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
       }
     }).catch(err => console.warn('Lỗi tải lời mời:', err));
 
-    // 3. Tải gợi ý kết bạn thông minh
-    friendService.getFriendSuggestions().then(sugs => {
+    const p3 = friendService.getFriendSuggestions().then(sugs => {
       if (!isMounted) return;
       if (sugs && Array.isArray(sugs) && sugs.length > 0) {
         setSuggestions(sugs.map(s => ({
@@ -70,6 +68,10 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
         })));
       }
     }).catch(err => console.warn('Lỗi tải gợi ý:', err));
+
+    Promise.allSettled([p1, p2, p3]).finally(() => {
+      if (isMounted) setIsLoading(false);
+    });
 
     return () => { isMounted = false; };
   }, []);
@@ -150,7 +152,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
   );
 
   return (
-    <main className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <main className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
       <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xs border border-slate-200/90 overflow-hidden">
         
         {/* Header */}
@@ -233,7 +235,23 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           {/* TAB 1: LỜI MỜI KẾT BẠN */}
           {activeTab === 'requests' && (
             <div>
-              {friendRequests.length === 0 ? (
+              {isLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4.5">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div
+                      key={i}
+                      className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-start gap-4 animate-pulse"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0" />
+                      <div className="flex-1 space-y-2 pt-1">
+                        <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-3/4" />
+                        <div className="h-3 bg-slate-100 dark:bg-slate-800/60 rounded w-1/2" />
+                        <div className="h-7 bg-slate-100 dark:bg-slate-800/60 rounded-lg w-20 mt-3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : friendRequests.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
                     <UserCheck className="w-8 h-8" />
@@ -323,7 +341,21 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           {/* TAB 2: TẤT CẢ BẠN BÈ */}
           {activeTab === 'all' && (
             <div>
-              {filteredFriends.length === 0 ? (
+              {isLoading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4.5">
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                    <div
+                      key={i}
+                      className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col items-center text-center animate-pulse space-y-3"
+                    >
+                      <div className="w-20 h-20 rounded-full bg-slate-200 dark:bg-slate-800" />
+                      <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-28" />
+                      <div className="h-3 bg-slate-100 dark:bg-slate-800/60 rounded w-20" />
+                      <div className="h-8 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-full mt-2" />
+                    </div>
+                  ))}
+                </div>
+              ) : filteredFriends.length === 0 ? (
                 <div className="text-center py-16 text-slate-400">
                   <p>Không tìm thấy bạn bè nào khớp với từ khóa.</p>
                 </div>
@@ -397,7 +429,21 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
                 </span>
               </div>
 
-              {suggestions.length === 0 ? (
+              {isLoading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4.5">
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                    <div
+                      key={i}
+                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col items-center text-center animate-pulse space-y-3"
+                    >
+                      <div className="w-20 h-20 rounded-full bg-slate-200 dark:bg-slate-800" />
+                      <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-28" />
+                      <div className="h-3 bg-slate-100 dark:bg-slate-800/60 rounded w-20" />
+                      <div className="h-8 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-full mt-2" />
+                    </div>
+                  ))}
+                </div>
+              ) : suggestions.length === 0 ? (
                 <div className="text-center py-16 text-slate-400">
                   <p>Hiện không có thêm gợi ý kết bạn nào mới.</p>
                 </div>

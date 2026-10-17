@@ -258,7 +258,8 @@ export const initialNotifications = [
     content: "đã bình luận vào bài viết của bạn: \"Xuất sắc luôn anh ơi...\"",
     time: "1 giờ trước",
     isRead: false,
-    targetPostId: "post-2"
+    targetPostId: "post-2",
+    targetCommentId: "cmt-3"
   },
   {
     id: "notif-3",

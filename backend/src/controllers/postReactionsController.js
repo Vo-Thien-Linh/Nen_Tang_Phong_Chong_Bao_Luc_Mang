@@ -17,5 +17,19 @@ export function createPostReactionsController({ reactionService }) {
         next(error);
       }
     },
+
+    async listPostReactions(req, res, next) {
+      try {
+        const reactions = await reactionService.getPostReactions({
+          postId: req.params.postId,
+        });
+        res.json({
+          success: true,
+          data: reactions || [],
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
   };
 }
