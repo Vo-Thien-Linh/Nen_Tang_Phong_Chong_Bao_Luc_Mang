@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { 
-  Home, Bell, Search, Sparkles, ShieldCheck, Users, MessageCircle, 
+  Home, Bell, ShieldCheck, Users, MessageCircle, 
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
   Sun, Moon
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
+import { hasRole, ROLES } from '../utils/rbac';
 
 export default function Navbar({ 
   activeTab, 
@@ -27,7 +28,8 @@ export default function Navbar({
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef(null);
-  const isAdmin = Boolean(currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin));
+  const isAdmin = hasRole(currentUser, ROLES.ADMIN);
+  const isModerator = hasRole(currentUser, ROLES.MODERATOR);
 
   // Đóng dropdown khi click bên ngoài
   useEffect(() => {
@@ -155,29 +157,38 @@ export default function Navbar({
             <span className="hidden lg:inline whitespace-nowrap">Thông báo</span>
           </button>
 
-          {/* NÚT TAB ADMIN DASHBOARD (CHỈ HIỂN THỊ KHI TÀI KHOẢN LÀ ADMIN) */}
-          {isAdmin && (
+          {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin; User thường KHÔNG render trong DOM) */}
+          {isAdmin ? (
             <button
+              id="nav-privileged-btn"
               onClick={() => setActiveTab('admin')}
-              title="Bảng điều khiển Quản Trị Viên (Xử lý báo cáo, khiếu nại, sửa nhãn AI)"
+              title="Khu vực quản trị hệ thống"
               className={
-                'h-10 flex items-center gap-2 px-3 sm:px-3.5 rounded-xl text-xs sm:text-sm font-bold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                'h-10 flex items-center gap-2 px-3 sm:px-3.5 rounded-md text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
                 (activeTab === 'admin'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20 ring-2 ring-blue-200'
-                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80')
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200')
               }
             >
               <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Admin Dashboard</span>
-              {pendingModerationCount > 0 && (
-                <span className={`px-1.5 py-0.5 text-[10px] font-extrabold rounded-full text-white shrink-0 ${
-                  activeTab === 'admin' ? 'bg-rose-500' : 'bg-rose-600'
-                }`}>
-                  {pendingModerationCount}
-                </span>
-              )}
+              <span className="whitespace-nowrap">Quản trị</span>
             </button>
-          )}
+          ) : isModerator ? (
+            <button
+              id="nav-privileged-btn"
+              onClick={() => setActiveTab('moderation')}
+              title="Khu vực kiểm duyệt nội dung"
+              className={
+                'h-10 flex items-center gap-2 px-3 sm:px-3.5 rounded-md text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                (activeTab === 'moderation'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200')
+              }
+            >
+              <Shield className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Kiểm duyệt</span>
+            </button>
+          ) : null}
 
           {/* AI Moderation Lab Popup Launcher */}
           <button
@@ -274,8 +285,18 @@ export default function Navbar({
                         onClick={() => { setActiveTab('admin'); setShowUserMenu(false); }}
                         className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
                       >
+                        <LayoutDashboard className="w-4 h-4 text-blue-600" />
+                        <span>Khu vực quản trị</span>
+                      </button>
+                    )}
+
+                    {isModerator && !isAdmin && (
+                      <button
+                        onClick={() => { setActiveTab('moderation'); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                      >
                         <Shield className="w-4 h-4 text-blue-600" />
-                        <span>Bảng quản trị hệ thống</span>
+                        <span>Khu vực kiểm duyệt</span>
                       </button>
                     )}
                   </div>

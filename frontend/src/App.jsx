@@ -7,6 +7,7 @@ import NotificationsView from './components/NotificationsView';
 import NotificationToast from './components/NotificationToast';
 import ProfileView from './components/ProfileView';
 import AdminDashboardView from './components/AdminDashboardView';
+import ModeratorView from './components/ModeratorView';
 import SettingsView from './components/SettingsView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
@@ -14,6 +15,7 @@ import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
 import { authService } from './services/authService';
+import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rbac';
 import { 
   currentUser as initialUser, 
   initialPosts, 
@@ -128,7 +130,23 @@ export default function App() {
 
   // Lắng nghe sự kiện Back/Forward của trình duyệt để điều hướng trang
   useEffect(() => {
-    const initialHash = window.location.hash.replace('#', '') || 'home';
+    const rawHash = window.location.hash.replace('#', '') || 'home';
+    let initialHash = rawHash;
+
+    if (!currentUser && (rawHash === 'admin' || rawHash === 'moderation')) {
+      initialHash = 'home';
+      setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+    } else if (currentUser) {
+      if (rawHash === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+        initialHash = getDefaultTabForUser(currentUser);
+      } else if (rawHash === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+        initialHash = getDefaultTabForUser(currentUser);
+      }
+    }
+
+    setActiveTab(initialHash);
     if (!window.history.state) {
       window.history.replaceState({ tab: initialHash, viewedUser: null }, '', `#${initialHash}`);
     }
@@ -136,7 +154,20 @@ export default function App() {
     const handlePopState = (event) => {
       const state = event.state;
       const hash = window.location.hash.replace('#', '') || 'home';
-      const targetTab = state?.tab || hash || 'home';
+      let targetTab = state?.tab || hash || 'home';
+
+      if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation')) {
+        targetTab = 'home';
+        setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      } else if (currentUser) {
+        if (targetTab === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+          targetTab = getDefaultTabForUser(currentUser);
+        } else if (targetTab === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+          targetTab = getDefaultTabForUser(currentUser);
+        }
+      }
 
       setActiveTab(targetTab);
       if (targetTab === 'profile') {
@@ -148,12 +179,34 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [currentUser]);
 
-  // Xử lý Chuyển Tab có Auth Guard
+  // Đồng bộ vai trò tươi từ database khi ứng dụng tải
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    fetch(`${API_URL}/api/users/${currentUser.id}/profile`, {
+      headers: { 'x-user-id': currentUser.id }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data && data.data.role) {
+          const freshRole = normalizeRole(data.data.role);
+          if (normalizeRole(currentUser.role) !== freshRole) {
+            authService.updateCurrentUser({ role: freshRole, isAdmin: freshRole === 'admin' });
+            setCurrentUser(prev => prev ? { ...prev, role: freshRole, isAdmin: freshRole === 'admin' } : prev);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.id]);
+
+  // Xử lý Chuyển Tab có Auth Guard và Role Guard
   const handleTabChange = (tab, targetUser = null, replace = false) => {
-    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'settings')) {
-      const msg = tab === 'messages'
+    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
+      const msg = tab === 'admin' || tab === 'moderation'
+        ? "Vui lòng đăng nhập để truy cập khu vực này"
+        : tab === 'messages'
         ? "Vui lòng đăng nhập để sử dụng tính năng nhắn tin"
         : "Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập";
       setAuthNoticeMessage(msg);
@@ -161,21 +214,31 @@ export default function App() {
       setIsAuthModalOpen(true);
       return;
     }
-    if (tab === 'profile') {
+
+    let effectiveTab = tab;
+    if (currentUser) {
+      if (tab === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+        effectiveTab = getDefaultTabForUser(currentUser);
+      } else if (tab === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+        effectiveTab = getDefaultTabForUser(currentUser);
+      }
+    }
+
+    if (effectiveTab === 'profile') {
       setViewedProfileUser(targetUser || null);
     } else {
       setViewedProfileUser(null);
     }
-    setActiveTab(tab);
+    setActiveTab(effectiveTab);
 
     const stateObj = { 
-      tab, 
+      tab: effectiveTab, 
       viewedUser: targetUser ? { id: targetUser.id, name: targetUser.name, avatar: targetUser.avatar } : null 
     };
     if (replace) {
-      window.history.replaceState(stateObj, '', `#${tab}`);
+      window.history.replaceState(stateObj, '', `#${effectiveTab}`);
     } else {
-      window.history.pushState(stateObj, '', `#${tab}`);
+      window.history.pushState(stateObj, '', `#${effectiveTab}`);
     }
   };
 
@@ -835,32 +898,45 @@ export default function App() {
 
         {/* Tab 6: BẢNG ĐIỀU KHIỂN QUẢN TRỊ VIÊN (ADMIN DASHBOARD) */}
         {activeTab === 'admin' && (
-          (currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin)) ? (
+          hasRole(currentUser, ROLES.ADMIN) ? (
             <AdminDashboardView 
-              posts={posts}
-              reports={reports}
-              appeals={appeals}
-              aiOverrides={aiOverrides}
-              usersList={usersList}
-              onResolveReport={handleResolveReport}
-              onResolveAppeal={handleResolveAppeal}
-              onOverrideAiLabel={handleOverrideAiLabel}
-              onToggleHidePost={handleToggleHidePost}
-              onDeletePost={handleDeletePost}
-              onUpdateUserStatus={handleUpdateUserStatus}
-              onUpdateUserRole={handleUpdateUserRole}
+              currentUser={currentUser}
+              onNavigateToModeration={() => handleTabChange('moderation')}
             />
           ) : (
-            <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200 text-center shadow-xs">
-              <h3 className="text-lg font-bold text-slate-800">Không có quyền truy cập</h3>
-              <p className="text-sm text-slate-500 mt-2">
-                Trang Admin Dashboard chỉ dành riêng cho tài khoản quản trị viên.
+            <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">
+              <h2 className="text-base font-semibold text-slate-900">Không có quyền truy cập (403)</h2>
+              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                Khu vực quản trị chỉ dành riêng cho tài khoản quản trị viên.
               </p>
               <button
-                onClick={() => setActiveTab('home')}
-                className="mt-6 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition cursor-pointer"
+                onClick={() => handleTabChange(getDefaultTabForUser(currentUser))}
+                className="mt-4 h-8 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition cursor-pointer"
               >
-                Quay về trang chủ
+                Về trang phù hợp
+              </button>
+            </div>
+          )
+        )}
+
+        {/* Tab 6.1: KHU VỰC KIỂM DUYỆT (MODERATOR VIEW) */}
+        {activeTab === 'moderation' && (
+          hasRole(currentUser, ROLES.MODERATOR) ? (
+            <ModeratorView 
+              isAdmin={hasRole(currentUser, ROLES.ADMIN)}
+              onBackToAdmin={() => handleTabChange('admin')}
+            />
+          ) : (
+            <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">
+              <h2 className="text-base font-semibold text-slate-900">Không có quyền truy cập (403)</h2>
+              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                Khu vực kiểm duyệt chỉ dành cho điều hành viên và quản trị viên.
+              </p>
+              <button
+                onClick={() => handleTabChange(getDefaultTabForUser(currentUser))}
+                className="mt-4 h-8 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition cursor-pointer"
+              >
+                Về trang phù hợp
               </button>
             </div>
           )
@@ -913,6 +989,8 @@ export default function App() {
           setCurrentUser(user);
           setIsAuthModalOpen(false);
           setAuthNoticeMessage('');
+          const targetTab = getDefaultTabForUser(user);
+          handleTabChange(targetTab);
         }}
       />
 
