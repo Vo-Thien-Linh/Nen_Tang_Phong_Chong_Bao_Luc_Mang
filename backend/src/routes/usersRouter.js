@@ -138,6 +138,43 @@ export function createUsersRouter({ pool }) {
   });
 
   /**
+   * PATCH /api/users/:userId/verification
+   * Cấp hoặc thu hồi tích xanh người dùng
+   * Yêu cầu quyền admin
+   */
+  router.patch('/:userId/verification', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { isVerified } = req.body;
+
+      if (typeof isVerified !== 'boolean') {
+        return res.status(400).json({ success: false, message: 'isVerified phải là giá trị boolean (true/false).' });
+      }
+
+      const updatedUser = await userRepository.updateVerification({
+        targetUserId: userId,
+        isVerified,
+      });
+
+      res.json({
+        success: true,
+        message: isVerified ? 'Đã cấp tích xanh cho người dùng thành công.' : 'Đã thu hồi tích xanh của người dùng.',
+        data: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          name: updatedUser.full_name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          status: updatedUser.status,
+          isVerified: updatedUser.is_verified,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
    * GET /api/users/:userId/profile
    * Lấy thông tin trang cá nhân đầy đủ từ DB
    */

@@ -23,6 +23,7 @@ import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
+import VerifiedBadge from './VerifiedBadge';
 import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
 import { formatRelativeTime } from '../utils/timeAgo';
@@ -489,8 +490,8 @@ export default function PostCard({
               >
                 {post.author?.name || 'Người dùng'}
               </h3>
-              {post.author?.isVerified && (
-                <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+              {(post.author?.isVerified || post.author?.is_verified) && (
+                <VerifiedBadge size="sm" />
               )}
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -714,8 +715,8 @@ export default function PostCard({
                       >
                         {post.originalPost.author?.name || 'Người dùng'}
                       </span>
-                      {post.originalPost.author?.isVerified && (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      {(post.originalPost.author?.isVerified || post.originalPost.author?.is_verified) && (
+                        <VerifiedBadge size="sm" />
                       )}
                     </div>
                     <p className="text-[11px] text-slate-400">
@@ -1003,12 +1004,17 @@ export default function PostCard({
                   />
                   <div className={`flex-1 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs ${['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] ? 'blur-sm' : ''}`}>
                     <div className="flex items-center justify-between mb-1">
-                      <span 
-                        onClick={() => onOpenProfile && onOpenProfile(comment.author)}
-                        className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition"
-                      >
-                        {comment.author.name}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span 
+                          onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                          className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition"
+                        >
+                          {comment.author.name}
+                        </span>
+                        {(comment.author?.isVerified || comment.author?.is_verified) && (
+                          <VerifiedBadge size="xs" />
+                        )}
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-slate-400">{comment.time}</span>
                         <button

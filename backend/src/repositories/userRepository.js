@@ -362,5 +362,24 @@ export function createUserRepository({ pool }) {
 
       return updateResult.rows[0];
     },
+
+    async updateVerification({ targetUserId, isVerified }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET is_verified = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified`,
+        [Boolean(isVerified), targetUserId]
+      );
+
+      return updateResult.rows[0];
+    },
   };
 }

@@ -4,9 +4,10 @@ import {
   ChevronLeft, ChevronRight, AlertCircle, CheckCircle, 
   ExternalLink, UserCheck, ArrowRight, X
 } from 'lucide-react';
-import { fetchUsersList, updateUserRoleApi } from '../api/client';
+import { fetchUsersList, updateUserRoleApi, updateUserVerificationApi } from '../api/client';
 import { ROLES, ROLE_LABELS, normalizeRole } from '../utils/rbac';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import VerifiedBadge from './VerifiedBadge';
 
 export default function AdminDashboardView({ 
   currentUser,
@@ -119,6 +120,31 @@ export default function AdminDashboardView({
       showToast(err.message || 'Không đổi được vai trò người dùng.', 'error');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleToggleVerification = async (user) => {
+    const nextStatus = !user.isVerified;
+    try {
+      const response = await updateUserVerificationApi({
+        targetUserId: user.id,
+        isVerified: nextStatus,
+        userId: currentUser?.id,
+      });
+
+      if (response && response.success) {
+        showToast(
+          nextStatus 
+            ? `Đã cấp tích xanh cho ${user.name || user.username}.`
+            : `Đã thu hồi tích xanh của ${user.name || user.username}.`,
+          'success'
+        );
+        setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isVerified: nextStatus } : u)));
+      } else {
+        throw new Error(response?.message || 'Không thể cập nhật tích xanh.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Không thể cập nhật tích xanh.', 'error');
     }
   };
 
@@ -344,6 +370,7 @@ export default function AdminDashboardView({
                     <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                       <th className="py-3 px-4">Người dùng</th>
                       <th className="py-3 px-4">Liên hệ</th>
+                      <th className="py-3 px-4">Tích xanh</th>
                       <th className="py-3 px-4">Vai trò hiện tại</th>
                       <th className="py-3 px-4">Trạng thái</th>
                       <th className="py-3 px-4 text-right">Phân vai trò</th>
@@ -367,6 +394,7 @@ export default function AdminDashboardView({
                               <div>
                                 <div className="font-medium text-slate-900 flex items-center gap-1.5">
                                   <span>{user.name || user.full_name || 'Người dùng'}</span>
+                                  {user.isVerified && <VerifiedBadge size="sm" />}
                                   {isSelf && (
                                     <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
                                       Bạn
@@ -388,7 +416,23 @@ export default function AdminDashboardView({
                             )}
                           </td>
 
-                          {/* Cột 3: Vai trò hiện tại */}
+                          {/* Cột 3: Tích xanh */}
+                          <td className="py-3 px-4">
+                            <button
+                              onClick={() => handleToggleVerification(user)}
+                              title={user.isVerified ? 'Nhấn để thu hồi tích xanh' : 'Nhấn để cấp tích xanh'}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition cursor-pointer ${
+                                user.isVerified
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <VerifiedBadge size="xs" />
+                              <span>{user.isVerified ? 'Đã cấp' : 'Cấp tích'}</span>
+                            </button>
+                          </td>
+
+                          {/* Cột 4: Vai trò hiện tại */}
                           <td className="py-3 px-4">
                             <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium border ${
                               userRole === ROLES.ADMIN
