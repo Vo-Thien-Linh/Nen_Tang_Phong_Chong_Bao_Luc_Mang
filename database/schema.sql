@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS posts (
     title VARCHAR(200),
     content TEXT NOT NULL,
     image_url TEXT,
+    image_moderation_status VARCHAR(20) DEFAULT NULL,
+    image_moderation_label VARCHAR(20) DEFAULT NULL,
+    image_moderation_safe NUMERIC(8, 7) DEFAULT NULL,
+    image_moderation_nsfw NUMERIC(8, 7) DEFAULT NULL,
+    image_moderation_violence NUMERIC(8, 7) DEFAULT NULL,
+    image_moderation_thresholds JSONB DEFAULT NULL,
+    image_moderation_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    image_moderation_reviewed_at TIMESTAMPTZ DEFAULT NULL,
     privacy VARCHAR(20) DEFAULT 'public', -- 'public', 'friends', 'private'
     
     -- Kiểm duyệt nội dung AI
@@ -89,6 +97,14 @@ CREATE TABLE IF NOT EXISTS comments (
     content TEXT NOT NULL,
     image_url TEXT,
     image_label VARCHAR(50) DEFAULT 'Safe',
+    image_moderation_status VARCHAR(20) DEFAULT NULL,
+    image_moderation_label VARCHAR(20) DEFAULT NULL,
+    image_moderation_safe NUMERIC(8, 7) DEFAULT NULL,
+    image_moderation_nsfw NUMERIC(8, 7) DEFAULT NULL,
+    image_moderation_violence NUMERIC(8, 7) DEFAULT NULL,
+    image_moderation_thresholds JSONB DEFAULT NULL,
+    image_moderation_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    image_moderation_reviewed_at TIMESTAMPTZ DEFAULT NULL,
     
     -- Kiểm duyệt AI cho bình luận
     ai_label VARCHAR(50) DEFAULT 'Normal',
