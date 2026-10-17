@@ -1,11 +1,14 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 async function request(path, options = {}) {
-  // TODO(US-2): replace x-user-id with the real authenticated session.
+  const token = localStorage.getItem('nexussocial_token');
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders,
       ...(options.headers || {}),
     },
   });
@@ -177,3 +180,24 @@ export async function clearReadNotificationsApi({ userId }) {
     headers: userId ? { 'x-user-id': userId } : {},
   });
 }
+
+export async function fetchUsersList({ search = '', role = 'all', page = 1, limit = 10, userId } = {}) {
+  const query = new URLSearchParams({
+    search: search || '',
+    role: role || 'all',
+    page: String(page || 1),
+    limit: String(limit || 10),
+  });
+  return request(`/api/users?${query.toString()}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function updateUserRoleApi({ targetUserId, newRole, userId }) {
+  return request(`/api/users/${targetUserId}/role`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ role: newRole }),
+  });
+}
+
