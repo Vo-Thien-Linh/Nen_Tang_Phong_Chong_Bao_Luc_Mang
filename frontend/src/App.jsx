@@ -1087,26 +1087,41 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveAppeal = async (appealId, status, adminNotes) => {
+  const handleResolveAppeal = async (appealId, statusOrData, adminNotesArg, newLabelArg) => {
+    let status = statusOrData;
+    let adminNotes = adminNotesArg;
+    let newLabel = newLabelArg || 'Normal';
+
+    if (typeof statusOrData === 'object' && statusOrData !== null) {
+      status = statusOrData.status;
+      adminNotes = statusOrData.adminNotes;
+      newLabel = statusOrData.newLabel || 'Normal';
+    }
+
     const appeal = appeals.find(a => String(a.id) === String(appealId));
     if (!appeal) return;
 
     // Cập nhật trạng thái đơn khiếu nại
-    setAppeals(prev => prev.map(a => String(a.id) === String(appealId) ? { ...a, status, adminNotes } : a));
+    setAppeals(prev => prev.map(a => String(a.id) === String(appealId) ? { ...a, status, adminNotes, newLabel: status === 'approved' ? newLabel : null } : a));
 
-    // Nếu chấp thuận khiếu nại (Minh oan False Positive):
+    // Nếu chấp thuận khiếu nại (Approved):
     if (status === 'approved') {
-      // 1. Phục hồi bài viết hoặc bình luận: bỏ ẩn, đặt nhãn Normal / approved
+      const isNormal = newLabel === 'Normal';
+      const isHidden = !isNormal;
+
+      // 1. Phục hồi bài viết hoặc bình luận
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
             if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
-                isHidden: false,
-                isSoftHidden: false,
-                ai_status: 'approved',
-                aiStatus: { label: 'Normal', confidence: 0.99 },
+                isHidden,
+                is_hidden: isHidden,
+                isSoftHidden: isHidden,
+                ai_label: newLabel,
+                ai_status: isNormal ? 'approved' : 'hidden',
+                aiStatus: { label: newLabel, confidence: 0.99 },
                 appeal: { ...c.appeal, status: 'approved' }
               };
             }
@@ -1119,10 +1134,12 @@ export default function App() {
           if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
-              isHidden: false,
-              isSoftHidden: false,
-              ai_status: 'approved',
-              aiStatus: { label: 'Normal', confidence: 0.99 },
+              isHidden,
+              is_hidden: isHidden,
+              isSoftHidden: isHidden,
+              ai_label: newLabel,
+              ai_status: isNormal ? 'approved' : 'hidden',
+              aiStatus: { label: newLabel, confidence: 0.99 },
               appeal: { ...p.appeal, status: 'approved' }
             };
           }
@@ -1130,30 +1147,44 @@ export default function App() {
         }));
       }
 
-      // 2. Mở khóa tài khoản khi bị phạt oan (Reset countdown về 0 ngay lập tức)
+      // 2. Nghiệp vụ án phạt theo nhãn:
       const targetUserId = appeal.user?.id || appeal.userId;
       if (targetUserId) {
-        try {
-          await updateUserSanctionApi({
-            targetUserId,
-            action: 'clear_cooldown'
-          });
-        } catch (err) {
-          console.error('Lỗi khi gỡ cooldown phạt oan:', err);
-        }
+        if (newLabel === 'Violence') {
+          // Phạt cooldown 10 phút
+          if (currentUser && currentUser.id === targetUserId) {
+            const cooldownUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'cooldown',
+              cooldownUntil,
+              cooldown_until: cooldownUntil,
+              cooldownReason: 'Vi phạm bạo lực trong nội dung (Khiếu nại được thẩm định lại)'
+            }));
+          }
+        } else {
+          // Normal hoặc Toxic hoặc Hate Speech: Gỡ bỏ cooldown
+          try {
+            await updateUserSanctionApi({
+              targetUserId,
+              action: 'clear_cooldown'
+            });
+          } catch (err) {
+            console.error('Lỗi khi gỡ cooldown:', err);
+          }
 
-        // Cập nhật state nếu trùng với currentUser
-        if (currentUser && currentUser.id === targetUserId) {
-          setCurrentUser(prev => ({
-            ...prev,
-            status: 'active',
-            cooldownUntil: null,
-            cooldown_until: null,
-            cooldownReason: null,
-            cooldown_reason: null,
-            cooldownViolationText: null,
-            cooldown_violation_text: null
-          }));
+          if (currentUser && currentUser.id === targetUserId) {
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'active',
+              cooldownUntil: null,
+              cooldown_until: null,
+              cooldownReason: null,
+              cooldown_reason: null,
+              cooldownViolationText: null,
+              cooldown_violation_text: null
+            }));
+          }
         }
       }
 
@@ -1164,16 +1195,19 @@ export default function App() {
         contentType: appeal.contentType || 'post',
         contentId: appeal.contentId,
         rawText: appeal.originalText,
-        originalAiLabel: appeal.aiPredictedLabel,
-        originalConfidence: appeal.aiConfidence,
-        correctedLabel: 'Normal',
-        overrideReason: `Giải quyết khiếu nại thành công: ${adminNotes || appeal.appealReason}`,
+        originalAiLabel: appeal.aiPredictedLabel || 'Toxic',
+        originalConfidence: appeal.aiConfidence || 0.90,
+        correctedLabel: newLabel,
+        overrideReason: adminNotes || (newLabel === 'Normal' ? `Minh oan thành công: ${appeal.appealReason}` : `Hiệu chỉnh nhãn sang ${newLabel}`),
         isExportedForRetraining: false,
         createdAt: 'Vừa xong'
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // 4. Gửi thông báo chúc mừng / xin lỗi cho user
+      // 4. Gửi thông báo
+      const notifMsg = newLabel === 'Normal'
+        ? `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận an toàn (Normal), án phạt được gỡ bỏ ngay lập tức.`
+        : `Nội dung của bạn sau khi xem xét lại được chuyển sang nhãn "${newLabel}".`;
       const apologyNotif = {
         id: `notif-${Date.now()}`,
         type: 'system',
@@ -1181,7 +1215,7 @@ export default function App() {
           name: 'Nexus Support Admin',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
         },
-        content: `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận là AI False Positive, án phạt được gỡ bỏ ngay lập tức.`,
+        content: notifMsg,
         time: 'Vừa xong',
         isRead: false
       };
@@ -1216,15 +1250,18 @@ export default function App() {
 
     // Gửi yêu cầu cập nhật lên CSDL PostgreSQL thật
     try {
-      await resolveAppealApi({
+      const res = await resolveAppealApi({
         appealId,
         status,
+        newLabel,
         adminNotes,
         userId: currentUser?.id
       });
       await loadModerationData();
+      return res;
     } catch (err) {
       console.warn('Lỗi gọi resolveAppealApi:', err.message);
+      throw err;
     }
   };
 

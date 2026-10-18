@@ -287,11 +287,11 @@ export async function createAppealApi(appealData, userId) {
   });
 }
 
-export async function resolveAppealApi({ appealId, status, adminNotes, userId }) {
+export async function resolveAppealApi({ appealId, status, newLabel, adminNotes, userId }) {
   return request(`/api/appeals/${appealId}`, {
     method: 'PATCH',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ status, adminNotes }),
+    body: JSON.stringify({ status, newLabel, adminNotes }),
   });
 }
 
