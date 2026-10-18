@@ -249,3 +249,32 @@ export async function updateUserSanctionApi({ targetUserId, action, durationDays
   });
 }
 
+export async function fetchReportsList(userId) {
+  return request('/api/reports', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function resolveReportApi({ reportId, status, newLabel, oldLabel, adminNotes, userId }) {
+  return request(`/api/reports/${reportId}`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ status, newLabel, oldLabel, adminNotes }),
+  });
+}
+
+export async function fetchAiOverridesList(userId) {
+  return request('/api/admin/ai-overrides', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function createAiOverrideApi({ data, userId }) {
+  return request('/api/admin/override-ai-label', {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify(data),
+  });
+}
+
+

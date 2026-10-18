@@ -288,9 +288,9 @@ app.post('/api/reports', (req, res) => {
 });
 
 // 5.4 Xử lý Báo cáo (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.patch('/api/reports/:id', requireRole('moderator'), (req, res) => {
+app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
   const { id } = req.params;
-  const { status, adminNotes } = req.body; // status: 'resolved_violation' | 'dismissed'
+  const { status, adminNotes, newLabel, oldLabel } = req.body; // status: 'resolved_violation' | 'dismissed'
 
   const report = reportsStore.find(r => r.id === id);
   if (!report) {
@@ -300,7 +300,80 @@ app.patch('/api/reports/:id', requireRole('moderator'), (req, res) => {
   report.status = status;
   if (adminNotes !== undefined) report.adminNotes = adminNotes;
 
-  res.json({ success: true, message: 'Cập nhật trạng thái báo cáo thành công', data: report });
+  // Xử lý phân nhánh nghiệp vụ:
+  if (status === 'resolved_violation') {
+    // BÁO CÁO ĐÚNG: Gán lại nhãn vi phạm (Toxic, Hate Speech, Violence) và ẩn nội dung
+    const finalNewLabel = newLabel || 'Toxic';
+    const finalOldLabel = oldLabel || report.aiStatus?.label || 'Normal';
+    report.newLabel = finalNewLabel;
+    report.oldLabel = finalOldLabel;
+    report.actionTaken = 'relabel_and_hide';
+
+    // Tạo bản ghi trong Nhật ký hiệu chỉnh nhãn AI (Override Logs) phục vụ xuất file & tái huấn luyện
+    const newOverrideLog = {
+      id: `ovr-${Date.now()}`,
+      adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
+      contentType: report.targetType || 'post',
+      contentId: report.targetId,
+      rawText: report.contentExcerpt || report.targetExcerpt || report.imageUrl || 'Nội dung vi phạm',
+      imageUrl: report.imageUrl || null,
+      originalAiLabel: finalOldLabel,
+      originalConfidence: report.aiStatus?.confidence || 0.95,
+      correctedLabel: finalNewLabel,
+      overrideReason: adminNotes || `Xác nhận vi phạm từ báo cáo (${report.reasonLabel || report.reason}): Gán lại nhãn ${finalNewLabel}`,
+      isExportedForRetraining: false,
+      createdAt: 'Vừa xong'
+    };
+    aiOverrideLogsStore.unshift(newOverrideLog);
+
+    // Đồng bộ CSDL Supabase PostgreSQL nếu pool kết nối
+    if (pool) {
+      try {
+        if (report.targetType === 'post') {
+          await pool.query(
+            `UPDATE posts SET ai_label = $1, is_hidden = TRUE WHERE id = $2`,
+            [finalNewLabel, report.targetId]
+          );
+        } else if (report.targetType === 'comment') {
+          await pool.query(
+            `UPDATE comments SET ai_label = $1, is_hidden = TRUE WHERE id = $2`,
+            [finalNewLabel, report.targetId]
+          );
+        }
+        await pool.query(
+          `INSERT INTO ai_override_logs (admin_id, content_type, content_id, raw_text, original_ai_label, original_confidence, corrected_label, override_reason)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            req.user?.id || null, 
+            report.targetType || 'post', 
+            report.targetId, 
+            report.contentExcerpt || report.targetExcerpt || report.imageUrl || '', 
+            finalOldLabel, 
+            report.aiStatus?.confidence || 0.95, 
+            finalNewLabel, 
+            newOverrideLog.overrideReason
+          ]
+        );
+      } catch (dbErr) {
+        console.warn('Lưu vào CSDL Supabase thất bại, đã lưu vào bộ nhớ tạm:', dbErr.message);
+      }
+    }
+
+    return res.json({ 
+      success: true, 
+      message: `Xác nhận vi phạm thành công: Đã gán lại nhãn "${finalNewLabel}" và ghi nhật ký hiệu chỉnh!`, 
+      data: report,
+      overrideLog: newOverrideLog 
+    });
+  } else {
+    // BÁO CÁO SAI: Giữ nguyên nhãn ban đầu của bài viết/bình luận/ảnh
+    report.actionTaken = 'dismissed_keep_original_label';
+    return res.json({ 
+      success: true, 
+      message: 'Báo cáo sai / không vi phạm: Đã bác bỏ báo cáo và giữ nguyên nhãn ban đầu!', 
+      data: report 
+    });
+  }
 });
 
 // 5.5 Lấy danh sách Khiếu nại (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
@@ -389,6 +462,30 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), (req, res) =>
 // 5.9 Lấy danh sách Logs hiệu chỉnh AI (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
 app.get('/api/admin/ai-overrides', requireRole('moderator'), (req, res) => {
   res.json({ success: true, data: aiOverrideLogsStore });
+});
+
+// 5.10 Xuất file danh sách gắn nhãn sai (CSV UTF-8 BOM chuẩn tiếng Việt mở bằng Excel)
+app.get('/api/admin/ai-overrides/export', requireRole('moderator'), (req, res) => {
+  try {
+    let csvContent = '\uFEFF"STT","Nội dung / Hình ảnh gắn nhãn sai","Nhãn cũ","Nhãn mới","Loại nội dung","Lý do hiệu chỉnh","Người thực hiện","Thời gian"\n';
+    aiOverrideLogsStore.forEach((log, index) => {
+      const stt = index + 1;
+      const content = String(log.rawText || log.imageUrl || '').replace(/"/g, '""');
+      const oldLabel = String(log.originalAiLabel || 'Normal').replace(/"/g, '""');
+      const newLabel = String(log.correctedLabel || 'Normal').replace(/"/g, '""');
+      const type = (log.contentType === 'post' ? 'Bài viết' : log.contentType === 'comment' ? 'Bình luận' : 'Hình ảnh / Khác').replace(/"/g, '""');
+      const reason = String(log.overrideReason || '').replace(/"/g, '""');
+      const admin = String(log.adminName || 'Điều Hành Viên Hệ Thống').replace(/"/g, '""');
+      const time = String(log.createdAt || '').replace(/"/g, '""');
+      csvContent += `"${stt}","${content}","${oldLabel}","${newLabel}","${type}","${reason}","${admin}","${time}"\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="Danh_sach_hieu_chinh_nhan_AI_${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csvContent);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi xuất file: ' + err.message });
+  }
 });
 
 app.use((err, _req, res, _next) => {
