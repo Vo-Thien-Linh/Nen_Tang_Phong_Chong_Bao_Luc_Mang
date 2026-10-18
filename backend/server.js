@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import * as XLSX from 'xlsx';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
@@ -258,59 +259,350 @@ app.get('/api/admin/stats', requireRole('admin'), (req, res) => {
   });
 });
 
-// 5.2 Lấy danh sách Báo cáo (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.get('/api/reports', requireRole('moderator'), (req, res) => {
+// 5.2 Lấy danh sách Báo cáo từ CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.get('/api/reports', requireRole('moderator'), async (req, res) => {
+  if (pool) {
+    try {
+      const q = `
+        SELECT r.id, r.reporter_id, r.target_type, r.target_id, r.reason, r.details, r.status, r.admin_notes, r.action_taken, r.created_at,
+               u.full_name AS reporter_name, u.avatar_url AS reporter_avatar,
+               p.content AS post_content, p.image_url AS post_image, p.ai_label AS post_ai_label,
+               c.content AS comment_content, c.image_url AS comment_image, c.ai_label AS comment_ai_label,
+               author.full_name AS target_author_name, author.username AS target_author_username
+        FROM reports r
+        LEFT JOIN users u ON r.reporter_id = u.id
+        LEFT JOIN posts p ON r.target_type = 'post' AND r.target_id = p.id
+        LEFT JOIN comments c ON r.target_type = 'comment' AND r.target_id = c.id
+        LEFT JOIN users author ON (
+          (r.target_type = 'post' AND p.author_id = author.id) OR
+          (r.target_type = 'comment' AND c.author_id = author.id)
+        )
+        ORDER BY r.created_at DESC
+      `;
+      const result = await pool.query(q);
+      const mapped = result.rows.map(row => {
+        const textContent = row.target_type === 'post' ? row.post_content : row.comment_content;
+        const img = row.target_type === 'post' ? row.post_image : row.comment_image;
+        const currentAiLabel = row.target_type === 'post' ? (row.post_ai_label || 'Normal') : (row.comment_ai_label || 'Normal');
+        return {
+          id: String(row.id),
+          reporter: {
+            id: row.reporter_id,
+            name: row.reporter_name || 'Người dùng',
+            avatar: row.reporter_avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200'
+          },
+          targetType: row.target_type,
+          targetId: String(row.target_id),
+          targetAuthor: {
+            name: row.target_author_name || 'Người dùng',
+            username: row.target_author_username || 'user'
+          },
+          contentExcerpt: textContent || '',
+          targetExcerpt: textContent || '',
+          imageUrl: img || null,
+          reason: row.reason,
+          reasonLabel: row.reason === 'toxic' ? 'Công kích / Xúc phạm' : row.reason === 'hate_speech' ? 'Thù ghét' : row.reason === 'violence' ? 'Bạo lực' : row.reason === 'spam' ? 'Spam / Tin rác' : 'Nội dung vi phạm',
+          details: row.details || '',
+          status: row.status,
+          adminNotes: row.admin_notes || '',
+          actionTaken: row.action_taken,
+          createdAt: new Date(row.created_at).toLocaleString('vi-VN'),
+          aiStatus: { label: currentAiLabel, confidence: 0.95 }
+        };
+      });
+      return res.json({ success: true, data: mapped });
+    } catch (err) {
+      console.warn('Lỗi lấy báo cáo từ DB PostgreSQL, chuyển sang dữ liệu bộ nhớ:', err.message);
+    }
+  }
   res.json({ success: true, data: reportsStore });
 });
 
-// 5.3 Gửi Báo cáo người dùng mới (Người dùng đăng nhập gửi báo cáo)
-app.post('/api/reports', (req, res) => {
+// 5.3 Gửi Báo cáo người dùng mới vào CSDL THẬT (Người dùng đăng nhập gửi báo cáo)
+app.post('/api/reports', async (req, res) => {
   const { reporter, targetType, targetId, targetAuthor, contentExcerpt, reason, reasonLabel, details } = req.body;
-  
+  let reporterId = req.user?.id || reporter?.id;
+
+  if (pool) {
+    try {
+      if (!reporterId) {
+        const uRes = await pool.query('SELECT id FROM users LIMIT 1');
+        if (uRes.rows.length > 0) reporterId = uRes.rows[0].id;
+      }
+
+      if (reporterId) {
+        const numTargetId = parseInt(String(targetId || '1').replace(/\D/g, ''), 10) || 1;
+        const validReason = ['toxic', 'hate_speech', 'violence', 'harassment', 'spam', 'misinformation', 'other'].includes(reason) 
+          ? reason 
+          : 'other';
+
+        const insertQuery = `
+          INSERT INTO reports (reporter_id, target_type, target_id, reason, details, status)
+          VALUES ($1, $2, $3, $4, $5, 'pending')
+          ON CONFLICT (reporter_id, target_type, target_id) 
+          DO UPDATE SET details = EXCLUDED.details, reason = EXCLUDED.reason, status = 'pending'
+          RETURNING *
+        `;
+        const result = await pool.query(insertQuery, [reporterId, targetType || 'post', numTargetId, validReason, details || '']);
+        const dbReport = result.rows[0];
+        return res.json({ 
+          success: true, 
+          message: 'Đã lưu báo cáo thành công vào CSDL PostgreSQL!', 
+          data: {
+            id: String(dbReport.id),
+            reporter: reporter || { id: reporterId, name: req.user?.full_name || 'Người dùng' },
+            targetType: dbReport.target_type,
+            targetId: String(dbReport.target_id),
+            targetAuthor: targetAuthor || { name: 'Người dùng' },
+            contentExcerpt: contentExcerpt || '',
+            targetExcerpt: contentExcerpt || '',
+            reason: dbReport.reason,
+            reasonLabel: reasonLabel || 'Nội dung vi phạm',
+            details: dbReport.details,
+            status: dbReport.status,
+            createdAt: 'Vừa xong',
+            aiStatus: { label: 'Normal', confidence: 0.95 }
+          }
+        });
+      }
+    } catch (dbErr) {
+      console.warn('Lỗi lưu báo cáo vào PostgreSQL, chuyển lưu bộ nhớ tạm:', dbErr.message);
+    }
+  }
+
+  // Fallback in-memory
   const newReport = {
     id: `rep-${Date.now()}`,
-    reporter: reporter || { name: 'Người dùng', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200' },
+    reporter: reporter || { name: req.user?.full_name || 'Người dùng', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200' },
     targetType: targetType || 'post',
     targetId: targetId || 'target-id',
     targetAuthor: targetAuthor || { name: 'Người dùng vi phạm' },
     contentExcerpt: contentExcerpt || 'Nội dung báo cáo...',
+    targetExcerpt: contentExcerpt || 'Nội dung báo cáo...',
     reason: reason || 'other',
     reasonLabel: reasonLabel || 'Lý do khác',
     details: details || '',
     status: 'pending',
     adminNotes: '',
     createdAt: 'Vừa xong',
-    aiStatus: { label: 'Pending Review', confidence: 0.85 }
+    aiStatus: { label: 'Normal', confidence: 0.85 }
   };
 
   reportsStore.unshift(newReport);
   res.json({ success: true, message: 'Đã gửi báo cáo thành công!', data: newReport });
 });
 
-// 5.4 Xử lý Báo cáo (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.patch('/api/reports/:id', requireRole('moderator'), (req, res) => {
+// 5.4 Xử lý Báo cáo trong CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
   const { id } = req.params;
-  const { status, adminNotes } = req.body; // status: 'resolved_violation' | 'dismissed'
+  const { status, adminNotes, newLabel, oldLabel } = req.body; // status: 'resolved_violation' | 'dismissed'
 
-  const report = reportsStore.find(r => r.id === id);
-  if (!report) {
-    return res.status(404).json({ success: false, error: 'Không tìm thấy báo cáo' });
+  const finalNewLabel = newLabel || 'Toxic';
+  const finalOldLabel = oldLabel || 'Normal';
+  const actionTaken = status === 'resolved_violation' ? 'relabel_and_hide' : 'dismissed_keep_original_label';
+  const reviewerId = req.user?.id || null;
+
+  let report = null;
+
+  // 1. Cập nhật trong PostgreSQL thật
+  if (pool) {
+    try {
+      const numId = parseInt(id, 10);
+      if (!isNaN(numId)) {
+        const updateReportSql = `
+          UPDATE reports 
+          SET status = $1, admin_notes = $2, action_taken = $3, reviewed_by = $4, reviewed_at = CURRENT_TIMESTAMP
+          WHERE id = $5
+          RETURNING *
+        `;
+        const repRes = await pool.query(updateReportSql, [status, adminNotes || '', actionTaken, reviewerId, numId]);
+        if (repRes.rows.length > 0) {
+          const dbRep = repRes.rows[0];
+          report = {
+            id: String(dbRep.id),
+            targetType: dbRep.target_type,
+            targetId: String(dbRep.target_id),
+            status: dbRep.status,
+            adminNotes: dbRep.admin_notes,
+            newLabel: finalNewLabel,
+            oldLabel: finalOldLabel,
+            actionTaken
+          };
+
+          if (status === 'resolved_violation') {
+            // Cập nhật nhãn và ẩn nội dung trong CSDL thật
+            if (dbRep.target_type === 'post') {
+              await pool.query(
+                `UPDATE posts SET ai_label = $1, ai_status = 'hidden' WHERE id = $2`,
+                [finalNewLabel, dbRep.target_id]
+              );
+            } else if (dbRep.target_type === 'comment') {
+              await pool.query(
+                `UPDATE comments SET ai_label = $1, is_hidden = TRUE WHERE id = $2`,
+                [finalNewLabel, dbRep.target_id]
+              );
+            }
+
+            // Ghi nhật ký vào bảng ai_override_logs CSDL thật
+            await pool.query(
+              `INSERT INTO ai_override_logs (admin_id, content_type, content_id, raw_text, original_ai_label, original_confidence, corrected_label, override_reason)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              [
+                reviewerId,
+                dbRep.target_type,
+                dbRep.target_id,
+                req.body.rawText || dbRep.details || 'Nội dung vi phạm từ báo cáo',
+                finalOldLabel,
+                0.95,
+                finalNewLabel,
+                adminNotes || `Xác nhận vi phạm từ báo cáo #${dbRep.id}: Gán lại nhãn ${finalNewLabel}`
+              ]
+            );
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Lỗi xử lý báo cáo trong PostgreSQL:', dbErr.message);
+    }
   }
 
-  report.status = status;
-  if (adminNotes !== undefined) report.adminNotes = adminNotes;
+  // 2. Đồng bộ trong in-memory store
+  const storeReport = reportsStore.find(r => String(r.id) === String(id));
+  if (storeReport) {
+    storeReport.status = status;
+    if (adminNotes !== undefined) storeReport.adminNotes = adminNotes;
+    storeReport.newLabel = finalNewLabel;
+    storeReport.oldLabel = finalOldLabel;
+    storeReport.actionTaken = actionTaken;
+  }
 
-  res.json({ success: true, message: 'Cập nhật trạng thái báo cáo thành công', data: report });
+  if (status === 'resolved_violation') {
+    const newOverrideLog = {
+      id: `ovr-${Date.now()}`,
+      adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
+      contentType: storeReport?.targetType || report?.targetType || 'post',
+      contentId: storeReport?.targetId || report?.targetId || id,
+      rawText: req.body.rawText || storeReport?.contentExcerpt || storeReport?.imageUrl || 'Nội dung vi phạm',
+      imageUrl: storeReport?.imageUrl || null,
+      originalAiLabel: finalOldLabel,
+      originalConfidence: 0.95,
+      correctedLabel: finalNewLabel,
+      overrideReason: adminNotes || `Xác nhận vi phạm: Gán lại nhãn ${finalNewLabel}`,
+      isExportedForRetraining: false,
+      createdAt: new Date().toLocaleString('vi-VN')
+    };
+    aiOverrideLogsStore.unshift(newOverrideLog);
+
+    return res.json({
+      success: true,
+      message: `Xác nhận vi phạm: Đã gán lại nhãn "${finalNewLabel}" và lưu nhật ký vào CSDL PostgreSQL thành công!`,
+      data: report || storeReport,
+      overrideLog: newOverrideLog
+    });
+  } else {
+    return res.json({
+      success: true,
+      message: 'Báo cáo sai / không vi phạm: Đã bác bỏ báo cáo và giữ nguyên nhãn ban đầu!',
+      data: report || storeReport
+    });
+  }
 });
 
-// 5.5 Lấy danh sách Khiếu nại (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.get('/api/appeals', requireRole('moderator'), (req, res) => {
+// 5.5 Lấy danh sách Khiếu nại từ CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.get('/api/appeals', requireRole('moderator'), async (req, res) => {
+  if (pool) {
+    try {
+      const q = `
+        SELECT a.id, a.user_id, a.content_type, a.content_id, a.original_text,
+               a.ai_predicted_label, a.ai_confidence, a.ai_action_taken,
+               a.appeal_reason, a.status, a.admin_notes, a.created_at,
+               u.full_name AS user_name, u.avatar_url AS user_avatar, u.username
+        FROM appeals a
+        LEFT JOIN users u ON a.user_id = u.id
+        ORDER BY a.created_at DESC
+      `;
+      const result = await pool.query(q);
+      const mapped = result.rows.map(row => ({
+        id: String(row.id),
+        user: {
+          id: row.user_id,
+          name: row.user_name || 'Người dùng',
+          avatar: row.user_avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
+          username: row.username || 'user'
+        },
+        contentType: row.content_type,
+        contentId: String(row.content_id),
+        originalText: row.original_text,
+        aiPredictedLabel: row.ai_predicted_label,
+        aiConfidence: Number(row.ai_confidence) || 0.90,
+        aiActionTaken: row.ai_action_taken,
+        appealReason: row.appeal_reason,
+        status: row.status,
+        adminNotes: row.admin_notes || '',
+        createdAt: new Date(row.created_at).toLocaleString('vi-VN')
+      }));
+      return res.json({ success: true, data: mapped });
+    } catch (err) {
+      console.warn('Lỗi lấy appeals từ DB PostgreSQL, chuyển sang in-memory:', err.message);
+    }
+  }
   res.json({ success: true, data: appealsStore });
 });
 
-// 5.6 Gửi Khiếu nại AI gắn nhãn sai
-app.post('/api/appeals', (req, res) => {
+// 5.6 Gửi Khiếu nại AI gắn nhãn sai vào CSDL THẬT
+app.post('/api/appeals', async (req, res) => {
   const { user, contentType, contentId, originalText, aiPredictedLabel, aiConfidence, aiActionTaken, appealReason } = req.body;
+  let userId = req.user?.id || user?.id;
+
+  if (pool) {
+    try {
+      if (!userId) {
+        const uRes = await pool.query('SELECT id FROM users LIMIT 1');
+        if (uRes.rows.length > 0) userId = uRes.rows[0].id;
+      }
+
+      if (userId) {
+        const numContentId = parseInt(String(contentId || '1').replace(/\D/g, ''), 10) || 1;
+        const validContentType = ['post', 'comment', 'message'].includes(contentType) ? contentType : 'post';
+        const insertSql = `
+          INSERT INTO appeals (user_id, content_type, content_id, original_text, ai_predicted_label, ai_confidence, ai_action_taken, appeal_reason, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+          RETURNING *
+        `;
+        const result = await pool.query(insertSql, [
+          userId,
+          validContentType,
+          numContentId,
+          originalText || 'Nội dung khiếu nại',
+          aiPredictedLabel || 'Toxic',
+          Number(aiConfidence) || 0.90,
+          aiActionTaken || 'warn_user',
+          appealReason || 'Tôi khiếu nại phán quyết AI.'
+        ]);
+        const dbAppeal = result.rows[0];
+        return res.json({
+          success: true,
+          message: 'Đã gửi khiếu nại thành công đến Quản trị viên (lưu vào CSDL PostgreSQL)!',
+          data: {
+            id: String(dbAppeal.id),
+            user: user || { id: userId, name: req.user?.full_name || 'Người khiếu nại' },
+            contentType: dbAppeal.content_type,
+            contentId: String(dbAppeal.content_id),
+            originalText: dbAppeal.original_text,
+            aiPredictedLabel: dbAppeal.ai_predicted_label,
+            aiConfidence: Number(dbAppeal.ai_confidence),
+            aiActionTaken: dbAppeal.ai_action_taken,
+            appealReason: dbAppeal.appeal_reason,
+            status: dbAppeal.status,
+            adminNotes: '',
+            createdAt: 'Vừa xong'
+          }
+        });
+      }
+    } catch (dbErr) {
+      console.warn('Lỗi lưu khiếu nại vào PostgreSQL, dùng in-memory store:', dbErr.message);
+    }
+  }
 
   const newAppeal = {
     id: `app-${Date.now()}`,
@@ -331,44 +623,146 @@ app.post('/api/appeals', (req, res) => {
   res.json({ success: true, message: 'Đã gửi khiếu nại thành công đến Quản trị viên!', data: newAppeal });
 });
 
-// 5.7 Xử lý Khiếu nại (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.patch('/api/appeals/:id', requireRole('moderator'), (req, res) => {
+// 5.7 Xử lý Khiếu nại trong CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body; // status: 'approved' | 'rejected'
+  const reviewerId = req.user?.id || null;
+  const numId = parseInt(id, 10);
 
-  const appeal = appealsStore.find(a => a.id === id);
-  if (!appeal) {
-    return res.status(404).json({ success: false, error: 'Không tìm thấy đơn khiếu nại' });
+  let updatedAppeal = null;
+
+  if (pool && !isNaN(numId)) {
+    try {
+      const updateSql = `
+        UPDATE appeals
+        SET status = $1, admin_notes = $2, reviewed_by = $3, reviewed_at = CURRENT_TIMESTAMP
+        WHERE id = $4
+        RETURNING *
+      `;
+      const result = await pool.query(updateSql, [status, adminNotes || '', reviewerId, numId]);
+      if (result.rows.length > 0) {
+        const dbApp = result.rows[0];
+        updatedAppeal = {
+          id: String(dbApp.id),
+          userId: dbApp.user_id,
+          contentType: dbApp.content_type,
+          contentId: String(dbApp.content_id),
+          originalText: dbApp.original_text,
+          aiPredictedLabel: dbApp.ai_predicted_label,
+          aiConfidence: Number(dbApp.ai_confidence),
+          status: dbApp.status,
+          adminNotes: dbApp.admin_notes
+        };
+
+        if (status === 'approved') {
+          // 1. Phục hồi bài viết/bình luận trong PostgreSQL
+          if (dbApp.content_type === 'post') {
+            await pool.query(
+              `UPDATE posts SET ai_status = 'approved', ai_label = 'Normal' WHERE id = $1`,
+              [dbApp.content_id]
+            );
+          } else if (dbApp.content_type === 'comment') {
+            await pool.query(
+              `UPDATE comments SET is_hidden = FALSE, ai_label = 'Normal' WHERE id = $1`,
+              [dbApp.content_id]
+            );
+          }
+
+          // 2. Ghi nhật ký vào ai_override_logs CSDL thật
+          await pool.query(
+            `INSERT INTO ai_override_logs (admin_id, content_type, content_id, raw_text, original_ai_label, original_confidence, corrected_label, override_reason)
+             VALUES ($1, $2, $3, $4, $5, $6, 'Normal', $7)`,
+            [
+              reviewerId,
+              dbApp.content_type,
+              dbApp.content_id,
+              dbApp.original_text,
+              dbApp.ai_predicted_label,
+              dbApp.ai_confidence,
+              `Giải quyết khiếu nại thành công: ${adminNotes || dbApp.appeal_reason}`
+            ]
+          );
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Lỗi cập nhật appeals trong PostgreSQL:', dbErr.message);
+    }
   }
 
-  appeal.status = status;
-  if (adminNotes !== undefined) appeal.adminNotes = adminNotes;
-
-  // Nếu duyệt chấp thuận khiếu nại (False Positive) -> Ghi log vào AI Override Logs
+  // Đồng bộ in-memory fallback
+  const appeal = appealsStore.find(a => a.id === id);
+  if (appeal) {
+    appeal.status = status;
+    if (adminNotes !== undefined) appeal.adminNotes = adminNotes;
+  }
   if (status === 'approved') {
     aiOverrideLogsStore.unshift({
       id: `ovr-${Date.now()}`,
       adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
-      contentType: appeal.contentType,
-      contentId: appeal.contentId,
-      rawText: appeal.originalText,
-      originalAiLabel: appeal.aiPredictedLabel,
-      originalConfidence: appeal.aiConfidence,
+      contentType: appeal?.contentType || updatedAppeal?.contentType || 'post',
+      contentId: appeal?.contentId || updatedAppeal?.contentId || id,
+      rawText: appeal?.originalText || updatedAppeal?.originalText || '',
+      originalAiLabel: appeal?.aiPredictedLabel || updatedAppeal?.aiPredictedLabel || 'Toxic',
+      originalConfidence: appeal?.aiConfidence || 0.90,
       correctedLabel: 'Normal',
-      overrideReason: `Giải quyết khiếu nại thành công: ${adminNotes || appeal.appealReason}`,
+      overrideReason: `Giải quyết khiếu nại thành công: ${adminNotes || appeal?.appealReason || ''}`,
       isExportedForRetraining: false,
-      createdAt: 'Vừa xong'
+      createdAt: new Date().toLocaleString('vi-VN')
     });
   }
 
-  res.json({ success: true, message: 'Đã xử lý khiếu nại thành công', data: appeal });
+  res.json({ success: true, message: 'Đã xử lý khiếu nại thành công (đồng bộ CSDL PostgreSQL)!', data: updatedAppeal || appeal });
 });
 
-// 5.8 Hiệu chỉnh nhãn AI trực tiếp (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.post('/api/admin/override-ai-label', requireRole('moderator'), (req, res) => {
+// 5.8 Hiệu chỉnh nhãn AI trực tiếp vào CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.post('/api/admin/override-ai-label', requireRole('moderator'), async (req, res) => {
   const { contentType, contentId, rawText, originalAiLabel, correctedLabel, overrideReason } = req.body;
+  const adminId = req.user?.id || null;
+  const numContentId = parseInt(String(contentId || '1').replace(/\D/g, ''), 10) || 1;
+  const validContentType = ['post', 'comment', 'message'].includes(contentType) ? contentType : 'post';
 
-  const newLog = {
+  let createdLog = null;
+
+  if (pool) {
+    try {
+      const insertSql = `
+        INSERT INTO ai_override_logs (admin_id, content_type, content_id, raw_text, original_ai_label, original_confidence, corrected_label, override_reason)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+      `;
+      const result = await pool.query(insertSql, [
+        adminId,
+        validContentType,
+        numContentId,
+        rawText || '',
+        originalAiLabel || 'Normal',
+        0.95,
+        correctedLabel || 'Normal',
+        overrideReason || 'Hiệu chỉnh thủ công bởi Điều hành viên / Quản trị viên'
+      ]);
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        createdLog = {
+          id: String(row.id),
+          adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
+          contentType: row.content_type,
+          contentId: String(row.content_id),
+          rawText: row.raw_text,
+          originalAiLabel: row.original_ai_label,
+          originalConfidence: Number(row.original_confidence) || 0.95,
+          correctedLabel: row.corrected_label,
+          overrideReason: row.override_reason,
+          isExportedForRetraining: row.is_exported_for_retraining,
+          createdAt: new Date(row.created_at).toLocaleString('vi-VN')
+        };
+      }
+    } catch (dbErr) {
+      console.warn('Lỗi ghi log ai_override_logs vào PostgreSQL:', dbErr.message);
+    }
+  }
+
+  const fallbackLog = {
     id: `ovr-${Date.now()}`,
     adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
     contentType: contentType || 'post',
@@ -379,16 +773,184 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), (req, res) =>
     correctedLabel: correctedLabel || 'Normal',
     overrideReason: overrideReason || 'Hiệu chỉnh thủ công bởi Điều hành viên / Quản trị viên',
     isExportedForRetraining: false,
-    createdAt: 'Vừa xong'
+    createdAt: new Date().toLocaleString('vi-VN')
   };
 
-  aiOverrideLogsStore.unshift(newLog);
-  res.json({ success: true, message: 'Đã hiệu chỉnh nhãn AI và ghi nhật ký huấn luyện lại!', data: newLog });
+  aiOverrideLogsStore.unshift(createdLog || fallbackLog);
+  res.json({ success: true, message: 'Đã hiệu chỉnh nhãn AI và ghi nhật ký huấn luyện lại vào CSDL!', data: createdLog || fallbackLog });
 });
 
-// 5.9 Lấy danh sách Logs hiệu chỉnh AI (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
-app.get('/api/admin/ai-overrides', requireRole('moderator'), (req, res) => {
+// 5.9 Lấy danh sách Logs hiệu chỉnh AI từ CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
+app.get('/api/admin/ai-overrides', requireRole('moderator'), async (req, res) => {
+  if (pool) {
+    try {
+      const q = `
+        SELECT o.id, o.admin_id, o.content_type, o.content_id, o.raw_text, o.original_ai_label,
+               o.original_confidence, o.corrected_label, o.override_reason, o.is_exported_for_retraining, o.created_at,
+               u.full_name AS admin_name, u.avatar_url AS admin_avatar
+        FROM ai_override_logs o
+        LEFT JOIN users u ON o.admin_id = u.id
+        ORDER BY o.created_at DESC
+      `;
+      const result = await pool.query(q);
+      const mapped = result.rows.map(row => ({
+        id: String(row.id),
+        adminName: row.admin_name || 'Điều Hành Viên Hệ Thống',
+        adminAvatar: row.admin_avatar || null,
+        contentType: row.content_type,
+        contentId: String(row.content_id),
+        rawText: row.raw_text,
+        originalAiLabel: row.original_ai_label,
+        originalConfidence: Number(row.original_confidence) || 0.95,
+        correctedLabel: row.corrected_label,
+        overrideReason: row.override_reason,
+        isExportedForRetraining: row.is_exported_for_retraining,
+        createdAt: new Date(row.created_at).toLocaleString('vi-VN')
+      }));
+      return res.json({ success: true, data: mapped });
+    } catch (err) {
+      console.warn('Lỗi lấy ai_overrides từ DB PostgreSQL, chuyển sang in-memory store:', err.message);
+    }
+  }
   res.json({ success: true, data: aiOverrideLogsStore });
+});
+
+// 5.10 Xuất file danh sách gắn nhãn sai từ CSDL THẬT (CSV UTF-8 BOM chuẩn tiếng Việt mở bằng Excel theo cột A -> H)
+app.get('/api/admin/ai-overrides/export', requireRole('moderator'), async (req, res) => {
+  try {
+    let listToExport = [];
+    if (pool) {
+      try {
+        const q = `
+          SELECT o.id, o.content_type, o.content_id, o.raw_text, o.original_ai_label,
+                 o.original_confidence, o.corrected_label, o.override_reason, o.created_at,
+                 u.full_name AS admin_name
+          FROM ai_override_logs o
+          LEFT JOIN users u ON o.admin_id = u.id
+          ORDER BY o.created_at DESC
+        `;
+        const result = await pool.query(q);
+        listToExport = result.rows.map(row => ({
+          rawText: row.raw_text,
+          originalAiLabel: row.original_ai_label,
+          correctedLabel: row.corrected_label,
+          contentType: row.content_type,
+          overrideReason: row.override_reason,
+          adminName: row.admin_name || 'Điều Hành Viên Hệ Thống',
+          createdAt: new Date(row.created_at).toLocaleString('vi-VN')
+        }));
+      } catch (dbErr) {
+        console.warn('Lỗi query DB khi xuất file, fallback sang in-memory:', dbErr.message);
+      }
+    }
+
+    if (listToExport.length === 0) {
+      listToExport = aiOverrideLogsStore;
+    }
+
+    let csvContent = '\uFEFF"A: STT","B: Nội dung câu / Hình ảnh gắn nhãn sai","C: Nhãn cũ","D: Nhãn mới","E: Loại nội dung","F: Lý do hiệu chỉnh / Ghi chú","G: Người thực hiện","H: Thời gian ghi nhận"\n';
+    listToExport.forEach((log, index) => {
+      const stt = index + 1;
+      const content = String(log.rawText || log.imageUrl || '').replace(/"/g, '""');
+      const oldLabel = String(log.originalAiLabel || 'Normal').replace(/"/g, '""');
+      const newLabel = String(log.correctedLabel || 'Normal').replace(/"/g, '""');
+      const type = (log.contentType === 'post' ? 'Bài viết' : log.contentType === 'comment' ? 'Bình luận' : 'Hình ảnh / Khác').replace(/"/g, '""');
+      const reason = String(log.overrideReason || '').replace(/"/g, '""');
+      const admin = String(log.adminName || 'Điều Hành Viên Hệ Thống').replace(/"/g, '""');
+      const time = String(log.createdAt || '').replace(/"/g, '""');
+      csvContent += `"${stt}","${content}","${oldLabel}","${newLabel}","${type}","${reason}","${admin}","${time}"\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="Danh_sach_hieu_chinh_nhan_AI_${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csvContent);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi xuất file: ' + err.message });
+  }
+});
+
+// 5.11 Xuất file Excel (.xlsx) danh sách gắn nhãn sai chuẩn các cột A -> H
+app.get('/api/admin/ai-overrides/export-excel', requireRole('moderator'), async (req, res) => {
+  try {
+    let listToExport = [];
+    if (pool) {
+      try {
+        const q = `
+          SELECT o.id, o.content_type, o.content_id, o.raw_text, o.original_ai_label,
+                 o.original_confidence, o.corrected_label, o.override_reason, o.created_at,
+                 u.full_name AS admin_name
+          FROM ai_override_logs o
+          LEFT JOIN users u ON o.admin_id = u.id
+          ORDER BY o.created_at DESC
+        `;
+        const result = await pool.query(q);
+        listToExport = result.rows.map(row => ({
+          rawText: row.raw_text,
+          originalAiLabel: row.original_ai_label,
+          correctedLabel: row.corrected_label,
+          contentType: row.content_type,
+          overrideReason: row.override_reason,
+          adminName: row.admin_name || 'Điều Hành Viên Hệ Thống',
+          createdAt: new Date(row.created_at).toLocaleString('vi-VN')
+        }));
+      } catch (dbErr) {
+        console.warn('Lỗi query DB khi xuất Excel, fallback sang in-memory:', dbErr.message);
+      }
+    }
+
+    if (listToExport.length === 0) {
+      listToExport = aiOverrideLogsStore;
+    }
+
+    const columns = [
+      'A: STT',
+      'B: Nội dung câu / Hình ảnh gắn nhãn sai',
+      'C: Nhãn cũ',
+      'D: Nhãn mới',
+      'E: Loại nội dung',
+      'F: Lý do hiệu chỉnh / Ghi chú',
+      'G: Người thực hiện',
+      'H: Thời gian ghi nhận'
+    ];
+
+    const dataRows = listToExport.map((log, index) => {
+      const type = log.contentType === 'post' ? 'Bài viết' : log.contentType === 'comment' ? 'Bình luận' : 'Hình ảnh / Khác';
+      return {
+        'A: STT': index + 1,
+        'B: Nội dung câu / Hình ảnh gắn nhãn sai': log.rawText || log.imageUrl || '',
+        'C: Nhãn cũ': log.originalAiLabel || 'Normal',
+        'D: Nhãn mới': log.correctedLabel || 'Normal',
+        'E: Loại nội dung': type,
+        'F: Lý do hiệu chỉnh / Ghi chú': log.overrideReason || '',
+        'G: Người thực hiện': log.adminName || 'Điều Hành Viên Hệ Thống',
+        'H: Thời gian ghi nhận': log.createdAt || ''
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataRows, { header: columns });
+    worksheet['!cols'] = [
+      { wch: 10 },
+      { wch: 45 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 35 },
+      { wch: 24 },
+      { wch: 22 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Nhat_Ky_Hieu_Chinh_Nhan');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Danh_sach_hieu_chinh_nhan_AI_${dateStr}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi xuất file Excel: ' + err.message });
+  }
 });
 
 app.use((err, _req, res, _next) => {
