@@ -114,7 +114,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       await moderationHook.afterPostCreated(post);
-      return { ...post, cooldown: cooldownInfo };
+      return post;
     },
 
     async listVisiblePosts({ user }) {
