@@ -620,10 +620,13 @@ app.get('/api/appeals', requireRole('moderator'), async (req, res) => {
         SELECT a.id, a.user_id, a.content_type, a.content_id, a.original_text,
                a.ai_predicted_label, a.ai_confidence, a.ai_action_taken,
                a.appeal_reason, a.status, a.admin_notes, a.created_at,
-               u.full_name AS user_name, u.avatar_url AS user_avatar, u.username
+               u.full_name AS user_name, u.avatar_url AS user_avatar, u.username,
+               COALESCE(p.image_url, c.image_url) AS image_url
         FROM appeals a
         LEFT JOIN users u ON a.user_id = u.id
-        ORDER BY a.created_at DESC
+        LEFT JOIN posts p ON a.content_type = 'post' AND a.content_id = p.id
+        LEFT JOIN comments c ON a.content_type = 'comment' AND a.content_id = c.id
+        ORDER BY CASE WHEN a.status = 'pending' THEN 0 ELSE 1 END, a.created_at DESC
       `;
       const result = await pool.query(q);
       const mapped = result.rows.map(row => ({
@@ -637,6 +640,7 @@ app.get('/api/appeals', requireRole('moderator'), async (req, res) => {
         contentType: row.content_type,
         contentId: String(row.content_id),
         originalText: row.original_text,
+        imageUrl: row.image_url || null,
         aiPredictedLabel: row.ai_predicted_label,
         aiConfidence: Number(row.ai_confidence) || 0.90,
         aiActionTaken: row.ai_action_taken,
@@ -730,75 +734,126 @@ app.post('/api/appeals', async (req, res) => {
 // 5.7 Xử lý Khiếu nại trong CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
 app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
   const { id } = req.params;
-  const { status, adminNotes } = req.body; // status: 'approved' | 'rejected'
+  const { status, adminNotes, newLabel } = req.body; // status: 'approved' | 'rejected'
   const reviewerId = req.user?.id || null;
+
+  // 1. Kiểm tra tính hợp lệ của status
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: "Trạng thái xử lý không hợp lệ. Chỉ chấp nhận 'approved' hoặc 'rejected'."
+    });
+  }
+
+  // 2. Kiểm tra tính hợp lệ của newLabel khi approved
+  const VALID_LABELS = ['Normal', 'Toxic', 'Hate Speech', 'Violence'];
+  const finalNewLabel = status === 'approved' ? (newLabel || 'Normal') : null;
+  if (status === 'approved' && !VALID_LABELS.includes(finalNewLabel)) {
+    return res.status(400).json({
+      success: false,
+      message: `Nhãn mới không hợp lệ. Danh sách nhãn hợp lệ: ${VALID_LABELS.join(', ')}.`
+    });
+  }
+
   const numId = parseInt(id, 10);
-
   let updatedAppeal = null;
+  let createdOverrideLog = null;
 
+  // 3. Xử lý trong CSDL PostgreSQL với Transaction & khóa hàng FOR UPDATE chống xử lý trùng
   if (pool && !isNaN(numId)) {
+    const client = await pool.connect();
     try {
+      await client.query('BEGIN');
+
+      // Khóa và kiểm tra xem đơn khiếu nại có tồn tại không
+      const checkRes = await client.query('SELECT * FROM appeals WHERE id = $1 FOR UPDATE', [numId]);
+      if (checkRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'Đơn khiếu nại không tồn tại.' });
+      }
+
+      const dbApp = checkRes.rows[0];
+
+      // Chống xử lý trùng: Chỉ xử lý đơn khiếu nại đang ở trạng thái 'pending'
+      if (dbApp.status !== 'pending') {
+        await client.query('ROLLBACK');
+        const statusText = dbApp.status === 'approved' ? 'đã chấp thuận' : 'đã từ chối';
+        return res.status(409).json({
+          success: false,
+          message: `Khiếu nại này đã được xử lý trước đó (${statusText}).`
+        });
+      }
+
+      // Cập nhật trạng thái khiếu nại
       const updateSql = `
         UPDATE appeals
         SET status = $1, admin_notes = $2, reviewed_by = $3, reviewed_at = CURRENT_TIMESTAMP
-        WHERE id = $4
+        WHERE id = $4 AND status = 'pending'
         RETURNING *
       `;
-      const result = await pool.query(updateSql, [status, adminNotes || '', reviewerId, numId]);
-      if (result.rows.length > 0) {
-        const dbApp = result.rows[0];
-        updatedAppeal = {
-          id: String(dbApp.id),
-          userId: dbApp.user_id,
-          contentType: dbApp.content_type,
-          contentId: String(dbApp.content_id),
-          originalText: dbApp.original_text,
-          aiPredictedLabel: dbApp.ai_predicted_label,
-          aiConfidence: Number(dbApp.ai_confidence),
-          status: dbApp.status,
-          adminNotes: dbApp.admin_notes
-        };
+      const result = await client.query(updateSql, [status, adminNotes || '', reviewerId, numId]);
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          success: false,
+          message: 'Khiếu nại này đã được xử lý trước đó bởi người khác.'
+        });
+      }
 
-        if (status === 'approved') {
-          // 1. Phục hồi bài viết/bình luận trong PostgreSQL & gỡ cờ kiểm duyệt ảnh
-          if (dbApp.content_type === 'post') {
-            await pool.query(
+      const updatedRow = result.rows[0];
+      updatedAppeal = {
+        id: String(updatedRow.id),
+        userId: updatedRow.user_id,
+        contentType: updatedRow.content_type,
+        contentId: String(updatedRow.content_id),
+        originalText: updatedRow.original_text,
+        aiPredictedLabel: updatedRow.ai_predicted_label,
+        aiConfidence: Number(updatedRow.ai_confidence),
+        status: updatedRow.status,
+        adminNotes: updatedRow.admin_notes,
+        newLabel: finalNewLabel,
+        oldLabel: updatedRow.ai_predicted_label
+      };
+
+      if (status === 'rejected') {
+        // TỪ CHỐI KHIẾU NẠI:
+        // - Giữ nguyên nhãn đang gắn
+        // - Giữ nguyên các hình phạt đang áp dụng
+        // - KHÔNG ghi bản ghi đổi nhãn
+        if (updatedRow.user_id) {
+          await client.query(
+            `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+             VALUES ($1, $2, 'system', 'Khiếu nại của bạn về nội dung vi phạm đã bị từ chối sau khi xem xét lại.', FALSE)`,
+            [updatedRow.user_id, reviewerId]
+          );
+        }
+      } else if (status === 'approved') {
+        // CHẤP NHẬN KHIẾU NẠI (Nhãn bị gắn sai):
+        // 1. Phục hồi / Cập nhật nội dung theo nghiệp vụ nhãn mới
+        if (finalNewLabel === 'Normal') {
+          if (updatedRow.content_type === 'post') {
+            await client.query(
               `UPDATE posts 
                SET ai_status = 'approved', ai_label = 'Normal',
                    image_moderation_status = 'approved', image_moderation_label = 'safe',
                    moderation_expires_at = NULL 
                WHERE id = $1`,
-              [dbApp.content_id]
+              [updatedRow.content_id]
             );
-          } else if (dbApp.content_type === 'comment') {
-            await pool.query(
+          } else if (updatedRow.content_type === 'comment') {
+            await client.query(
               `UPDATE comments 
                SET is_hidden = FALSE, ai_label = 'Normal',
                    image_moderation_status = 'approved', image_moderation_label = 'safe',
                    moderation_expires_at = NULL 
                WHERE id = $1`,
-              [dbApp.content_id]
+              [updatedRow.content_id]
             );
           }
 
-          // 2. Ghi nhật ký vào ai_override_logs CSDL thật
-          await pool.query(
-            `INSERT INTO ai_override_logs (admin_id, content_type, content_id, raw_text, original_ai_label, original_confidence, corrected_label, override_reason)
-             VALUES ($1, $2, $3, $4, $5, $6, 'Normal', $7)`,
-            [
-              reviewerId,
-              dbApp.content_type,
-              dbApp.content_id,
-              dbApp.original_text,
-              dbApp.ai_predicted_label,
-              dbApp.ai_confidence,
-              `Giải quyết khiếu nại thành công: ${adminNotes || dbApp.appeal_reason}`
-            ]
-          );
-
-          // 3. Nghiệp vụ: GỠ BỎ TOÀN BỘ ÁN PHẠT CHO TÁC GIẢ KHIẾU NẠI (status -> active, reset cooldown)
-          if (dbApp.user_id) {
-            await pool.query(
+          // GỠ TOÀN BỘ ÁN PHẠT CHO TÁC GIẢ KHIẾU NẠI (status -> active, reset cooldown)
+          if (updatedRow.user_id) {
+            await client.query(
               `UPDATE users 
                SET status = 'active', 
                    cooldown_until = NULL, 
@@ -806,38 +861,147 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
                    cooldown_violation_text = NULL,
                    updated_at = CURRENT_TIMESTAMP
                WHERE id = $1`,
-              [dbApp.user_id]
+              [updatedRow.user_id]
             );
 
-            // Gửi thông báo khiếu nại được chấp thuận & gỡ phạt
-            await pool.query(
+            await client.query(
               `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
                VALUES ($1, $2, 'system', 'Khiếu nại được chấp thuận! Nội dung của bạn đã được xác nhận an toàn (Normal). Toàn bộ án phạt (cooldown/hạn chế) đã được gỡ bỏ.', FALSE)`,
-              [dbApp.user_id, reviewerId]
+              [updatedRow.user_id, reviewerId]
             );
           }
-        } else if (status === 'rejected' && dbApp.user_id) {
-          // Gửi thông báo khiếu nại bị từ chối
-          await pool.query(
-            `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-             VALUES ($1, $2, 'system', 'Khiếu nại của bạn về nội dung vi phạm đã bị từ chối sau khi xem xét lại.', FALSE)`,
-            [dbApp.user_id, reviewerId]
-          );
+        } else if (finalNewLabel === 'Violence') {
+          // Gán sang Violence -> Ẩn nội dung & Phạt Cooldown 10 phút
+          if (updatedRow.content_type === 'post') {
+            await client.query(
+              `UPDATE posts SET ai_status = 'hidden', ai_label = 'Violence' WHERE id = $1`,
+              [updatedRow.content_id]
+            );
+          } else if (updatedRow.content_type === 'comment') {
+            await client.query(
+              `UPDATE comments SET is_hidden = TRUE, ai_label = 'Violence' WHERE id = $1`,
+              [updatedRow.content_id]
+            );
+          }
+
+          if (updatedRow.user_id) {
+            await client.query(
+              `UPDATE users 
+               SET status = 'cooldown', 
+                   cooldown_until = CURRENT_TIMESTAMP + INTERVAL '10 minutes', 
+                   cooldown_reason = 'Vi phạm bạo lực trong nội dung (Khiếu nại được thẩm định lại)',
+                   cooldown_violation_text = $1,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [updatedRow.original_text, updatedRow.user_id]
+            );
+
+            await client.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+               VALUES ($1, $2, 'system', 'Nội dung của bạn sau khi thẩm định lại bị xác định vi phạm Bạo lực (Violence). Bạn bị tạm khóa 10 phút.', FALSE)`,
+              [updatedRow.user_id, reviewerId]
+            );
+          }
+        } else {
+          // Gán sang Toxic hoặc Hate Speech -> Ẩn nội dung, không phạt cooldown.
+          // Nếu trước đó đang bị cooldown (do Violence cũ), gỡ bỏ cooldown.
+          if (updatedRow.content_type === 'post') {
+            await client.query(
+              `UPDATE posts SET ai_status = 'hidden', ai_label = $1 WHERE id = $2`,
+              [finalNewLabel, updatedRow.content_id]
+            );
+          } else if (updatedRow.content_type === 'comment') {
+            await client.query(
+              `UPDATE comments SET is_hidden = TRUE, ai_label = $1 WHERE id = $2`,
+              [finalNewLabel, updatedRow.content_id]
+            );
+          }
+
+          if (updatedRow.user_id) {
+            await client.query(
+              `UPDATE users 
+               SET status = 'active', 
+                   cooldown_until = NULL, 
+                   cooldown_reason = NULL, 
+                   cooldown_violation_text = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1 AND status = 'cooldown'`,
+              [updatedRow.user_id]
+            );
+
+            const notifMsg = finalNewLabel === 'Hate Speech'
+              ? 'Nội dung của bạn sau khi xem xét lại được phân loại là Ngôn từ thù ghét (Hate Speech) và đã bị ẩn.'
+              : 'Nội dung của bạn sau khi xem xét lại được phân loại là Độc hại (Toxic) và đã bị giới hạn hiển thị.';
+            await client.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+               VALUES ($1, $2, 'system', $3, FALSE)`,
+              [updatedRow.user_id, reviewerId, notifMsg]
+            );
+          }
+        }
+
+        // 2. Ghi nhật ký vào ai_override_logs CSDL thật
+        const overrideRes = await client.query(
+          `INSERT INTO ai_override_logs (admin_id, content_type, content_id, raw_text, original_ai_label, original_confidence, corrected_label, override_reason)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING *`,
+          [
+            reviewerId,
+            updatedRow.content_type,
+            updatedRow.content_id,
+            updatedRow.original_text,
+            updatedRow.ai_predicted_label,
+            Number(updatedRow.ai_confidence) || 0.90,
+            finalNewLabel,
+            adminNotes || (finalNewLabel === 'Normal'
+              ? `Chấp thuận khiếu nại: Minh oan và khôi phục nội dung: ${updatedRow.appeal_reason}`
+              : `Chấp thuận khiếu nại: Hiệu chỉnh nhãn sang ${finalNewLabel}`)
+          ]
+        );
+        if (overrideRes.rows.length > 0) {
+          const oRow = overrideRes.rows[0];
+          createdOverrideLog = {
+            id: String(oRow.id),
+            adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
+            contentType: oRow.content_type,
+            contentId: String(oRow.content_id),
+            rawText: oRow.raw_text,
+            originalAiLabel: oRow.original_ai_label,
+            originalConfidence: Number(oRow.original_confidence) || 0.90,
+            correctedLabel: oRow.corrected_label,
+            overrideReason: oRow.override_reason,
+            isExportedForRetraining: oRow.is_exported_for_retraining,
+            createdAt: new Date(oRow.created_at).toLocaleString('vi-VN')
+          };
         }
       }
+
+      await client.query('COMMIT');
     } catch (dbErr) {
-      console.warn('Lỗi cập nhật appeals trong PostgreSQL:', dbErr.message);
+      await client.query('ROLLBACK');
+      console.error('Lỗi transaction xử lý khiếu nại trong PostgreSQL:', dbErr.message);
+      return res.status(500).json({ success: false, message: 'Lỗi máy chủ khi xử lý khiếu nại: ' + dbErr.message });
+    } finally {
+      client.release();
     }
   }
 
-  // Đồng bộ in-memory fallback
-  const appeal = appealsStore.find(a => a.id === id);
+  // 4. Đồng bộ in-memory store (fallback & dev mode)
+  const appeal = appealsStore.find(a => String(a.id) === String(id));
   if (appeal) {
+    if (appeal.status !== 'pending' && !updatedAppeal) {
+      return res.status(409).json({
+        success: false,
+        message: `Khiếu nại này đã được xử lý trước đó (${appeal.status === 'approved' ? 'đã chấp thuận' : 'đã từ chối'}).`
+      });
+    }
     appeal.status = status;
     if (adminNotes !== undefined) appeal.adminNotes = adminNotes;
+    appeal.newLabel = finalNewLabel;
   }
-  if (status === 'approved') {
-    aiOverrideLogsStore.unshift({
+
+  if (status === 'approved' && !createdOverrideLog) {
+    createdOverrideLog = {
       id: `ovr-${Date.now()}`,
       adminName: req.user?.full_name || 'Điều Hành Viên Hệ Thống',
       contentType: appeal?.contentType || updatedAppeal?.contentType || 'post',
@@ -845,14 +1009,25 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
       rawText: appeal?.originalText || updatedAppeal?.originalText || '',
       originalAiLabel: appeal?.aiPredictedLabel || updatedAppeal?.aiPredictedLabel || 'Toxic',
       originalConfidence: appeal?.aiConfidence || 0.90,
-      correctedLabel: 'Normal',
-      overrideReason: `Giải quyết khiếu nại thành công: ${adminNotes || appeal?.appealReason || ''}`,
+      correctedLabel: finalNewLabel,
+      overrideReason: adminNotes || (finalNewLabel === 'Normal' ? 'Chấp thuận khiếu nại: Minh oan và khôi phục nội dung' : `Chấp thuận khiếu nại: Gán lại nhãn ${finalNewLabel}`),
       isExportedForRetraining: false,
       createdAt: new Date().toLocaleString('vi-VN')
-    });
+    };
   }
 
-  res.json({ success: true, message: 'Đã xử lý khiếu nại thành công (đồng bộ CSDL PostgreSQL)!', data: updatedAppeal || appeal });
+  if (createdOverrideLog) {
+    aiOverrideLogsStore.unshift(createdOverrideLog);
+  }
+
+  return res.json({
+    success: true,
+    message: status === 'approved'
+      ? `Đã chấp thuận khiếu nại: Đổi nhãn sang "${finalNewLabel}" thành công!`
+      : 'Đã từ chối khiếu nại và giữ nguyên nhãn ban đầu!',
+    data: updatedAppeal || appeal,
+    overrideLog: createdOverrideLog
+  });
 });
 
 // 5.8 Hiệu chỉnh nhãn AI trực tiếp vào CSDL THẬT (Yêu cầu quyền Điều hành viên hoặc Quản trị viên)
