@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import * as XLSX from 'xlsx';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
@@ -814,7 +815,7 @@ app.get('/api/admin/ai-overrides', requireRole('moderator'), async (req, res) =>
   res.json({ success: true, data: aiOverrideLogsStore });
 });
 
-// 5.10 Xuất file danh sách gắn nhãn sai từ CSDL THẬT (CSV UTF-8 BOM chuẩn tiếng Việt mở bằng Excel)
+// 5.10 Xuất file danh sách gắn nhãn sai từ CSDL THẬT (CSV UTF-8 BOM chuẩn tiếng Việt mở bằng Excel theo cột A -> H)
 app.get('/api/admin/ai-overrides/export', requireRole('moderator'), async (req, res) => {
   try {
     let listToExport = [];
@@ -847,7 +848,7 @@ app.get('/api/admin/ai-overrides/export', requireRole('moderator'), async (req, 
       listToExport = aiOverrideLogsStore;
     }
 
-    let csvContent = '\uFEFF"STT","Nội dung / Hình ảnh gắn nhãn sai","Nhãn cũ","Nhãn mới","Loại nội dung","Lý do hiệu chỉnh","Người thực hiện","Thời gian"\n';
+    let csvContent = '\uFEFF"A: STT","B: Nội dung câu / Hình ảnh gắn nhãn sai","C: Nhãn cũ","D: Nhãn mới","E: Loại nội dung","F: Lý do hiệu chỉnh / Ghi chú","G: Người thực hiện","H: Thời gian ghi nhận"\n';
     listToExport.forEach((log, index) => {
       const stt = index + 1;
       const content = String(log.rawText || log.imageUrl || '').replace(/"/g, '""');
@@ -865,6 +866,90 @@ app.get('/api/admin/ai-overrides/export', requireRole('moderator'), async (req, 
     res.send(csvContent);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Lỗi khi xuất file: ' + err.message });
+  }
+});
+
+// 5.11 Xuất file Excel (.xlsx) danh sách gắn nhãn sai chuẩn các cột A -> H
+app.get('/api/admin/ai-overrides/export-excel', requireRole('moderator'), async (req, res) => {
+  try {
+    let listToExport = [];
+    if (pool) {
+      try {
+        const q = `
+          SELECT o.id, o.content_type, o.content_id, o.raw_text, o.original_ai_label,
+                 o.original_confidence, o.corrected_label, o.override_reason, o.created_at,
+                 u.full_name AS admin_name
+          FROM ai_override_logs o
+          LEFT JOIN users u ON o.admin_id = u.id
+          ORDER BY o.created_at DESC
+        `;
+        const result = await pool.query(q);
+        listToExport = result.rows.map(row => ({
+          rawText: row.raw_text,
+          originalAiLabel: row.original_ai_label,
+          correctedLabel: row.corrected_label,
+          contentType: row.content_type,
+          overrideReason: row.override_reason,
+          adminName: row.admin_name || 'Điều Hành Viên Hệ Thống',
+          createdAt: new Date(row.created_at).toLocaleString('vi-VN')
+        }));
+      } catch (dbErr) {
+        console.warn('Lỗi query DB khi xuất Excel, fallback sang in-memory:', dbErr.message);
+      }
+    }
+
+    if (listToExport.length === 0) {
+      listToExport = aiOverrideLogsStore;
+    }
+
+    const columns = [
+      'A: STT',
+      'B: Nội dung câu / Hình ảnh gắn nhãn sai',
+      'C: Nhãn cũ',
+      'D: Nhãn mới',
+      'E: Loại nội dung',
+      'F: Lý do hiệu chỉnh / Ghi chú',
+      'G: Người thực hiện',
+      'H: Thời gian ghi nhận'
+    ];
+
+    const dataRows = listToExport.map((log, index) => {
+      const type = log.contentType === 'post' ? 'Bài viết' : log.contentType === 'comment' ? 'Bình luận' : 'Hình ảnh / Khác';
+      return {
+        'A: STT': index + 1,
+        'B: Nội dung câu / Hình ảnh gắn nhãn sai': log.rawText || log.imageUrl || '',
+        'C: Nhãn cũ': log.originalAiLabel || 'Normal',
+        'D: Nhãn mới': log.correctedLabel || 'Normal',
+        'E: Loại nội dung': type,
+        'F: Lý do hiệu chỉnh / Ghi chú': log.overrideReason || '',
+        'G: Người thực hiện': log.adminName || 'Điều Hành Viên Hệ Thống',
+        'H: Thời gian ghi nhận': log.createdAt || ''
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataRows, { header: columns });
+    worksheet['!cols'] = [
+      { wch: 10 },
+      { wch: 45 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 35 },
+      { wch: 24 },
+      { wch: 22 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Nhat_Ky_Hieu_Chinh_Nhan');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Danh_sach_hieu_chinh_nhan_AI_${dateStr}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi xuất file Excel: ' + err.message });
   }
 });
 

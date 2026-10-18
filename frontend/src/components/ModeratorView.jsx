@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import VerifiedBadge from './VerifiedBadge';
 import ReportResolutionModal from './ReportResolutionModal';
-import { exportOverrideLogsToCSV } from '../utils/exportUtils';
+import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
 
 /**
  * Khu vực Kiểm duyệt nội dung (Moderator View)
@@ -729,13 +729,13 @@ export default function ModeratorView({
               </div>
 
               {/* Nút hành động Xuất File */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <a
-                  href={`/api/admin/ai-overrides/export${currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : ''}`}
+                  href={`/api/admin/ai-overrides/export-excel${currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : ''}`}
                   target="_blank"
                   rel="noreferrer"
                   className="h-9 px-3.5 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
-                  title="Tải trực tiếp qua API Backend từ CSDL"
+                  title="Tải trực tiếp file Excel (.xlsx) qua API Backend từ CSDL"
                 >
                   <Download className="w-3.5 h-3.5 text-slate-500" />
                   <span>Tải từ Máy chủ</span>
@@ -743,10 +743,20 @@ export default function ModeratorView({
                 <button
                   type="button"
                   onClick={() => exportOverrideLogsToCSV(aiOverrides)}
+                  className="h-9 px-3 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                  title="Xuất file định dạng CSV UTF-8 BOM"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Xuất CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportOverrideLogsToExcel(aiOverrides)}
                   className="h-9 px-4 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition cursor-pointer flex items-center gap-2"
+                  title="Xuất trực tiếp file Excel (.xlsx) chuẩn cột A -> H"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
-                  <span>Xuất file (CSV / Excel)</span>
+                  <span>Xuất file (Excel .xlsx)</span>
                 </button>
               </div>
             </div>
@@ -765,15 +775,15 @@ export default function ModeratorView({
               <div className="overflow-x-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                      <th className="py-3 px-3 w-12 text-center">STT</th>
-                      <th className="py-3 px-4 min-w-[240px]">Nội dung câu / Hình ảnh gắn nhãn sai</th>
-                      <th className="py-3 px-3 w-28">Nhãn cũ</th>
-                      <th className="py-3 px-3 w-28">Nhãn mới</th>
-                      <th className="py-3 px-3 w-24">Loại</th>
-                      <th className="py-3 px-4 min-w-[180px]">Lý do hiệu chỉnh</th>
-                      <th className="py-3 px-3 w-32">Người duyệt</th>
-                      <th className="py-3 px-3 w-28">Thời gian</th>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                      <th className="py-3 px-3 w-16 text-center">A: STT</th>
+                      <th className="py-3 px-4 min-w-[240px]">B: Nội dung câu / Hình ảnh gắn nhãn sai</th>
+                      <th className="py-3 px-3 w-28">C: Nhãn cũ</th>
+                      <th className="py-3 px-3 w-28">D: Nhãn mới</th>
+                      <th className="py-3 px-3 w-28">E: Loại nội dung</th>
+                      <th className="py-3 px-4 min-w-[180px]">F: Lý do hiệu chỉnh / Ghi chú</th>
+                      <th className="py-3 px-3 w-32">G: Người thực hiện</th>
+                      <th className="py-3 px-3 w-32">H: Thời gian ghi nhận</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
