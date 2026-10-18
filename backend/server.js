@@ -429,18 +429,122 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
             actionTaken
           };
 
-          if (status === 'resolved_violation') {
-            // Cập nhật nhãn và ẩn nội dung trong CSDL thật
+          // Tìm author_id của bài viết, bình luận hoặc tin nhắn bị báo cáo
+          let targetAuthorId = null;
+          try {
             if (dbRep.target_type === 'post') {
-              await pool.query(
-                `UPDATE posts SET ai_label = $1, ai_status = 'hidden' WHERE id = $2`,
-                [finalNewLabel, dbRep.target_id]
-              );
+              const pRes = await pool.query('SELECT author_id FROM posts WHERE id = $1', [dbRep.target_id]);
+              if (pRes.rows.length > 0) targetAuthorId = pRes.rows[0].author_id;
             } else if (dbRep.target_type === 'comment') {
-              await pool.query(
-                `UPDATE comments SET ai_label = $1, is_hidden = TRUE WHERE id = $2`,
-                [finalNewLabel, dbRep.target_id]
-              );
+              const cRes = await pool.query('SELECT author_id FROM comments WHERE id = $1', [dbRep.target_id]);
+              if (cRes.rows.length > 0) targetAuthorId = cRes.rows[0].author_id;
+            } else if (dbRep.target_type === 'message') {
+              const mRes = await pool.query('SELECT sender_id AS author_id FROM messages WHERE id = $1', [dbRep.target_id]);
+              if (mRes.rows.length > 0) targetAuthorId = mRes.rows[0].author_id;
+            }
+          } catch (lookupErr) {
+            console.warn('Lỗi tìm authorId mục báo cáo:', lookupErr.message);
+          }
+
+          if (status === 'resolved_violation') {
+            if (finalNewLabel === 'Normal') {
+              // 1. Chuyển về nhãn Normal: Khôi phục hiển thị nội dung & gỡ bỏ mọi cờ kiểm duyệt
+              if (dbRep.target_type === 'post') {
+                await pool.query(
+                  `UPDATE posts 
+                   SET ai_label = 'Normal', ai_status = 'approved',
+                       image_moderation_status = 'approved', image_moderation_label = 'safe',
+                       moderation_expires_at = NULL 
+                   WHERE id = $1`,
+                  [dbRep.target_id]
+                );
+              } else if (dbRep.target_type === 'comment') {
+                await pool.query(
+                  `UPDATE comments 
+                   SET ai_label = 'Normal', is_hidden = FALSE,
+                       image_moderation_status = 'approved', image_moderation_label = 'safe',
+                       moderation_expires_at = NULL 
+                   WHERE id = $1`,
+                  [dbRep.target_id]
+                );
+              }
+
+              // 2. Nghiệp vụ: GỠ BỎ TOÀN BỘ ÁN PHẠT CHO TÁC GIẢ NỘI DUNG (status -> active, reset cooldown)
+              if (targetAuthorId) {
+                await pool.query(
+                  `UPDATE users 
+                   SET status = 'active', 
+                       cooldown_until = NULL, 
+                       cooldown_reason = NULL, 
+                       cooldown_violation_text = NULL,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $1`,
+                  [targetAuthorId]
+                );
+
+                // Gửi thông báo minh oan và gỡ phạt
+                await pool.query(
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+                   VALUES ($1, $2, 'system', 'Nội dung của bạn đã được thẩm định an toàn (Normal). Toàn bộ giới hạn và án phạt đã được gỡ bỏ.', FALSE)`,
+                  [targetAuthorId, reviewerId]
+                );
+              }
+            } else {
+              // Gán lại nhãn vi phạm (Violence, Hate Speech, Toxic):
+              if (dbRep.target_type === 'post') {
+                await pool.query(
+                  `UPDATE posts SET ai_label = $1, ai_status = 'hidden' WHERE id = $2`,
+                  [finalNewLabel, dbRep.target_id]
+                );
+              } else if (dbRep.target_type === 'comment') {
+                await pool.query(
+                  `UPDATE comments SET ai_label = $1, is_hidden = TRUE WHERE id = $2`,
+                  [finalNewLabel, dbRep.target_id]
+                );
+              }
+
+              // Nghiệp vụ từng nhãn:
+              // - Nhãn Bạo lực (Violence): Phạt Cooldown 10 phút cấm đăng bài & comment
+              if (finalNewLabel === 'Violence' && targetAuthorId) {
+                await pool.query(
+                  `UPDATE users 
+                   SET status = 'cooldown', 
+                       cooldown_until = CURRENT_TIMESTAMP + INTERVAL '10 minutes', 
+                       cooldown_reason = 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+                       cooldown_violation_text = $1,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [req.body.rawText || dbRep.details || 'Nội dung bạo lực', targetAuthorId]
+                );
+
+                await pool.query(
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+                   VALUES ($1, $2, 'system', 'Nội dung của bạn bị báo cáo vi phạm Bạo lực và đã bị ẩn. Bạn bị tạm khóa 10 phút.', FALSE)`,
+                  [targetAuthorId, reviewerId]
+                );
+              } else if (targetAuthorId) {
+                // - Nhãn Toxic hoặc Hate Speech: Không phạt cooldown.
+                // Nếu tài khoản trước đó đang bị cooldown do nhãn Violence cũ, gỡ bỏ cooldown vì đã chuyển sang nhãn không có cooldown!
+                await pool.query(
+                  `UPDATE users 
+                   SET status = 'active', 
+                       cooldown_until = NULL, 
+                       cooldown_reason = NULL, 
+                       cooldown_violation_text = NULL,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $1 AND status = 'cooldown'`,
+                  [targetAuthorId]
+                );
+
+                const notifMsg = finalNewLabel === 'Hate Speech'
+                  ? 'Nội dung của bạn bị báo cáo vi phạm Ngôn từ thù ghét (Hate Speech) và đã bị ẩn.'
+                  : 'Nội dung của bạn bị báo cáo chứa từ ngữ độc hại/xúc phạm (Toxic) và đã bị giới hạn hiển thị.';
+                await pool.query(
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+                   VALUES ($1, $2, 'system', $3, FALSE)`,
+                  [targetAuthorId, reviewerId, notifMsg]
+                );
+              }
             }
 
             // Ghi nhật ký vào bảng ai_override_logs CSDL thật
@@ -656,15 +760,23 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
         };
 
         if (status === 'approved') {
-          // 1. Phục hồi bài viết/bình luận trong PostgreSQL
+          // 1. Phục hồi bài viết/bình luận trong PostgreSQL & gỡ cờ kiểm duyệt ảnh
           if (dbApp.content_type === 'post') {
             await pool.query(
-              `UPDATE posts SET ai_status = 'approved', ai_label = 'Normal' WHERE id = $1`,
+              `UPDATE posts 
+               SET ai_status = 'approved', ai_label = 'Normal',
+                   image_moderation_status = 'approved', image_moderation_label = 'safe',
+                   moderation_expires_at = NULL 
+               WHERE id = $1`,
               [dbApp.content_id]
             );
           } else if (dbApp.content_type === 'comment') {
             await pool.query(
-              `UPDATE comments SET is_hidden = FALSE, ai_label = 'Normal' WHERE id = $1`,
+              `UPDATE comments 
+               SET is_hidden = FALSE, ai_label = 'Normal',
+                   image_moderation_status = 'approved', image_moderation_label = 'safe',
+                   moderation_expires_at = NULL 
+               WHERE id = $1`,
               [dbApp.content_id]
             );
           }
@@ -682,6 +794,34 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
               dbApp.ai_confidence,
               `Giải quyết khiếu nại thành công: ${adminNotes || dbApp.appeal_reason}`
             ]
+          );
+
+          // 3. Nghiệp vụ: GỠ BỎ TOÀN BỘ ÁN PHẠT CHO TÁC GIẢ KHIẾU NẠI (status -> active, reset cooldown)
+          if (dbApp.user_id) {
+            await pool.query(
+              `UPDATE users 
+               SET status = 'active', 
+                   cooldown_until = NULL, 
+                   cooldown_reason = NULL, 
+                   cooldown_violation_text = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [dbApp.user_id]
+            );
+
+            // Gửi thông báo khiếu nại được chấp thuận & gỡ phạt
+            await pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+               VALUES ($1, $2, 'system', 'Khiếu nại được chấp thuận! Nội dung của bạn đã được xác nhận an toàn (Normal). Toàn bộ án phạt (cooldown/hạn chế) đã được gỡ bỏ.', FALSE)`,
+              [dbApp.user_id, reviewerId]
+            );
+          }
+        } else if (status === 'rejected' && dbApp.user_id) {
+          // Gửi thông báo khiếu nại bị từ chối
+          await pool.query(
+            `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+             VALUES ($1, $2, 'system', 'Khiếu nại của bạn về nội dung vi phạm đã bị từ chối sau khi xem xét lại.', FALSE)`,
+            [dbApp.user_id, reviewerId]
           );
         }
       }
@@ -756,6 +896,78 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), async (req, r
           isExportedForRetraining: row.is_exported_for_retraining,
           createdAt: new Date(row.created_at).toLocaleString('vi-VN')
         };
+      }
+
+      // Cập nhật trạng thái bài viết/bình luận và án phạt tác giả theo nghiệp vụ từng nhãn
+      try {
+        let authorId = null;
+        if (validContentType === 'post') {
+          const newStatus = correctedLabel === 'Normal' ? 'approved' : 'hidden';
+          const p = await pool.query(
+            `UPDATE posts 
+             SET ai_label = $1, ai_status = $2,
+                 image_moderation_status = CASE WHEN $1 = 'Normal' THEN 'approved' ELSE image_moderation_status END,
+                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END,
+                 moderation_expires_at = CASE WHEN $1 = 'Normal' THEN NULL ELSE moderation_expires_at END
+             WHERE id = $3 RETURNING author_id`,
+            [correctedLabel, newStatus, numContentId]
+          );
+          if (p.rows.length > 0) authorId = p.rows[0].author_id;
+        } else if (validContentType === 'comment') {
+          const isHidden = correctedLabel !== 'Normal';
+          const c = await pool.query(
+            `UPDATE comments 
+             SET ai_label = $1, is_hidden = $2,
+                 image_moderation_status = CASE WHEN $1 = 'Normal' THEN 'approved' ELSE image_moderation_status END,
+                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END,
+                 moderation_expires_at = CASE WHEN $1 = 'Normal' THEN NULL ELSE moderation_expires_at END
+             WHERE id = $3 RETURNING author_id`,
+            [correctedLabel, isHidden, numContentId]
+          );
+          if (c.rows.length > 0) authorId = c.rows[0].author_id;
+        }
+
+        if (authorId) {
+          if (correctedLabel === 'Normal') {
+            // Chuyển về trạng thái bình thường -> GỠ TOÀN BỘ ÁN PHẠT CHO TÁC GIẢ
+            await pool.query(
+              `UPDATE users 
+               SET status = 'active', cooldown_until = NULL, cooldown_reason = NULL, cooldown_violation_text = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [authorId]
+            );
+
+            await pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+               VALUES ($1, $2, 'system', 'Nội dung của bạn đã được Quản trị viên thẩm định an toàn (Normal). Toàn bộ án phạt đã được gỡ bỏ.', FALSE)`,
+              [authorId, reviewerId]
+            );
+          } else if (correctedLabel === 'Violence') {
+            // Nhãn Bạo lực -> Phạt Cooldown 10 phút
+            await pool.query(
+              `UPDATE users 
+               SET status = 'cooldown', cooldown_until = CURRENT_TIMESTAMP + INTERVAL '10 minutes', cooldown_reason = 'Vi phạm bạo lực trong nội dung (Quản trị viên hiệu chỉnh)', updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [authorId]
+            );
+
+            await pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
+               VALUES ($1, $2, 'system', 'Nội dung của bạn đã bị Quản trị viên phân loại là Bạo lực (Violence). Bạn bị tạm khóa 10 phút.', FALSE)`,
+              [authorId, reviewerId]
+            );
+          } else {
+            // Nhãn Toxic hoặc Hate Speech: Không có án phạt cooldown; nếu trước đó bị cooldown, gỡ cooldown!
+            await pool.query(
+              `UPDATE users 
+               SET status = 'active', cooldown_until = NULL, cooldown_reason = NULL, cooldown_violation_text = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1 AND status = 'cooldown'`,
+              [authorId]
+            );
+          }
+        }
+      } catch (contentUpdateErr) {
+        console.warn('Lỗi cập nhật content và sanction trong override-ai-label:', contentUpdateErr.message);
       }
     } catch (dbErr) {
       console.warn('Lỗi ghi log ai_override_logs vào PostgreSQL:', dbErr.message);
