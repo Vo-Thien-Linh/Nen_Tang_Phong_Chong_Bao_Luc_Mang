@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, UserPlus, Users, MessageCircle, 
   ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw
@@ -42,6 +42,41 @@ export default function HomeView({
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
+  const leftSidebarRef = useRef(null);
+  const rightSidebarRef = useRef(null);
+
+  // Ngăn cuộn lan (scroll leakage) sang bài viết ở giữa khi lăn chuột trên cột trái hoặc cột phải
+  useEffect(() => {
+    const handleSidebarWheel = (el) => {
+      if (!el) return () => {};
+      const onWheel = (e) => {
+        const { scrollTop, scrollHeight, clientHeight } = el;
+        // Nếu nội dung sidebar dài hơn chiều cao màn hình
+        if (scrollHeight > clientHeight) {
+          const atTop = scrollTop <= 0 && e.deltaY < 0;
+          const atBottom = scrollTop + clientHeight >= scrollHeight - 1 && e.deltaY > 0;
+          // Khi đã chạm mép trên hoặc mép dưới của sidebar, chặn không cho cuộn lan làm trượt bài viết ở giữa
+          if (atTop || atBottom) {
+            e.preventDefault();
+          }
+        } else {
+          // Nếu nội dung sidebar vừa khít màn hình, chặn không làm trượt bài viết ở giữa khi đang rê chuột trên sidebar
+          e.preventDefault();
+        }
+      };
+
+      el.addEventListener('wheel', onWheel, { passive: false });
+      return () => el.removeEventListener('wheel', onWheel);
+    };
+
+    const cleanupLeft = handleSidebarWheel(leftSidebarRef.current);
+    const cleanupRight = handleSidebarWheel(rightSidebarRef.current);
+
+    return () => {
+      cleanupLeft();
+      cleanupRight();
+    };
+  }, []);
 
   // Tự động chuyển về tab 'forYou' khi làm mới bảng tin
   useEffect(() => {
@@ -218,7 +253,10 @@ export default function HomeView({
       <div className="flex justify-center items-start gap-6 lg:gap-8">
         
         {/* ================= CỘT TRÁI: LỐI TẮT NHANH & PROFILE (HIỆN TRÊN MÀN HÌNH RỘNG XL) ================= */}
-        <aside className="hidden xl:block w-64 2xl:w-72 space-y-4 sticky top-20 shrink-0">
+        <aside 
+          ref={leftSidebarRef}
+          className="hidden xl:block w-64 2xl:w-72 space-y-4 sticky top-20 shrink-0 max-h-[calc(100vh-5.5rem)] overflow-y-auto overscroll-contain sidebar-scrollbar pr-1 pb-4"
+        >
           
           {/* Card Thông tin tài khoản người dùng hoặc Khách */}
           {currentUser ? (
@@ -528,7 +566,10 @@ export default function HomeView({
         </main>
 
         {/* ================= CỘT PHẢI (GỢI Ý KẾT BẠN, XU HƯỚNG, ONLINE) ================= */}
-        <aside className="hidden lg:block w-80 xl:w-88 space-y-5 sticky top-20 shrink-0">
+        <aside 
+          ref={rightSidebarRef}
+          className="hidden lg:block w-80 xl:w-88 space-y-5 sticky top-20 shrink-0 max-h-[calc(100vh-5.5rem)] overflow-y-auto overscroll-contain sidebar-scrollbar pr-1 pb-6"
+        >
           
           {/* Gợi ý kết bạn */}
           <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs">
