@@ -16,9 +16,9 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
     const reportData = {
       id: `rep-${Date.now()}`,
       reporter: {
-        id: currentUser.id,
-        name: currentUser.name,
-        avatar: currentUser.avatar
+        id: currentUser?.id,
+        name: currentUser?.full_name || currentUser?.name || 'Người dùng',
+        avatar: currentUser?.avatar_url || currentUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200'
       },
       targetType: target.targetType, // 'post' | 'comment' | 'message'
       targetId: target.targetId,

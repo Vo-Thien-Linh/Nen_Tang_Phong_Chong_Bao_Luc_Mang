@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -27,7 +27,23 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi, resolveReportApi } from './api/client';
+import { 
+  fetchPosts, 
+  fetchPostById, 
+  createComment, 
+  updatePost, 
+  deletePost, 
+  sharePost, 
+  updateUserSanctionApi, 
+  resolveReportApi,
+  createReportApi,
+  fetchReportsList,
+  fetchAppealsList,
+  createAppealApi,
+  resolveAppealApi,
+  fetchAiOverridesList,
+  createAiOverrideApi
+} from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -110,6 +126,36 @@ export default function App() {
   const [appeals, setAppeals] = useState(initialAppeals);
   const [aiOverrides, setAiOverrides] = useState(initialAiOverrides);
   const [usersList, setUsersList] = useState(initialUsersList);
+
+  // Tải dữ liệu kiểm duyệt THẬT từ CSDL PostgreSQL (reports, appeals, ai-overrides)
+  const loadModerationData = useCallback(async () => {
+    const effectiveUserId = currentUser?.id || configuredUserId;
+    if (!effectiveUserId) return;
+    try {
+      const [reportsRes, appealsRes, overridesRes] = await Promise.allSettled([
+        fetchReportsList(effectiveUserId),
+        fetchAppealsList(effectiveUserId),
+        fetchAiOverridesList(effectiveUserId)
+      ]);
+      if (reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value?.data)) {
+        setReports(reportsRes.value.data);
+      }
+      if (appealsRes.status === 'fulfilled' && Array.isArray(appealsRes.value?.data)) {
+        setAppeals(appealsRes.value.data);
+      }
+      if (overridesRes.status === 'fulfilled' && Array.isArray(overridesRes.value?.data)) {
+        setAiOverrides(overridesRes.value.data);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải dữ liệu kiểm duyệt từ CSDL PostgreSQL:', err.message);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'moderation' || (currentUser && hasRole(currentUser, ROLES.MODERATOR))) {
+      loadModerationData();
+    }
+  }, [activeTab, currentUser, loadModerationData]);
 
   // Trạng thái modal
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -797,8 +843,33 @@ export default function App() {
     setReportTarget(target);
   };
 
-  const handleSubmitReport = (reportData) => {
+  const handleSubmitReport = async (reportData) => {
+    // 1. Cập nhật state lạc quan (optimistic)
     setReports(prev => [reportData, ...prev]);
+
+    // 2. Lưu trực tiếp vào CSDL PostgreSQL thật
+    try {
+      const res = await createReportApi({
+        reporter: {
+          id: currentUser?.id || reportData.reporter?.id,
+          name: currentUser?.full_name || currentUser?.name || 'Người dùng'
+        },
+        targetType: reportData.targetType,
+        targetId: reportData.targetId,
+        targetAuthor: reportData.targetAuthor,
+        contentExcerpt: reportData.contentExcerpt || reportData.targetExcerpt,
+        reason: reportData.reason,
+        reasonLabel: reportData.reasonLabel,
+        details: reportData.details
+      }, currentUser?.id);
+
+      if (res?.data) {
+        setReports(prev => prev.map(r => r.id === reportData.id ? res.data : r));
+      }
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gửi báo cáo lên API CSDL:', err.message);
+    }
 
     // Gửi thông báo hệ thống xác nhận cho người báo cáo
     const notif = {
@@ -822,7 +893,7 @@ export default function App() {
     const newLabel = typeof resolution === 'object' ? resolution.newLabel : 'Toxic';
     const oldLabel = typeof resolution === 'object' ? resolution.oldLabel : 'Normal';
 
-    // 1. Cập nhật state danh sách báo cáo
+    // 1. Cập nhật state danh sách báo cáo lạc quan
     setReports(prev => prev.map(r => {
       if (r.id === reportId) {
         return { 
@@ -838,15 +909,15 @@ export default function App() {
 
     const report = reports.find(r => r.id === reportId);
 
-    // 2. PHÂN NHÁNH XỬ LÝ:
+    // 2. PHÂN NHÁNH XỬ LÝ TRÊN FEED BÀI VIẾT:
     if (status === 'resolved_violation') {
       // BÁO CÁO ĐÚNG: Gán lại nhãn mới (Toxic / Hate Speech / Violence) & ẩn nội dung
       if (report && report.targetType === 'post') {
-        setPosts(prev => prev.map(p => p.id === report.targetId ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
+        setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
       } else if (report && report.targetType === 'comment') {
         setPosts(prev => prev.map(p => ({
           ...p,
-          comments: (p.comments || []).map(c => (c.id === report.targetId || c._id === report.targetId) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
+          comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
         })));
       }
 
@@ -866,7 +937,7 @@ export default function App() {
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // Đồng bộ tới backend server
+      // Đồng bộ tới backend server CSDL thật
       try {
         await resolveReportApi({
           reportId,
@@ -876,6 +947,7 @@ export default function App() {
           adminNotes,
           userId: currentUser?.id
         });
+        await loadModerationData();
       } catch (e) {
         console.warn('Lỗi gọi API resolveReportApi:', e.message);
       }
@@ -888,6 +960,7 @@ export default function App() {
           adminNotes,
           userId: currentUser?.id
         });
+        await loadModerationData();
       } catch (e) {
         console.warn('Lỗi gọi API resolveReportApi:', e.message);
       }
@@ -901,12 +974,12 @@ export default function App() {
     setAppealItem(item);
   };
 
-  const handleSubmitAppeal = (appealData) => {
+  const handleSubmitAppeal = async (appealData) => {
     setAppeals(prev => [appealData, ...prev]);
 
     // Cập nhật trạng thái appeal trên bài viết
     setPosts(prev => prev.map(p => {
-      if (p.id === appealData.contentId) {
+      if (String(p.id) === String(appealData.contentId) || `post-${p.id}` === String(appealData.contentId)) {
         return {
           ...p,
           appeal: {
@@ -919,6 +992,29 @@ export default function App() {
       }
       return p;
     }));
+
+    // Lưu vào CSDL PostgreSQL thật qua API
+    try {
+      const res = await createAppealApi({
+        user: {
+          id: currentUser?.id || appealData.user?.id,
+          name: currentUser?.full_name || currentUser?.name || 'Người dùng'
+        },
+        contentType: appealData.contentType,
+        contentId: appealData.contentId,
+        originalText: appealData.originalText,
+        aiPredictedLabel: appealData.aiPredictedLabel,
+        aiConfidence: appealData.aiConfidence,
+        aiActionTaken: appealData.aiActionTaken,
+        appealReason: appealData.appealReason
+      }, currentUser?.id);
+      if (res?.data) {
+        setAppeals(prev => prev.map(a => a.id === appealData.id ? res.data : a));
+      }
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gửi khiếu nại lên CSDL PostgreSQL:', err.message);
+    }
 
     // Thông báo cho user
     const notif = {
@@ -936,11 +1032,11 @@ export default function App() {
   };
 
   const handleResolveAppeal = async (appealId, status, adminNotes) => {
-    const appeal = appeals.find(a => a.id === appealId);
+    const appeal = appeals.find(a => String(a.id) === String(appealId));
     if (!appeal) return;
 
     // Cập nhật trạng thái đơn khiếu nại
-    setAppeals(prev => prev.map(a => a.id === appealId ? { ...a, status, adminNotes } : a));
+    setAppeals(prev => prev.map(a => String(a.id) === String(appealId) ? { ...a, status, adminNotes } : a));
 
     // Nếu chấp thuận khiếu nại (Minh oan False Positive):
     if (status === 'approved') {
@@ -948,7 +1044,7 @@ export default function App() {
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
-            if (c.id === appeal.contentId) {
+            if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
                 isHidden: false,
@@ -964,7 +1060,7 @@ export default function App() {
         }));
       } else {
         setPosts(prev => prev.map(p => {
-          if (p.id === appeal.contentId) {
+          if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
               isHidden: false,
@@ -1008,7 +1104,7 @@ export default function App() {
       // 3. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
       const newOverride = {
         id: `ovr-${Date.now()}`,
-        adminName: `${currentUser?.name || 'Admin'} (Admin)`,
+        adminName: `${currentUser?.name || currentUser?.full_name || 'Admin'} (Admin)`,
         contentType: appeal.contentType || 'post',
         contentId: appeal.contentId,
         rawText: appeal.originalText,
@@ -1039,7 +1135,7 @@ export default function App() {
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
-            if (c.id === appeal.contentId) {
+            if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
                 appeal: { ...c.appeal, status: 'rejected' }
@@ -1051,7 +1147,7 @@ export default function App() {
         }));
       } else {
         setPosts(prev => prev.map(p => {
-          if (p.id === appeal.contentId) {
+          if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
               appeal: { ...p.appeal, status: 'rejected' }
@@ -1060,6 +1156,19 @@ export default function App() {
           return p;
         }));
       }
+    }
+
+    // Gửi yêu cầu cập nhật lên CSDL PostgreSQL thật
+    try {
+      await resolveAppealApi({
+        appealId,
+        status,
+        adminNotes,
+        userId: currentUser?.id
+      });
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gọi resolveAppealApi:', err.message);
     }
   };
 
@@ -1374,6 +1483,7 @@ export default function App() {
               posts={posts}
               onUnhidePost={(postId) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved' } : p))}
               currentUser={currentUser}
+              onRefresh={loadModerationData}
             />
           ) : (
             <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">

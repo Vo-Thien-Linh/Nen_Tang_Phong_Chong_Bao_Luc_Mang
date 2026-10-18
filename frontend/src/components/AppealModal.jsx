@@ -14,9 +14,9 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
     const appealData = {
       id: `app-${Date.now()}`,
       user: {
-        id: currentUser.id,
-        name: currentUser.name,
-        avatar: currentUser.avatar
+        id: currentUser?.id,
+        name: currentUser?.full_name || currentUser?.name || 'Người dùng',
+        avatar: currentUser?.avatar_url || currentUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
       },
       contentType: contentItem.contentType || contentItem.targetType || 'post',
       contentId: contentItem.id || contentItem.targetId,

@@ -28,7 +28,8 @@ export default function ModeratorView({
   aiOverrides = [],
   posts = [],
   onUnhidePost,
-  currentUser
+  currentUser,
+  onRefresh
 }) {
   const [activeTab, setActiveTab] = useState('appeals'); // 'reports' | 'appeals' | 'hidden-content' | 'overrides'
   const [appealFilter, setAppealFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
@@ -37,6 +38,17 @@ export default function ModeratorView({
   const [resolvingId, setResolvingId] = useState(null);
   const [selectedReportForResolve, setSelectedReportForResolve] = useState(null);
   const [isResolvingReport, setIsResolvingReport] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleManualRefresh = async () => {
+    if (!onRefresh) return;
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   // Lọc danh sách khiếu nại
   const filteredAppeals = appeals.filter(a => {
@@ -147,16 +159,31 @@ export default function ModeratorView({
           </p>
         </div>
 
-        {/* Thanh tìm kiếm */}
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm theo nội dung, tác giả..."
-            className="w-full h-9 pl-9 pr-3 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 transition"
-          />
+        {/* Nút làm mới CSDL & Thanh tìm kiếm */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="h-9 px-3 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60 shrink-0"
+              title="Tải lại toàn bộ dữ liệu mới nhất từ CSDL PostgreSQL"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>{isRefreshing ? 'Đang tải...' : 'Làm mới CSDL'}</span>
+            </button>
+          )}
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm theo nội dung, tác giả..."
+              className="w-full h-9 pl-9 pr-3 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 transition"
+            />
+          </div>
         </div>
       </div>
 
@@ -704,11 +731,11 @@ export default function ModeratorView({
               {/* Nút hành động Xuất File */}
               <div className="flex items-center gap-2 shrink-0">
                 <a
-                  href="/api/admin/ai-overrides/export"
+                  href={`/api/admin/ai-overrides/export${currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : ''}`}
                   target="_blank"
                   rel="noreferrer"
                   className="h-9 px-3.5 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
-                  title="Tải trực tiếp qua API Backend"
+                  title="Tải trực tiếp qua API Backend từ CSDL"
                 >
                   <Download className="w-3.5 h-3.5 text-slate-500" />
                   <span>Tải từ Máy chủ</span>
