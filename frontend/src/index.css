@@ -305,6 +305,43 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
 
+/* Thanh cuộn tinh tế dành riêng cho cột bên trái và cột bên phải */
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  overscroll-behavior: contain;
+}
+
+.sidebar-scrollbar:hover {
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+html.dark .sidebar-scrollbar:hover {
+  scrollbar-color: #334155 transparent;
+}
+
+html.dark .sidebar-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
 /* Animations for modern modals and notice toasts */
 @keyframes shrinkProgress {
   from {
