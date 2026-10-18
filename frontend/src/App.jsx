@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -7,13 +7,17 @@ import NotificationsView from './components/NotificationsView';
 import NotificationToast from './components/NotificationToast';
 import ProfileView from './components/ProfileView';
 import AdminDashboardView from './components/AdminDashboardView';
+import ModeratorView from './components/ModeratorView';
 import SettingsView from './components/SettingsView';
+import PostDetailView from './components/PostDetailView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
+import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost } from './utils/creationFlowLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
 import { authService } from './services/authService';
+import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rbac';
 import { 
   currentUser as initialUser, 
   initialPosts, 
@@ -23,7 +27,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, createComment, updatePost, deletePost, sharePost } from './api/client';
+import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -38,18 +42,29 @@ const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
   ? { ...initialUser, id: configuredUserId }
   : initialUser;
-const initialFeedWarning = !configuredUserId && import.meta.env.DEV
-  ? 'Dev: thiếu VITE_CURRENT_USER_ID nên đang dùng dữ liệu mẫu.'
-  : '';
+const initialFeedWarning = '';
 
 export default function App() {
   // Trạng thái Xác thực người dùng (Auth)
-  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser() || currentUserWithEnvId);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
-  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin'
-  const [posts, setPosts] = useState([]);
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [posts, setPosts] = useState(initialPosts);
+  const [isLoadingPosts, setIsLoadingPosts] = useState(true);
+  const [focusedPostTarget, setFocusedPostTarget] = useState(null);
+  const [viewedPostDetail, setViewedPostDetail] = useState(null); // Chi tiết bài viết khi xem từ thông báo
+  const [feedRefreshKey, setFeedRefreshKey] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('wings_feed_refresh_key');
+      return saved !== null ? Number(saved) : 1;
+    } catch {
+      return 1;
+    }
+  }); // Bộ đếm xoay vòng đề xuất bài viết bảng tin (lưu session để F5 giữ nguyên bài)
+  const createdPostIdsRef = useRef(new Set());
+  const pendingCommentKeysRef = useRef(new Set());
   const [openPostMenuId, setOpenPostMenuId] = useState(null);
   const [feedWarning, setFeedWarning] = useState(initialFeedWarning);
   const {
@@ -105,6 +120,51 @@ export default function App() {
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
   const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
 
+  // Kiểm tra phiên đăng nhập và mở màn hình đăng nhập đầu tiên khi vào trang nếu chưa có tài khoản
+  useEffect(() => {
+    const token = authService.getToken();
+    const storedUser = authService.getCurrentUser();
+
+    if (!token || !storedUser) {
+      setCurrentUser(null);
+      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để bắt đầu.');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    // Xác thực token tươi mới với Backend FastAPI
+    authService.verifySession().then((verifiedUser) => {
+      if (verifiedUser) {
+        setCurrentUser(verifiedUser);
+      } else {
+        setCurrentUser(null);
+        setAuthNoticeMessage('Phiên làm việc đã kết thúc. Vui lòng đăng nhập lại.');
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      }
+    });
+  }, []);
+
+  // Tự động gỡ phạt cooldown khi thời gian đếm ngược kết thúc
+  useEffect(() => {
+    const cooldownVal = currentUser?.cooldown_until || currentUser?.cooldownUntil;
+    if (currentUser?.status !== 'cooldown' || !cooldownVal) return;
+    const cooldownDate = new Date(cooldownVal);
+    const diff = cooldownDate.getTime() - Date.now();
+    const clearCooldown = () => {
+      const cleared = { status: 'active', cooldown_until: null, cooldownUntil: null, cooldown_reason: null };
+      authService.updateCurrentUser(cleared);
+      setCurrentUser(prev => prev ? { ...prev, ...cleared } : prev);
+    };
+    if (diff <= 0) {
+      clearCooldown();
+      return;
+    }
+    const timer = setTimeout(clearCooldown, diff);
+    return () => clearTimeout(timer);
+  }, [currentUser?.status, currentUser?.cooldown_until, currentUser?.cooldownUntil]);
+
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
   useEffect(() => {
     const handlePopState = () => {
@@ -128,15 +188,97 @@ export default function App() {
 
   // Lắng nghe sự kiện Back/Forward của trình duyệt để điều hướng trang
   useEffect(() => {
-    const initialHash = window.location.hash.replace('#', '') || 'home';
+    const rawHash = window.location.hash.replace('#', '') || 'home';
+    let initialHash = rawHash;
+    let initialPostId = null;
+
+    if (rawHash.startsWith('post-')) {
+      initialHash = 'post';
+      initialPostId = rawHash.replace('post-', '');
+    } else if (rawHash === 'post') {
+      initialHash = 'post';
+      initialPostId = sessionStorage.getItem('wings_viewed_post_id');
+    }
+
+    if (initialHash === 'post') {
+      if (initialPostId) {
+        setViewedPostDetail({
+          postId: initialPostId,
+          post: null,
+          meta: { type: 'view' },
+          previousTab: 'home',
+        });
+      } else {
+        initialHash = 'home';
+      }
+    }
+
+    if (!currentUser) {
+      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings') {
+        initialHash = 'home';
+      }
+      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+    } else if (currentUser) {
+      if (initialHash === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+        initialHash = getDefaultTabForUser(currentUser);
+      } else if (initialHash === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+        initialHash = getDefaultTabForUser(currentUser);
+      }
+    }
+
+    setActiveTab(initialHash);
     if (!window.history.state) {
-      window.history.replaceState({ tab: initialHash, viewedUser: null }, '', `#${initialHash}`);
+      const stateHash = initialPostId ? `post-${initialPostId}` : initialHash;
+      window.history.replaceState({ tab: initialHash, postId: initialPostId, viewedUser: null }, '', `#${stateHash}`);
     }
 
     const handlePopState = (event) => {
       const state = event.state;
       const hash = window.location.hash.replace('#', '') || 'home';
-      const targetTab = state?.tab || hash || 'home';
+      let targetTab = state?.tab || hash || 'home';
+      let targetPostId = state?.postId || null;
+
+      if (targetTab.startsWith('post-')) {
+        targetPostId = targetTab.replace('post-', '');
+        targetTab = 'post';
+      } else if (targetTab === 'post' && !targetPostId) {
+        targetPostId = sessionStorage.getItem('wings_viewed_post_id');
+      }
+
+      if (targetTab === 'post') {
+        if (targetPostId) {
+          setViewedPostDetail((prev) =>
+            prev?.postId === targetPostId
+              ? prev
+              : {
+                  postId: targetPostId,
+                  post: null,
+                  meta: { type: 'view' },
+                  previousTab: 'home',
+                }
+          );
+        } else {
+          targetTab = 'home';
+          setViewedPostDetail(null);
+        }
+      } else {
+        setViewedPostDetail(null);
+      }
+
+      if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation')) {
+        targetTab = 'home';
+        setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      } else if (currentUser) {
+        if (targetTab === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+          targetTab = getDefaultTabForUser(currentUser);
+        } else if (targetTab === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+          targetTab = getDefaultTabForUser(currentUser);
+        }
+      }
 
       setActiveTab(targetTab);
       if (targetTab === 'profile') {
@@ -148,12 +290,57 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [currentUser]);
 
-  // Xử lý Chuyển Tab có Auth Guard
+  // Đồng bộ vai trò tươi từ database khi ứng dụng tải
+  // Đồng bộ vai trò và trạng thái xử phạt từ database khi ứng dụng tải
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    fetch(`${API_URL}/api/users/${currentUser.id}/profile`, {
+      headers: { 'x-user-id': currentUser.id }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data) {
+          const freshRole = normalizeRole(data.data.role);
+          const syncUpdates = {};
+          if (normalizeRole(currentUser.role) !== freshRole) {
+            syncUpdates.role = freshRole;
+            syncUpdates.isAdmin = freshRole === 'admin';
+          }
+          const cdVal = data.data.cooldown_until;
+          const cdUntil = cdVal ? new Date(cdVal) : null;
+          const isExpired = cdUntil && cdUntil <= new Date();
+
+          if (isExpired || data.data.status === 'active') {
+            if (currentUser.status === 'cooldown' || currentUser.cooldown_until) {
+              syncUpdates.status = 'active';
+              syncUpdates.cooldown_until = null;
+              syncUpdates.cooldownUntil = null;
+              syncUpdates.cooldown_reason = null;
+            }
+          } else if (data.data.status && data.data.status !== currentUser.status) {
+            syncUpdates.status = data.data.status;
+            syncUpdates.cooldown_until = data.data.cooldown_until;
+            syncUpdates.cooldownUntil = data.data.cooldown_until;
+            syncUpdates.cooldown_reason = data.data.cooldown_reason;
+          }
+          if (Object.keys(syncUpdates).length > 0) {
+            authService.updateCurrentUser(syncUpdates);
+            setCurrentUser(prev => prev ? { ...prev, ...syncUpdates } : prev);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.id]);
+
+  // Xử lý Chuyển Tab có Auth Guard và Role Guard
   const handleTabChange = (tab, targetUser = null, replace = false) => {
-    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'settings')) {
-      const msg = tab === 'messages'
+    if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
+      const msg = tab === 'admin' || tab === 'moderation'
+        ? "Vui lòng đăng nhập để truy cập khu vực này"
+        : tab === 'messages'
         ? "Vui lòng đăng nhập để sử dụng tính năng nhắn tin"
         : "Trường hợp chưa đăng nhập muốn thực hiện hành động đều chuyển về màn hình đăng nhập";
       setAuthNoticeMessage(msg);
@@ -161,21 +348,34 @@ export default function App() {
       setIsAuthModalOpen(true);
       return;
     }
-    if (tab === 'profile') {
+
+    let effectiveTab = tab;
+    if (currentUser) {
+      if (tab === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
+        effectiveTab = getDefaultTabForUser(currentUser);
+      } else if (tab === 'moderation' && !hasRole(currentUser, ROLES.MODERATOR)) {
+        effectiveTab = getDefaultTabForUser(currentUser);
+      }
+    }
+
+    if (effectiveTab === 'profile') {
       setViewedProfileUser(targetUser || null);
     } else {
       setViewedProfileUser(null);
     }
-    setActiveTab(tab);
+    if (effectiveTab !== 'post') {
+      setViewedPostDetail(null);
+    }
+    setActiveTab(effectiveTab);
 
     const stateObj = { 
-      tab, 
+      tab: effectiveTab, 
       viewedUser: targetUser ? { id: targetUser.id, name: targetUser.name, avatar: targetUser.avatar } : null 
     };
     if (replace) {
-      window.history.replaceState(stateObj, '', `#${tab}`);
+      window.history.replaceState(stateObj, '', `#${effectiveTab}`);
     } else {
-      window.history.pushState(stateObj, '', `#${tab}`);
+      window.history.pushState(stateObj, '', `#${effectiveTab}`);
     }
   };
 
@@ -240,20 +440,14 @@ export default function App() {
     let isMounted = true;
     const effectiveUserId = currentUser?.id || configuredUserId;
 
-    if (!effectiveUserId) {
-      if (import.meta.env.DEV) {
-        console.warn('Missing userId; keeping mock feed and local fallback behavior.');
-      }
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    fetchPosts({ userId: effectiveUserId })
+    setIsLoadingPosts(true);
+    fetchPosts({ userId: effectiveUserId || undefined })
       .then((result) => {
-        if (isMounted && Array.isArray(result.data)) {
+        if (isMounted && Array.isArray(result.data) && result.data.length > 0) {
           setPosts(result.data);
           setFeedWarning('');
+        } else if (isMounted && (!result.data || result.data.length === 0)) {
+          setPosts(initialPosts);
         }
       })
       .catch((error) => {
@@ -264,12 +458,116 @@ export default function App() {
         if (isMounted) {
           setPosts(initialPosts);
         }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingPosts(false);
+        }
       });
 
     return () => {
       isMounted = false;
     };
   }, [currentUser?.id]);
+
+  // Làm mới bảng tin khi nhấn nút Trang chủ, Logo hoặc nút Làm mới
+  const handleRefreshHome = async () => {
+    if (activeTab !== 'home') {
+      handleTabChange('home');
+    }
+    setHomeSearchQuery(''); // Xóa bộ lọc tìm kiếm để tải lại toàn bộ bảng tin
+    setFocusedPostTarget(null); // Xóa bài viết highlight cũ
+    setViewedPostDetail(null); // Thoát khỏi chi tiết bài viết nếu có
+    setFeedRefreshKey((prev) => {
+      const nextKey = prev + 1;
+      try {
+        sessionStorage.setItem('wings_feed_refresh_key', String(nextKey));
+      } catch {}
+      return nextKey;
+    }); // Xoay vòng thuật toán đề xuất để mang lại nội dung mới mẻ khi chủ động nhấn Trang chủ/Logo
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setIsLoadingPosts(true);
+    const effectiveUserId = currentUser?.id || configuredUserId;
+    try {
+      // Mặc định thời gian hiển thị vòng quay là 1s + thời gian tải dữ liệu thực tế từ máy chủ
+      const minDelay = new Promise((resolve) => setTimeout(resolve, 1000));
+      const fetchPromise = fetchPosts({ userId: effectiveUserId || undefined });
+      const [result] = await Promise.all([fetchPromise, minDelay]);
+
+      if (Array.isArray(result?.data)) {
+        setPosts(result.data);
+        setFeedWarning('');
+      }
+    } catch (err) {
+      console.warn('Lỗi khi làm mới bảng tin:', err);
+    } finally {
+      setIsLoadingPosts(false);
+    }
+  };
+
+  // Điều hướng trực tiếp tới chi tiết bài viết mục tiêu (chuyên nghiệp như Facebook/Twitter)
+  const handleViewPost = async (targetPostId, meta = {}) => {
+    if (!targetPostId) return;
+
+    const strTargetId = String(targetPostId);
+    const prevTab = activeTab;
+
+    // Tìm bài viết trong danh sách hiện có
+    const existingPost = posts.find(
+      (p) =>
+        String(p.id) === strTargetId ||
+        String(p.id) === strTargetId.replace(/^post-/, '') ||
+        `post-${p.id}` === strTargetId
+    );
+
+    // Mở màn hình xem chi tiết riêng biệt cho bài viết này
+    setViewedPostDetail({
+      postId: strTargetId,
+      post: existingPost || null,
+      meta: {
+        type: meta.type || 'interaction',
+        actor: meta.actor || null,
+        targetCommentId: meta.targetCommentId || null,
+        notificationId: meta.notificationId || null,
+      },
+      previousTab: prevTab === 'post' ? 'notifications' : prevTab,
+    });
+
+    sessionStorage.setItem('wings_viewed_post_id', strTargetId);
+    setActiveTab('post');
+    window.history.pushState(
+      { tab: 'post', postId: strTargetId },
+      '',
+      `#post-${strTargetId}`
+    );
+
+    // Nếu bài viết chưa có sẵn trong danh sách (bài viết từ lâu), fetch trực tiếp từ API
+    if (!existingPost) {
+      try {
+        setIsLoadingPosts(true);
+        const res = await fetchPostById({ postId: strTargetId, userId: currentUser?.id });
+        if (res && (res.data || res.id)) {
+          const fetchedPost = res.data || res;
+          setViewedPostDetail((prev) => (prev ? { ...prev, post: fetchedPost } : prev));
+          setPosts((prev) => {
+            const alreadyIn = prev.some(
+              (p) =>
+                String(p.id) === String(fetchedPost.id) ||
+                String(p.id) === String(fetchedPost.id).replace(/^post-/, '')
+            );
+            if (!alreadyIn) {
+              return [fetchedPost, ...prev];
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.warn('Không thể tải bài viết từ API:', err);
+      } finally {
+        setIsLoadingPosts(false);
+      }
+    }
+  };
 
   // Lắng nghe Realtime SSE cho Bài viết & Chia sẻ (Realtime Feed)
   useEffect(() => {
@@ -332,16 +630,30 @@ export default function App() {
   }, []);
 
   // Thêm bài viết mới
-  const handleAddPost = (newPost) => {
+  const handleAddPost = (newPost, cooldown) => {
     if (!currentUser) {
       handleRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
       return;
     }
-    setPosts(prev => [newPost, ...prev]);
-    setCurrentUser(prev => ({
-      ...prev,
-      postsCount: ((prev && prev.postsCount) || 0) + 1
-    }));
+    if (cooldown) {
+      const cooldownData = {
+        status: 'cooldown',
+        cooldown_until: cooldown.cooldown_until,
+        cooldownUntil: cooldown.cooldown_until,
+        cooldown_reason: cooldown.cooldown_reason || cooldown.reason
+      };
+      authService.updateCurrentUser(cooldownData);
+      setCurrentUser(prev => ({
+        ...prev,
+        ...cooldownData
+      }));
+    }
+    const postId = String(newPost?.id || '');
+    const alreadyAdded = !postId || createdPostIdsRef.current.has(postId);
+    if (alreadyAdded) return;
+    createdPostIdsRef.current.add(postId);
+    setPosts(prev => prependCreatedPost(prev, newPost));
+    setCurrentUser(prev => incrementPostCountOnce(prev, newPost, alreadyAdded));
   };
 
   const handleRequireLogin = () => {
@@ -430,27 +742,50 @@ export default function App() {
       handleRequireAuth("Chỉ đăng nhập mới được bình luận (User Story 5)");
       return;
     }
+    const commentKey = `${postId}:${newComment.id || `${newComment.content || ''}:${newComment.image || ''}`}`;
+    if (pendingCommentKeysRef.current.has(commentKey)) return;
+    pendingCommentKeysRef.current.add(commentKey);
     try {
       const res = await createComment({
         userId: currentUser.id,
         postId,
         content: newComment.content || '',
-        imageUrl: newComment.image || null,
-        imageLabel: newComment.imageLabel || 'Safe'
+        imageUrl: newComment.image || null
       });
+      if (res.cooldown) {
+        const cooldownData = {
+          status: 'cooldown',
+          cooldown_until: res.cooldown.cooldown_until,
+          cooldownUntil: res.cooldown.cooldown_until,
+          cooldown_reason: res.cooldown.cooldown_reason || res.cooldown.reason
+        };
+        authService.updateCurrentUser(cooldownData);
+        setCurrentUser(prev => ({
+          ...prev,
+          ...cooldownData
+        }));
+      }
       const savedComment = res.data || newComment;
-      setPosts(prev => prev.map(post => {
-        if (String(post.id) === String(postId)) {
-          return {
-            ...post,
-            comments: [...(post.comments || []), savedComment],
-            commentsCount: (post.commentsCount || 0) + 1
-          };
-        }
-        return post;
-      }));
+      setPosts(prev => prev.map(post => String(post.id) === String(postId)
+        ? appendCreatedComment(post, savedComment)
+        : post));
     } catch (err) {
+      if (err.cooldown) {
+        const cooldownData = {
+          status: 'cooldown',
+          cooldown_until: err.cooldown.cooldown_until,
+          cooldownUntil: err.cooldown.cooldown_until,
+          cooldown_reason: err.cooldown.cooldown_reason || err.cooldown.reason
+        };
+        authService.updateCurrentUser(cooldownData);
+        setCurrentUser(prev => ({
+          ...prev,
+          ...cooldownData
+        }));
+      }
       console.error('Lỗi lưu bình luận vào Supabase:', err);
+    } finally {
+      pendingCommentKeysRef.current.delete(commentKey);
     }
   };
 
@@ -536,7 +871,7 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveAppeal = (appealId, status, adminNotes) => {
+  const handleResolveAppeal = async (appealId, status, adminNotes) => {
     const appeal = appeals.find(a => a.id === appealId);
     if (!appeal) return;
 
@@ -545,24 +880,72 @@ export default function App() {
 
     // Nếu chấp thuận khiếu nại (Minh oan False Positive):
     if (status === 'approved') {
-      // 1. Phục hồi bài viết: đổi nhãn thành Normal, bỏ ẩn
-      setPosts(prev => prev.map(p => {
-        if (p.id === appeal.contentId) {
-          return {
-            ...p,
-            isHidden: false,
-            aiStatus: { label: 'Normal', confidence: 0.99 },
-            appeal: { ...p.appeal, status: 'approved' }
-          };
-        }
-        return p;
-      }));
+      // 1. Phục hồi bài viết hoặc bình luận: bỏ ẩn, đặt nhãn Normal / approved
+      if (appeal.contentType === 'comment') {
+        setPosts(prev => prev.map(p => {
+          const updatedComments = (p.comments || []).map(c => {
+            if (c.id === appeal.contentId) {
+              return {
+                ...c,
+                isHidden: false,
+                isSoftHidden: false,
+                ai_status: 'approved',
+                aiStatus: { label: 'Normal', confidence: 0.99 },
+                appeal: { ...c.appeal, status: 'approved' }
+              };
+            }
+            return c;
+          });
+          return { ...p, comments: updatedComments };
+        }));
+      } else {
+        setPosts(prev => prev.map(p => {
+          if (p.id === appeal.contentId) {
+            return {
+              ...p,
+              isHidden: false,
+              isSoftHidden: false,
+              ai_status: 'approved',
+              aiStatus: { label: 'Normal', confidence: 0.99 },
+              appeal: { ...p.appeal, status: 'approved' }
+            };
+          }
+          return p;
+        }));
+      }
 
-      // 2. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
+      // 2. Mở khóa tài khoản khi bị phạt oan (Reset countdown về 0 ngay lập tức)
+      const targetUserId = appeal.user?.id || appeal.userId;
+      if (targetUserId) {
+        try {
+          await updateUserSanctionApi({
+            targetUserId,
+            action: 'clear_cooldown'
+          });
+        } catch (err) {
+          console.error('Lỗi khi gỡ cooldown phạt oan:', err);
+        }
+
+        // Cập nhật state nếu trùng với currentUser
+        if (currentUser && currentUser.id === targetUserId) {
+          setCurrentUser(prev => ({
+            ...prev,
+            status: 'active',
+            cooldownUntil: null,
+            cooldown_until: null,
+            cooldownReason: null,
+            cooldown_reason: null,
+            cooldownViolationText: null,
+            cooldown_violation_text: null
+          }));
+        }
+      }
+
+      // 3. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
       const newOverride = {
         id: `ovr-${Date.now()}`,
-        adminName: `${currentUser.name} (Admin)`,
-        contentType: appeal.contentType,
+        adminName: `${currentUser?.name || 'Admin'} (Admin)`,
+        contentType: appeal.contentType || 'post',
         contentId: appeal.contentId,
         rawText: appeal.originalText,
         originalAiLabel: appeal.aiPredictedLabel,
@@ -574,7 +957,7 @@ export default function App() {
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // 3. Gửi thông báo chúc mừng / xin lỗi cho user
+      // 4. Gửi thông báo chúc mừng / xin lỗi cho user
       const apologyNotif = {
         id: `notif-${Date.now()}`,
         type: 'system',
@@ -582,22 +965,37 @@ export default function App() {
           name: 'Nexus Support Admin',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
         },
-        content: `Khiếu nại được chấp thuận! Nội dung "${appeal.originalText.slice(0, 40)}..." đã được xác nhận là AI False Positive và khôi phục về trạng thái an toàn.`,
+        content: `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận là AI False Positive, án phạt được gỡ bỏ ngay lập tức.`,
         time: 'Vừa xong',
         isRead: false
       };
       addLocalNotification(apologyNotif);
     } else {
-      // Nếu từ chối khiếu nại
-      setPosts(prev => prev.map(p => {
-        if (p.id === appeal.contentId) {
-          return {
-            ...p,
-            appeal: { ...p.appeal, status: 'rejected' }
-          };
-        }
-        return p;
-      }));
+      // Nếu từ chối khiếu nại (bác bỏ)
+      if (appeal.contentType === 'comment') {
+        setPosts(prev => prev.map(p => {
+          const updatedComments = (p.comments || []).map(c => {
+            if (c.id === appeal.contentId) {
+              return {
+                ...c,
+                appeal: { ...c.appeal, status: 'rejected' }
+              };
+            }
+            return c;
+          });
+          return { ...p, comments: updatedComments };
+        }));
+      } else {
+        setPosts(prev => prev.map(p => {
+          if (p.id === appeal.contentId) {
+            return {
+              ...p,
+              appeal: { ...p.appeal, status: 'rejected' }
+            };
+          }
+          return p;
+        }));
+      }
     }
   };
 
@@ -706,7 +1104,8 @@ export default function App() {
 
   return (
     <div className={`bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
-      
+
+
       {/* Thanh điều hướng chính */}
       <Navbar 
         activeTab={activeTab} 
@@ -733,6 +1132,8 @@ export default function App() {
         clientPosts={posts}
         activeFilterQuery={homeSearchQuery}
         onClearFilter={() => setHomeSearchQuery('')}
+        onRefreshHome={handleRefreshHome}
+        isLoadingPosts={isLoadingPosts}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -772,6 +1173,44 @@ export default function App() {
               setActiveTab('home');
             }}
             onSharePost={handleSharePost}
+            focusedPostTarget={focusedPostTarget}
+            isLoadingPosts={isLoadingPosts}
+            onRefreshFeed={handleRefreshHome}
+            refreshKey={feedRefreshKey}
+          />
+        )}
+
+        {/* Tab Xem chi tiết bài viết chuyên biệt (khi bấm vào thông báo) */}
+        {activeTab === 'post' && viewedPostDetail && (
+          <PostDetailView
+            postId={viewedPostDetail.postId}
+            post={viewedPostDetail.post}
+            meta={viewedPostDetail.meta}
+            currentUser={currentUser}
+            onBack={() => {
+              const backTarget = viewedPostDetail.previousTab || 'notifications';
+              handleTabChange(backTarget);
+              setViewedPostDetail(null);
+            }}
+            allPosts={posts}
+            onUpdatePost={handleUpdatePost}
+            onToggleLike={handleToggleLike}
+            onAddComment={handleAddComment}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onRequireAuth={handleRequireAuth}
+            onRequireLogin={handleRequireLogin}
+            onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={(delPostId) => {
+              handleDeleteOwnPost(delPostId);
+              handleTabChange(viewedPostDetail.previousTab || 'notifications');
+            }}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
+            onSharePost={handleSharePost}
           />
         )}
 
@@ -808,10 +1247,7 @@ export default function App() {
             onOpenProfile={handleOpenUserProfile}
             activeFilter={notifFilter}
             onFilterChange={setNotifFilter}
-            onViewPost={(_postId) => {
-              setHomeSearchQuery('');
-              handleTabChange('home');
-            }}
+            onViewPost={handleViewPost}
           />
         )}
 
@@ -830,37 +1266,61 @@ export default function App() {
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
             onSharePost={handleSharePost}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
           />
         )}
 
         {/* Tab 6: BẢNG ĐIỀU KHIỂN QUẢN TRỊ VIÊN (ADMIN DASHBOARD) */}
         {activeTab === 'admin' && (
-          (currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin)) ? (
+          hasRole(currentUser, ROLES.ADMIN) ? (
             <AdminDashboardView 
-              posts={posts}
-              reports={reports}
-              appeals={appeals}
-              aiOverrides={aiOverrides}
-              usersList={usersList}
-              onResolveReport={handleResolveReport}
-              onResolveAppeal={handleResolveAppeal}
-              onOverrideAiLabel={handleOverrideAiLabel}
-              onToggleHidePost={handleToggleHidePost}
-              onDeletePost={handleDeletePost}
-              onUpdateUserStatus={handleUpdateUserStatus}
-              onUpdateUserRole={handleUpdateUserRole}
+              currentUser={currentUser}
+              onNavigateToModeration={() => handleTabChange('moderation')}
             />
           ) : (
-            <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200 text-center shadow-xs">
-              <h3 className="text-lg font-bold text-slate-800">Không có quyền truy cập</h3>
-              <p className="text-sm text-slate-500 mt-2">
-                Trang Admin Dashboard chỉ dành riêng cho tài khoản quản trị viên.
+            <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">
+              <h2 className="text-base font-semibold text-slate-900">Không có quyền truy cập (403)</h2>
+              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                Khu vực quản trị chỉ dành riêng cho tài khoản quản trị viên.
               </p>
               <button
-                onClick={() => setActiveTab('home')}
-                className="mt-6 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition cursor-pointer"
+                onClick={() => handleTabChange(getDefaultTabForUser(currentUser))}
+                className="mt-4 h-8 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition cursor-pointer"
               >
-                Quay về trang chủ
+                Về trang phù hợp
+              </button>
+            </div>
+          )
+        )}
+
+        {/* Tab 6.1: KHU VỰC KIỂM DUYỆT (MODERATOR VIEW) */}
+        {activeTab === 'moderation' && (
+          hasRole(currentUser, ROLES.MODERATOR) ? (
+            <ModeratorView 
+              isAdmin={hasRole(currentUser, ROLES.ADMIN)}
+              onBackToAdmin={() => handleTabChange('admin')}
+              appeals={appeals}
+              onResolveAppeal={handleResolveAppeal}
+              reports={reports}
+              onResolveReport={handleResolveReport}
+              posts={posts}
+              onUnhidePost={(postId) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved' } : p))}
+              currentUser={currentUser}
+            />
+          ) : (
+            <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">
+              <h2 className="text-base font-semibold text-slate-900">Không có quyền truy cập (403)</h2>
+              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                Khu vực kiểm duyệt chỉ dành cho điều hành viên và quản trị viên.
+              </p>
+              <button
+                onClick={() => handleTabChange(getDefaultTabForUser(currentUser))}
+                className="mt-4 h-8 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition cursor-pointer"
+              >
+                Về trang phù hợp
               </button>
             </div>
           )
@@ -913,6 +1373,8 @@ export default function App() {
           setCurrentUser(user);
           setIsAuthModalOpen(false);
           setAuthNoticeMessage('');
+          const targetTab = getDefaultTabForUser(user);
+          handleTabChange(targetTab);
         }}
       />
 
@@ -921,8 +1383,20 @@ export default function App() {
         notification={toastNotification}
         onClose={() => setToastNotification(null)}
         onClick={() => {
+          const targetId = toastNotification?.targetPost?.id || toastNotification?.targetPostId;
+          if (targetId) {
+            handleViewPost(targetId, {
+              type: toastNotification.type,
+              actor: toastNotification.user,
+              targetCommentId: toastNotification.targetCommentId || toastNotification.commentId,
+              notificationId: toastNotification.id,
+            });
+          } else if (toastNotification?.user?.id && toastNotification.user?.id !== 'system') {
+            handleOpenUserProfile(toastNotification.user);
+          } else {
+            handleTabChange('notifications');
+          }
           setToastNotification(null);
-          handleTabChange('notifications');
         }}
       />
 

@@ -13,6 +13,7 @@ export default function NotificationToast({ notification, onClose, onClick }) {
         return <Repeat className="w-3.5 h-3.5 text-emerald-500" />;
       case 'system':
       case 'ai_moderation':
+      case 'moderation_alert':
         return <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />;
       default:
         return <Bell className="w-3.5 h-3.5 text-blue-500" />;

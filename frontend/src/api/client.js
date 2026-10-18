@@ -1,11 +1,14 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 async function request(path, options = {}) {
-  // TODO(US-2): replace x-user-id with the real authenticated session.
+  const token = localStorage.getItem('nexussocial_token');
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders,
       ...(options.headers || {}),
     },
   });
@@ -35,7 +38,8 @@ export async function fetchPosts({ userId } = {}) {
 }
 
 export async function fetchPostById({ postId, userId } = {}) {
-  return request(`/api/posts/${postId}`, {
+  const cleanId = String(postId || '').replace(/^post-/, '');
+  return request(`/api/posts/${cleanId}`, {
     headers: userId ? { 'x-user-id': userId } : {},
   });
 }
@@ -63,14 +67,13 @@ export async function deletePost({ userId, postId }) {
   });
 }
 
-export async function createComment({ userId, postId, content, imageUrl, imageLabel }) {
+export async function createComment({ userId, postId, content, imageUrl }) {
   return request(`/api/posts/${postId}/comments`, {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
     body: JSON.stringify({
       content,
       imageUrl: imageUrl || null,
-      imageLabel: imageLabel || 'Safe',
     }),
   });
 }
@@ -109,6 +112,38 @@ export async function uploadPostImage(file) {
   }
 
   return data.url;
+}
+
+export async function previewPostImage(file, userId) {
+  const formData = new FormData();
+  formData.append('image', file);
+  const response = await fetch(`${API_URL}/api/posts/preview-image`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || 'Không thể duyệt ảnh');
+  return data.data;
+}
+
+export async function fetchPendingImageModeration(userId) {
+  return request('/api/admin/image-moderation/pending', { headers: userId ? { 'x-user-id': userId } : {} });
+}
+
+export async function reviewImageModeration({ userId, contentType, id, decision }) {
+  return request(`/api/admin/image-moderation/${contentType}/${id}/${decision}`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function appealPostModeration({ userId, postId }) {
+  return request(`/api/posts/${postId}/appeal`, { method: 'POST', headers: userId ? { 'x-user-id': userId } : {} });
+}
+
+export async function appealCommentModeration({ userId, postId, commentId }) {
+  return request(`/api/posts/${postId}/comments/${commentId}/appeal`, { method: 'POST', headers: userId ? { 'x-user-id': userId } : {} });
 }
 
 export async function sharePost({ userId, postId, content = '', user = null }) {
@@ -177,3 +212,40 @@ export async function clearReadNotificationsApi({ userId }) {
     headers: userId ? { 'x-user-id': userId } : {},
   });
 }
+
+export async function fetchUsersList({ search = '', role = 'all', page = 1, limit = 10, userId } = {}) {
+  const query = new URLSearchParams({
+    search: search || '',
+    role: role || 'all',
+    page: String(page || 1),
+    limit: String(limit || 10),
+  });
+  return request(`/api/users?${query.toString()}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function updateUserRoleApi({ targetUserId, newRole, userId }) {
+  return request(`/api/users/${targetUserId}/role`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ role: newRole }),
+  });
+}
+
+export async function updateUserVerificationApi({ targetUserId, isVerified, userId }) {
+  return request(`/api/users/${targetUserId}/verification`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ isVerified }),
+  });
+}
+
+export async function updateUserSanctionApi({ targetUserId, action, durationDays = null, reason = '', userId }) {
+  return request(`/api/users/${targetUserId}/sanction`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ action, durationDays, reason }),
+  });
+}
+

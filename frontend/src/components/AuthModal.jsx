@@ -592,6 +592,37 @@ export default function AuthModal({
                   </>
                 )}
               </button>
+
+              {/* Lối tắt chọn tài khoản mẫu để đăng nhập nhanh */}
+              <div className="pt-3 border-t border-slate-100">
+                <p className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+                  <span>💡 Tài khoản mẫu đăng nhập nhanh:</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginIdentifier('linh.vothien@example.com');
+                      setLoginPassword('Password123');
+                      setErrorMessage('');
+                    }}
+                    className="px-2.5 py-1.5 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition cursor-pointer text-left truncate"
+                  >
+                    👑 Admin (Võ Thiện Linh)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginIdentifier('thutrang@example.com');
+                      setLoginPassword('Password123');
+                      setErrorMessage('');
+                    }}
+                    className="px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 transition cursor-pointer text-left truncate"
+                  >
+                    👤 Người dùng (Lê Thu Trang)
+                  </button>
+                </div>
+              </div>
             </form>
           )}
 

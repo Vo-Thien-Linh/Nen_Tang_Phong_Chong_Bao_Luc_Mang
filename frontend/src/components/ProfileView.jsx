@@ -16,7 +16,9 @@ import { updatePostReaction, sharePost } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
+import PostCard from './PostCard';
 import OriginalPostModal from './OriginalPostModal';
+import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
@@ -42,7 +44,12 @@ export default function ProfileView({
   onOpenSettings,
   onOpenChat,
   onOpenUserProfile,
-  onRequireAuth
+  onRequireAuth,
+  onOpenReportModal,
+  onOpenAppealModal,
+  onEditPost,
+  onDeletePost,
+  onSharePost
 }) {
   const targetUserId = viewedUser?.id || currentUser?.id;
   const isOwnProfile = !viewedUser || (currentUser && String(viewedUser.id) === String(currentUser.id));
@@ -731,8 +738,8 @@ export default function ProfileView({
                   <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                     {activeUser.name || activeUser.full_name}
                   </h1>
-                  {activeUser.isVerified && (
-                    <CheckCircle2 className="w-5 h-5 text-blue-500 fill-blue-500 shrink-0" />
+                  {(activeUser.isVerified || activeUser.is_verified) && (
+                    <VerifiedBadge size="md" />
                   )}
                 </div>
 
@@ -1136,73 +1143,17 @@ export default function ProfileView({
             {/* CỘT PHẢI (BẠN ĐANG NGHĨ GÌ? & BÀI VIẾT TỪ DB) */}
             <div className="lg:col-span-7 xl:col-span-8 space-y-4">
               
-              {/* Box 1: "Bạn đang nghĩ gì?" */}
-              {isOwnProfile && currentUser && (
-                <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
-                  <div className="flex items-center gap-3">
-                    <img 
-                      src={currentUser?.avatar || activeUser.avatar} 
-                      alt={currentUser?.name || activeUser.name} 
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={newPostText}
-                      onChange={(e) => setNewPostText(e.target.value)}
-                      placeholder="Bạn đang nghĩ gì?"
-                      className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200/70 focus:bg-white text-xs sm:text-sm text-slate-800 placeholder-slate-500 rounded-full border border-transparent focus:border-blue-400 outline-none transition"
-                    />
-                  </div>
 
-                  {showImageInput && (
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                      <input
-                        type="text"
-                        value={newPostImage}
-                        onChange={(e) => setNewPostImage(e.target.value)}
-                        placeholder="Dán link ảnh (URL) cần đính kèm..."
-                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none"
-                      />
-                      {newPostImage && (
-                        <img src={newPostImage} alt="Preview" className="h-40 w-full object-cover rounded-lg border" />
-                      )}
-                    </div>
-                  )}
-
-                  <div className="h-px bg-slate-100 w-full" />
-
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-                    <button 
-                      onClick={() => setShowImageInput(!showImageInput)}
-                      className={`flex items-center gap-2 py-2 px-3 rounded-xl transition cursor-pointer ${
-                        showImageInput ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <ImageIcon className="w-5 h-5 text-emerald-500" />
-                      <span>Ảnh/video</span>
-                    </button>
-
-                    {newPostText.trim() && (
-                      <button
-                        onClick={handleCreateProfilePost}
-                        className="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition cursor-pointer"
-                      >
-                        Đăng
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
 
               {/* Ô đăng bài viết trực tiếp trên trang cá nhân của chính mình */}
               {isOwnProfile && (
                 <div className="mb-4">
                   <CreatePostCard
                     currentUser={currentUser}
-                    onAddPost={(newPost) => {
+                    onAddPost={(newPost, cooldown) => {
                       if (newPost) {
                         setProfilePosts(prev => prev ? [newPost, ...prev] : [newPost]);
-                        onAddPost && onAddPost(newPost);
+                        onAddPost && onAddPost(newPost, cooldown);
                       }
                     }}
                     onRequireAuth={onRequireAuth}
@@ -1274,350 +1225,22 @@ export default function ProfileView({
                 <div className="space-y-4">
                   {userPosts.length > 0 ? (
                     userPosts.map((post) => (
-                      <div 
-                        key={post.id} 
-                        className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden"
-                      >
-                        {/* Header bài viết */}
-                        <div className="p-4 flex items-center justify-between pb-3">
-                          <div className="flex items-center gap-3">
-                            <img 
-                              src={post.author?.avatar || DEFAULT_AVATAR} 
-                              alt={post.author?.name || 'Tác giả'} 
-                              onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
-                              onClick={() => onOpenUserProfile && onOpenUserProfile(post.author)}
-                              className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200 cursor-pointer hover:ring-2 hover:ring-blue-400 transition shrink-0"
-                            />
-                            <div>
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <h4 
-                                  onClick={() => onOpenUserProfile && onOpenUserProfile(post.author)}
-                                  className="text-sm font-extrabold text-slate-900 cursor-pointer hover:text-blue-600 transition"
-                                >
-                                  {post.author?.name || 'Người dùng'}
-                                </h4>
-                                {post.author?.isVerified && (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
-                                )}
-                                {(post.ai_label || post.aiLabel) && (
-                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
-                                    <ShieldCheck className="w-3 h-3" />
-                                    <span>{post.ai_label || post.aiLabel}</span>
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-slate-400">
-                                <span>{formatRelativeTime(post.createdAt || post.created_at)}</span>
-                                <span>•</span>
-                                <Globe className="w-3.5 h-3.5 text-slate-400" />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="relative">
-                            <button 
-                              onClick={() => setActivePostMenuId(activePostMenuId === post.id ? null : post.id)}
-                              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer transition"
-                              title="Tùy chọn bài viết"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-
-                            {activePostMenuId === post.id && (
-                              <div className="absolute right-0 top-8 z-30 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 animate-fade-in text-xs divide-y divide-slate-100">
-                                <button
-                                  onClick={() => {
-                                    setActivePostMenuId(null);
-                                    navigator.clipboard?.writeText(window.location.href);
-                                    alert("Đã sao chép liên kết bài viết!");
-                                  }}
-                                  className="w-full px-3.5 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium cursor-pointer"
-                                >
-                                  <Share2 className="w-4 h-4 text-slate-400" />
-                                  <span>Sao chép liên kết</span>
-                                </button>
-
-                                {/* Người xem KHÔNG được chỉnh sửa / xóa bài viết của người khác */}
-                                {post.author?.id !== currentUser?.id && (
-                                  <button
-                                    onClick={() => {
-                                      setActivePostMenuId(null);
-                                      alert("Đã gửi báo cáo bài viết cho ban quản trị kiểm duyệt!");
-                                    }}
-                                    className="w-full px-3.5 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold cursor-pointer"
-                                  >
-                                    <ShieldAlert className="w-4 h-4" />
-                                    <span>Báo cáo bài viết này</span>
-                                  </button>
-                                )}
-
-                                {/* Chỉ chính chủ tác giả mới có nút xóa bài */}
-                                {post.author?.id === currentUser?.id && (
-                                  <button
-                                    onClick={() => {
-                                      setActivePostMenuId(null);
-                                      alert("Đã xóa bài viết thành công!");
-                                    }}
-                                    className="w-full px-3.5 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold cursor-pointer"
-                                  >
-                                    <X className="w-4 h-4" />
-                                    <span>Xóa bài viết</span>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Nội dung bài viết */}
-                        <div className="px-4 pb-3">
-                          <p className="text-slate-800 text-sm leading-relaxed whitespace-pre-line break-words">
-                            {post.content}
-                          </p>
-                        </div>
-
-                        {/* Ảnh bài viết */}
-                        {(post.image || post.image_url) && (
-                          <div 
-                            onClick={() => setLightboxImage(post.image || post.image_url)}
-                            className="w-full overflow-hidden bg-slate-900/5 border-y border-slate-100 flex items-center justify-center cursor-pointer group relative"
-                          >
-                            <img 
-                              src={post.image || post.image_url} 
-                              alt="Post Media" 
-                              className="w-full h-auto max-h-[520px] object-cover block group-hover:scale-[1.01] transition duration-200"
-                            />
-                          </div>
-                        )}
-
-                        {/* Khung hiển thị bài viết gốc nếu là bài viết chia sẻ */}
-                        {(post.originalPost || post.original_post) && (() => {
-                          const orig = post.originalPost || post.original_post;
-                          return (
-                            <div 
-                              onClick={() => setViewingOriginalPost(orig)}
-                              className="mx-4 mb-3 p-3.5 rounded-2xl bg-slate-50/90 border border-slate-200/80 hover:border-blue-300 hover:shadow-xs transition duration-200 space-y-2.5 cursor-pointer group/orig"
-                              title="Nhấn để xem chi tiết bài viết gốc"
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2.5">
-                                  <img
-                                    src={orig.author?.avatar || DEFAULT_AVATAR}
-                                    alt={orig.author?.name || 'Tác giả'}
-                                    className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-blue-300 transition"
-                                    onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onOpenUserProfile && orig.author && onOpenUserProfile(orig.author);
-                                    }}
-                                  />
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1 font-semibold text-xs text-slate-900 truncate">
-                                      <span 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onOpenUserProfile && orig.author && onOpenUserProfile(orig.author);
-                                        }}
-                                        className="truncate hover:text-blue-600 transition"
-                                      >
-                                        {orig.author?.name || 'Người dùng'}
-                                      </span>
-                                      {orig.author?.isVerified && <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
-                                    </div>
-                                    <span className="text-[11px] text-slate-400">
-                                      {formatRelativeTime(orig.createdAt || orig.created_at)}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1 text-[11px] text-slate-400 group-hover/orig:text-blue-600 transition font-medium">
-                                  <span>Xem bài gốc</span>
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </div>
-                              </div>
-                              {orig.content && (
-                                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line line-clamp-3">
-                                  {orig.content}
-                                </p>
-                              )}
-                              {(orig.image || orig.imageUrl || orig.image_url) && (
-                                <div 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setLightboxImage(orig.image || orig.imageUrl || orig.image_url);
-                                  }}
-                                  className="rounded-xl overflow-hidden max-h-60 bg-slate-100 border border-slate-200/60 cursor-pointer"
-                                >
-                                  <img
-                                    src={orig.image || orig.imageUrl || orig.image_url}
-                                    alt="Original media"
-                                    className="w-full h-full object-cover max-h-60 hover:scale-[1.01] transition"
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* Thống kê tương tác */}
-                        {(() => {
-                          const curRId = getPostCurrentReaction(post);
-                          const initialReaction = post.myReaction || (post.isLiked ? 'like' : null);
-                          const baseCount = Number(post.likesCount ?? post.likes_count ?? post.total_reactions ?? 0);
-                          let displayCount = baseCount;
-                          if (!initialReaction && curRId) displayCount = baseCount + 1;
-                          else if (initialReaction && !curRId) displayCount = Math.max(0, baseCount - 1);
-
-                          return (
-                            <div className="px-4 py-2 flex items-center justify-between text-xs text-slate-400 border-b border-slate-100">
-                              <div className="flex items-center gap-1.5">
-                                {displayCount > 0 ? (
-                                  <>
-                                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px]">👍</span>
-                                    <span className="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[9px] -ml-2">❤️</span>
-                                    <span>{displayCount} lượt tương tác</span>
-                                  </>
-                                ) : (
-                                  <span>0 cảm xúc</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span>{post.comments?.length || post.commentsCount || 0} bình luận</span>
-                                <span>{post.sharesCount || 0} lượt chia sẻ</span>
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Các nút like, bình luận, chia sẻ */}
-                        <div className="px-2 py-1 flex items-center justify-between text-xs font-bold text-slate-600 relative">
-                          <div 
-                            className="flex-1 relative"
-                            onMouseEnter={() => handleOpenProfileReaction(post.id)}
-                            onMouseLeave={() => handleCloseProfileReaction(350)}
-                          >
-                            {hoverReactionPostId === post.id && (
-                              <div 
-                                className="absolute -top-12 left-2 z-30 bg-white rounded-full px-2.5 py-1.5 shadow-xl border border-slate-200 flex items-center gap-2 animate-fade-in"
-                                onMouseEnter={() => handleOpenProfileReaction(post.id)}
-                                onMouseLeave={() => handleCloseProfileReaction(350)}
-                              >
-                                {/* Cầu nối vô hình bao phủ khoảng trống gap */}
-                                <div className="absolute inset-x-0 -bottom-3.5 h-4 pointer-events-auto" aria-hidden="true" />
-                                {REACTIONS.map((r) => (
-                                  <button
-                                    key={r.id}
-                                    onClick={() => handleSelectProfileReaction(post.id, r.id)}
-                                    title={r.label}
-                                    className="text-2xl hover:scale-135 transition-transform duration-150 p-1 cursor-pointer"
-                                  >
-                                    {r.emoji}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
-
-                            {(() => {
-                              const curRId = getPostCurrentReaction(post);
-                              const activeR = REACTIONS.find(r => r.id === curRId);
-                              return (
-                                <button
-                                  onClick={() => handleSelectProfileReaction(post.id, curRId || 'like')}
-                                  className={`w-full py-2 flex items-center justify-center gap-2 rounded-xl transition cursor-pointer ${
-                                    activeR ? `${activeR.color} font-extrabold` : 'hover:bg-slate-50 text-slate-600'
-                                  }`}
-                                >
-                                  {activeR ? (
-                                    <>
-                                      <span className="text-base leading-none">{activeR.emoji}</span>
-                                      <span>{activeR.label}</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ThumbsUp className="w-4 h-4 text-slate-500" />
-                                      <span>Thích</span>
-                                    </>
-                                  )}
-                                </button>
-                              );
-                            })()}
-                          </div>
-
-                          <button
-                            onClick={() => setActiveCommentPostId(activeCommentPostId === post.id ? null : post.id)}
-                            className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl hover:bg-slate-50 transition cursor-pointer"
-                          >
-                            <MessageCircle className="w-4 h-4 text-slate-500" />
-                            <span>Bình luận</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              if (!currentUser?.id) {
-                                onRequireAuth ? onRequireAuth("Vui lòng đăng nhập để chia sẻ bài viết") : alert("Vui lòng đăng nhập để chia sẻ");
-                                return;
-                              }
-                              setSharingPost(post);
-                            }}
-                            className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl hover:bg-slate-50 transition cursor-pointer"
-                          >
-                            <Share2 className="w-4 h-4 text-slate-500" />
-                            <span>Chia sẻ</span>
-                          </button>
-                        </div>
-
-                        {/* Khung bình luận */}
-                        {activeCommentPostId === post.id && (
-                          <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 space-y-2.5">
-                            <form onSubmit={(e) => handleCommentSubmit(post.id, e)} className="flex gap-2">
-                              <img 
-                                src={currentUser.avatar} 
-                                alt="Me" 
-                                className="w-7 h-7 rounded-full object-cover shrink-0" 
-                              />
-                              <div className="flex-1 relative">
-                                <input
-                                  type="text"
-                                  value={commentInputs[post.id] || ''}
-                                  onChange={(e) => setCommentInputs({ ...commentInputs, [post.id]: e.target.value })}
-                                  placeholder="Viết bình luận công khai..."
-                                  className="w-full pl-3 pr-8 py-1.5 text-xs bg-white border border-slate-200 rounded-full outline-none focus:border-blue-500"
-                                />
-                                <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-600 cursor-pointer">
-                                  <Send className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </form>
-
-                            {/* Danh sách bình luận */}
-                            {post.comments && post.comments.length > 0 && (
-                              <div className="space-y-2 pt-1">
-                                {post.comments.map((cmt) => (
-                                  <div key={cmt.id} className="flex gap-2 text-xs">
-                                    <img 
-                                      src={cmt.author?.avatar || cmt.author?.avatar_url || DEFAULT_AVATAR} 
-                                      alt="Cmt" 
-                                      onClick={() => onOpenUserProfile && onOpenUserProfile(cmt.author)}
-                                      className="w-6 h-6 rounded-full object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-400 transition" 
-                                    />
-                                    <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                                      <span 
-                                        onClick={() => onOpenUserProfile && onOpenUserProfile(cmt.author)}
-                                        className="font-bold text-slate-800 cursor-pointer hover:text-blue-600 transition"
-                                      >
-                                        {cmt.author?.name || 'Thành viên'}
-                                      </span>
-                                      <p className="text-slate-600 mt-0.5">{cmt.content}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                      </div>
+                      <PostCard
+                        key={post.id}
+                        post={post}
+                        currentUser={currentUser}
+                        onToggleLike={onToggleLike}
+                        onAddComment={onAddComment}
+                        onOpenReportModal={onOpenReportModal}
+                        onOpenAppealModal={onOpenAppealModal}
+                        onRequireAuth={onRequireAuth}
+                        onRequireLogin={onRequireAuth}
+                        onOpenProfile={onOpenUserProfile}
+                        onEditPost={onEditPost}
+                        onDeletePost={onDeletePost}
+                        onSharePost={onSharePost}
+                        allPosts={posts}
+                      />
                     ))
                   ) : (
                     <div className="bg-white rounded-2xl p-10 text-center border border-slate-200 text-slate-400">
@@ -1953,8 +1576,8 @@ export default function ProfileView({
                           <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 truncate group-hover:text-blue-600">
                             {friend.name}
                           </h4>
-                          {friend.isVerified && (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500 shrink-0" />
+                          {(friend.isVerified || friend.is_verified) && (
+                            <VerifiedBadge size="xs" />
                           )}
                         </div>
                         <p className="text-[11px] text-slate-400 truncate">@{friend.username}</p>

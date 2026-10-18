@@ -18,12 +18,13 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
         name: currentUser.name,
         avatar: currentUser.avatar
       },
-      contentType: contentItem.contentType || 'post',
-      contentId: contentItem.id,
-      originalText: contentItem.content || contentItem.originalText || '',
-      aiPredictedLabel: contentItem.aiStatus?.label || 'Toxic',
-      aiConfidence: contentItem.aiStatus?.confidence || 0.90,
-      aiActionTaken: contentItem.aiStatus?.action || 'warn_user',
+      contentType: contentItem.contentType || contentItem.targetType || 'post',
+      contentId: contentItem.id || contentItem.targetId,
+      originalText: contentItem.content || contentItem.originalText || contentItem.contentExcerpt || '',
+      imageUrl: contentItem.imageUrl || contentItem.image || null,
+      aiPredictedLabel: contentItem.aiStatus?.label || contentItem.ai_label || contentItem.aiLabel || 'Hate Speech',
+      aiConfidence: contentItem.aiStatus?.confidence || contentItem.ai_confidence || 0.90,
+      aiActionTaken: contentItem.aiStatus?.action || 'hide',
       appealReason: appealReason.trim(),
       status: 'pending',
       adminNotes: '',
@@ -99,8 +100,8 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
                     <AlertOctagon className="w-4 h-4 text-amber-600" />
                     Phán quyết từ mô hình AI:
                   </span>
-                  <span className={`text-xs px-2.5 py-0.5 rounded-md font-bold border ${getBadgeColor(contentItem.aiStatus?.label)}`}>
-                    {contentItem.aiStatus?.label || 'Bị cảnh báo'} ({((contentItem.aiStatus?.confidence || 0.9) * 100).toFixed(0)}%)
+                  <span className={`text-xs px-2.5 py-0.5 rounded-md font-bold border ${getBadgeColor(contentItem.aiStatus?.label || contentItem.ai_label || contentItem.aiLabel || 'Hate Speech')}`}>
+                    {contentItem.aiStatus?.label || contentItem.ai_label || contentItem.aiLabel || 'Cảnh báo'} ({(((contentItem.aiStatus?.confidence || contentItem.ai_confidence || 0.9)) * 100).toFixed(0)}%)
                   </span>
                 </div>
                 {contentItem.aiStatus?.reason && (
@@ -113,10 +114,20 @@ export default function AppealModal({ isOpen, onClose, contentItem, currentUser,
               {/* Trích dẫn nội dung bị phạt */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Nội dung bị ảnh hưởng:
+                  Nội dung bị ảnh hưởng (Văn bản & Hình ảnh):
                 </label>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-700 italic">
-                  "{contentItem.content || contentItem.originalText}"
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-700 italic space-y-2">
+                  <p>"{contentItem.content || contentItem.originalText || contentItem.contentExcerpt || '[Không có nội dung văn bản]'}"</p>
+                  {(contentItem.imageUrl || contentItem.image) && (
+                    <div className="flex items-center gap-2.5 pt-2 border-t border-slate-200/80 not-italic">
+                      <img 
+                        src={contentItem.imageUrl || contentItem.image} 
+                        alt="Ảnh đính kèm" 
+                        className="w-12 h-12 object-cover rounded-lg border border-slate-300 shadow-2xs" 
+                      />
+                      <span className="text-[11px] text-slate-500 font-medium">Hình ảnh đính kèm trong khiếu nại này</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

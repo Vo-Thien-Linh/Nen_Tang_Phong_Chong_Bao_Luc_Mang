@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 import time
 from app.services.ai_services import predict_vi_content
+from app.image_moderation.inference import ImageModerationFailure, infer_image, infer_image_bytes
+from app.image_moderation.policy import decide_image_moderation
 
 router = APIRouter(prefix="", tags=["Kiểm duyệt nội dung AI (Moderation)"])
 
@@ -41,3 +43,31 @@ def moderate_text(req: ModerateRequest):
         reason=result["reason"],
         cooldown_seconds=cooldown
     )
+
+
+class ImageModerateRequest(BaseModel):
+    image_url: str
+
+
+@router.post("/moderate/image", summary="Phân tích kiểm duyệt ảnh bằng EfficientNet-B1")
+def moderate_image(req: ImageModerateRequest):
+    try:
+        result = infer_image(req.image_url)
+        return decide_image_moderation(result["scores"])
+    except ImageModerationFailure:
+        return decide_image_moderation(None, failed=True)
+
+
+@router.post("/moderate/image/preview", summary="Preview kiểm duyệt ảnh không ghi dữ liệu")
+async def moderate_image_preview(file: UploadFile = File(...)):
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=415, detail="Tệp phải là ảnh")
+    data = await file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Ảnh vượt quá 10 MB")
+    try:
+        result = decide_image_moderation(infer_image_bytes(data)["scores"])
+    except ImageModerationFailure:
+        result = decide_image_moderation(None, failed=True)
+    category = {"safe": "SAFE", "sensitive": "SENSITIVE", "rejected": "VIOLATION", "pending_review": "PENDING_REVIEW"}[result["decision"]]
+    return {"category": category}

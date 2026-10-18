@@ -4,13 +4,34 @@ export function createUserRepository({ pool }) {
       const result = await pool.query(
         `SELECT id, username, full_name, avatar_url, cover_url, role, is_verified,
                 bio, location, hometown, education, high_school, relationship_status,
-                phone, status, cooldown_until, created_at
+                phone, status, cooldown_until, cooldown_reason, cooldown_violation_text,
+                banned_until, ban_reason, created_at
          FROM users
          WHERE id = $1`,
         [userId]
       );
 
-      return result.rows[0] || null;
+      const user = result.rows[0] || null;
+      if (user && user.status === 'cooldown') {
+        const cdUntil = user.cooldown_until ? new Date(user.cooldown_until) : null;
+        if (!cdUntil || cdUntil <= new Date()) {
+          try {
+            await pool.query(
+              `UPDATE users
+               SET status = 'active', cooldown_until = NULL, cooldown_reason = NULL, cooldown_violation_text = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [userId]
+            );
+            user.status = 'active';
+            user.cooldown_until = null;
+            user.cooldown_reason = null;
+            user.cooldown_violation_text = null;
+          } catch (err) {
+            console.error('Lỗi khi tự động gỡ cooldown trong findById:', err);
+          }
+        }
+      }
+      return user;
     },
 
     async ensureUserExists({ id, username, fullName, avatarUrl }) {
@@ -33,7 +54,7 @@ export function createUserRepository({ pool }) {
       return result.rows[0] || null;
     },
 
-    async findProfileById(userId) {
+    async findProfileById(userId, viewerId = null) {
       // Thông tin profile đầy đủ kèm số lượng bài viết và bạn bè
       const result = await pool.query(
         `SELECT
@@ -41,16 +62,47 @@ export function createUserRepository({ pool }) {
            u.role, u.is_verified, u.bio, u.location, u.hometown,
            u.education, u.high_school, u.relationship_status,
            u.phone, u.status, u.created_at,
-           (SELECT COUNT(*) FROM posts WHERE author_id = u.id AND ai_status != 'hidden')::int AS posts_count,
+           u.cooldown_until, u.cooldown_reason, u.cooldown_violation_text,
+           u.banned_until, u.ban_reason,
+           (SELECT COUNT(*) FROM posts p
+            WHERE p.author_id = u.id
+              AND (
+                p.author_id = $2
+                OR (p.ai_status = 'approved'
+                    AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
+              )
+              AND (p.image_moderation_status IS NULL
+                   OR p.image_moderation_status <> 'rejected_hold'
+                   OR p.moderation_expires_at > CURRENT_TIMESTAMP))::int AS posts_count,
            (SELECT COUNT(*) FROM friendships
             WHERE (requester_id = u.id OR addressee_id = u.id)
               AND status = 'accepted')::int AS friends_count
          FROM users u
          WHERE u.id = $1`,
-        [userId]
+        [userId, viewerId]
       );
 
-      return result.rows[0] || null;
+      const user = result.rows[0] || null;
+      if (user && user.status === 'cooldown') {
+        const cdUntil = user.cooldown_until ? new Date(user.cooldown_until) : null;
+        if (!cdUntil || cdUntil <= new Date()) {
+          try {
+            await pool.query(
+              `UPDATE users
+               SET status = 'active', cooldown_until = NULL, cooldown_reason = NULL, cooldown_violation_text = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [userId]
+            );
+            user.status = 'active';
+            user.cooldown_until = null;
+            user.cooldown_reason = null;
+            user.cooldown_violation_text = null;
+          } catch (err) {
+            console.error('Lỗi khi tự động gỡ cooldown trong findProfileById:', err);
+          }
+        }
+      }
+      return user;
     },
 
     async updateProfile(userId, fields) {
@@ -108,6 +160,8 @@ export function createUserRepository({ pool }) {
         `SELECT
            p.id, p.author_id, p.content, p.image_url, p.privacy,
            p.ai_label, p.ai_confidence, p.ai_status,
+           p.image_moderation_status, p.image_moderation_safe, p.image_moderation_nsfw,
+           p.image_moderation_violence, p.image_moderation_thresholds, p.moderation_expires_at,
            p.likes_count, p.comments_count, p.shares_count,
            p.created_at, p.original_post_id,
            u.username, u.full_name, u.avatar_url, u.is_verified,
@@ -128,7 +182,14 @@ export function createUserRepository({ pool }) {
          LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id
          LEFT JOIN users orig_u ON orig_u.id = orig_p.author_id
          WHERE p.author_id = $1
-           AND (p.ai_status != 'hidden' OR p.author_id = $2)
+           AND (
+             p.author_id = $2
+             OR (p.ai_status = 'approved'
+                 AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
+           )
+           AND (p.image_moderation_status IS NULL
+                OR p.image_moderation_status <> 'rejected_hold'
+                OR p.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY p.created_at DESC`,
         [userId, viewerId || userId]
       );
@@ -158,13 +219,23 @@ export function createUserRepository({ pool }) {
 
       // Lấy comments
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.created_at,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status,
+                c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
+                c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
          WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+           AND (
+             c.author_id = $2
+             OR c.image_moderation_status IS NULL
+             OR c.image_moderation_status IN ('safe', 'sensitive')
+           )
+           AND (c.image_moderation_status IS NULL
+                OR c.image_moderation_status <> 'rejected_hold'
+                OR c.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY c.created_at ASC`,
-        [postIds]
+        [postIds, viewerId || userId]
       );
 
       // Nhóm reactions và comments theo post
@@ -201,6 +272,13 @@ export function createUserRepository({ pool }) {
               avatar: c.avatar_url,
             },
             content: c.content,
+            image: c.image_url || null,
+            imageModeration: c.image_moderation_status ? {
+              status: c.image_moderation_status,
+              scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+              thresholds: c.image_moderation_thresholds || null,
+              moderationExpiresAt: c.moderation_expires_at || null,
+            } : null,
             created_at: c.created_at,
           });
         }
@@ -216,8 +294,198 @@ export function createUserRepository({ pool }) {
           total_reactions: total,
           my_reaction: myReactionByPost.get(pid) || null,
           comments: commentsByPost.get(pid) || [],
+          imageModeration: post.image_moderation_status ? {
+            status: post.image_moderation_status,
+            scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
+            thresholds: post.image_moderation_thresholds || null,
+            moderationExpiresAt: post.moderation_expires_at || null,
+          } : null,
         };
       });
+    },
+
+    async findAllUsers({ search = '', role = 'all', page = 1, limit = 10 } = {}) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions = [];
+      const values = [];
+      let paramIndex = 1;
+
+      if (search && search.trim()) {
+        const queryTerm = `%${search.trim().toLowerCase()}%`;
+        conditions.push(`(LOWER(username) LIKE $${paramIndex} OR LOWER(full_name) LIKE $${paramIndex} OR LOWER(COALESCE(email, '')) LIKE $${paramIndex} OR LOWER(COALESCE(phone, '')) LIKE $${paramIndex})`);
+        values.push(queryTerm);
+        paramIndex++;
+      }
+
+      if (role && role !== 'all') {
+        conditions.push(`LOWER(role) = $${paramIndex}`);
+        values.push(role.trim().toLowerCase());
+        paramIndex++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const countResult = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM users ${whereClause}`,
+        values
+      );
+      const total = countResult.rows[0]?.total || 0;
+
+      const queryValues = [...values, limitNum, offset];
+      const usersResult = await pool.query(
+        `SELECT id, username, email, full_name, avatar_url, cover_url, role, status, is_verified, phone,
+                cooldown_until, cooldown_reason, banned_until, ban_reason, created_at
+         FROM users
+         ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        queryValues
+      );
+
+      return {
+        users: usersResult.rows,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum) || 1,
+      };
+    },
+
+    async countAdmins() {
+      const result = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM users WHERE LOWER(role) = 'admin' AND status = 'active'`
+      );
+      return result.rows[0]?.count || 0;
+    },
+
+    async updateUserRole({ targetUserId, newRole, actorId }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const oldRole = (user.role || 'user').toLowerCase();
+      const normalizedNewRole = newRole.toLowerCase();
+
+      // Chặn admin tự hạ quyền mình
+      if (targetUserId === actorId && normalizedNewRole !== 'admin') {
+        const error = new Error('Bạn không thể tự hạ vai trò quản trị viên của chính mình.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // Chặn hạ quyền admin cuối cùng
+      if (oldRole === 'admin' && normalizedNewRole !== 'admin') {
+        const adminCount = await this.countAdmins();
+        if (adminCount <= 1) {
+          const error = new Error('Không thể hạ vai trò vì đây là tài khoản quản trị viên duy nhất còn lại.');
+          error.statusCode = 400;
+          throw error;
+        }
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET role = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified`,
+        [normalizedNewRole, targetUserId]
+      );
+
+      // Ghi audit log
+      await pool.query(
+        `INSERT INTO role_audit_logs (actor_id, target_user_id, old_role, new_role)
+         VALUES ($1, $2, $3, $4)`,
+        [actorId, targetUserId, oldRole, normalizedNewRole]
+      );
+
+      return updateResult.rows[0];
+    },
+
+    async updateVerification({ targetUserId, isVerified }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET is_verified = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified`,
+        [Boolean(isVerified), targetUserId]
+      );
+
+      return updateResult.rows[0];
+    },
+
+    async updateSanctionStatus({ targetUserId, action, durationDays = null, reason = '', actorId }) {
+      const user = await this.findById(targetUserId);
+      if (!user) {
+        const error = new Error('Không tìm thấy người dùng');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (targetUserId === actorId && (action === 'ban' || action === 'temporary_ban')) {
+        const error = new Error('Bạn không thể tự khóa tài khoản của chính mình.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      let status = user.status;
+      let bannedUntil = user.banned_until;
+      let banReason = user.ban_reason;
+      let cooldownUntil = user.cooldown_until;
+      let cooldownReason = user.cooldown_reason;
+      let cooldownViolationText = user.cooldown_violation_text;
+
+      if (action === 'ban') {
+        status = 'banned';
+        if (durationDays && Number(durationDays) > 0) {
+          const d = new Date();
+          d.setDate(d.getDate() + Number(durationDays));
+          bannedUntil = d.toISOString();
+        } else {
+          bannedUntil = null; // vĩnh viễn
+        }
+        banReason = reason || (bannedUntil ? 'Khóa tài khoản tạm thời theo quy định' : 'Vi phạm nghiêm trọng tiêu chuẩn cộng đồng');
+      } else if (action === 'unban') {
+        status = 'active';
+        bannedUntil = null;
+        banReason = null;
+      } else if (action === 'clear_cooldown') {
+        if (status === 'cooldown') {
+          status = 'active';
+        }
+        cooldownUntil = null;
+        cooldownReason = null;
+        cooldownViolationText = null;
+      } else {
+        const error = new Error(`Hành động xử phạt không hợp lệ: ${action}`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const updateResult = await pool.query(
+        `UPDATE users
+         SET status = $1, banned_until = $2, ban_reason = $3,
+             cooldown_until = $4, cooldown_reason = $5, cooldown_violation_text = $6,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7
+         RETURNING id, username, email, full_name, avatar_url, role, status, is_verified,
+                   banned_until, ban_reason, cooldown_until, cooldown_reason`,
+        [status, bannedUntil, banReason, cooldownUntil, cooldownReason, cooldownViolationText, targetUserId]
+      );
+
+      return updateResult.rows[0];
     },
   };
 }

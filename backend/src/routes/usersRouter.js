@@ -1,6 +1,7 @@
 import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
+import { VALID_ROLES, normalizeRole } from '../utils/rbac.js';
 
 /**
  * Chuyển đổi dữ liệu user từ DB sang format chuẩn cho Frontend
@@ -28,6 +29,11 @@ function formatUserProfile(row) {
     relationship: row.relationship_status || '',
     relationship_status: row.relationship_status || '',
     status: row.status,
+    cooldown_until: row.cooldown_until,
+    cooldownUntil: row.cooldown_until,
+    cooldown_reason: row.cooldown_reason,
+    banned_until: row.banned_until,
+    ban_reason: row.ban_reason,
     postsCount: row.posts_count || 0,
     friendsCount: row.friends_count || 0,
     joinedDate: row.created_at
@@ -52,7 +58,191 @@ function formatFriend(row) {
 export function createUsersRouter({ pool }) {
   const router = express.Router();
   const userRepository = createUserRepository({ pool });
-  const { requireAuth, optionalAuth } = createAuthMiddleware({ userRepository });
+  const { requireAuth, optionalAuth, requireRole } = createAuthMiddleware({ userRepository });
+
+  /**
+   * GET /api/users
+   * Quản trị viên lấy danh sách toàn bộ người dùng hệ thống (tìm kiếm, lọc vai trò, phân trang)
+   * Yêu cầu quyền admin
+   */
+  router.get('/', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { search, role, page, limit } = req.query;
+      const result = await userRepository.findAllUsers({ search, role, page, limit });
+      res.json({
+        success: true,
+        data: result.users.map(u => ({
+          id: u.id,
+          username: u.username,
+          name: u.full_name,
+          email: u.email,
+          phone: u.phone,
+          avatar: u.avatar_url,
+          avatar_url: u.avatar_url,
+          cover_url: u.cover_url,
+          role: u.role,
+          status: u.status,
+          isVerified: u.is_verified,
+          bannedUntil: u.banned_until,
+          banReason: u.ban_reason,
+          cooldownUntil: u.cooldown_until,
+          cooldownReason: u.cooldown_reason,
+          createdAt: u.created_at,
+        })),
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          totalPages: result.totalPages,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * PATCH /api/users/:userId/role
+   * Thay đổi vai trò người dùng (user / moderator / admin)
+   * Yêu cầu quyền admin
+   */
+  router.patch('/:userId/role', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body;
+
+      if (!role) {
+        return res.status(400).json({ success: false, message: 'Vui lòng cung cấp vai trò mới.' });
+      }
+
+      const normalizedRole = normalizeRole(role);
+      if (!VALID_ROLES.includes(normalizedRole)) {
+        return res.status(400).json({
+          success: false,
+          message: `Vai trò "${role}" không hợp lệ. Chỉ chấp nhận: user, moderator, admin.`,
+        });
+      }
+
+      const updatedUser = await userRepository.updateUserRole({
+        targetUserId: userId,
+        newRole: normalizedRole,
+        actorId: req.user.id,
+      });
+
+      res.json({
+        success: true,
+        message: `Đã cập nhật vai trò người dùng sang ${normalizedRole}.`,
+        data: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          name: updatedUser.full_name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          status: updatedUser.status,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * PATCH /api/users/:userId/verification
+   * Cấp hoặc thu hồi tích xanh người dùng
+   * Yêu cầu quyền admin
+   */
+  router.patch('/:userId/verification', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { isVerified } = req.body;
+
+      if (typeof isVerified !== 'boolean') {
+        return res.status(400).json({ success: false, message: 'isVerified phải là giá trị boolean (true/false).' });
+      }
+
+      const updatedUser = await userRepository.updateVerification({
+        targetUserId: userId,
+        isVerified,
+      });
+
+      res.json({
+        success: true,
+        message: isVerified ? 'Đã cấp tích xanh cho người dùng thành công.' : 'Đã thu hồi tích xanh của người dùng.',
+        data: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          name: updatedUser.full_name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          status: updatedUser.status,
+          isVerified: updatedUser.is_verified,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * POST /api/users/:userId/sanction
+   * Áp dụng hoặc gỡ bỏ xử phạt người dùng:
+   * - action: 'ban' (với durationDays hoặc vĩnh viễn)
+   * - action: 'unban' (mở khóa tài khoản)
+   * - action: 'clear_cooldown' (gỡ phạt oan cấm đăng bài & comment, reset countdown về 0)
+   * Yêu cầu quyền admin
+   */
+  router.post('/:userId/sanction', requireRole('admin'), async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { action, durationDays, reason } = req.body;
+
+      if (!action || !['ban', 'unban', 'clear_cooldown'].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Hành động không hợp lệ. Chỉ chấp nhận: ban, unban, clear_cooldown.',
+        });
+      }
+
+      const updatedUser = await userRepository.updateSanctionStatus({
+        targetUserId: userId,
+        action,
+        durationDays,
+        reason,
+        actorId: req.user.id,
+      });
+
+      let message = 'Cập nhật trạng thái xử phạt thành công.';
+      if (action === 'ban') {
+        message = durationDays
+          ? `Đã khóa tài khoản tạm thời trong ${durationDays} ngày.`
+          : 'Đã khóa tài khoản vĩnh viễn.';
+      } else if (action === 'unban') {
+        message = 'Đã mở khóa tài khoản thành công.';
+      } else if (action === 'clear_cooldown') {
+        message = 'Đã gỡ án phạt oan. Người dùng có thể đăng bài và bình luận ngay lập tức.';
+      }
+
+      res.json({
+        success: true,
+        message,
+        data: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          name: updatedUser.full_name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          status: updatedUser.status,
+          isVerified: updatedUser.is_verified,
+          bannedUntil: updatedUser.banned_until,
+          banReason: updatedUser.ban_reason,
+          cooldownUntil: updatedUser.cooldown_until,
+          cooldownReason: updatedUser.cooldown_reason,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   /**
    * GET /api/users/:userId/profile
@@ -61,7 +251,7 @@ export function createUsersRouter({ pool }) {
   router.get('/:userId/profile', optionalAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const row = await userRepository.findProfileById(userId);
+      const row = await userRepository.findProfileById(userId, req.user?.id || null);
 
       if (!row) {
         return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
@@ -140,6 +330,7 @@ export function createUsersRouter({ pool }) {
         },
         content: p.content,
         image: p.image_url || null,
+        imageModeration: p.imageModeration || null,
         createdAt: p.created_at,
         likesCount: p.likes_count || 0,
         commentsCount: p.comments_count || 0,
@@ -156,6 +347,8 @@ export function createUsersRouter({ pool }) {
           id: c.id,
           author: c.author,
           content: c.content,
+          image: c.image || null,
+          imageModeration: c.imageModeration || null,
           time: c.created_at,
         })),
         originalPost: p.original_post_id && p.orig_id ? {

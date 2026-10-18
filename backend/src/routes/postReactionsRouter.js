@@ -14,6 +14,7 @@ export function createPostReactionsRouter({ pool }) {
   const { requireAuth } = createAuthMiddleware({ userRepository });
 
   router.put('/:postId/reaction', requireAuth, postReactionsController.reactToPost);
+  router.get('/:postId/reactions', postReactionsController.listPostReactions);
 
   return router;
 }

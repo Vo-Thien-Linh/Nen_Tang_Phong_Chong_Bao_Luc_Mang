@@ -28,6 +28,8 @@ class User(Base):
     cooldown_until = Column(DateTime, nullable=True)
     cooldown_reason = Column(Text, nullable=True)
     cooldown_violation_text = Column(Text, nullable=True)
+    banned_until = Column(DateTime, nullable=True)
+    ban_reason = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -33,5 +33,13 @@ export function createReactionService({ reactionRepository }) {
         forceRemove: false,
       });
     },
+
+    async getPostReactions({ postId }) {
+      if (!postId) return [];
+      if (typeof reactionRepository.getPostReactions === 'function') {
+        return reactionRepository.getPostReactions({ postId });
+      }
+      return [];
+    },
   };
 }
