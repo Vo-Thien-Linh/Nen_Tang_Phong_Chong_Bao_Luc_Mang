@@ -233,11 +233,28 @@ export default function ReportResolutionModal({
           {decision === 'resolved_violation' && (
             <div className="p-4 rounded-lg bg-rose-50/60 border border-rose-200 space-y-3 animate-fade-in">
               <label className="font-bold text-rose-950 text-xs block">
-                2. Chọn nhãn mới gán lại cho câu văn / hình ảnh:
+                2. Chọn nhãn mới gán lại cho câu văn / hình ảnh (theo nghiệp vụ từng nhãn):
               </label>
               
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {/* Nhãn 1: Toxic */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {/* Nhãn 1: Normal (Minh oan / Trạng thái bình thường) */}
+                <button
+                  type="button"
+                  onClick={() => setNewLabel('Normal')}
+                  className={`p-2.5 rounded-md border text-left transition cursor-pointer flex flex-col ${
+                    newLabel === 'Normal'
+                      ? 'bg-white border-emerald-500 text-emerald-900 ring-2 ring-emerald-400 font-bold shadow-xs'
+                      : 'bg-white/80 border-slate-200 text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>Normal (Bình thường)</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-700 font-medium mt-1">Gỡ án phạt & phục hồi</span>
+                </button>
+
+                {/* Nhãn 2: Toxic */}
                 <button
                   type="button"
                   onClick={() => setNewLabel('Toxic')}
@@ -254,7 +271,7 @@ export default function ReportResolutionModal({
                   <span className="text-[10px] text-slate-500 font-normal mt-1">Lăng mạ, xúc phạm thô tục</span>
                 </button>
 
-                {/* Nhãn 2: Hate Speech */}
+                {/* Nhãn 3: Hate Speech */}
                 <button
                   type="button"
                   onClick={() => setNewLabel('Hate Speech')}
@@ -268,10 +285,10 @@ export default function ReportResolutionModal({
                     <span className="w-2 h-2 rounded-full bg-orange-500"></span>
                     <span>Hate Speech</span>
                   </span>
-                  <span className="text-[10px] text-slate-500 font-normal mt-1">Thù ghét, kỳ thị vùng miền</span>
+                  <span className="text-[10px] text-slate-500 font-normal mt-1">Ẩn cứng bài viết thù ghét</span>
                 </button>
 
-                {/* Nhãn 3: Violence */}
+                {/* Nhãn 4: Violence */}
                 <button
                   type="button"
                   onClick={() => setNewLabel('Violence')}
@@ -285,21 +302,39 @@ export default function ReportResolutionModal({
                     <span className="w-2 h-2 rounded-full bg-rose-500"></span>
                     <span>Violence (Bạo lực)</span>
                   </span>
-                  <span className="text-[10px] text-slate-500 font-normal mt-1">Đe dọa, kích động bạo lực</span>
+                  <span className="text-[10px] text-rose-700 font-medium mt-1">Ẩn & phạt Cooldown 10 phút</span>
                 </button>
               </div>
 
-              {/* Tóm tắt thay đổi nhãn */}
-              <div className="flex items-center justify-between p-2.5 bg-white rounded border border-rose-200/80 text-[11px]">
-                <span className="text-slate-600">Quy trình chuyển đổi nhãn:</span>
-                <div className="flex items-center gap-2 font-semibold">
-                  <span className={`px-2 py-0.5 rounded border ${getBadgeStyle(currentLabel)}`}>
-                    {currentLabel}
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
-                  <span className={`px-2 py-0.5 rounded border ${getBadgeStyle(newLabel)}`}>
-                    {newLabel}
-                  </span>
+              {/* Tóm tắt thay đổi nhãn và nghiệp vụ xử lý */}
+              <div className="p-2.5 bg-white rounded border border-rose-200/80 text-[11px] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600">Quy trình chuyển đổi nhãn:</span>
+                  <div className="flex items-center gap-2 font-semibold">
+                    <span className={`px-2 py-0.5 rounded border ${getBadgeStyle(currentLabel)}`}>
+                      {currentLabel}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                    <span className={`px-2 py-0.5 rounded border ${getBadgeStyle(newLabel)}`}>
+                      {newLabel}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-1 border-t border-slate-100 flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-700">Tác động nghiệp vụ:</span>
+                  {newLabel === 'Normal' && (
+                    <span className="text-emerald-700 font-medium">Khôi phục hiển thị công khai & gỡ bỏ toàn bộ án phạt (cooldown/hạn chế) cho tác giả</span>
+                  )}
+                  {newLabel === 'Violence' && (
+                    <span className="text-rose-700 font-medium">Ẩn nội dung & áp dụng án phạt Cooldown 10 phút cho tài khoản tác giả</span>
+                  )}
+                  {newLabel === 'Hate Speech' && (
+                    <span className="text-orange-700 font-medium">Ẩn nội dung vi phạm tiêu chuẩn nghiêm trọng về ngôn từ thù địch</span>
+                  )}
+                  {newLabel === 'Toxic' && (
+                    <span className="text-amber-700 font-medium">Ẩn nội dung độc hại xúc phạm</span>
+                  )}
                 </div>
               </div>
             </div>

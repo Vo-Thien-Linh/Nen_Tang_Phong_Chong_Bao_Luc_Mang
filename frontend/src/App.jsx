@@ -911,14 +911,70 @@ export default function App() {
 
     // 2. PHÂN NHÁNH XỬ LÝ TRÊN FEED BÀI VIẾT:
     if (status === 'resolved_violation') {
-      // BÁO CÁO ĐÚNG: Gán lại nhãn mới (Toxic / Hate Speech / Violence) & ẩn nội dung
-      if (report && report.targetType === 'post') {
-        setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
-      } else if (report && report.targetType === 'comment') {
-        setPosts(prev => prev.map(p => ({
-          ...p,
-          comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
-        })));
+      if (newLabel === 'Normal') {
+        // Chuyển về trạng thái bình thường: Khôi phục hiển thị & bỏ ẩn
+        if (report && report.targetType === 'post') {
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : p));
+        } else if (report && report.targetType === 'comment') {
+          setPosts(prev => prev.map(p => ({
+            ...p,
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: false, is_hidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : c)
+          })));
+        }
+
+        // Nghiệp vụ: Chuyển về Normal -> Gỡ toàn bộ án phạt cho tác giả nếu trùng currentUser
+        const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          setCurrentUser(prev => ({
+            ...prev,
+            status: 'active',
+            cooldownUntil: null,
+            cooldown_until: null,
+            cooldownReason: null,
+            cooldown_reason: null,
+            cooldownViolationText: null,
+            cooldown_violation_text: null
+          }));
+        }
+      } else {
+        // BÁO CÁO ĐÚNG: Gán lại nhãn vi phạm (Toxic / Hate Speech / Violence) & ẩn nội dung
+        if (report && report.targetType === 'post') {
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
+        } else if (report && report.targetType === 'comment') {
+          setPosts(prev => prev.map(p => ({
+            ...p,
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
+          })));
+        }
+
+        const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          if (newLabel === 'Violence') {
+            const cdUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'cooldown',
+              cooldownUntil: cdUntil,
+              cooldown_until: cdUntil,
+              cooldownReason: 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+              cooldown_reason: 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+              cooldownViolationText: report?.contentExcerpt,
+              cooldown_violation_text: report?.contentExcerpt
+            }));
+          } else {
+            // Chuyển sang Hate Speech hoặc Toxic -> Gỡ cooldown nếu từng bị cooldown do nhãn Violence cũ
+            setCurrentUser(prev => prev.status === 'cooldown' ? ({
+              ...prev,
+              status: 'active',
+              cooldownUntil: null,
+              cooldown_until: null,
+              cooldownReason: null,
+              cooldown_reason: null,
+              cooldownViolationText: null,
+              cooldown_violation_text: null
+            }) : prev);
+          }
+        }
       }
 
       // Tạo bản ghi trong Nhật ký hiệu chỉnh nhãn AI (aiOverrides) để xuất file

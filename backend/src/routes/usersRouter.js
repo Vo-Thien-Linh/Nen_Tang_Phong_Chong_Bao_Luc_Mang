@@ -191,7 +191,7 @@ export function createUsersRouter({ pool }) {
    * - action: 'clear_cooldown' (gỡ phạt oan cấm đăng bài & comment, reset countdown về 0)
    * Yêu cầu quyền admin
    */
-  router.post('/:userId/sanction', requireRole('admin'), async (req, res, next) => {
+  router.post('/:userId/sanction', requireRole('moderator'), async (req, res, next) => {
     try {
       const { userId } = req.params;
       const { action, durationDays, reason } = req.body;
@@ -200,6 +200,14 @@ export function createUsersRouter({ pool }) {
         return res.status(400).json({
           success: false,
           message: 'Hành động không hợp lệ. Chỉ chấp nhận: ban, unban, clear_cooldown.',
+        });
+      }
+
+      // Ban/Unban yêu cầu quyền Admin, clear_cooldown cho phép cả Moderator
+      if (['ban', 'unban'].includes(action) && req.user.role === 'moderator') {
+        return res.status(403).json({
+          success: false,
+          message: 'Chỉ Quản trị viên (Admin) mới có quyền khóa hoặc mở khóa vĩnh viễn/tạm thời tài khoản.',
         });
       }
 

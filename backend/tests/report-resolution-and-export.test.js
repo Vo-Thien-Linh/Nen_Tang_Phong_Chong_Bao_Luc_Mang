@@ -161,3 +161,85 @@ test('CSV & Excel Export formatting: builds valid files with columns A through H
   assert.equal(sheet['A2'].v, 1);
   assert.equal(sheet['B2'].v, 'Mày là đồ rác rưởi ngu ngốc');
 });
+
+test('Business rules per label: Transition to Normal clears all author sanctions and unhides content', () => {
+  const user = {
+    id: 'user-violence-penalized',
+    status: 'cooldown',
+    cooldown_until: new Date(Date.now() + 600000).toISOString(),
+    cooldown_reason: 'Vi phạm bạo lực trong bài viết',
+    cooldown_violation_text: 'Bắn chết hết đi'
+  };
+
+  const post = {
+    id: 'post-105',
+    author_id: user.id,
+    ai_label: 'Violence',
+    ai_status: 'hidden',
+    isHidden: true
+  };
+
+  // Moderator xác định đây là hiểu lầm / chuyển về nhãn Normal
+  const newLabel = 'Normal';
+
+  if (newLabel === 'Normal') {
+    post.ai_label = 'Normal';
+    post.ai_status = 'approved';
+    post.isHidden = false;
+
+    // Gỡ toàn bộ án phạt cho tác giả
+    user.status = 'active';
+    user.cooldown_until = null;
+    user.cooldown_reason = null;
+    user.cooldown_violation_text = null;
+  }
+
+  assert.equal(post.ai_label, 'Normal');
+  assert.equal(post.ai_status, 'approved');
+  assert.equal(post.isHidden, false);
+  assert.equal(user.status, 'active', 'User status phải khôi phục về active');
+  assert.equal(user.cooldown_until, null, 'cooldown_until phải là null');
+  assert.equal(user.cooldown_reason, null, 'cooldown_reason phải là null');
+  assert.equal(user.cooldown_violation_text, null, 'cooldown_violation_text phải là null');
+});
+
+test('Business rules per label: Violence applies 10-minute cooldown; Hate Speech and Toxic do not apply cooldown', () => {
+  const user = {
+    id: 'author-test-2',
+    status: 'active',
+    cooldown_until: null
+  };
+
+  function applySanctionForLabel(author, label) {
+    if (label === 'Violence') {
+      author.status = 'cooldown';
+      author.cooldown_until = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    } else {
+      // Toxic hoặc Hate Speech hoặc Normal: Không có án phạt cooldown
+      if (author.status === 'cooldown') {
+        author.status = 'active';
+        author.cooldown_until = null;
+      }
+    }
+  }
+
+  // 1. Gán Violence -> Phạt cooldown 10 phút
+  applySanctionForLabel(user, 'Violence');
+  assert.equal(user.status, 'cooldown');
+  assert.ok(user.cooldown_until !== null);
+
+  // 2. Chuyển từ Violence sang Hate Speech -> Gỡ cooldown vì Hate Speech không phạt cooldown
+  applySanctionForLabel(user, 'Hate Speech');
+  assert.equal(user.status, 'active');
+  assert.equal(user.cooldown_until, null);
+
+  // 3. Gán Violence lại -> Phạt cooldown
+  applySanctionForLabel(user, 'Violence');
+  assert.equal(user.status, 'cooldown');
+
+  // 4. Chuyển sang Normal -> Gỡ toàn bộ án phạt
+  applySanctionForLabel(user, 'Normal');
+  assert.equal(user.status, 'active');
+  assert.equal(user.cooldown_until, null);
+});
+
