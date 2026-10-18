@@ -1,3 +1,4 @@
+from datetime import datetime
 import re
 from typing import Optional
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
@@ -94,6 +95,11 @@ class UserResponse(BaseModel):
     cover_url: Optional[str] = None
     bio: Optional[str] = None
     is_verified: bool = False
+    cooldown_until: Optional[datetime] = None
+    cooldown_reason: Optional[str] = None
+    cooldown_violation_text: Optional[str] = None
+    banned_until: Optional[datetime] = None
+    ban_reason: Optional[str] = None
 
     class Config:
         from_attributes = True

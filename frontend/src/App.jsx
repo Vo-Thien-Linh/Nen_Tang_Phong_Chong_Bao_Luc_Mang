@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -27,7 +27,23 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
+import { 
+  fetchPosts, 
+  fetchPostById, 
+  createComment, 
+  updatePost, 
+  deletePost, 
+  sharePost, 
+  updateUserSanctionApi, 
+  resolveReportApi,
+  createReportApi,
+  fetchReportsList,
+  fetchAppealsList,
+  createAppealApi,
+  resolveAppealApi,
+  fetchAiOverridesList,
+  createAiOverrideApi
+} from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -42,13 +58,11 @@ const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
   ? { ...initialUser, id: configuredUserId }
   : initialUser;
-const initialFeedWarning = !configuredUserId && import.meta.env.DEV
-  ? 'Dev: thiếu VITE_CURRENT_USER_ID nên đang dùng dữ liệu mẫu.'
-  : '';
+const initialFeedWarning = '';
 
 export default function App() {
   // Trạng thái Xác thực người dùng (Auth)
-  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser() || currentUserWithEnvId);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
@@ -113,6 +127,36 @@ export default function App() {
   const [aiOverrides, setAiOverrides] = useState(initialAiOverrides);
   const [usersList, setUsersList] = useState(initialUsersList);
 
+  // Tải dữ liệu kiểm duyệt THẬT từ CSDL PostgreSQL (reports, appeals, ai-overrides)
+  const loadModerationData = useCallback(async () => {
+    const effectiveUserId = currentUser?.id || configuredUserId;
+    if (!effectiveUserId) return;
+    try {
+      const [reportsRes, appealsRes, overridesRes] = await Promise.allSettled([
+        fetchReportsList(effectiveUserId),
+        fetchAppealsList(effectiveUserId),
+        fetchAiOverridesList(effectiveUserId)
+      ]);
+      if (reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value?.data)) {
+        setReports(reportsRes.value.data);
+      }
+      if (appealsRes.status === 'fulfilled' && Array.isArray(appealsRes.value?.data)) {
+        setAppeals(appealsRes.value.data);
+      }
+      if (overridesRes.status === 'fulfilled' && Array.isArray(overridesRes.value?.data)) {
+        setAiOverrides(overridesRes.value.data);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải dữ liệu kiểm duyệt từ CSDL PostgreSQL:', err.message);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'moderation' || (currentUser && hasRole(currentUser, ROLES.MODERATOR))) {
+      loadModerationData();
+    }
+  }, [activeTab, currentUser, loadModerationData]);
+
   // Trạng thái modal
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState(null); // Đối tượng đang được mở modal báo cáo
@@ -121,6 +165,51 @@ export default function App() {
   const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
   const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
+
+  // Kiểm tra phiên đăng nhập và mở màn hình đăng nhập đầu tiên khi vào trang nếu chưa có tài khoản
+  useEffect(() => {
+    const token = authService.getToken();
+    const storedUser = authService.getCurrentUser();
+
+    if (!token || !storedUser) {
+      setCurrentUser(null);
+      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để bắt đầu.');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    // Xác thực token tươi mới với Backend FastAPI
+    authService.verifySession().then((verifiedUser) => {
+      if (verifiedUser) {
+        setCurrentUser(verifiedUser);
+      } else {
+        setCurrentUser(null);
+        setAuthNoticeMessage('Phiên làm việc đã kết thúc. Vui lòng đăng nhập lại.');
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      }
+    });
+  }, []);
+
+  // Tự động gỡ phạt cooldown khi thời gian đếm ngược kết thúc
+  useEffect(() => {
+    const cooldownVal = currentUser?.cooldown_until || currentUser?.cooldownUntil;
+    if (currentUser?.status !== 'cooldown' || !cooldownVal) return;
+    const cooldownDate = new Date(cooldownVal);
+    const diff = cooldownDate.getTime() - Date.now();
+    const clearCooldown = () => {
+      const cleared = { status: 'active', cooldown_until: null, cooldownUntil: null, cooldown_reason: null };
+      authService.updateCurrentUser(cleared);
+      setCurrentUser(prev => prev ? { ...prev, ...cleared } : prev);
+    };
+    if (diff <= 0) {
+      clearCooldown();
+      return;
+    }
+    const timer = setTimeout(clearCooldown, diff);
+    return () => clearTimeout(timer);
+  }, [currentUser?.status, currentUser?.cooldown_until, currentUser?.cooldownUntil]);
 
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
   useEffect(() => {
@@ -170,9 +259,11 @@ export default function App() {
       }
     }
 
-    if (!currentUser && (initialHash === 'admin' || initialHash === 'moderation')) {
-      initialHash = 'home';
-      setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
+    if (!currentUser) {
+      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings') {
+        initialHash = 'home';
+      }
+      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
       setAuthModalTab('login');
       setIsAuthModalOpen(true);
     } else if (currentUser) {
@@ -248,6 +339,7 @@ export default function App() {
   }, [currentUser]);
 
   // Đồng bộ vai trò tươi từ database khi ứng dụng tải
+  // Đồng bộ vai trò và trạng thái xử phạt từ database khi ứng dụng tải
   useEffect(() => {
     if (!currentUser?.id) return;
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -256,11 +348,33 @@ export default function App() {
     })
       .then(res => res.json())
       .then(data => {
-        if (data.success && data.data && data.data.role) {
+        if (data.success && data.data) {
           const freshRole = normalizeRole(data.data.role);
+          const syncUpdates = {};
           if (normalizeRole(currentUser.role) !== freshRole) {
-            authService.updateCurrentUser({ role: freshRole, isAdmin: freshRole === 'admin' });
-            setCurrentUser(prev => prev ? { ...prev, role: freshRole, isAdmin: freshRole === 'admin' } : prev);
+            syncUpdates.role = freshRole;
+            syncUpdates.isAdmin = freshRole === 'admin';
+          }
+          const cdVal = data.data.cooldown_until;
+          const cdUntil = cdVal ? new Date(cdVal) : null;
+          const isExpired = cdUntil && cdUntil <= new Date();
+
+          if (isExpired || data.data.status === 'active') {
+            if (currentUser.status === 'cooldown' || currentUser.cooldown_until) {
+              syncUpdates.status = 'active';
+              syncUpdates.cooldown_until = null;
+              syncUpdates.cooldownUntil = null;
+              syncUpdates.cooldown_reason = null;
+            }
+          } else if (data.data.status && data.data.status !== currentUser.status) {
+            syncUpdates.status = data.data.status;
+            syncUpdates.cooldown_until = data.data.cooldown_until;
+            syncUpdates.cooldownUntil = data.data.cooldown_until;
+            syncUpdates.cooldown_reason = data.data.cooldown_reason;
+          }
+          if (Object.keys(syncUpdates).length > 0) {
+            authService.updateCurrentUser(syncUpdates);
+            setCurrentUser(prev => prev ? { ...prev, ...syncUpdates } : prev);
           }
         }
       })
@@ -562,10 +676,23 @@ export default function App() {
   }, []);
 
   // Thêm bài viết mới
-  const handleAddPost = (newPost) => {
+  const handleAddPost = (newPost, cooldown) => {
     if (!currentUser) {
       handleRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
       return;
+    }
+    if (cooldown) {
+      const cooldownData = {
+        status: 'cooldown',
+        cooldown_until: cooldown.cooldown_until,
+        cooldownUntil: cooldown.cooldown_until,
+        cooldown_reason: cooldown.cooldown_reason || cooldown.reason
+      };
+      authService.updateCurrentUser(cooldownData);
+      setCurrentUser(prev => ({
+        ...prev,
+        ...cooldownData
+      }));
     }
     const postId = String(newPost?.id || '');
     const alreadyAdded = !postId || createdPostIdsRef.current.has(postId);
@@ -671,11 +798,37 @@ export default function App() {
         content: newComment.content || '',
         imageUrl: newComment.image || null
       });
+      if (res.cooldown) {
+        const cooldownData = {
+          status: 'cooldown',
+          cooldown_until: res.cooldown.cooldown_until,
+          cooldownUntil: res.cooldown.cooldown_until,
+          cooldown_reason: res.cooldown.cooldown_reason || res.cooldown.reason
+        };
+        authService.updateCurrentUser(cooldownData);
+        setCurrentUser(prev => ({
+          ...prev,
+          ...cooldownData
+        }));
+      }
       const savedComment = res.data || newComment;
       setPosts(prev => prev.map(post => String(post.id) === String(postId)
         ? appendCreatedComment(post, savedComment)
         : post));
     } catch (err) {
+      if (err.cooldown) {
+        const cooldownData = {
+          status: 'cooldown',
+          cooldown_until: err.cooldown.cooldown_until,
+          cooldownUntil: err.cooldown.cooldown_until,
+          cooldown_reason: err.cooldown.cooldown_reason || err.cooldown.reason
+        };
+        authService.updateCurrentUser(cooldownData);
+        setCurrentUser(prev => ({
+          ...prev,
+          ...cooldownData
+        }));
+      }
       console.error('Lỗi lưu bình luận vào Supabase:', err);
     } finally {
       pendingCommentKeysRef.current.delete(commentKey);
@@ -690,8 +843,33 @@ export default function App() {
     setReportTarget(target);
   };
 
-  const handleSubmitReport = (reportData) => {
+  const handleSubmitReport = async (reportData) => {
+    // 1. Cập nhật state lạc quan (optimistic)
     setReports(prev => [reportData, ...prev]);
+
+    // 2. Lưu trực tiếp vào CSDL PostgreSQL thật
+    try {
+      const res = await createReportApi({
+        reporter: {
+          id: currentUser?.id || reportData.reporter?.id,
+          name: currentUser?.full_name || currentUser?.name || 'Người dùng'
+        },
+        targetType: reportData.targetType,
+        targetId: reportData.targetId,
+        targetAuthor: reportData.targetAuthor,
+        contentExcerpt: reportData.contentExcerpt || reportData.targetExcerpt,
+        reason: reportData.reason,
+        reasonLabel: reportData.reasonLabel,
+        details: reportData.details
+      }, currentUser?.id);
+
+      if (res?.data) {
+        setReports(prev => prev.map(r => r.id === reportData.id ? res.data : r));
+      }
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gửi báo cáo lên API CSDL:', err.message);
+    }
 
     // Gửi thông báo hệ thống xác nhận cho người báo cáo
     const notif = {
@@ -708,18 +886,140 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveReport = (reportId, status, adminNotes) => {
+  const handleResolveReport = async (reportId, resolution, legacyNotes) => {
+    // Chuẩn hóa tham số: hỗ trợ cả dạng object { status, newLabel, oldLabel, adminNotes } và dạng legacy
+    const status = typeof resolution === 'object' ? resolution.status : resolution;
+    const adminNotes = typeof resolution === 'object' ? resolution.adminNotes : legacyNotes;
+    const newLabel = typeof resolution === 'object' ? resolution.newLabel : 'Toxic';
+    const oldLabel = typeof resolution === 'object' ? resolution.oldLabel : 'Normal';
+
+    // 1. Cập nhật state danh sách báo cáo lạc quan
     setReports(prev => prev.map(r => {
       if (r.id === reportId) {
-        return { ...r, status, adminNotes };
+        return { 
+          ...r, 
+          status, 
+          adminNotes,
+          newLabel: status === 'resolved_violation' ? newLabel : (r.newLabel || oldLabel),
+          actionTaken: status === 'resolved_violation' ? 'relabel_and_hide' : 'dismissed_keep_original_label'
+        };
       }
       return r;
     }));
 
-    // Nếu xác nhận vi phạm -> Ẩn bài viết tương ứng (nếu là post)
     const report = reports.find(r => r.id === reportId);
-    if (report && report.targetType === 'post' && status === 'resolved_violation') {
-      setPosts(prev => prev.map(p => p.id === report.targetId ? { ...p, isHidden: true } : p));
+
+    // 2. PHÂN NHÁNH XỬ LÝ TRÊN FEED BÀI VIẾT:
+    if (status === 'resolved_violation') {
+      if (newLabel === 'Normal') {
+        // Chuyển về trạng thái bình thường: Khôi phục hiển thị & bỏ ẩn
+        if (report && report.targetType === 'post') {
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : p));
+        } else if (report && report.targetType === 'comment') {
+          setPosts(prev => prev.map(p => ({
+            ...p,
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: false, is_hidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : c)
+          })));
+        }
+
+        // Nghiệp vụ: Chuyển về Normal -> Gỡ toàn bộ án phạt cho tác giả nếu trùng currentUser
+        const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          setCurrentUser(prev => ({
+            ...prev,
+            status: 'active',
+            cooldownUntil: null,
+            cooldown_until: null,
+            cooldownReason: null,
+            cooldown_reason: null,
+            cooldownViolationText: null,
+            cooldown_violation_text: null
+          }));
+        }
+      } else {
+        // BÁO CÁO ĐÚNG: Gán lại nhãn vi phạm (Toxic / Hate Speech / Violence) & ẩn nội dung
+        if (report && report.targetType === 'post') {
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
+        } else if (report && report.targetType === 'comment') {
+          setPosts(prev => prev.map(p => ({
+            ...p,
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
+          })));
+        }
+
+        const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          if (newLabel === 'Violence') {
+            const cdUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'cooldown',
+              cooldownUntil: cdUntil,
+              cooldown_until: cdUntil,
+              cooldownReason: 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+              cooldown_reason: 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+              cooldownViolationText: report?.contentExcerpt,
+              cooldown_violation_text: report?.contentExcerpt
+            }));
+          } else {
+            // Chuyển sang Hate Speech hoặc Toxic -> Gỡ cooldown nếu từng bị cooldown do nhãn Violence cũ
+            setCurrentUser(prev => prev.status === 'cooldown' ? ({
+              ...prev,
+              status: 'active',
+              cooldownUntil: null,
+              cooldown_until: null,
+              cooldownReason: null,
+              cooldown_reason: null,
+              cooldownViolationText: null,
+              cooldown_violation_text: null
+            }) : prev);
+          }
+        }
+      }
+
+      // Tạo bản ghi trong Nhật ký hiệu chỉnh nhãn AI (aiOverrides) để xuất file
+      const newOverride = {
+        id: `ovr-${Date.now()}`,
+        adminName: currentUser?.full_name || currentUser?.name || 'Điều Hành Viên Hệ Thống',
+        contentType: report?.targetType || 'post',
+        contentId: report?.targetId || reportId,
+        rawText: report?.contentExcerpt || report?.targetExcerpt || report?.imageUrl || 'Nội dung vi phạm',
+        imageUrl: report?.imageUrl || null,
+        originalAiLabel: oldLabel || report?.aiStatus?.label || 'Normal',
+        correctedLabel: newLabel,
+        overrideReason: adminNotes || `Xác nhận vi phạm từ báo cáo (${report?.reasonLabel || report?.reason || 'Báo cáo vi phạm'}): Gán lại nhãn ${newLabel}`,
+        isExportedForRetraining: false,
+        createdAt: new Date().toLocaleString('vi-VN')
+      };
+      setAiOverrides(prev => [newOverride, ...prev]);
+
+      // Đồng bộ tới backend server CSDL thật
+      try {
+        await resolveReportApi({
+          reportId,
+          status,
+          newLabel,
+          oldLabel,
+          adminNotes,
+          userId: currentUser?.id
+        });
+        await loadModerationData();
+      } catch (e) {
+        console.warn('Lỗi gọi API resolveReportApi:', e.message);
+      }
+    } else {
+      // BÁO CÁO SAI: Giữ nguyên nhãn cũ, không ẩn nội dung!
+      try {
+        await resolveReportApi({
+          reportId,
+          status: 'dismissed',
+          adminNotes,
+          userId: currentUser?.id
+        });
+        await loadModerationData();
+      } catch (e) {
+        console.warn('Lỗi gọi API resolveReportApi:', e.message);
+      }
     }
   };
 
@@ -730,12 +1030,12 @@ export default function App() {
     setAppealItem(item);
   };
 
-  const handleSubmitAppeal = (appealData) => {
+  const handleSubmitAppeal = async (appealData) => {
     setAppeals(prev => [appealData, ...prev]);
 
     // Cập nhật trạng thái appeal trên bài viết
     setPosts(prev => prev.map(p => {
-      if (p.id === appealData.contentId) {
+      if (String(p.id) === String(appealData.contentId) || `post-${p.id}` === String(appealData.contentId)) {
         return {
           ...p,
           appeal: {
@@ -748,6 +1048,29 @@ export default function App() {
       }
       return p;
     }));
+
+    // Lưu vào CSDL PostgreSQL thật qua API
+    try {
+      const res = await createAppealApi({
+        user: {
+          id: currentUser?.id || appealData.user?.id,
+          name: currentUser?.full_name || currentUser?.name || 'Người dùng'
+        },
+        contentType: appealData.contentType,
+        contentId: appealData.contentId,
+        originalText: appealData.originalText,
+        aiPredictedLabel: appealData.aiPredictedLabel,
+        aiConfidence: appealData.aiConfidence,
+        aiActionTaken: appealData.aiActionTaken,
+        appealReason: appealData.appealReason
+      }, currentUser?.id);
+      if (res?.data) {
+        setAppeals(prev => prev.map(a => a.id === appealData.id ? res.data : a));
+      }
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gửi khiếu nại lên CSDL PostgreSQL:', err.message);
+    }
 
     // Thông báo cho user
     const notif = {
@@ -765,11 +1088,11 @@ export default function App() {
   };
 
   const handleResolveAppeal = async (appealId, status, adminNotes) => {
-    const appeal = appeals.find(a => a.id === appealId);
+    const appeal = appeals.find(a => String(a.id) === String(appealId));
     if (!appeal) return;
 
     // Cập nhật trạng thái đơn khiếu nại
-    setAppeals(prev => prev.map(a => a.id === appealId ? { ...a, status, adminNotes } : a));
+    setAppeals(prev => prev.map(a => String(a.id) === String(appealId) ? { ...a, status, adminNotes } : a));
 
     // Nếu chấp thuận khiếu nại (Minh oan False Positive):
     if (status === 'approved') {
@@ -777,7 +1100,7 @@ export default function App() {
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
-            if (c.id === appeal.contentId) {
+            if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
                 isHidden: false,
@@ -793,7 +1116,7 @@ export default function App() {
         }));
       } else {
         setPosts(prev => prev.map(p => {
-          if (p.id === appeal.contentId) {
+          if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
               isHidden: false,
@@ -837,7 +1160,7 @@ export default function App() {
       // 3. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
       const newOverride = {
         id: `ovr-${Date.now()}`,
-        adminName: `${currentUser?.name || 'Admin'} (Admin)`,
+        adminName: `${currentUser?.name || currentUser?.full_name || 'Admin'} (Admin)`,
         contentType: appeal.contentType || 'post',
         contentId: appeal.contentId,
         rawText: appeal.originalText,
@@ -868,7 +1191,7 @@ export default function App() {
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
-            if (c.id === appeal.contentId) {
+            if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
                 appeal: { ...c.appeal, status: 'rejected' }
@@ -880,7 +1203,7 @@ export default function App() {
         }));
       } else {
         setPosts(prev => prev.map(p => {
-          if (p.id === appeal.contentId) {
+          if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
               appeal: { ...p.appeal, status: 'rejected' }
@@ -889,6 +1212,19 @@ export default function App() {
           return p;
         }));
       }
+    }
+
+    // Gửi yêu cầu cập nhật lên CSDL PostgreSQL thật
+    try {
+      await resolveAppealApi({
+        appealId,
+        status,
+        adminNotes,
+        userId: currentUser?.id
+      });
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gọi resolveAppealApi:', err.message);
     }
   };
 
@@ -1159,6 +1495,10 @@ export default function App() {
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
             onSharePost={handleSharePost}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
           />
         )}
 
@@ -1195,9 +1535,11 @@ export default function App() {
               onResolveAppeal={handleResolveAppeal}
               reports={reports}
               onResolveReport={handleResolveReport}
+              aiOverrides={aiOverrides}
               posts={posts}
               onUnhidePost={(postId) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved' } : p))}
               currentUser={currentUser}
+              onRefresh={loadModerationData}
             />
           ) : (
             <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">

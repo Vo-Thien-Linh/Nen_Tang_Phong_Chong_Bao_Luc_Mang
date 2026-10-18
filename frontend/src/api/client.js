@@ -249,3 +249,64 @@ export async function updateUserSanctionApi({ targetUserId, action, durationDays
   });
 }
 
+export async function createReportApi(reportData, userId) {
+  const effectiveUserId = userId || reportData.reporter?.id;
+  return request('/api/reports', {
+    method: 'POST',
+    headers: effectiveUserId ? { 'x-user-id': effectiveUserId } : {},
+    body: JSON.stringify(reportData),
+  });
+}
+
+export async function fetchReportsList(userId) {
+  return request('/api/reports', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function resolveReportApi({ reportId, status, newLabel, oldLabel, adminNotes, userId }) {
+  return request(`/api/reports/${reportId}`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ status, newLabel, oldLabel, adminNotes }),
+  });
+}
+
+export async function fetchAppealsList(userId) {
+  return request('/api/appeals', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function createAppealApi(appealData, userId) {
+  const effectiveUserId = userId || appealData.user?.id;
+  return request('/api/appeals', {
+    method: 'POST',
+    headers: effectiveUserId ? { 'x-user-id': effectiveUserId } : {},
+    body: JSON.stringify(appealData),
+  });
+}
+
+export async function resolveAppealApi({ appealId, status, adminNotes, userId }) {
+  return request(`/api/appeals/${appealId}`, {
+    method: 'PATCH',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ status, adminNotes }),
+  });
+}
+
+export async function fetchAiOverridesList(userId) {
+  return request('/api/admin/ai-overrides', {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function createAiOverrideApi({ data, userId }) {
+  return request('/api/admin/override-ai-label', {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify(data),
+  });
+}
+
+

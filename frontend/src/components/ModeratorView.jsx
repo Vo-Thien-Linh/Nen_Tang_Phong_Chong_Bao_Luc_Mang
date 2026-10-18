@@ -3,16 +3,20 @@ import {
   AlertTriangle, FileText, MessageSquare, 
   Search, EyeOff, ArrowLeft, CheckCircle2,
   XCircle, Clock, ShieldAlert, Check, X,
-  User, RefreshCw, Eye, Scale, Sparkles
+  User, RefreshCw, Eye, Scale, Sparkles,
+  FileSpreadsheet, Download
 } from 'lucide-react';
 import VerifiedBadge from './VerifiedBadge';
+import ReportResolutionModal from './ReportResolutionModal';
+import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
 
 /**
  * Khu vực Kiểm duyệt nội dung (Moderator View)
  * Bao gồm:
- * 1. Báo cáo (reports) - Danh sách báo cáo vi phạm & xử lý
+ * 1. Báo cáo (reports) - Danh sách báo cáo vi phạm & xử lý (Báo cáo sai -> giữ nhãn; Báo cáo đúng -> gắn lại nhãn)
  * 2. Khiếu nại (appeals) - Xem xét lại phán quyết AI & minh oan (gỡ án phạt ngay lập tức)
  * 3. Nội dung bị ẩn (hidden content) - Giám sát và khôi phục bài viết / bình luận bị ẩn
+ * 4. Nhật ký gán nhãn & Xuất file (overrides) - Xuất danh sách nhãn sai ra CSV / Excel
  */
 export default function ModeratorView({
   onBackToAdmin,
@@ -21,15 +25,30 @@ export default function ModeratorView({
   onResolveAppeal,
   reports = [],
   onResolveReport,
+  aiOverrides = [],
   posts = [],
   onUnhidePost,
-  currentUser
+  currentUser,
+  onRefresh
 }) {
-  const [activeTab, setActiveTab] = useState('appeals'); // 'reports' | 'appeals' | 'hidden-content'
+  const [activeTab, setActiveTab] = useState('appeals'); // 'reports' | 'appeals' | 'hidden-content' | 'overrides'
   const [appealFilter, setAppealFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
   const [hiddenContentSubTab, setHiddenContentSubTab] = useState('posts'); // 'posts' | 'comments'
   const [searchQuery, setSearchQuery] = useState('');
   const [resolvingId, setResolvingId] = useState(null);
+  const [selectedReportForResolve, setSelectedReportForResolve] = useState(null);
+  const [isResolvingReport, setIsResolvingReport] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleManualRefresh = async () => {
+    if (!onRefresh) return;
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   // Lọc danh sách khiếu nại
   const filteredAppeals = appeals.filter(a => {
@@ -140,16 +159,31 @@ export default function ModeratorView({
           </p>
         </div>
 
-        {/* Thanh tìm kiếm */}
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm theo nội dung, tác giả..."
-            className="w-full h-9 pl-9 pr-3 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 transition"
-          />
+        {/* Nút làm mới CSDL & Thanh tìm kiếm */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="h-9 px-3 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60 shrink-0"
+              title="Tải lại toàn bộ dữ liệu mới nhất từ CSDL PostgreSQL"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>{isRefreshing ? 'Đang tải...' : 'Làm mới CSDL'}</span>
+            </button>
+          )}
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm theo nội dung, tác giả..."
+              className="w-full h-9 pl-9 pr-3 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 transition"
+            />
+          </div>
         </div>
       </div>
 
@@ -202,6 +236,23 @@ export default function ModeratorView({
           {(hiddenPosts.length + hiddenComments.length) > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-200 text-slate-700">
               {hiddenPosts.length + hiddenComments.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('overrides')}
+          className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${
+            activeTab === 'overrides'
+              ? 'border-blue-600 text-blue-600 font-semibold'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          <span>Nhật ký gán nhãn &amp; Xuất file</span>
+          {aiOverrides.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
+              {aiOverrides.length}
             </span>
           )}
         </button>
@@ -342,7 +393,18 @@ export default function ModeratorView({
                         </div>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-md border border-slate-200 text-xs text-slate-800 italic leading-relaxed">
-                        "{appeal.originalText || '[Không có nội dung văn bản]'}"
+                        <p>"{appeal.originalText || '[Không có nội dung văn bản]'}"</p>
+                        {appeal.imageUrl && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
+                            <img
+                              src={appeal.imageUrl}
+                              alt="Hình ảnh đính kèm"
+                              className="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90"
+                              onClick={() => window.open(appeal.imageUrl, '_blank')}
+                            />
+                            <span className="text-[11px] text-slate-500 font-medium">Hình ảnh đính kèm trong khiếu nại (bấm để xem ảnh gốc)</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -402,14 +464,25 @@ export default function ModeratorView({
         {/* TAB 2: BÁO CÁO (REPORTS) */}
         {activeTab === 'reports' && (
           <div className="bg-white border border-slate-200 rounded-lg p-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Danh sách báo cáo vi phạm</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Các mục do người dùng gắn cờ chờ xử lý.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Xử lý báo cáo từ thành viên: Báo cáo sai (giữ nguyên nhãn), Báo cáo đúng (gán lại nhãn Toxic, Hate Speech, Violence).</p>
               </div>
-              <span className="text-xs text-slate-500">
-                {reports.length} báo cáo
-              </span>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => exportOverrideLogsToCSV(aiOverrides)}
+                  className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                  title="Xuất file CSV chuẩn UTF-8 BOM mở bằng Excel"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Xuất file (CSV / Excel)</span>
+                </button>
+                <span className="text-xs text-slate-500">
+                  {reports.length} báo cáo
+                </span>
+              </div>
             </div>
 
             {reports.length === 0 ? (
@@ -434,27 +507,65 @@ export default function ModeratorView({
                       </div>
                       <span className="text-[11px] text-slate-400">{report.createdAt || 'Vừa xong'}</span>
                     </div>
-                    {report.targetExcerpt && (
+                    {(report.targetExcerpt || report.imageUrl) && (
                       <div className="p-3 bg-slate-50 rounded text-xs text-slate-700 italic border border-slate-200">
-                        "{report.targetExcerpt}"
+                        {report.targetExcerpt && <p>"{report.targetExcerpt}"</p>}
+                        {report.imageUrl && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
+                            <img
+                              src={report.imageUrl}
+                              alt="Hình ảnh vi phạm"
+                              className="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90"
+                              onClick={() => window.open(report.imageUrl, '_blank')}
+                            />
+                            <span className="text-[11px] text-slate-500 font-medium">Hình ảnh đính kèm trong báo cáo (bấm để xem ảnh gốc)</span>
+                          </div>
+                        )}
                       </div>
                     )}
-                    {report.status === 'pending' && onResolveReport && (
+                    {report.status === 'pending' ? (
                       <div className="flex items-center gap-2 justify-end pt-1">
                         <button
                           type="button"
-                          onClick={() => onResolveReport(report.id, 'dismissed', 'Báo cáo không có căn cứ.')}
-                          className="h-7 px-2.5 text-xs rounded border border-slate-200 hover:bg-slate-50 text-slate-700"
+                          onClick={() => setSelectedReportForResolve(report)}
+                          className="h-8 px-3.5 text-xs rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                         >
-                          Bỏ qua
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          <span>Xử lý báo cáo</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => onResolveReport(report.id, 'resolved_violation', 'Xác nhận vi phạm tiêu chuẩn.')}
-                          className="h-7 px-2.5 text-xs rounded bg-rose-600 hover:bg-rose-700 text-white font-medium"
-                        >
-                          Xử lý vi phạm
-                        </button>
+                      </div>
+                    ) : (
+                      <div className="pt-1">
+                        {report.status === 'resolved_violation' && (
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-rose-50 border border-rose-200 rounded-md text-xs text-rose-800">
+                            <div className="flex items-center gap-1.5">
+                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>
+                                <strong>Báo cáo ĐÚNG:</strong> Đã xác nhận vi phạm &amp; gán lại nhãn <strong className="uppercase underline">{report.newLabel || 'Toxic'}</strong>
+                              </span>
+                            </div>
+                            {report.adminNotes && (
+                              <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
+                                Ghi chú: {report.adminNotes}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {report.status === 'dismissed' && (
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-xs text-emerald-800">
+                            <div className="flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>
+                                <strong>Báo cáo SAI:</strong> Bác bỏ báo cáo &amp; giữ nguyên nhãn ban đầu (<strong>{report.oldLabel || 'Normal'}</strong>)
+                              </span>
+                            </div>
+                            {report.adminNotes && (
+                              <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
+                                Ghi chú: {report.adminNotes}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -598,7 +709,157 @@ export default function ModeratorView({
             )}
           </div>
         )}
+
+        {/* TAB 4: NHẬT KÝ HIỆU CHỈNH NHÃN & XUẤT FILE */}
+        {activeTab === 'overrides' && (
+          <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <FileSpreadsheet className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Nhật ký hiệu chỉnh nhãn AI &amp; Xuất dữ liệu
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Lưu vết toàn bộ các câu văn, hình ảnh được Quản trị viên/Điều hành viên hiệu chỉnh lại nhãn từ báo cáo vi phạm hoặc khiếu nại.
+                </p>
+              </div>
+
+              {/* Nút hành động Xuất File */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <a
+                  href={`/api/admin/ai-overrides/export-excel${currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : ''}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="h-9 px-3.5 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
+                  title="Tải trực tiếp file Excel (.xlsx) qua API Backend từ CSDL"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Tải từ Máy chủ</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => exportOverrideLogsToCSV(aiOverrides)}
+                  className="h-9 px-3 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                  title="Xuất file định dạng CSV UTF-8 BOM"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Xuất CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportOverrideLogsToExcel(aiOverrides)}
+                  className="h-9 px-4 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition cursor-pointer flex items-center gap-2"
+                  title="Xuất trực tiếp file Excel (.xlsx) chuẩn cột A -> H"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Xuất file (Excel .xlsx)</span>
+                </button>
+              </div>
+            </div>
+
+            {aiOverrides.length === 0 ? (
+              <div className="py-12 text-center">
+                <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+                  <FileSpreadsheet className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-800">Chưa có bản ghi hiệu chỉnh nào</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Khi bạn duyệt báo cáo đúng và gán lại nhãn mới, các bản ghi sẽ tự động xuất hiện tại đây để bạn xuất file Excel / CSV.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                      <th className="py-3 px-3 w-16 text-center">A: STT</th>
+                      <th className="py-3 px-4 min-w-[240px]">B: Nội dung câu / Hình ảnh gắn nhãn sai</th>
+                      <th className="py-3 px-3 w-28">C: Nhãn cũ</th>
+                      <th className="py-3 px-3 w-28">D: Nhãn mới</th>
+                      <th className="py-3 px-3 w-28">E: Loại nội dung</th>
+                      <th className="py-3 px-4 min-w-[180px]">F: Lý do hiệu chỉnh / Ghi chú</th>
+                      <th className="py-3 px-3 w-32">G: Người thực hiện</th>
+                      <th className="py-3 px-3 w-32">H: Thời gian ghi nhận</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {aiOverrides.map((log, index) => (
+                      <tr key={log.id || index} className="hover:bg-slate-50/70 transition">
+                        <td className="py-3 px-3 text-center font-medium text-slate-500">
+                          {index + 1}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1">
+                            <p className="text-slate-900 font-medium line-clamp-2">
+                              "{log.rawText || log.content || '(Không có nội dung)'}"
+                            </p>
+                            {log.imageUrl && (
+                              <a 
+                                href={log.imageUrl} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 font-mono"
+                              >
+                                <span>[Link hình ảnh đính kèm]</span>
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            {log.originalAiLabel || 'Normal'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3">
+                          {getLabelBadge(log.correctedLabel || 'Toxic')}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className="text-[11px] text-slate-600 font-medium">
+                            {log.contentType === 'post' ? 'Bài viết' : log.contentType === 'comment' ? 'Bình luận' : 'Khác'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 text-[11px]">
+                          {log.overrideReason || log.adminNotes || 'Xử lý báo cáo vi phạm'}
+                        </td>
+                        <td className="py-3 px-3 text-slate-700 font-medium">
+                          {log.adminName || 'Điều Hành Viên'}
+                        </td>
+                        <td className="py-3 px-3 text-[11px] text-slate-400">
+                          {log.createdAt || 'Gần đây'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* MODAL XỬ LÝ BÁO CÁO VI PHẠM (Báo cáo sai -> giữ nhãn; Báo cáo đúng -> gán lại nhãn) */}
+      <ReportResolutionModal
+        isOpen={Boolean(selectedReportForResolve)}
+        report={selectedReportForResolve}
+        onClose={() => setSelectedReportForResolve(null)}
+        isSubmitting={isResolvingReport}
+        onConfirmResolve={async (reportId, resolutionData) => {
+          setIsResolvingReport(true);
+          try {
+            if (onResolveReport) {
+              await onResolveReport(reportId, resolutionData);
+            }
+            setSelectedReportForResolve(null);
+          } finally {
+            setIsResolvingReport(false);
+          }
+        }}
+      />
     </div>
   );
 }
+

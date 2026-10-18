@@ -1,5 +1,6 @@
 import { realtimeService } from '../services/realtimeService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
+import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -59,10 +60,22 @@ export function mapPostToResponse(post) {
         id: c.author?.id,
         name: c.author?.name || c.full_name || 'Người dùng',
         avatar: c.author?.avatar || c.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+        isVerified: Boolean(c.author?.isVerified || c.author?.is_verified),
+        is_verified: Boolean(c.author?.isVerified || c.author?.is_verified),
       },
       content: c.content,
       image: c.image || c.image_url || null,
       imageModeration: c.imageModeration || null,
+      image_label: c.image_label || c.imageLabel || null,
+      imageLabel: c.image_label || c.imageLabel || null,
+      is_hidden: Boolean(c.is_hidden || c.isHidden),
+      isHidden: Boolean(c.is_hidden || c.isHidden),
+      is_soft_hidden: Boolean(c.is_soft_hidden || c.isSoftHidden),
+      isSoftHidden: Boolean(c.is_soft_hidden || c.isSoftHidden),
+      ai_label: c.ai_label || c.aiLabel || 'Normal',
+      aiLabel: c.ai_label || c.aiLabel || 'Normal',
+      ai_status: c.ai_status || c.aiStatus || 'approved',
+      aiStatus: c.ai_status || c.aiStatus || 'approved',
       time: formatRelativeTime(c.created_at),
       createdAt: c.created_at,
     })),
@@ -72,6 +85,9 @@ export function mapPostToResponse(post) {
       status: post.ai_status || 'approved',
     },
     moderationStatus: post.ai_status || 'approved',
+    ai_label: post.ai_label || 'Normal',
+    aiLabel: post.ai_label || 'Normal',
+    ai_status: post.ai_status || 'approved',
     // Thông tin bài gốc nếu đây là bài chia sẻ
     originalPost: post.original_post
       ? {
@@ -106,7 +122,7 @@ export function createPostsController({ postService, postRepository, imageModera
         });
 
         const mappedPost = mapPostToResponse(post);
-        if (!['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
+        if (mappedPost.ai_status !== 'hidden' && !['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
           realtimeService.broadcast({
             type: 'POST_CREATED',
             post: mappedPost,
@@ -115,10 +131,20 @@ export function createPostsController({ postService, postRepository, imageModera
 
         res.status(201).json({
           success: true,
-          message: 'Đăng bài thành công',
+          message: mappedPost.ai_status === 'hidden'
+            ? 'Bài viết đã được tạo nhưng bị ẩn do vi phạm tiêu chuẩn cộng đồng.'
+            : 'Đăng bài thành công',
           data: mappedPost,
+          cooldown: post.cooldown || null,
         });
       } catch (error) {
+        if (error.cooldown) {
+          return res.status(403).json({
+            success: false,
+            message: error.message,
+            cooldown: error.cooldown,
+          });
+        }
         next(error);
       }
     },
@@ -214,36 +240,9 @@ export function createPostsController({ postService, postRepository, imageModera
         }
 
         const normalizedContent = (content || '').trim();
-        const textMod = await moderateTextContent(normalizedContent);
-
-        let isHidden = false;
-        let isSoftHidden = false;
-        let aiStatus = 'approved';
-
-        if (textMod.label === 'Toxic') {
-          isSoftHidden = true;
-          isHidden = false;
-          aiStatus = 'approved';
-        } else if (textMod.label === 'Hate Speech') {
-          isHidden = true;
-          isSoftHidden = false;
-          aiStatus = 'hidden';
-        } else if (textMod.label === 'Violence') {
-          isHidden = true;
-          isSoftHidden = false;
-          aiStatus = 'hidden';
-
-          if (postRepository.pool) {
-            const d = new Date();
-            d.setHours(d.getHours() + 24);
-            await postRepository.pool.query(
-              `UPDATE users
-               SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực trong bình luận', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
-               WHERE id = $3`,
-              [d.toISOString(), normalizedContent, req.user.id]
-            );
-          }
-        }
+        const textMod = normalizedContent
+          ? await moderateTextContent(normalizedContent)
+          : { label: 'Normal', confidence: 1.0 };
 
         const imageModeration = imageUrl && imageModerationClient
           ? await imageModerationClient(imageUrl)
@@ -252,17 +251,69 @@ export function createPostsController({ postService, postRepository, imageModera
           ? { ...imageModeration, decision: 'rejected_hold', moderationExpiresAt: new Date(Date.now() + Number(imageModeration.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
           : imageModeration;
 
+        // Kết hợp hài hoà kiểm duyệt ngôn từ và hình ảnh (NSFW -> Toxic, Violence -> Violence)
+        const harmonized = harmonizeModeration({
+          textMod,
+          imageModeration: heldModeration,
+          contentType: 'comment',
+        });
+
+        // Áp dụng Cooldown 10 phút nếu vi phạm Bạo lực -> VÔ HIỆU HÓA & CHẶN BÌNH LUẬN LUÔN
+        if (harmonized.applyCooldown) {
+          const d = new Date(Date.now() + harmonized.cooldownMinutes * 60 * 1000);
+          if (postRepository.pool) {
+            await postRepository.pool.query(
+              `UPDATE users
+               SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực trong bình luận', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [d.toISOString(), normalizedContent || '[Hình ảnh bạo lực]', req.user.id]
+            );
+            if (harmonized.notificationMessage) {
+              try {
+                await postRepository.pool.query(
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+                   VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+                  [req.user.id, req.user.id, harmonized.notificationMessage, postId]
+                );
+              } catch (err) {}
+            }
+          }
+          const commentCooldown = {
+            status: 'cooldown',
+            cooldown_until: d.toISOString(),
+            cooldown_reason: 'Vi phạm bạo lực trong bình luận',
+          };
+          return res.status(403).json({
+            success: false,
+            message: 'Bình luận vi phạm tiêu chuẩn bạo lực. Bình luận đã bị chặn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.',
+            cooldown: commentCooldown,
+          });
+        }
+
+        // Tự động gửi thông báo kiểm duyệt về tài khoản khi bình luận bị ẩn (Hate Speech hoặc Violence)
+        if (postRepository.pool && harmonized.notificationMessage) {
+          try {
+            await postRepository.pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+              [req.user.id, req.user.id, harmonized.notificationMessage, postId]
+            );
+          } catch (err) {
+            console.error('Lỗi gửi thông báo kiểm duyệt comment:', err.message);
+          }
+        }
+
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
           content: normalizedContent,
           imageUrl: imageUrl || null,
           imageModeration: heldModeration,
-          aiLabel: textMod.label,
-          aiConfidence: textMod.confidence,
-          isHidden,
-          isSoftHidden,
-          aiStatus,
+          aiLabel: harmonized.finalLabel,
+          aiConfidence: harmonized.confidence,
+          isHidden: harmonized.isHidden,
+          isSoftHidden: harmonized.isSoftHidden,
+          aiStatus: harmonized.aiStatus,
         });
 
         const commentData = {
@@ -293,7 +344,7 @@ export function createPostsController({ postService, postRepository, imageModera
           createdAt: comment.created_at,
         };
 
-        if (!isHidden && !['pending_review', 'rejected_hold'].includes(commentData.imageModeration?.status)) {
+        if (!harmonized.isHidden && !['pending_review', 'rejected_hold'].includes(commentData.imageModeration?.status)) {
           realtimeService.broadcast({
             type: 'COMMENT_CREATED',
             postId: String(postId),
@@ -301,10 +352,19 @@ export function createPostsController({ postService, postRepository, imageModera
           });
         }
 
+        const commentCooldown = harmonized.applyCooldown ? {
+          status: 'cooldown',
+          cooldown_until: new Date(Date.now() + harmonized.cooldownMinutes * 60 * 1000).toISOString(),
+          cooldown_reason: 'Vi phạm bạo lực trong bình luận',
+        } : null;
+
         res.status(201).json({
           success: true,
-          message: 'Bình luận thành công',
+          message: harmonized.isHidden
+            ? 'Bình luận đã được ghi nhận nhưng bị ẩn do vi phạm tiêu chuẩn cộng đồng.'
+            : 'Bình luận thành công',
           data: commentData,
+          cooldown: commentCooldown,
         });
       } catch (error) {
         next(error);

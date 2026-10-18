@@ -10,7 +10,12 @@ export function incrementPostCountOnce(user, newPost, alreadyAdded) {
 
 export function appendCreatedComment(post, comment) {
   if (!post || !comment || (post.comments || []).some((item) => String(item.id) === String(comment.id))) return post;
-  return { ...post, comments: [...(post.comments || []), comment], commentsCount: Number(post.commentsCount || 0) + 1 };
+  const isHidden = Boolean(comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden');
+  return {
+    ...post,
+    comments: [...(post.comments || []), comment],
+    commentsCount: isHidden ? Number(post.commentsCount || 0) : Number(post.commentsCount || 0) + 1,
+  };
 }
 
 export function canStartCreation(isPending) {

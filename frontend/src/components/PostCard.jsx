@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, 
+  MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, Reply, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
   Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles
 } from 'lucide-react';
@@ -134,12 +134,59 @@ export default function PostCard({
   const [commentImageFile, setCommentImageFile] = useState(null);
   const [commentImagePreview, setCommentImagePreview] = useState('');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const commentInputRef = useRef(null);
+
+  const handleReplyToComment = (targetComment) => {
+    if (isBanned || isCooldown) return;
+    if (!currentUser && onRequireAuth) {
+      onRequireAuth("Vui lòng đăng nhập để trả lời bình luận");
+      return;
+    }
+    const authorName = targetComment.author?.name || 'Người dùng';
+    setReplyingTo({ id: targetComment.id, authorName });
+    const mentionTag = `@${authorName} `;
+    if (!commentText.startsWith(mentionTag)) {
+      setCommentText(mentionTag + (commentText ? commentText.replace(/^@[\w\s\u00C0-\u1EF9]+ /, '') : ''));
+    }
+    setTimeout(() => {
+      commentInputRef.current?.focus();
+    }, 50);
+  };
   const [unblurredComments, setUnblurredComments] = useState({});
   const [unblurredPosts, setUnblurredPosts] = useState({});
   const [revealedComments, setRevealedComments] = useState({});
+  const [revealedSensitivePost, setRevealedSensitivePost] = useState(false);
   const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
   const isBanned = currentUser?.status === 'banned';
-  const isCooldown = currentUser?.status === 'cooldown' && currentUser?.cooldown_until && new Date(currentUser.cooldown_until) > new Date();
+  const cooldownVal = currentUser?.cooldown_until || currentUser?.cooldownUntil;
+  const cooldownUntil = cooldownVal ? new Date(cooldownVal) : null;
+  const isCooldown = (currentUser?.status === 'cooldown' || Boolean(cooldownUntil && cooldownUntil > new Date())) && Boolean(cooldownUntil && cooldownUntil > new Date());
+  const [cooldownRemainingStr, setCooldownRemainingStr] = useState('');
+
+  useEffect(() => {
+    if (!isCooldown || !cooldownUntil) {
+      setCooldownRemainingStr('');
+      return;
+    }
+    const updateCountdown = () => {
+      const now = new Date();
+      const diff = cooldownUntil - now;
+      if (diff <= 0) {
+        setCooldownRemainingStr('0 giây (đã hết hạn)');
+        return;
+      }
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      if (hours > 0) setCooldownRemainingStr(`${hours} giờ ${minutes} phút ${seconds} giây`);
+      else if (minutes > 0) setCooldownRemainingStr(`${minutes} phút ${seconds} giây`);
+      else setCooldownRemainingStr(`${seconds} giây`);
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isCooldown, cooldownVal]);
   const commentFileInputRef = useRef(null);
   const commentSubmitLockRef = useRef(false);
   useEffect(() => {
@@ -505,6 +552,7 @@ export default function PostCard({
     });
 
     setCommentText('');
+    setReplyingTo(null);
     handleRemoveCommentImage();
     commentSubmitLockRef.current = false;
   };
@@ -575,11 +623,15 @@ export default function PostCard({
   if (post.imageModeration?.status === 'rejected_hold' && holdRemaining === 0) return null;
 
   // Nếu bài viết bị ẩn cứng (Hate Speech hoặc Bạo lực)
-  const isPostAuthor = currentUser && (currentUser.id === post.author_id || currentUser.id === post.author?.id);
-  const canViewHiddenPost = isPostAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const isAuthor = Boolean(currentUser && (currentUser.id === post.author_id || currentUser.id === post.author?.id));
+  const isPostAuthor = isAuthor;
+  const canViewHiddenPost = isAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   if (post.ai_status === 'hidden' && !canViewHiddenPost) {
     return null;
   }
+  const isToxicText = (post.ai_label === 'Toxic' || post.aiLabel === 'Toxic' || post.aiStatus?.label === 'Toxic') && post.ai_status !== 'hidden';
+  const isNsfwImage = (post.imageModeration?.status === 'sensitive' || post.image_label === 'NSFW' || post.imageLabel === 'NSFW' || post.image_moderation_status === 'sensitive') && post.ai_status !== 'hidden';
+  const isSensitivePost = isToxicText || isNsfwImage;
 
   return (
     <div 
@@ -595,22 +647,26 @@ export default function PostCard({
             <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
             <div>
               <span className="font-bold text-rose-800">Bài viết đã bị ẩn:</span> vi phạm tiêu chuẩn ({post.ai_label || 'Ngôn từ thù địch / Bạo lực'})
-              <div className="text-[11px] text-rose-700/80">Bài viết chỉ hiển thị với riêng bạn. Bạn có thể gửi kháng cáo để được xem xét lại.</div>
+              <div className="text-[11px] text-rose-700/80">Bài viết chỉ hiển thị với riêng bạn. {isAuthor ? 'Bạn có thể gửi kháng cáo để được xem xét lại.' : ''}</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenAppealModal && onOpenAppealModal({
-              targetType: 'post',
-              targetId: post.id,
-              targetAuthor: post.author || { id: post.author_id, name: post.full_name },
-              contentExcerpt: post.content || '[Hình ảnh]'
-            })}
-            className="px-2.5 py-1 rounded bg-white border border-rose-300 hover:bg-rose-100 text-rose-700 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-xs"
-          >
-            <Scale className="w-3.5 h-3.5" />
-            <span>Kháng cáo</span>
-          </button>
+          {isAuthor && (
+            <button
+              type="button"
+              onClick={() => onOpenAppealModal && onOpenAppealModal({
+                targetType: 'post',
+                targetId: post.id,
+                targetAuthor: post.author || { id: post.author_id, name: post.full_name },
+                contentExcerpt: post.content || (post.image ? '[Hình ảnh]' : ''),
+                imageUrl: post.image || null,
+                aiStatus: post.aiStatus || { label: post.ai_label || 'Violence', confidence: 0.95, action: 'hide' }
+              })}
+              className="px-2.5 py-1 rounded bg-white border border-rose-300 hover:bg-rose-100 text-rose-700 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-xs"
+            >
+              <Scale className="w-3.5 h-3.5" />
+              <span>Kháng cáo</span>
+            </button>
+          )}
         </div>
       )}
       
@@ -725,6 +781,31 @@ export default function PostCard({
                     <span>Xóa bài viết</span>
                   </button>
                 )}
+
+                {/* Khiếu nại kiểm duyệt AI - CHỈ DÀNH CHO CHÍNH CHỦ TÁC GIẢ KHI BÀI VIẾT BỊ GẮN NHÃN SAI */}
+                {isAuthor && (post.ai_label !== 'Normal' || post.aiStatus?.label !== 'Normal') && (
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      closePostMenu();
+                      if (onOpenAppealModal) {
+                        onOpenAppealModal({
+                          ...post,
+                          targetType: 'post',
+                          targetId: post.id,
+                          targetAuthor: post.author || { id: post.author_id, name: post.full_name },
+                          contentExcerpt: post.content || (post.image ? '[Hình ảnh]' : ''),
+                          imageUrl: post.image || null,
+                          aiStatus: post.aiStatus
+                        });
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-left text-amber-700 hover:bg-amber-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                  >
+                    <Scale className="w-4 h-4 text-amber-600" />
+                    <span>Khiếu nại kiểm duyệt AI</span>
+                  </button>
+                )}
                 <button
                   role="menuitem"
                   onClick={() => {
@@ -734,7 +815,8 @@ export default function PostCard({
                         targetType: 'post',
                         targetId: post.id,
                         targetAuthor: post.author,
-                        contentExcerpt: post.content,
+                        contentExcerpt: post.content || (post.image ? '[Hình ảnh]' : ''),
+                        imageUrl: post.image || null,
                         aiStatus: post.aiStatus
                       });
                     }
@@ -750,93 +832,101 @@ export default function PostCard({
         </div>
       </div>
 
-      {/* Banner AI Warning & Nút Khiếu Nại (Appeal False Positive) */}
-      {post.aiStatus && post.aiStatus.label !== 'Normal' && (
-        <div className="mx-4 sm:mx-5 mb-3 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-900">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>
-              Bài viết bị AI phân loại là <strong className="font-bold">{post.aiStatus.label}</strong> ({((post.aiStatus.confidence || 0.9) * 100).toFixed(0)}%).
-              {post.appeal?.status === 'pending' && " Đang chờ Admin duyệt khiếu nại."}
-              {post.appeal?.status === 'approved' && " Đã minh oan: AI phán đoán sai ngữ cảnh!"}
-            </span>
-          </div>
 
-          {post.appeal?.status === 'pending' ? (
-            <span className="px-2.5 py-1 rounded-lg bg-amber-200 text-amber-900 font-bold text-[11px] shrink-0">
-              Đang khiếu nại...
-            </span>
-          ) : post.appeal?.status === 'approved' ? (
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px] shrink-0">
-              Đã minh oan
-            </span>
-          ) : (
-            <button
-              onClick={() => onOpenAppealModal && onOpenAppealModal(post)}
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
-            >
-              <Scale className="w-3.5 h-3.5" />
-              <span>Khiếu nại AI gắn nhãn sai</span>
-            </button>
-          )}
+
+      {/* KHUNG CẢNH BÁO NỘI DUNG NHẠY CẢM HỢP NHẤT (Twitter / Reddit style) */}
+      {isSensitivePost && !revealedSensitivePost ? (
+        <div className="mx-4 sm:mx-5 my-3.5 p-6 bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-800/40 rounded-2xl flex flex-col items-center justify-center text-center gap-3.5 shadow-2xs">
+          <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-xs">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div className="max-w-md">
+            <h4 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-100">
+              Cảnh báo: Nội dung nhạy cảm
+            </h4>
+            <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1 leading-relaxed">
+              {isToxicText && isNsfwImage
+                ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
+                : isNsfwImage
+                ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
+                : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRevealedSensitivePost(true)}
+            className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
+          >
+            <Eye className="w-4 h-4" />
+            <span>Xem toàn bộ bài viết</span>
+          </button>
         </div>
-      )}
-
-      {/* Nội dung bài viết */}
-      <div className="px-4 sm:px-5 pb-3">
-        {post.imageModeration?.status === 'sensitive' && post.author?.id === currentUser?.id && (
-          <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-            <span>{moderationViolationNotice('post')}</span>
-            <button type="button" disabled title="Sắp ra mắt" className="ml-3 rounded bg-slate-300 px-2 py-1 text-[11px] text-slate-600">Kháng cáo</button>
-          </div>
-        )}
-        {post.imageModeration?.status === 'pending_review' && post.author?.id === currentUser?.id && (
-          <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Đang chờ quản trị viên duyệt</div>
-        )}
-        {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
-          <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
-              <span>{moderationViolationNotice('post')}. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
-            <button type="button" onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white">Kháng cáo</button>
-          </div>
-        )}
-        {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
-          <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-            Trạng thái: {post.moderationStatus}
-          </span>
-        )}
-        <p className="text-slate-800 text-sm sm:text-base leading-relaxed whitespace-pre-line break-words">
-          {post.content}
-        </p>
-
-        {/* Tags */}
-        {post.tags && post.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2.5">
-            {post.tags.map((tag, idx) => (
-              <span key={idx} className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
-                #{tag}
+      ) : (
+        <>
+          {/* Nội dung bài viết */}
+          <div className="px-4 sm:px-5 pb-3">
+            {post.imageModeration?.status === 'pending_review' && post.author?.id === currentUser?.id && (
+              <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Đang chờ quản trị viên duyệt</div>
+            )}
+            {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
+              <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
+                  <span>{moderationViolationNotice('post')}. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
+                <button type="button" onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white">Kháng cáo</button>
+              </div>
+            )}
+            {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
+              <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                Trạng thái: {post.moderationStatus}
               </span>
-            ))}
-          </div>
-        )}
-      </div>
+            )}
+            
+            {/* Thanh cảnh báo nhỏ khi đang xem bài viết nhạy cảm */}
+            {isSensitivePost && revealedSensitivePost && (
+              <div className="flex items-center justify-between text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50/90 dark:bg-amber-950/40 px-3.5 py-1.5 rounded-xl border border-amber-200/70 dark:border-amber-800/40 mb-3">
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  Đang hiển thị nội dung nhạy cảm ({isToxicText && isNsfwImage ? 'Toxic & NSFW' : isNsfwImage ? 'NSFW' : 'Toxic'})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRevealedSensitivePost(false)}
+                  className="hover:underline flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-100 cursor-pointer text-[10px]"
+                >
+                  <EyeOff className="w-3 h-3" />
+                  <span>Ẩn lại</span>
+                </button>
+              </div>
+            )}
 
-      {/* Ảnh bài viết (nếu có) */}
-      {post.image && (
-        <div className="min-w-0 w-full bg-slate-100 border-y border-slate-100 flex items-center justify-center relative">
-          <img 
-            src={post.image} 
-            alt="Ảnh đính kèm bài viết" 
-            loading="lazy"
-            decoding="async"
-            className={`block h-auto max-h-[75vh] w-full object-contain ${post.imageModeration?.status === 'sensitive' && !unblurredPosts[post.id] ? 'blur-xl scale-105' : ''}`}
-          />
-          {post.imageModeration?.status === 'sensitive' && !unblurredPosts[post.id] && (
-            <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center text-white gap-2">
-              <span className="font-semibold">Nội dung nhạy cảm</span>
-              <button type="button" className="px-3 py-1 rounded bg-white/20" onClick={() => setUnblurredPosts((prev) => ({ ...prev, [post.id]: true }))}>Xem</button>
+            <p className="text-slate-800 dark:text-slate-100 text-sm sm:text-base leading-relaxed whitespace-pre-line break-words">
+              {post.content}
+            </p>
+
+            {/* Tags */}
+            {post.tags && post.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2.5">
+                {post.tags.map((tag, idx) => (
+                  <span key={idx} className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Ảnh bài viết (nếu có) */}
+          {(post.image || post.image_url) && (
+            <div className="min-w-0 w-full bg-slate-100 dark:bg-slate-800 border-y border-slate-100 dark:border-slate-800 flex items-center justify-center relative">
+              <img 
+                src={post.image || post.image_url} 
+                alt="Ảnh đính kèm bài viết" 
+                loading="lazy"
+                decoding="async"
+                className="block h-auto max-h-[75vh] w-full object-contain"
+              />
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
@@ -1068,10 +1158,15 @@ export default function PostCard({
 
         <button
           onClick={() => setShowComments(!showComments)}
-          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer"
+          className={`flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer ${
+            isCooldown
+              ? 'text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/30'
+              : 'hover:bg-slate-50'
+          }`}
+          title={isCooldown ? `Đang bị khóa bình luận (${cooldownRemainingStr || 'Đang đếm...'})` : undefined}
         >
-          <MessageCircle className="w-4 h-4 text-slate-500" />
-          <span>Bình luận</span>
+          <MessageCircle className={`w-4 h-4 ${isCooldown ? 'text-amber-600' : 'text-slate-500'}`} />
+          <span>{isCooldown ? 'Bình luận (Khóa)' : 'Bình luận'}</span>
         </button>
 
         <button
@@ -1097,6 +1192,22 @@ export default function PostCard({
       {showComments && (
         <div className="px-4 sm:px-5 py-4 bg-slate-50/70 border-t border-slate-100 space-y-3">
           
+          {/* Banner hiển thị thời gian gỡ phạt còn lại khi đang bị cấm bình luận */}
+          {isCooldown && (
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100 text-xs flex items-center justify-between gap-2.5 animate-fade-in shadow-2xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                <span className="font-bold truncate">Đang bị vô hiệu hóa bình luận</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold">Thời gian gỡ phạt còn lại:</span>
+                <span className="font-mono bg-amber-200/90 dark:bg-amber-900/80 text-amber-950 dark:text-amber-100 font-black px-2.5 py-0.5 rounded-lg text-[11px] shadow-2xs border border-amber-300/60 text-rose-600 dark:text-rose-400">
+                  {cooldownRemainingStr || 'Đang đếm ngược...'}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Form nhập bình luận mới */}
           <form onSubmit={handleCommentSubmit} className="space-y-2">
             {commentImagePreview && (
@@ -1128,8 +1239,32 @@ export default function PostCard({
                 alt={currentUser?.name || "Khách"} 
                 className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
               />
-              <div className="flex-1 relative flex items-center">
+              <div className="flex-1">
+                {replyingTo && (
+                  <div className="flex items-center justify-between px-3 py-1 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-[11px] text-blue-700 dark:text-blue-300 mb-1.5 animate-fade-in">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <Reply className="w-3 h-3 text-blue-600 rotate-180" />
+                      <span>Đang trả lời <strong>@{replyingTo.authorName}</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mentionTag = `@${replyingTo.authorName} `;
+                        if (commentText.startsWith(mentionTag)) {
+                          setCommentText(commentText.replace(mentionTag, ''));
+                        }
+                        setReplyingTo(null);
+                      }}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                      title="Hủy trả lời"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                <div className="relative flex items-center">
                 <input
+                  ref={commentInputRef}
                   type="text"
                   value={commentText}
                   disabled={isBanned || isCooldown}
@@ -1143,7 +1278,7 @@ export default function PostCard({
                     isBanned
                       ? "Tài khoản của bạn đã bị khóa. Không thể bình luận..."
                       : isCooldown
-                      ? "Bạn đang bị hạn chế đăng bài và bình luận..."
+                      ? `🚫 Bạn đang bị cấm bình luận • Gỡ phạt sau: ${cooldownRemainingStr || 'Đang đếm...'}`
                       : currentUser
                       ? "Viết bình luận công khai..."
                       : "Đăng nhập để viết bình luận..."
@@ -1171,18 +1306,22 @@ export default function PostCard({
                       }
                       commentFileInputRef.current?.click();
                     }}
-                    disabled={isUploadingCommentImage}
-                    title="Đính kèm ảnh vào bình luận"
-                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition cursor-pointer"
+                    disabled={isBanned || isCooldown || isUploadingCommentImage}
+                    title={isCooldown ? "Đang bị khóa bình luận" : "Đính kèm ảnh vào bình luận"}
+                    className={`p-1 rounded-full transition ${
+                      (isBanned || isCooldown) 
+                        ? 'text-slate-300 opacity-40 cursor-not-allowed pointer-events-none' 
+                        : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer'
+                    }`}
                   >
                     <ImageIcon className="w-4 h-4" />
                   </button>
 
                   <button
                     type="submit"
-                    disabled={(!commentText.trim() && !commentImageFile) || isUploadingCommentImage}
-                    title="Gửi bình luận"
-                    className="p-1 text-blue-600 hover:text-blue-700 disabled:opacity-30 disabled:hover:text-blue-600 cursor-pointer"
+                    disabled={isBanned || isCooldown || (!commentText.trim() && !commentImageFile) || isUploadingCommentImage}
+                    title={isCooldown ? `Đang bị khóa bình luận (còn lại: ${cooldownRemainingStr})` : "Gửi bình luận"}
+                    className="p-1 text-blue-600 hover:text-blue-700 disabled:opacity-30 disabled:hover:text-blue-600 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {isUploadingCommentImage ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
@@ -1191,6 +1330,7 @@ export default function PostCard({
                     )}
                   </button>
                 </div>
+                </div>
               </div>
             </div>
           </form>
@@ -1198,63 +1338,88 @@ export default function PostCard({
           {/* Danh sách bình luận */}
           <div className="space-y-2.5 pt-1">
             {post.comments && post.comments.length > 0 ? (
-              // Sắp xếp: Comment bình thường lên trước, comment Toxic (ẩn mềm) xếp ở cuối
+              // Sắp xếp: Comment bình thường lên trước, comment Toxic / NSFW (ẩn mềm) xếp ở cuối
               [...(post.comments || [])].sort((a, b) => {
-                const aToxic = a.is_soft_hidden || a.isSoftHidden || a.ai_label === 'Toxic' || a.aiLabel === 'Toxic';
-                const bToxic = b.is_soft_hidden || b.isSoftHidden || b.ai_label === 'Toxic' || b.aiLabel === 'Toxic';
-                if (aToxic && !bToxic) return 1;
-                if (!aToxic && bToxic) return -1;
+                const aSoft = Boolean(a.is_soft_hidden || a.isSoftHidden || a.ai_label === 'Toxic' || a.aiLabel === 'Toxic' || a.image_label === 'NSFW' || a.imageLabel === 'NSFW' || a.imageModeration?.status === 'sensitive');
+                const bSoft = Boolean(b.is_soft_hidden || b.isSoftHidden || b.ai_label === 'Toxic' || b.aiLabel === 'Toxic' || b.image_label === 'NSFW' || b.imageLabel === 'NSFW' || b.imageModeration?.status === 'sensitive');
+                if (aSoft && !bSoft) return 1;
+                if (!aSoft && bSoft) return -1;
                 return 0;
               }).map((comment) => {
                 const isCommentAuthor = currentUser && (currentUser.id === comment.author?.id);
                 const canViewHiddenComment = isCommentAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
-                const isHardHidden = comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden';
-                const isSoftHidden = comment.is_soft_hidden || comment.isSoftHidden || comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic';
+                const isHardHidden = Boolean(comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' || comment.image_moderation_status === 'rejected_hold');
+                const isSoftHidden = Boolean(comment.is_soft_hidden || comment.isSoftHidden || comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic' || comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || comment.imageModeration?.status === 'sensitive');
                 const isRevealed = Boolean(revealedComments[comment.id]);
                 const isThisCommentHighlighted = highlightedCommentId && String(comment.id) === String(highlightedCommentId);
-                const isSensitiveOrHeld = ['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id];
 
-                // 1. Trường hợp bình luận bị ẩn cứng (Hate Speech hoặc Violence)
+                const isToxicText = comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic';
+                const isNsfwImg = comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || comment.imageModeration?.status === 'sensitive';
+
+                // 1. Trường hợp bình luận bị ẩn cứng (Bạo lực hoặc Thù ghét - Text hoặc Ảnh)
                 if (isHardHidden) {
                   if (!canViewHiddenComment) return null;
+                  const isViolence = comment.ai_label === 'Violence' || comment.aiLabel === 'Violence' || comment.image_moderation_violence >= 0.8 || comment.image_moderation_status === 'rejected_hold';
+                  const labelText = isViolence ? 'Bạo lực' : (comment.ai_label || comment.aiLabel || 'Hate Speech / Bạo lực');
+
                   return (
-                    <div key={comment.id} id={`comment-${comment.id}`} className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900">
+                    <div key={comment.id} id={`comment-${comment.id}`} className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
                       <div className="flex items-center gap-2">
                         <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
                         <div>
-                          <span className="font-semibold text-rose-800">Bình luận bị ẩn:</span> vi phạm tiêu chuẩn ({comment.ai_label || comment.aiLabel || 'Hate Speech / Bạo lực'})
-                          {comment.content && <div className="text-[11px] text-rose-700/80 italic mt-0.5 line-clamp-1">"{comment.content}"</div>}
+                          <div>
+                            <span className="font-semibold text-rose-800 dark:text-rose-300">Bình luận bị ẩn:</span> vi phạm tiêu chuẩn ({labelText})
+                          </div>
+                          {comment.content && <div className="text-[11px] text-rose-700/80 dark:text-rose-300/80 italic mt-0.5 line-clamp-1">"{comment.content}"</div>}
+                          {comment.image && (
+                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-rose-600 dark:text-rose-400 font-medium">
+                              <span>🖼️ Kèm hình ảnh vi phạm</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenAppealModal && onOpenAppealModal({
-                          targetType: 'comment',
-                          targetId: comment.id,
-                          targetAuthor: comment.author,
-                          contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : '')
-                        })}
-                        className="px-2.5 py-1 rounded bg-white border border-rose-300 hover:bg-rose-100 text-rose-700 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-xs"
-                      >
-                        <Scale className="w-3 h-3" />
-                        <span>Kháng cáo</span>
-                      </button>
+                      {isCommentAuthor && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenAppealModal && onOpenAppealModal({
+                            targetType: 'comment',
+                            targetId: comment.id,
+                            targetAuthor: comment.author,
+                            contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
+                            imageUrl: comment.image || null,
+                            aiStatus: { label: labelText, confidence: 0.95, action: 'hide' }
+                          })}
+                          className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-xs"
+                        >
+                          <Scale className="w-3 h-3" />
+                          <span>Kháng cáo</span>
+                        </button>
+                      )}
                     </div>
                   );
                 }
 
-                // 2. Trường hợp bình luận Toxic: ẩn mềm ở cuối danh sách, bấm vào thì hiện
+                // 2. Trường hợp bình luận Toxic / NSFW: ẩn mềm chung ở cuối danh sách, bấm vào thì hiện cả hai
                 if (isSoftHidden && !isRevealed) {
+                  let softHiddenMessage = 'Bình luận này có thể chứa nội dung không phù hợp (Toxic / NSFW) theo chính sách cộng đồng.';
+                  if (isToxicText && isNsfwImg) {
+                    softHiddenMessage = 'Bình luận chứa cả ngôn từ độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).';
+                  } else if (isNsfwImg) {
+                    softHiddenMessage = 'Bình luận này có đính kèm hình ảnh nhạy cảm (NSFW).';
+                  } else if (isToxicText) {
+                    softHiddenMessage = 'Bình luận này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).';
+                  }
+
                   return (
-                    <div key={comment.id} id={`comment-${comment.id}`} className="p-2.5 bg-amber-50/80 border border-amber-200/90 rounded-xl text-xs flex items-center justify-between gap-2 text-amber-900">
+                    <div key={comment.id} id={`comment-${comment.id}`} className="p-2.5 bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/90 dark:border-amber-800/40 rounded-xl text-xs flex items-center justify-between gap-2 text-amber-900 dark:text-amber-200">
                       <div className="flex items-center gap-2">
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="text-[11px]">Bình luận này bị nghi ngờ độc hại và đã được làm mờ ở cuối danh sách.</span>
+                        <span className="text-[11px] font-medium">{softHiddenMessage}</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => setRevealedComments(prev => ({ ...prev, [comment.id]: true }))}
-                        className="px-2.5 py-1 rounded bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                        className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-200 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-2xs"
                       >
                         <Eye className="w-3 h-3" />
                         <span>Xem bình luận</span>
@@ -1263,13 +1428,15 @@ export default function PostCard({
                   );
                 }
 
+                let revealedBadge = 'Toxic & NSFW';
+                if (isToxicText && !isNsfwImg) revealedBadge = 'Toxic';
+                else if (!isToxicText && isNsfwImg) revealedBadge = 'NSFW';
+
                 return (
                   <div 
                     key={comment.id} 
                     id={`comment-${comment.id}`}
-                    className={`flex gap-2.5 items-start text-xs rounded-2xl p-1.5 transition-all duration-500 ${
-                      isSensitiveOrHeld ? 'relative' : ''
-                    } ${
+                    className={`flex gap-2.5 items-start text-xs rounded-2xl p-1.5 transition-all duration-300 ${
                       isThisCommentHighlighted
                         ? 'bg-blue-50/90 dark:bg-blue-950/60 ring-2 ring-blue-500 dark:ring-blue-400 shadow-sm'
                         : ''
@@ -1282,19 +1449,19 @@ export default function PostCard({
                       className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                     />
                     <div className={`flex-1 bg-white dark:bg-slate-800/90 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${
-                      isSensitiveOrHeld ? 'blur-sm' : ''
-                    } ${isSoftHidden ? 'border-amber-200 bg-amber-50/20' : ''}`}>
-                      {/* Tiêu đề cảnh báo nếu đang mở xem bình luận Toxic */}
+                      isSoftHidden ? 'border-amber-200 dark:border-amber-800/40 bg-amber-50/20 dark:bg-amber-950/10' : ''
+                    }`}>
+                      {/* Tiêu đề cảnh báo nếu đang mở xem bình luận Toxic / NSFW đã ẩn mềm */}
                       {isSoftHidden && isRevealed && (
-                        <div className="text-[10px] text-amber-800 flex items-center justify-between pb-1 border-b border-amber-100 mb-1.5">
+                        <div className="text-[10px] text-amber-800 dark:text-amber-300 flex items-center justify-between pb-1 border-b border-amber-200 dark:border-amber-800/50 mb-1.5">
                           <span className="flex items-center gap-1 font-semibold">
                             <ShieldAlert className="w-3 h-3 text-amber-600" />
-                            Bình luận độc hại (đang hiển thị)
+                            Bình luận nhạy cảm (${revealedBadge} - đang hiển thị)
                           </span>
                           <button 
                             type="button"
                             onClick={() => setRevealedComments(prev => ({ ...prev, [comment.id]: false }))} 
-                            className="text-amber-800 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                            className="text-amber-800 dark:text-amber-300 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
                           >
                             <EyeOff className="w-3 h-3" /> Ẩn lại
                           </button>
@@ -1318,78 +1485,55 @@ export default function PostCard({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400">{comment.time}</span>
-                          <button
-                            onClick={() => onOpenReportModal && onOpenReportModal({
-                              targetType: 'comment',
-                              targetId: comment.id,
-                              targetAuthor: comment.author,
-                              contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : '')
-                            })}
-                            title="Báo cáo bình luận này"
-                            className="text-slate-300 hover:text-rose-500 transition cursor-pointer p-0.5"
-                          >
-                            <Flag className="w-3 h-3" />
-                          </button>
-                        </div>
                       </div>
-                      {comment.content && <p className="text-slate-700 dark:text-slate-200">{comment.content}</p>}
+                      {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed">{comment.content}</p>}
 
+                      {/* Hiển thị hình ảnh đính kèm (ẩn mềm chung đã được mở, không lồng thêm lớp blur thứ hai) */}
                       {comment.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 max-w-xs group">
-                          {(comment.imageModeration?.status === 'sensitive' || comment.imageLabel === 'NSFW') && !unblurredComments[comment.id] ? (
-                            <div className="relative">
-                              <img
-                                src={comment.image}
-                                alt="Bình luận có ảnh"
-                                className="w-full max-h-52 object-cover filter blur-xl select-none scale-105 transition duration-300"
-                              />
-                              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center text-white">
-                                <ShieldAlert className="w-5 h-5 text-amber-400 mb-1" />
-                                <span className="text-[11px] font-semibold">Nội dung nhạy cảm (NSFW)</span>
-                                <span className="text-[9px] text-slate-200 mb-2">Ảnh này được gắn nhãn nhạy cảm</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: true }))}
-                                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-[10px] font-medium backdrop-blur-sm transition flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Eye className="w-3 h-3" /> Xem ảnh
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="relative">
-                              <img
-                                src={comment.image}
-                                alt="Bình luận có ảnh"
-                                className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
-                                onClick={() => window.open(comment.image, '_blank')}
-                              />
-                              {(comment.imageModeration?.status === 'sensitive' || comment.imageLabel === 'NSFW') && unblurredComments[comment.id] && (
-                                <button
-                                  type="button"
-                                  onClick={() => setUnblurredComments(prev => ({ ...prev, [comment.id]: false }))}
-                                  className="absolute top-1.5 right-1.5 px-2 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded text-[9px] flex items-center gap-1 backdrop-blur-xs transition cursor-pointer"
-                                  title="Ẩn lại ảnh này"
-                                >
-                                  <EyeOff className="w-2.5 h-2.5" /> Ẩn lại
-                                </button>
-                              )}
-                            </div>
-                          )}
+                          <img
+                            src={comment.image}
+                            alt="Bình luận có ảnh"
+                            className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
+                            onClick={() => window.open(comment.image, '_blank')}
+                          />
                         </div>
                       )}
-                    </div>
-                    {['sensitive', 'rejected_hold'].includes(comment.imageModeration?.status) && !unblurredComments[comment.id] && (
-                      <div className="absolute inset-0 bg-slate-900/60 rounded-xl flex items-center justify-center text-white gap-2">
-                        <span className="text-[11px] font-semibold">{comment.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm'}</span>
-                        <button type="button" className="px-2 py-1 rounded bg-white/20 text-[10px]" onClick={() => setUnblurredComments((prev) => ({ ...prev, [comment.id]: true }))}>Xem</button>
-                        {comment.imageModeration?.status === 'rejected_hold' && comment.author?.id === currentUser?.id && typeof appealCommentModeration === 'function' && (
-                          <button type="button" className="px-2 py-1 rounded bg-rose-500 text-[10px]" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: comment.id })}>Kháng cáo</button>
-                        )}
+
+                      {/* Hàng hành động: Thời gian, Trả lời bình luận, và Báo cáo vi phạm rõ ràng */}
+                      <div className="flex items-center gap-3 mt-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 text-[11px] text-slate-400 font-medium">
+                        <span>{comment.time}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleReplyToComment(comment)}
+                          disabled={isBanned || isCooldown}
+                          className={`transition flex items-center gap-1 font-semibold ${
+                            (isBanned || isCooldown)
+                              ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-50'
+                              : 'text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer'
+                          }`}
+                        >
+                          <Reply className="w-3 h-3 text-blue-600" />
+                          <span>Trả lời</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenReportModal && onOpenReportModal({
+                            targetType: 'comment',
+                            targetId: comment.id,
+                            targetAuthor: comment.author,
+                            contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
+                            imageUrl: comment.image || null,
+                            aiStatus: { label: comment.ai_label || 'Normal', confidence: 0.90 }
+                          })}
+                          title="Báo cáo bình luận này"
+                          className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ml-auto font-medium"
+                        >
+                          <Flag className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                          <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Báo cáo</span>
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })

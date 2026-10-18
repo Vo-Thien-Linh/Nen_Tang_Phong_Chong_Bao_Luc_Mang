@@ -16,14 +16,16 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
     const reportData = {
       id: `rep-${Date.now()}`,
       reporter: {
-        id: currentUser.id,
-        name: currentUser.name,
-        avatar: currentUser.avatar
+        id: currentUser?.id,
+        name: currentUser?.full_name || currentUser?.name || 'Người dùng',
+        avatar: currentUser?.avatar_url || currentUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200'
       },
       targetType: target.targetType, // 'post' | 'comment' | 'message'
       targetId: target.targetId,
       targetAuthor: target.targetAuthor || { name: 'Người dùng', username: 'user' },
       contentExcerpt: target.contentExcerpt || '',
+      targetExcerpt: target.contentExcerpt || '',
+      imageUrl: target.imageUrl || target.image || null,
       reason: selectedReason,
       reasonLabel: reasonObj.label,
       details: details.trim(),
@@ -103,8 +105,8 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
             <form onSubmit={handleSubmit} className="space-y-4">
               
               {/* Preview nội dung bị báo cáo */}
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500">
                   <span className="font-semibold text-slate-700 flex items-center gap-1.5">
                     {target.targetType === 'message' ? <MessageSquare className="w-3.5 h-3.5 text-blue-500" /> : <FileText className="w-3.5 h-3.5 text-blue-500" />}
                     Tác giả: {target.targetAuthor?.name || 'Ẩn danh'}
@@ -112,8 +114,18 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
                   <span className="text-[11px] text-slate-400">@{target.targetAuthor?.username || 'user'}</span>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-700 italic bg-white p-2.5 rounded-xl border border-slate-200 line-clamp-3">
-                  "{target.contentExcerpt}"
+                  "{target.contentExcerpt || '[Không có nội dung văn bản]'}"
                 </p>
+                {(target.imageUrl || target.image) && (
+                  <div className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-200 not-italic">
+                    <img 
+                      src={target.imageUrl || target.image} 
+                      alt="Ảnh đính kèm" 
+                      className="w-10 h-10 object-cover rounded-lg border border-slate-300 shadow-2xs" 
+                    />
+                    <span className="text-[11px] text-slate-500">Hình ảnh đính kèm trong báo cáo này</span>
+                  </div>
+                )}
               </div>
 
               {/* Lựa chọn lý do */}

@@ -11,7 +11,27 @@ export function createUserRepository({ pool }) {
         [userId]
       );
 
-      return result.rows[0] || null;
+      const user = result.rows[0] || null;
+      if (user && user.status === 'cooldown') {
+        const cdUntil = user.cooldown_until ? new Date(user.cooldown_until) : null;
+        if (!cdUntil || cdUntil <= new Date()) {
+          try {
+            await pool.query(
+              `UPDATE users
+               SET status = 'active', cooldown_until = NULL, cooldown_reason = NULL, cooldown_violation_text = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [userId]
+            );
+            user.status = 'active';
+            user.cooldown_until = null;
+            user.cooldown_reason = null;
+            user.cooldown_violation_text = null;
+          } catch (err) {
+            console.error('Lỗi khi tự động gỡ cooldown trong findById:', err);
+          }
+        }
+      }
+      return user;
     },
 
     async ensureUserExists({ id, username, fullName, avatarUrl }) {
@@ -42,6 +62,8 @@ export function createUserRepository({ pool }) {
            u.role, u.is_verified, u.bio, u.location, u.hometown,
            u.education, u.high_school, u.relationship_status,
            u.phone, u.status, u.created_at,
+           u.cooldown_until, u.cooldown_reason, u.cooldown_violation_text,
+           u.banned_until, u.ban_reason,
            (SELECT COUNT(*) FROM posts p
             WHERE p.author_id = u.id
               AND (
@@ -60,7 +82,27 @@ export function createUserRepository({ pool }) {
         [userId, viewerId]
       );
 
-      return result.rows[0] || null;
+      const user = result.rows[0] || null;
+      if (user && user.status === 'cooldown') {
+        const cdUntil = user.cooldown_until ? new Date(user.cooldown_until) : null;
+        if (!cdUntil || cdUntil <= new Date()) {
+          try {
+            await pool.query(
+              `UPDATE users
+               SET status = 'active', cooldown_until = NULL, cooldown_reason = NULL, cooldown_violation_text = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [userId]
+            );
+            user.status = 'active';
+            user.cooldown_until = null;
+            user.cooldown_reason = null;
+            user.cooldown_violation_text = null;
+          } catch (err) {
+            console.error('Lỗi khi tự động gỡ cooldown trong findProfileById:', err);
+          }
+        }
+      }
+      return user;
     },
 
     async updateProfile(userId, fields) {
