@@ -4,10 +4,12 @@ import {
   Search, EyeOff, ArrowLeft, CheckCircle2,
   XCircle, Clock, ShieldAlert, Check, X,
   User, RefreshCw, Eye, Scale, Sparkles,
-  FileSpreadsheet, Download
+  FileSpreadsheet, Download, AlertCircle,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import VerifiedBadge from './VerifiedBadge';
 import ReportResolutionModal from './ReportResolutionModal';
+import AppealResolutionModal from './AppealResolutionModal';
 import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
 
 /**
@@ -33,12 +35,18 @@ export default function ModeratorView({
 }) {
   const [activeTab, setActiveTab] = useState('appeals'); // 'reports' | 'appeals' | 'hidden-content' | 'overrides'
   const [appealFilter, setAppealFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
+  const [appealTypeFilter, setAppealTypeFilter] = useState('all'); // 'all' | 'post' | 'comment'
+  const [appealLabelFilter, setAppealLabelFilter] = useState('all'); // 'all' | 'Toxic' | 'Hate Speech' | 'Violence' | 'Normal'
+  const [appealCurrentPage, setAppealCurrentPage] = useState(1);
   const [hiddenContentSubTab, setHiddenContentSubTab] = useState('posts'); // 'posts' | 'comments'
   const [searchQuery, setSearchQuery] = useState('');
-  const [resolvingId, setResolvingId] = useState(null);
+  const [selectedAppealForResolve, setSelectedAppealForResolve] = useState(null);
+  const [isResolvingAppeal, setIsResolvingAppeal] = useState(false);
   const [selectedReportForResolve, setSelectedReportForResolve] = useState(null);
   const [isResolvingReport, setIsResolvingReport] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: '' }
+  const appealsPerPage = 10;
 
   const handleManualRefresh = async () => {
     if (!onRefresh) return;
@@ -50,20 +58,57 @@ export default function ModeratorView({
     }
   };
 
-  // Lọc danh sách khiếu nại
+  // Lọc danh sách khiếu nại (có sắp xếp pending lên đầu)
   const filteredAppeals = appeals.filter(a => {
     if (appealFilter !== 'all' && a.status !== appealFilter) return false;
+    if (appealTypeFilter !== 'all' && a.contentType !== appealTypeFilter) return false;
+    if (appealLabelFilter !== 'all' && a.aiPredictedLabel !== appealLabelFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const userName = (a.user?.name || '').toLowerCase();
+      const userNick = (a.user?.username || '').toLowerCase();
       const text = (a.originalText || '').toLowerCase();
       const reason = (a.appealReason || '').toLowerCase();
-      return userName.includes(q) || text.includes(q) || reason.includes(q);
+      return userName.includes(q) || userNick.includes(q) || text.includes(q) || reason.includes(q);
     }
     return true;
+  }).sort((a, b) => {
+    if (a.status === 'pending' && b.status !== 'pending') return -1;
+    if (a.status !== 'pending' && b.status === 'pending') return 1;
+    return 0;
   });
 
   const pendingAppealsCount = appeals.filter(a => a.status === 'pending').length;
+  const totalPages = Math.ceil(filteredAppeals.length / appealsPerPage) || 1;
+  const paginatedAppeals = filteredAppeals.slice((appealCurrentPage - 1) * appealsPerPage, appealCurrentPage * appealsPerPage);
+
+  const handleConfirmResolveAppeal = async (appealId, resolutionData) => {
+    setIsResolvingAppeal(true);
+    try {
+      if (onResolveAppeal) {
+        await onResolveAppeal(appealId, resolutionData);
+      }
+      setSelectedAppealForResolve(null);
+      setToast({
+        type: 'success',
+        message: resolutionData.status === 'approved'
+          ? `Đã chấp thuận khiếu nại và gán nhãn "${resolutionData.newLabel}".`
+          : 'Đã từ chối khiếu nại và giữ nguyên nhãn ban đầu.'
+      });
+      setTimeout(() => setToast(null), 4000);
+    } catch (err) {
+      const isConflict = err.status === 409 || (err.message && (err.message.includes('409') || err.message.includes('trước đó')));
+      setToast({
+        type: 'error',
+        message: isConflict
+          ? 'Khiếu nại này đã được người khác xử lý trước đó.'
+          : (err.message || 'Không thể xử lý khiếu nại. Vui lòng thử lại.')
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setIsResolvingAppeal(false);
+    }
+  };
 
   // Lọc bài viết bị ẩn
   const hiddenPosts = posts.filter(p => {
@@ -94,36 +139,6 @@ export default function ModeratorView({
     return true;
   });
 
-  const handleApproveAppeal = async (appeal) => {
-    setResolvingId(appeal.id);
-    try {
-      if (onResolveAppeal) {
-        await onResolveAppeal(
-          appeal.id, 
-          'approved', 
-          'Xác minh thành công: AI nhận diện sai ngữ cảnh (False Positive). Đã khôi phục nội dung và gỡ toàn bộ án phạt tài khoản.'
-        );
-      }
-    } finally {
-      setResolvingId(null);
-    }
-  };
-
-  const handleRejectAppeal = async (appeal) => {
-    setResolvingId(appeal.id);
-    try {
-      if (onResolveAppeal) {
-        await onResolveAppeal(
-          appeal.id, 
-          'rejected', 
-          'Bác bỏ khiếu nại: Nội dung vi phạm tiêu chuẩn cộng đồng về ngôn từ thù địch / bạo lực.'
-        );
-      }
-    } finally {
-      setResolvingId(null);
-    }
-  };
-
   const getLabelBadge = (label) => {
     switch (label) {
       case 'Violence':
@@ -132,6 +147,9 @@ export default function ModeratorView({
         return <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-orange-50 text-orange-700 border border-orange-200">Thù địch (Hate Speech)</span>;
       case 'Toxic':
         return <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">Độc hại (Toxic)</span>;
+      case 'Normal':
+      case 'Safe':
+        return <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Bình thường (Normal)</span>;
       default:
         return <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">{label || 'Vi phạm'}</span>;
     }
@@ -139,6 +157,31 @@ export default function ModeratorView({
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-6">
+      {/* Toast thông báo kết quả */}
+      {toast && (
+        <div className={`mb-4 p-3 rounded-md border text-xs flex items-center justify-between transition ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : 'bg-rose-50 text-rose-800 border-rose-200'
+        }`}>
+          <div className="flex items-center gap-2">
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span className="font-medium">{toast.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Header khu vực kiểm duyệt */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-slate-200">
         <div>
@@ -263,13 +306,28 @@ export default function ModeratorView({
         
         {/* TAB 1: KHIẾU NẠI (APPEALS) */}
         {activeTab === 'appeals' && (
-          <div className="space-y-4">
-            {/* Bộ lọc trạng thái khiếu nại */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-lg border border-slate-200">
+          <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Danh sách khiếu nại</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Xử lý khiếu nại từ thành viên: Chấp nhận khiếu nại (đổi nhãn &amp; gỡ phạt), Từ chối khiếu nại (giữ nguyên nhãn và hình phạt).
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs text-slate-500 font-medium">
+                  {appeals.length} khiếu nại ({pendingAppealsCount} chờ xử lý)
+                </span>
+              </div>
+            </div>
+
+            {/* Thanh bộ lọc */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
+              {/* Lọc theo trạng thái */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => setAppealFilter('all')}
+                  onClick={() => { setAppealFilter('all'); setAppealCurrentPage(1); }}
                   className={`h-8 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
                     appealFilter === 'all'
                       ? 'bg-blue-600 text-white shadow-xs'
@@ -280,182 +338,270 @@ export default function ModeratorView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAppealFilter('pending')}
+                  onClick={() => { setAppealFilter('pending'); setAppealCurrentPage(1); }}
                   className={`h-8 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
                     appealFilter === 'pending'
                       ? 'bg-amber-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  Chờ duyệt ({pendingAppealsCount})
+                  Chờ xử lý ({pendingAppealsCount})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAppealFilter('approved')}
+                  onClick={() => { setAppealFilter('approved'); setAppealCurrentPage(1); }}
                   className={`h-8 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
                     appealFilter === 'approved'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  Đã minh oan ({appeals.filter(a => a.status === 'approved').length})
+                  Đã chấp nhận ({appeals.filter(a => a.status === 'approved').length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAppealFilter('rejected')}
+                  onClick={() => { setAppealFilter('rejected'); setAppealCurrentPage(1); }}
                   className={`h-8 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
                     appealFilter === 'rejected'
                       ? 'bg-slate-700 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  Đã bác bỏ ({appeals.filter(a => a.status === 'rejected').length})
+                  Đã từ chối ({appeals.filter(a => a.status === 'rejected').length})
                 </button>
               </div>
 
-              <div className="text-xs text-slate-500">
-                Hiển thị <strong>{filteredAppeals.length}</strong> đơn khiếu nại
+              {/* Lọc theo loại nội dung & nhãn */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={appealTypeFilter}
+                  onChange={(e) => { setAppealTypeFilter(e.target.value); setAppealCurrentPage(1); }}
+                  className="h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
+                >
+                  <option value="all">Tất cả loại nội dung</option>
+                  <option value="post">Bài viết</option>
+                  <option value="comment">Bình luận</option>
+                </select>
+
+                <select
+                  value={appealLabelFilter}
+                  onChange={(e) => { setAppealLabelFilter(e.target.value); setAppealCurrentPage(1); }}
+                  className="h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
+                >
+                  <option value="all">Tất cả nhãn hiện tại</option>
+                  <option value="Toxic">Độc hại (Toxic)</option>
+                  <option value="Hate Speech">Thù địch (Hate Speech)</option>
+                  <option value="Violence">Bạo lực (Violence)</option>
+                  <option value="Normal">Bình thường (Normal)</option>
+                </select>
+
+                {(appealFilter !== 'all' || appealTypeFilter !== 'all' || appealLabelFilter !== 'all' || searchQuery.trim()) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppealFilter('all');
+                      setAppealTypeFilter('all');
+                      setAppealLabelFilter('all');
+                      setSearchQuery('');
+                      setAppealCurrentPage(1);
+                    }}
+                    className="h-8 px-2.5 text-xs text-slate-500 hover:text-slate-800 transition underline cursor-pointer"
+                  >
+                    Đặt lại bộ lọc
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Danh sách thẻ khiếu nại */}
+            {/* Bảng danh sách khiếu nại */}
             {filteredAppeals.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-lg p-12 text-center">
-                <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-                  <FileText className="w-6 h-6" />
+              appeals.length === 0 ? (
+                <div className="py-12 text-center border border-slate-200 rounded-md bg-slate-50/50">
+                  <div className="w-10 h-10 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2.5">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-800">Chưa có khiếu nại nào cần xử lý</h3>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    Hiện không có đơn khiếu nại nào được gửi từ người dùng. Khi có khiếu nại mới, đơn sẽ xuất hiện tại đây.
+                  </p>
                 </div>
-                <h3 className="text-sm font-semibold text-slate-800">Không tìm thấy đơn khiếu nại nào</h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  {appealFilter === 'pending'
-                    ? 'Hiện không có đơn khiếu nại nào đang chờ duyệt.'
-                    : 'Không có dữ liệu khiếu nại phù hợp với bộ lọc hiện tại.'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredAppeals.map(appeal => (
-                  <div 
-                    key={appeal.id} 
-                    className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 hover:border-slate-300 transition"
+              ) : (
+                <div className="py-12 text-center border border-slate-200 rounded-md bg-slate-50/50">
+                  <div className="w-10 h-10 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2.5">
+                    <Search className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-800">Không tìm thấy khiếu nại nào phù hợp</h3>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    Không có kết quả nào khớp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppealFilter('all');
+                      setAppealTypeFilter('all');
+                      setAppealLabelFilter('all');
+                      setSearchQuery('');
+                      setAppealCurrentPage(1);
+                    }}
+                    className="mt-3 h-8 px-3 text-xs bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-md font-medium transition cursor-pointer"
                   >
-                    {/* Hàng 1: Tác giả & Loại nội dung & Trạng thái */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-100">
-                      <div className="flex items-center gap-3">
-                        <img 
-                          src={appeal.user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'} 
-                          alt={appeal.user?.name || 'Tác giả'} 
-                          className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-900">{appeal.user?.name || 'Người dùng'}</span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600">
+                    Đặt lại bộ lọc
+                  </button>
+                </div>
+              )
+            ) : (
+              <div className="space-y-3">
+                <div className="overflow-x-auto border border-slate-200 rounded-md">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4 w-72">Nội dung khiếu nại</th>
+                        <th className="py-3 px-3 w-28">Loại</th>
+                        <th className="py-3 px-3 w-36">Nhãn hiện tại</th>
+                        <th className="py-3 px-3 w-44">Người khiếu nại</th>
+                        <th className="py-3 px-3 w-36">Ngày gửi</th>
+                        <th className="py-3 px-3 w-32">Trạng thái</th>
+                        <th className="py-3 px-4 text-right w-36">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {paginatedAppeals.map((appeal) => (
+                        <tr key={appeal.id} className="hover:bg-slate-50/80 transition">
+                          <td className="py-3 px-4">
+                            <div className="flex items-start gap-2.5">
+                              {appeal.imageUrl && (
+                                <img
+                                  src={appeal.imageUrl}
+                                  alt="Thumbnail"
+                                  className="w-10 h-10 rounded object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-90"
+                                  onClick={() => window.open(appeal.imageUrl, '_blank')}
+                                />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-slate-900 font-medium line-clamp-2 leading-relaxed">
+                                  "{appeal.originalText || '[Không có nội dung văn bản]'}"
+                                </p>
+                                {appeal.appealReason && (
+                                  <p className="text-slate-500 text-[11px] line-clamp-1 mt-0.5 italic">
+                                    Giải trình: {appeal.appealReason}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
                               {appeal.contentType === 'comment' ? 'Bình luận' : 'Bài viết'}
                             </span>
-                          </div>
-                          <span className="text-[11px] text-slate-400">{appeal.createdAt || 'Vừa xong'}</span>
-                        </div>
-                      </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {getLabelBadge(appeal.aiPredictedLabel)}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={appeal.user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'}
+                                alt=""
+                                className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900 truncate">{appeal.user?.name || 'Người dùng'}</p>
+                                <p className="text-slate-400 text-[11px] truncate">@{appeal.user?.username || 'user'}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-slate-500 text-[11px]">
+                            {appeal.createdAt || 'Vừa xong'}
+                          </td>
+                          <td className="py-3 px-3">
+                            {appeal.status === 'pending' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                <Clock className="w-3 h-3" />
+                                <span>Chờ xử lý</span>
+                              </span>
+                            )}
+                            {appeal.status === 'approved' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Đã chấp nhận</span>
+                              </span>
+                            )}
+                            {appeal.status === 'rejected' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                <XCircle className="w-3 h-3" />
+                                <span>Đã từ chối</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {appeal.status === 'pending' ? (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAppealForResolve(appeal)}
+                                className="h-8 px-3 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
+                              >
+                                <Scale className="w-3.5 h-3.5" />
+                                <span>Xử lý khiếu nại</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAppealForResolve(appeal)}
+                                className="h-8 px-2.5 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium transition cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Xem chi tiết</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-                      {/* Trạng thái đơn */}
-                      <div>
-                        {appeal.status === 'pending' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>Chờ duyệt</span>
-                          </span>
-                        )}
-                        {appeal.status === 'approved' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Đã minh oan & gỡ phạt</span>
-                          </span>
-                        )}
-                        {appeal.status === 'rejected' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                            <XCircle className="w-3.5 h-3.5" />
-                            <span>Đã bác bỏ</span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Hàng 2: Nội dung bị gắn nhãn & Phán quyết AI */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span className="font-medium">Nội dung bị xử lý:</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500">Phán quyết AI:</span>
-                          {getLabelBadge(appeal.aiPredictedLabel)}
-                          <span className="text-[11px] text-slate-400 font-mono">
-                            ({Math.round((appeal.aiConfidence || 0.9) * 100)}%)
-                          </span>
-                        </div>
-                      </div>
-                      <div className="p-3 bg-slate-50 rounded-md border border-slate-200 text-xs text-slate-800 italic leading-relaxed">
-                        <p>"{appeal.originalText || '[Không có nội dung văn bản]'}"</p>
-                        {appeal.imageUrl && (
-                          <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
-                            <img
-                              src={appeal.imageUrl}
-                              alt="Hình ảnh đính kèm"
-                              className="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90"
-                              onClick={() => window.open(appeal.imageUrl, '_blank')}
-                            />
-                            <span className="text-[11px] text-slate-500 font-medium">Hình ảnh đính kèm trong khiếu nại (bấm để xem ảnh gốc)</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Hàng 3: Lý do người dùng khiếu nại (Minh oan) */}
-                    <div className="p-3.5 bg-blue-50/60 rounded-md border border-blue-100 space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
-                        <Scale className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Lời giải trình từ tác giả:</span>
-                      </div>
-                      <p className="text-xs text-slate-700 leading-relaxed">
-                        {appeal.appealReason || 'Tác giả yêu cầu xem xét lại phán quyết của AI.'}
-                      </p>
-                    </div>
-
-                    {/* Hàng 4: Ghi chú của quản trị viên (nếu đã xử lý) */}
-                    {appeal.adminNotes && (
-                      <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-200">
-                        <strong>Ghi chú xử lý:</strong> {appeal.adminNotes}
-                      </div>
-                    )}
-
-                    {/* Hàng 5: Nút hành động cho Moderator / Admin khi đơn ở trạng thái Chờ duyệt */}
-                    {appeal.status === 'pending' && (
-                      <div className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-slate-100">
-                        <div className="text-[11px] text-slate-500">
-                          Minh oan sẽ <strong>bỏ ẩn nội dung</strong> và <strong>gỡ án phạt cấm đăng/cmt (countdown về 0)</strong> ngay lập tức.
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            disabled={resolvingId === appeal.id}
-                            onClick={() => handleRejectAppeal(appeal)}
-                            className="h-8 px-3 rounded-md border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-700 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            <X className="w-3.5 h-3.5 text-rose-500" />
-                            <span>Bác bỏ</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={resolvingId === appeal.id}
-                            onClick={() => handleApproveAppeal(appeal)}
-                            className="h-8 px-3.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-xs font-medium text-white shadow-xs transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Chấp thuận (Minh oan & Gỡ phạt)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                {/* Phân trang (Pagination) */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 text-xs text-slate-500">
+                  <div>
+                    Hiển thị <strong>{Math.min((appealCurrentPage - 1) * appealsPerPage + 1, filteredAppeals.length)}</strong> đến <strong>{Math.min(appealCurrentPage * appealsPerPage, filteredAppeals.length)}</strong> trên tổng số <strong>{filteredAppeals.length}</strong> khiếu nại
                   </div>
-                ))}
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setAppealCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={appealCurrentPage === 1}
+                        className="h-8 px-2.5 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
+                      >
+                        Trước
+                      </button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                        <button
+                          key={page}
+                          type="button"
+                          onClick={() => setAppealCurrentPage(page)}
+                          className={`h-8 w-8 rounded text-xs font-medium transition cursor-pointer ${
+                            appealCurrentPage === page
+                              ? 'bg-blue-600 text-white'
+                              : 'border border-slate-200 hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setAppealCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={appealCurrentPage === totalPages}
+                        className="h-8 px-2.5 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition cursor-pointer"
+                      >
+                        Sau
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -858,6 +1004,15 @@ export default function ModeratorView({
             setIsResolvingReport(false);
           }
         }}
+      />
+
+      {/* MODAL XỬ LÝ KHIẾU NẠI (Từ chối -> giữ nhãn & phạt; Chấp nhận -> đổi nhãn, gỡ phạt & ghi log) */}
+      <AppealResolutionModal
+        isOpen={Boolean(selectedAppealForResolve)}
+        appeal={selectedAppealForResolve}
+        onClose={() => setSelectedAppealForResolve(null)}
+        isSubmitting={isResolvingAppeal}
+        onConfirmResolve={handleConfirmResolveAppeal}
       />
     </div>
   );
