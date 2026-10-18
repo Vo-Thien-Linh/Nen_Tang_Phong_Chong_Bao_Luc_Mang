@@ -108,12 +108,20 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
   return posts.map((post) => {
     const pid = Number(post.id);
     const reactionData = reactionDataByPost.get(pid);
+    const postComments = commentsByPost.get(pid) || [];
+    // Bình luận Toxic (ẩn mềm) tự động đưa xuống cuối danh sách
+    const sortedComments = [...postComments].sort((a, b) => {
+      const aSoft = Boolean(a.is_soft_hidden || a.isSoftHidden);
+      const bSoft = Boolean(b.is_soft_hidden || b.isSoftHidden);
+      if (aSoft === bSoft) return 0;
+      return aSoft ? 1 : -1;
+    });
     return {
       ...post,
       reaction_counts: reactionData?.counts || emptyReactionCounts(),
       total_reactions: reactionData?.total || 0,
       my_reaction: reactionData?.myReaction || null,
-      comments: commentsByPost.get(pid) || [],
+      comments: sortedComments,
     };
   });
 }
@@ -122,6 +130,14 @@ export function createPostRepository({ pool }) {
   return {
     pool,
     async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public', aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
+      const imgScores = imageModeration?.scores || imageModeration?.images?.[0]?.scores || {};
+      const safeScore = imgScores.safe ?? null;
+      const nsfwScore = imgScores.nsfw ?? null;
+      const violenceScore = imgScores.violence ?? null;
+      const imgLabel = nsfwScore >= 0.7 || imageModeration?.decision === 'sensitive' ? 'NSFW'
+                     : violenceScore >= 0.8 || imageModeration?.decision === 'rejected' ? 'Violence'
+                     : 'Safe';
+
       const result = await pool.query(
         `INSERT INTO posts (author_id, content, image_url, privacy, image_moderation_status,
                             image_moderation_label, image_moderation_safe, image_moderation_nsfw,
@@ -130,10 +146,10 @@ export function createPostRepository({ pool }) {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING id`,
         [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
-          imageModeration?.images?.[0]?.scores ? null : null,
-          imageModeration?.images?.[0]?.scores?.safe || null,
-          imageModeration?.images?.[0]?.scores?.nsfw || null,
-          imageModeration?.images?.[0]?.scores?.violence || null,
+          imgLabel,
+          safeScore,
+          nsfwScore,
+          violenceScore,
           imageModeration?.thresholds || null,
           imageModeration?.moderationExpiresAt || null,
           aiLabel, aiConfidence, aiStatus]
@@ -296,6 +312,14 @@ export function createPostRepository({ pool }) {
     },
 
     async createComment({ postId, authorId, content, imageUrl = null, imageModeration = null, aiLabel = 'Normal', aiConfidence = 1.0, isHidden = false, isSoftHidden = false, aiStatus = 'approved' }) {
+      const imgScores = imageModeration?.scores || imageModeration?.images?.[0]?.scores || {};
+      const safeScore = imgScores.safe ?? null;
+      const nsfwScore = imgScores.nsfw ?? null;
+      const violenceScore = imgScores.violence ?? null;
+      const imgLabel = nsfwScore >= 0.7 || imageModeration?.decision === 'sensitive' ? 'NSFW'
+                     : violenceScore >= 0.8 || imageModeration?.decision === 'rejected' ? 'Violence'
+                     : 'Safe';
+
       const res = await pool.query(
         `INSERT INTO comments (post_id, author_id, content, image_url, image_label,
                               image_moderation_status, image_moderation_safe, image_moderation_nsfw,
@@ -306,10 +330,10 @@ export function createPostRepository({ pool }) {
                    image_moderation_status, image_moderation_safe, image_moderation_nsfw,
                    image_moderation_violence, image_moderation_thresholds,
                    ai_label, ai_confidence, is_hidden, is_soft_hidden, ai_status, created_at`,
-        [postId, authorId, content || '', imageUrl, 'Safe', imageModeration?.decision || null,
-          imageModeration?.images?.[0]?.scores?.safe || null,
-          imageModeration?.images?.[0]?.scores?.nsfw || null,
-          imageModeration?.images?.[0]?.scores?.violence || null,
+        [postId, authorId, content || '', imageUrl, imgLabel, imageModeration?.decision || null,
+          safeScore,
+          nsfwScore,
+          violenceScore,
           imageModeration?.thresholds || null, imageModeration?.moderationExpiresAt || null,
           aiLabel, aiConfidence, Boolean(isHidden), Boolean(isSoftHidden), aiStatus]
       );
@@ -330,9 +354,9 @@ export function createPostRepository({ pool }) {
         [res.rows[0].id]
       );
 
-      // Gửi thông báo cho chủ bài viết (nếu người bình luận không phải chính tác giả)
+      // Gửi thông báo cho chủ bài viết (nếu người bình luận không phải chính tác giả và không bị ẩn cứng)
       try {
-        if (['pending_review', 'rejected_hold'].includes(imageModeration?.decision)) {
+        if (['pending_review', 'rejected_hold'].includes(imageModeration?.decision) || isHidden) {
           return detail.rows[0];
         }
         const postRes = await pool.query(`SELECT author_id FROM posts WHERE id = $1`, [postId]);

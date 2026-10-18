@@ -342,7 +342,18 @@ export default function ModeratorView({
                         </div>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-md border border-slate-200 text-xs text-slate-800 italic leading-relaxed">
-                        "{appeal.originalText || '[Không có nội dung văn bản]'}"
+                        <p>"{appeal.originalText || '[Không có nội dung văn bản]'}"</p>
+                        {appeal.imageUrl && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
+                            <img
+                              src={appeal.imageUrl}
+                              alt="Hình ảnh đính kèm"
+                              className="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90"
+                              onClick={() => window.open(appeal.imageUrl, '_blank')}
+                            />
+                            <span className="text-[11px] text-slate-500 font-medium">Hình ảnh đính kèm trong khiếu nại (bấm để xem ảnh gốc)</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -434,9 +445,20 @@ export default function ModeratorView({
                       </div>
                       <span className="text-[11px] text-slate-400">{report.createdAt || 'Vừa xong'}</span>
                     </div>
-                    {report.targetExcerpt && (
+                    {(report.targetExcerpt || report.imageUrl) && (
                       <div className="p-3 bg-slate-50 rounded text-xs text-slate-700 italic border border-slate-200">
-                        "{report.targetExcerpt}"
+                        {report.targetExcerpt && <p>"{report.targetExcerpt}"</p>}
+                        {report.imageUrl && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
+                            <img
+                              src={report.imageUrl}
+                              alt="Hình ảnh vi phạm"
+                              className="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90"
+                              onClick={() => window.open(report.imageUrl, '_blank')}
+                            />
+                            <span className="text-[11px] text-slate-500 font-medium">Hình ảnh đính kèm trong báo cáo (bấm để xem ảnh gốc)</span>
+                          </div>
+                        )}
                       </div>
                     )}
                     {report.status === 'pending' && onResolveReport && (

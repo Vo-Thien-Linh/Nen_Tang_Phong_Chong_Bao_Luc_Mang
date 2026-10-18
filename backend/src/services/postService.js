@@ -1,4 +1,5 @@
 import { moderateTextContent } from '../utils/textModerator.js';
+import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 
 export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const holdViolent = (result) => result?.decision === 'rejected'
@@ -12,10 +13,13 @@ export function createPostService({ postRepository, moderationHook, imageModerat
 
   const isRestrictedUser = (user) => {
     if (!user) return false;
-    if (user.status === 'banned' || user.status === 'cooldown') return true;
-    if (!user.cooldown_until) return false;
-    const cooldownUntil = new Date(user.cooldown_until);
-    return !Number.isNaN(cooldownUntil.getTime()) && cooldownUntil > clock();
+    if (user.status === 'banned') return true;
+    if (user.status === 'cooldown' || user.cooldown_until) {
+      if (!user.cooldown_until) return false;
+      const cooldownUntil = new Date(user.cooldown_until);
+      return !Number.isNaN(cooldownUntil.getTime()) && cooldownUntil > clock();
+    }
+    return false;
   };
 
   return {
@@ -41,40 +45,76 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       const textMod = await moderateTextContent(normalizedContent);
-      let aiStatus = 'approved';
-      if (textMod.label === 'Violence' || textMod.label === 'Hate Speech') {
-        aiStatus = 'hidden';
-      }
-
-      if (textMod.label === 'Violence' && postRepository.pool) {
-        const d = new Date(clock().getTime() + 24 * 3600 * 1000);
-        await postRepository.pool.query(
-          `UPDATE users
-           SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực trong bài viết', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
-           WHERE id = $3`,
-          [d.toISOString(), normalizedContent, user.id]
-        );
-      }
 
       const imageModeration = imageUrl && imageModerationClient
         ? await imageModerationClient(imageUrl)
         : null;
       const heldModeration = holdViolent(imageModeration);
+
+      // Kết hợp hài hoà kiểm duyệt ngôn từ và hình ảnh
+      const harmonized = harmonizeModeration({
+        textMod,
+        imageModeration: heldModeration,
+        contentType: 'post',
+      });
+
+      // Phạt thời gian 10 phút nếu vi phạm Bạo lực (văn bản hoặc hình ảnh) -> VÔ HIỆU HÓA & CHẶN TẠO BÀI VIẾT LUÔN
+      if (harmonized.applyCooldown) {
+        const d = new Date(clock().getTime() + harmonized.cooldownMinutes * 60 * 1000);
+        if (postRepository.pool) {
+          await postRepository.pool.query(
+            `UPDATE users
+             SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực trong bài viết', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [d.toISOString(), normalizedContent || '[Hình ảnh bạo lực]', user.id]
+          );
+          if (harmonized.notificationMessage) {
+            try {
+              await postRepository.pool.query(
+                `INSERT INTO notifications (recipient_id, actor_id, type, content)
+                 VALUES ($1, $2, 'ai_moderation', $3)`,
+                [user.id, user.id, harmonized.notificationMessage]
+              );
+            } catch (err) {}
+          }
+        }
+        const error = new Error('Nội dung vi phạm tiêu chuẩn bạo lực. Bài viết đã bị chặn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.');
+        error.statusCode = 403;
+        error.cooldown = {
+          status: 'cooldown',
+          cooldown_until: d.toISOString(),
+          cooldown_reason: 'Vi phạm bạo lực trong bài viết',
+        };
+        throw error;
+      }
+
       const post = await postRepository.createPost({
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
-        ...(textMod.label !== 'Normal' || aiStatus !== 'approved' ? {
-          aiLabel: textMod.label,
-          aiConfidence: textMod.confidence,
-          aiStatus,
-        } : {}),
+        aiLabel: harmonized.finalLabel,
+        aiConfidence: harmonized.confidence,
+        aiStatus: harmonized.aiStatus,
         ...(heldModeration ? { imageModeration: heldModeration } : {}),
       });
 
+      // Tự động gửi thông báo kiểm duyệt về tài khoản khi bài viết bị ẩn do vi phạm
+      if (postRepository.pool && harmonized.notificationMessage) {
+        const cleanPostId = Number(String(post?.id || '').replace(/\D/g, '')) || null;
+        try {
+          await postRepository.pool.query(
+            `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+             VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+            [user.id, user.id, harmonized.notificationMessage, cleanPostId]
+          );
+        } catch (notifErr) {
+          console.error('Lỗi gửi thông báo kiểm duyệt bài viết:', notifErr.message);
+        }
+      }
+
       await moderationHook.afterPostCreated(post);
-      return post;
+      return { ...post, cooldown: cooldownInfo };
     },
 
     async listVisiblePosts({ user }) {

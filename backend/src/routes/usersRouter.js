@@ -29,6 +29,11 @@ function formatUserProfile(row) {
     relationship: row.relationship_status || '',
     relationship_status: row.relationship_status || '',
     status: row.status,
+    cooldown_until: row.cooldown_until,
+    cooldownUntil: row.cooldown_until,
+    cooldown_reason: row.cooldown_reason,
+    banned_until: row.banned_until,
+    ban_reason: row.ban_reason,
     postsCount: row.posts_count || 0,
     friendsCount: row.friends_count || 0,
     joinedDate: row.created_at
