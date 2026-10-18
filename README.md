@@ -1,14 +1,14 @@
-# 🪽 WINGS (NexusSocial) - Nền Tảng Mạng Xã Hội Phòng Chống Bạo Lực Mạng & Kiểm Duyệt Nội Dung Thông Minh
+# WINGS - Nền Tảng Mạng Xã Hội Phòng Chống Bạo Lực Mạng Và Kiểm Duyệt Nội Dung Thông Minh
 
-> **Đồ án môn học / Dự án Capstone:** Xây dựng mạng xã hội thế hệ mới tích hợp Trí tuệ Nhân tạo (AI) bảo vệ người dùng, nhận diện ngôn từ độc hại tiếng Việt và kiểm duyệt hình ảnh đa phương tiện theo thời gian thực.
+> **Đồ án môn học:** Xây dựng mạng xã hội thế hệ mới tích hợp Trí tuệ Nhân tạo (AI) bảo vệ người dùng, nhận diện ngôn từ độc hại tiếng Việt và kiểm duyệt hình ảnh đa phương tiện theo thời gian thực.
 
 ---
 
-## 📌 1. Giới Thiệu Dự Án
+## 1. Giới Thiệu Dự Án
 
 Trong bối cảnh bạo lực mạng, ngôn từ thù địch (*Hate Speech*), quấy rối và bình luận độc hại (*Toxic Comments*) đang gia tăng nhanh chóng trên các nền tảng trực tuyến, việc kiểm duyệt thủ công đã bộc lộ giới hạn rõ rệt về tốc độ và quy mô. Đặc biệt, việc xử lý ngôn ngữ tiếng Việt gặp nhiều thách thức lớn do đặc thù từ lóng, teencode, viết tắt, không dấu và ngữ cảnh mỉa mai.
 
-**WINGS (NexusSocial)** được phát triển nhằm giải quyết triệt để bài toán trên thông qua:
+**WINGS** được phát triển nhằm giải quyết triệt để bài toán trên thông qua:
 1. **Kiểm duyệt Đa phương tiện Thời gian thực (Multimodal Moderation):** Kết hợp mô hình ngôn ngữ lớn **PhoBERT** (fine-tuned trên tập dữ liệu tiếng Việt ViHSD) và mô hình **Vision AI** phát hiện hình ảnh nhạy cảm/bạo lực.
 2. **Quy trình Can thiệp Tự động Khép kín (Automated Enforcement):** Không dừng lại ở việc gắn nhãn đơn thuần, hệ thống tự động thực thi các hành động phù hợp: **Ẩn mềm** (*Soft-hide* cho Toxic/NSFW), **Ẩn cứng** (*Hard-hide* cho Bạo lực), và **Tạm dừng quyền đăng/bình luận** (*Posting Cooldown*).
 3. **Cơ chế Kháng cáo & Minh bạch (Appeals & Auto-Heal):** Cho phép người dùng gửi khiếu nại hai chiều khi bị gắn nhãn nhầm, tự động gỡ phạt oan khi Moderator phê duyệt, và tự động phục hồi tài khoản khi hết thời gian phạt.
@@ -16,7 +16,7 @@ Trong bối cảnh bạo lực mạng, ngôn từ thù địch (*Hate Speech*), 
 
 ---
 
-## 🏗️ 2. Kiến Trúc Hệ Thống (System Architecture)
+## 2. Kiến Trúc Hệ Thống (System Architecture)
 
 Dự án áp dụng kiến trúc **Dual-Backend Microservice** chuyên biệt hóa nhằm tối ưu hiệu năng:
 
@@ -49,7 +49,7 @@ Dự án áp dụng kiến trúc **Dual-Backend Microservice** chuyên biệt h�
                                   └──────────────────────────────┘
 ```
 
-### 🛠️ Công Nghệ Sử Dụng (Tech Stack)
+### Công Nghệ Sử Dụng (Tech Stack)
 
 | Phân hệ | Công nghệ | Vai trò chi tiết |
 | :--- | :--- | :--- |
@@ -62,13 +62,13 @@ Dự án áp dụng kiến trúc **Dual-Backend Microservice** chuyên biệt h�
 
 ---
 
-## ✨ 3. Các Tính Năng Nổi Bật
+## 3. Các Tính Năng Nổi Bật
 
-### 🤖 3.1. Hệ Thống Kiểm Duyệt Trí Tuệ Nhân Tạo Song Hành (Text & Vision AI)
+### 3.1. Hệ Thống Kiểm Duyệt Trí Tuệ Nhân Tạo Song Hành (Text & Vision AI)
 
 Hệ thống tích hợp song hành **2 Mô hình Học sâu (Deep Learning)** chuyên biệt cho 2 loại dữ liệu:
 
-#### 📝 A. Mô hình AI Kiểm duyệt Văn bản (NLP): PhoBERT
+#### A. Mô hình AI Kiểm duyệt Văn bản (NLP): PhoBERT
 * **Kiến trúc mô hình:** **PhoBERT** (`vinai/phobert-base-v2`), dựa trên kiến trúc RoBERTa được huấn luyện trước trên tập dữ liệu tiếng Việt khổng lồ.
 * **Tập dữ liệu huấn luyện:** **ViHSD (Vietnamese Hate Speech Detection)** kết hợp tiền xử lý chuẩn hóa Unicode dựng sẵn, khử nhiễu và xử lý teencode/viết tắt.
 * **4 Nhãn phân loại đầu ra:**
@@ -78,7 +78,7 @@ Hệ thống tích hợp song hành **2 Mô hình Học sâu (Deep Learning)** c
   * `Hate Speech` (Ngôn từ kích động thù hận): Đánh dấu cảnh báo nghiêm trọng.
 * **Tính năng "Duyệt Thử AI" (Pre-check):** Cho phép người dùng kiểm tra trước độ an toàn và điểm tự tin (*confidence score*) trước khi đăng.
 
-#### 🖼️ B. Mô hình AI Kiểm duyệt Hình ảnh (Computer Vision): EfficientNet-B1
+#### B. Mô hình AI Kiểm duyệt Hình ảnh (Computer Vision): EfficientNet-B1
 * **Kiến trúc mô hình:** **EfficientNet-B1** (`torchvision.models.efficientnet_b1`), mạng nơ-ron tích chập (CNN) tối ưu hóa cân bằng giữa độ chính xác và tốc độ suy luận.
 * **Trọng số đã huấn luyện:** File checkpoint `efficientnet_b1_best.pt` (~26.5 MB) đặt tại `backend/app/image_moderation/`.
 * **Tiền xử lý hình ảnh:**
@@ -95,25 +95,25 @@ Hệ thống tích hợp song hành **2 Mô hình Học sâu (Deep Learning)** c
   * Nếu phát hiện `nsfw`: Áp dụng lớp che mờ cảnh báo nhạy cảm (*Sensitive Content Blur Overlay* kèm nút *"Nhấp để xem ảnh"*).
   * Nếu phát hiện `violence`: Lập tức ẩn cứng bài viết khỏi bảng tin công khai, đồng thời đưa tác giả vào diện xử phạt Cooldown.
 
-#### ⚖️ C. Bộ Điều Hòa Kiểm Duyệt Đa Phương Tiện (Moderation Harmonizer)
+#### C. Bộ Điều Hòa Kiểm Duyệt Đa Phương Tiện (Moderation Harmonizer)
 * Tự động dung hòa quyết định giữa Văn bản và Hình ảnh:
   * Nếu **Chữ HOẶC Ảnh** vi phạm Bạo lực (`Violence`) $\rightarrow$ **Ẩn cứng toàn diện cả bài viết**, phạt Cooldown 10 phút.
   * Nếu phát hiện Độc hại (`Toxic`) hoặc Ảnh nhạy cảm (`NSFW`) $\rightarrow$ **Ẩn mềm** (che mờ ảnh, hiển thị cảnh báo nhãn vi phạm ở chân bài viết).
 
-### ⏱️ 3.2. Cơ Chế Xử Phạt Cooldown Tự Động Phục Hồi (Auto-Heal)
+### 3.2. Cơ Chế Xử Phạt Cooldown Tự Động Phục Hồi (Auto-Heal)
 * **Vô hiệu hóa Chủ động (Proactive UI):** Khi tài khoản vi phạm bạo lực, hệ thống hiển thị banner màu hổ phách nổi bật với **đồng hồ đếm ngược trực tiếp** (`Thời gian gỡ phạt còn lại: X phút Y giây`), đồng thời khóa sẵn toàn bộ ô nhập văn bản và nút gửi bài / bình luận.
 * **Duy trì Bền vững (Persistence):** Án phạt được lưu trữ an toàn trong cả Database và Session, **không bao giờ bị mất khi người dùng reload (F5) trang**.
 * **Tự động Giải phóng (Auto-Heal):** Ngay khi bộ đếm giờ về 0, hệ thống tự động cập nhật CSDL Supabase về trạng thái `active` và mở lại quyền đăng bài/bình luận mà không cần admin can thiệp hay người dùng phải đăng xuất.
 * **Bảo vệ Tin Nhắn Riêng Tư:** Hộp thư trò chuyện 1-1 (`#messages`) hoạt động độc lập và không bao giờ bị phong tỏa khi người dùng đang chịu án phạt công khai.
 
-### ⚖️ 3.3. Quy Trình Kháng Cáo & Xóa Phạt Oan (Appeals & Moderator Workflow)
+### 3.3. Quy Trình Kháng Cáo & Xóa Phạt Oan (Appeals & Moderator Workflow)
 * **Quyền Khiếu Nại Minh Bạch:** Chỉ chủ sở hữu nội dung bị ẩn mới có quyền gửi đơn kháng cáo kèm lời giải trình.
 * **Cổng Kiểm Duyệt Viên / Quản Trị Viên (Admin & Moderator Dashboard):**
   * Tiếp nhận danh sách báo cáo vi phạm từ cộng đồng.
   * Xem xét danh sách khiếu nại của người dùng: Duyệt khôi phục nội dung hoặc Từ chối khiếu nại.
   * **Tự động xóa sạch án phạt Cooldown:** Khi duyệt khiếu nại thành công, hệ thống lập tức khôi phục trạng thái trong sạch cho tài khoản bị phạt oan.
 
-### 🌐 3.4. Các Tính Năng Mạng Xã Hội Cốt Lõi (Social Network)
+### 3.4. Các Tính Năng Mạng Xã Hội Cốt Lõi (Social Network)
 * **Bản tin & Bài viết:** Đăng bài kèm ảnh, chỉnh sửa, xóa, tìm kiếm từ khóa/hashtag, xem chi tiết qua URL hashtag (`#post/:id`).
 * **Hệ thống Bình luận Đa cấp:** Bình luận kèm ảnh, trả lời lồng nhau (@mention), có nút hủy trả lời tiện lợi.
 * **Tương tác Cảm xúc:** 6 loại reaction sinh động (Thích, Yêu thích, Haha, Wow, Buồn, Phẫn nộ).
@@ -123,16 +123,16 @@ Hệ thống tích hợp song hành **2 Mô hình Học sâu (Deep Learning)** c
 
 ---
 
-## 🚀 4. Hướng Dẫn Cài Đặt & Khởi Động Nhanh
+## 4. Hướng Dẫn Cài Đặt & Khởi Động Nhanh
 
-### 📋 Yêu cầu tiên quyết
+### Yêu cầu tiên quyết
 * **Node.js:** Phiên bản `>= 18.x` (khuyến nghị `20.x` hoặc `22.x`)
 * **Python:** Phiên bản `>= 3.10` (khuyến nghị `3.11`)
 * Hệ điều hành: Windows, macOS hoặc Linux
 
 ---
 
-### ⚡ Cách 1: Khởi động 1-Click (Khuyến nghị cho Windows)
+### Cách 1: Khởi động 1-Click (Khuyến nghị cho Windows)
 Tại thư mục gốc dự án, chỉ cần nhấp đúp hoặc chạy script:
 ```cmd
 run_all.bat
@@ -146,7 +146,7 @@ Script sẽ tự động:
 
 ---
 
-### 💻 Cách 2: Khởi động Thủ công từng dịch vụ
+### Cách 2: Khởi động Thủ công từng dịch vụ
 
 #### 1. Cài đặt và chạy Backend FastAPI (Python):
 ```bash
@@ -180,26 +180,25 @@ npm run dev
 
 ---
 
-## 🔑 5. Danh Sách Tài Khoản Mẫu Phục Vụ Kiểm Thử (Demo Accounts)
-
-Tất cả tài khoản mẫu dưới đây đều dùng chung mật khẩu mặc định: **`Password123`**
+## 5. Danh Sách Tài Khoản Mẫu Phục Vụ Kiểm Thử (Demo Accounts)
 
 | Tên hiển thị | Vai trò (Role) | Email đăng nhập | Trạng thái / Mục đích kiểm thử |
 | :--- | :---: | :--- | :--- |
-| **Quản Trị Viên Hệ Thống** | `ADMIN` | `admin@nexussocial.vn` | Quản trị tối cao, cấp tích xanh, khóa tài khoản, duyệt khiếu nại. |
-| **Kiểm Duyệt Viên** | `MODERATOR` | `test1@gmail.com` | Tiếp nhận báo cáo vi phạm, duyệt khiếu nại và can thiệp nội dung. |
-| **Võ Thiện Linh** | `ADMIN / USER` | `linh.vothien@example.com` | Tài khoản chính chủ, có tích xanh xác minh, dùng thử các tính năng. |
-| **Lê Thu Trang** | `USER` | `thutrang@example.com` | Tài khoản người dùng mẫu, dùng để thử nghiệm tính năng Cooldown & Kháng cáo. |
+| **Quản Trị Viên Hệ Thống** | `ADMIN` | `linh.vothien@example.com` | `Password123`| Quản trị tối cao, cấp tích xanh, khóa tài khoản, duyệt khiếu nại. |
+| **Kiểm Duyệt Viên** | `MODERATOR` | `Moderator01@gmail.com` | `Moderator01@gmail.com`| Tiếp nhận báo cáo vi phạm, duyệt khiếu nại và can thiệp nội dung. |
+| **Võ Thiện Linh** | `USER` | `Test1@gmail.com` | `Test1@gmail.com`| Tài khoản chính chủ, có tích xanh xác minh, dùng thử các tính năng. |
 
 ---
 
-## 🎬 6. Kịch Bản Demo Đề Xuất Khi Báo Cáo / Bảo Vệ
+## 6. Kịch Bản Demo Đề Xuất Khi Báo Cáo / Bảo Vệ
 
 1. **Kịch bản 1: Đăng bài bình thường (Normal)**
    * Đăng nhập `linh.vothien@example.com`.
    * Nhập: *"Chúc cả nhà một ngày mới tốt lành và nhiều niềm vui!"*.
-   * Bấm *"Duyệt thử AI"* $ightarrow$ Nhãn `Normal` (độ tin cậy > 90%).
-   * Bấm *"Đăng bài"* $ightarrow$ Bài viết xuất hiện ngay trên Feed.
+   * Bấm *"Duyệt thử AI"* $
+ightarrow$ Nhãn `Normal` (độ tin cậy > 90%).
+   * Bấm *"Đăng bài"* $
+ightarrow$ Bài viết xuất hiện ngay trên Feed.
 
 2. **Kịch bản 2: Đăng nội dung độc hại (Toxic - Ẩn mềm)**
    * Đăng một câu nói xúc phạm nhẹ hoặc dùng ảnh nhạy cảm.
@@ -213,14 +212,16 @@ Tất cả tài khoản mẫu dưới đây đều dùng chung mật khẩu mặ
    * **Bấm vào tab Tin nhắn (`#messages`):** Chứng minh quyền trò chuyện riêng tư vẫn được bảo vệ, người dùng vẫn gửi tin nhắn được bình thường.
 
 4. **Kịch bản 4: Gửi Khiếu nại & Xóa phạt oan tự động**
-   * Tại bài viết bị ẩn, người dùng bấm nút **"Kháng cáo"** $ightarrow$ Nhập lý do giải trình.
-   * Đăng xuất, đăng nhập tài khoản `admin@nexussocial.vn` $ightarrow$ Vào tab **"Kiểm duyệt"** (`#moderation`).
+   * Tại bài viết bị ẩn, người dùng bấm nút **"Kháng cáo"** $
+ightarrow$ Nhập lý do giải trình.
+   * Đăng xuất, đăng nhập tài khoản `admin@nexussocial.vn` $
+ightarrow$ Vào tab **"Kiểm duyệt"** (`#moderation`).
    * Xem xét đơn khiếu nại và bấm **"Chấp thuận khiếu nại"**.
    * Hệ thống tự động khôi phục bài viết công khai và **xóa sạch toàn bộ án phạt Cooldown** cho người dùng.
 
 ---
 
-## 📁 7. Cấu Trúc Thư Mục Dự Án (Project Structure)
+## 7. Cấu Trúc Thư Mục Dự Án (Project Structure)
 
 ```
 D:/BTL_Project1/
@@ -254,11 +255,3 @@ D:/BTL_Project1/
 │   └── vite.config.js            # Cấu hình Vite
 └── README.md                     # Tài liệu hướng dẫn dự án (File này)
 ```
-
----
-
-## 👥 8. Tác Giả & Bản Quyền
-
-* **Đề tài:** Nền tảng Mạng xã hội Phòng chống Bạo lực mạng & Kiểm duyệt Nội dung Thông minh (**WINGS**).
-* **Đơn vị:** Dự án Bài tập lớn / Đồ án Tốt nghiệp chuyên ngành Công nghệ Thông tin & Khoa học Dữ liệu.
-* **Giấy phép:** Phục vụ mục đích học tập và nghiên cứu học thuật.
