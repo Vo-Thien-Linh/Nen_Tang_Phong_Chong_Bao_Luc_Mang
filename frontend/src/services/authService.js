@@ -76,6 +76,49 @@ export const authService = {
     }
   },
 
+  // Xác thực phiên làm việc hiện tại với Backend (FastAPI) để tránh lệch tài khoản
+  verifySession: async () => {
+    const token = authService.getToken();
+    if (!token) {
+      authService.logout();
+      return null;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        // Token hết hạn hoặc không hợp lệ -> xóa sạch session cũ
+        authService.logout();
+        return null;
+      }
+      const data = await response.json();
+      const cdVal = data.cooldown_until || data.cooldownUntil;
+      const cdUntil = cdVal ? new Date(cdVal) : null;
+      const isExpired = cdUntil && cdUntil <= new Date();
+      const user = {
+        ...data,
+        name: data.full_name || data.name,
+        avatar: data.avatar_url || data.avatar,
+        isAdmin: data.role === 'ADMIN',
+        status: isExpired ? 'active' : (data.status || 'active'),
+        cooldown_until: isExpired ? null : (data.cooldown_until || data.cooldownUntil || null),
+        cooldownUntil: isExpired ? null : (data.cooldown_until || data.cooldownUntil || null),
+        cooldown_reason: isExpired ? null : (data.cooldown_reason || null),
+        cooldown_violation_text: isExpired ? null : (data.cooldown_violation_text || null),
+        banned_until: data.banned_until || null,
+        ban_reason: data.ban_reason || null
+      };
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      return user;
+    } catch {
+      // Khi mất kết nối tạm thời, lấy user từ localStorage nếu có
+      return authService.getCurrentUser();
+    }
+  },
+
   // Lấy Token hiện tại
   getToken: () => {
     return localStorage.getItem(STORAGE_KEYS.TOKEN);
@@ -110,7 +153,14 @@ export const authService = {
         ...data.user,
         name: data.user.full_name,
         avatar: data.user.avatar_url,
-        isAdmin: data.user.role === 'ADMIN'
+        isAdmin: data.user.role === 'ADMIN',
+        status: data.user.status || 'active',
+        cooldown_until: data.user.cooldown_until || null,
+        cooldownUntil: data.user.cooldown_until || null,
+        cooldown_reason: data.user.cooldown_reason || null,
+        cooldown_violation_text: data.user.cooldown_violation_text || null,
+        banned_until: data.user.banned_until || null,
+        ban_reason: data.user.ban_reason || null
       };
 
       // Lưu token và user vào LocalStorage

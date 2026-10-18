@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -153,6 +154,25 @@ def get_current_user(
             detail="Không tìm thấy tài khoản người dùng"
         )
         
+    # Tự động gỡ phạt cooldown khi thời gian phạt đã hết
+    if user.status == "cooldown":
+        now = datetime.now(timezone.utc)
+        if user.cooldown_until:
+            cd_until = user.cooldown_until
+            if cd_until.tzinfo is None:
+                cd_until = cd_until.replace(tzinfo=timezone.utc)
+            if cd_until <= now:
+                user.status = "active"
+                user.cooldown_until = None
+                user.cooldown_reason = None
+                user.cooldown_violation_text = None
+                db.commit()
+                db.refresh(user)
+        else:
+            user.status = "active"
+            db.commit()
+            db.refresh(user)
+
     return UserResponse.model_validate(user)
 
 @router.get(

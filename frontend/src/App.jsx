@@ -42,13 +42,11 @@ const configuredUserId = import.meta.env.VITE_CURRENT_USER_ID?.trim();
 const currentUserWithEnvId = configuredUserId
   ? { ...initialUser, id: configuredUserId }
   : initialUser;
-const initialFeedWarning = !configuredUserId && import.meta.env.DEV
-  ? 'Dev: thiếu VITE_CURRENT_USER_ID nên đang dùng dữ liệu mẫu.'
-  : '';
+const initialFeedWarning = '';
 
 export default function App() {
   // Trạng thái Xác thực người dùng (Auth)
-  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser() || currentUserWithEnvId);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
@@ -122,6 +120,51 @@ export default function App() {
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
   const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
 
+  // Kiểm tra phiên đăng nhập và mở màn hình đăng nhập đầu tiên khi vào trang nếu chưa có tài khoản
+  useEffect(() => {
+    const token = authService.getToken();
+    const storedUser = authService.getCurrentUser();
+
+    if (!token || !storedUser) {
+      setCurrentUser(null);
+      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để bắt đầu.');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    // Xác thực token tươi mới với Backend FastAPI
+    authService.verifySession().then((verifiedUser) => {
+      if (verifiedUser) {
+        setCurrentUser(verifiedUser);
+      } else {
+        setCurrentUser(null);
+        setAuthNoticeMessage('Phiên làm việc đã kết thúc. Vui lòng đăng nhập lại.');
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      }
+    });
+  }, []);
+
+  // Tự động gỡ phạt cooldown khi thời gian đếm ngược kết thúc
+  useEffect(() => {
+    const cooldownVal = currentUser?.cooldown_until || currentUser?.cooldownUntil;
+    if (currentUser?.status !== 'cooldown' || !cooldownVal) return;
+    const cooldownDate = new Date(cooldownVal);
+    const diff = cooldownDate.getTime() - Date.now();
+    const clearCooldown = () => {
+      const cleared = { status: 'active', cooldown_until: null, cooldownUntil: null, cooldown_reason: null };
+      authService.updateCurrentUser(cleared);
+      setCurrentUser(prev => prev ? { ...prev, ...cleared } : prev);
+    };
+    if (diff <= 0) {
+      clearCooldown();
+      return;
+    }
+    const timer = setTimeout(clearCooldown, diff);
+    return () => clearTimeout(timer);
+  }, [currentUser?.status, currentUser?.cooldown_until, currentUser?.cooldownUntil]);
+
   // Xử lý bảo vệ nút Back của trình duyệt theo User Story 3
   useEffect(() => {
     const handlePopState = () => {
@@ -170,9 +213,11 @@ export default function App() {
       }
     }
 
-    if (!currentUser && (initialHash === 'admin' || initialHash === 'moderation')) {
-      initialHash = 'home';
-      setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
+    if (!currentUser) {
+      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings') {
+        initialHash = 'home';
+      }
+      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
       setAuthModalTab('login');
       setIsAuthModalOpen(true);
     } else if (currentUser) {
@@ -248,6 +293,7 @@ export default function App() {
   }, [currentUser]);
 
   // Đồng bộ vai trò tươi từ database khi ứng dụng tải
+  // Đồng bộ vai trò và trạng thái xử phạt từ database khi ứng dụng tải
   useEffect(() => {
     if (!currentUser?.id) return;
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -256,11 +302,33 @@ export default function App() {
     })
       .then(res => res.json())
       .then(data => {
-        if (data.success && data.data && data.data.role) {
+        if (data.success && data.data) {
           const freshRole = normalizeRole(data.data.role);
+          const syncUpdates = {};
           if (normalizeRole(currentUser.role) !== freshRole) {
-            authService.updateCurrentUser({ role: freshRole, isAdmin: freshRole === 'admin' });
-            setCurrentUser(prev => prev ? { ...prev, role: freshRole, isAdmin: freshRole === 'admin' } : prev);
+            syncUpdates.role = freshRole;
+            syncUpdates.isAdmin = freshRole === 'admin';
+          }
+          const cdVal = data.data.cooldown_until;
+          const cdUntil = cdVal ? new Date(cdVal) : null;
+          const isExpired = cdUntil && cdUntil <= new Date();
+
+          if (isExpired || data.data.status === 'active') {
+            if (currentUser.status === 'cooldown' || currentUser.cooldown_until) {
+              syncUpdates.status = 'active';
+              syncUpdates.cooldown_until = null;
+              syncUpdates.cooldownUntil = null;
+              syncUpdates.cooldown_reason = null;
+            }
+          } else if (data.data.status && data.data.status !== currentUser.status) {
+            syncUpdates.status = data.data.status;
+            syncUpdates.cooldown_until = data.data.cooldown_until;
+            syncUpdates.cooldownUntil = data.data.cooldown_until;
+            syncUpdates.cooldown_reason = data.data.cooldown_reason;
+          }
+          if (Object.keys(syncUpdates).length > 0) {
+            authService.updateCurrentUser(syncUpdates);
+            setCurrentUser(prev => prev ? { ...prev, ...syncUpdates } : prev);
           }
         }
       })
@@ -562,10 +630,23 @@ export default function App() {
   }, []);
 
   // Thêm bài viết mới
-  const handleAddPost = (newPost) => {
+  const handleAddPost = (newPost, cooldown) => {
     if (!currentUser) {
       handleRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
       return;
+    }
+    if (cooldown) {
+      const cooldownData = {
+        status: 'cooldown',
+        cooldown_until: cooldown.cooldown_until,
+        cooldownUntil: cooldown.cooldown_until,
+        cooldown_reason: cooldown.cooldown_reason || cooldown.reason
+      };
+      authService.updateCurrentUser(cooldownData);
+      setCurrentUser(prev => ({
+        ...prev,
+        ...cooldownData
+      }));
     }
     const postId = String(newPost?.id || '');
     const alreadyAdded = !postId || createdPostIdsRef.current.has(postId);
@@ -671,11 +752,37 @@ export default function App() {
         content: newComment.content || '',
         imageUrl: newComment.image || null
       });
+      if (res.cooldown) {
+        const cooldownData = {
+          status: 'cooldown',
+          cooldown_until: res.cooldown.cooldown_until,
+          cooldownUntil: res.cooldown.cooldown_until,
+          cooldown_reason: res.cooldown.cooldown_reason || res.cooldown.reason
+        };
+        authService.updateCurrentUser(cooldownData);
+        setCurrentUser(prev => ({
+          ...prev,
+          ...cooldownData
+        }));
+      }
       const savedComment = res.data || newComment;
       setPosts(prev => prev.map(post => String(post.id) === String(postId)
         ? appendCreatedComment(post, savedComment)
         : post));
     } catch (err) {
+      if (err.cooldown) {
+        const cooldownData = {
+          status: 'cooldown',
+          cooldown_until: err.cooldown.cooldown_until,
+          cooldownUntil: err.cooldown.cooldown_until,
+          cooldown_reason: err.cooldown.cooldown_reason || err.cooldown.reason
+        };
+        authService.updateCurrentUser(cooldownData);
+        setCurrentUser(prev => ({
+          ...prev,
+          ...cooldownData
+        }));
+      }
       console.error('Lỗi lưu bình luận vào Supabase:', err);
     } finally {
       pendingCommentKeysRef.current.delete(commentKey);
@@ -1159,6 +1266,10 @@ export default function App() {
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
             onSharePost={handleSharePost}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
           />
         )}
 

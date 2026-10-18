@@ -14,6 +14,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [aiPreview, setAiPreview] = useState(null);
   const [imageAiPreview, setImageAiPreview] = useState(null);
   const [message, setMessage] = useState('');
@@ -22,8 +23,9 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
 
   // Trạng thái xử phạt / cấm đăng bài
   const isBanned = currentUser?.status === 'banned';
-  const cooldownUntil = currentUser?.cooldown_until ? new Date(currentUser.cooldown_until) : null;
-  const isCooldown = currentUser?.status === 'cooldown' && cooldownUntil && cooldownUntil > new Date();
+  const cooldownVal = currentUser?.cooldown_until || currentUser?.cooldownUntil;
+  const cooldownUntil = cooldownVal ? new Date(cooldownVal) : null;
+  const isCooldown = (currentUser?.status === 'cooldown' || Boolean(cooldownUntil && cooldownUntil > new Date())) && Boolean(cooldownUntil && cooldownUntil > new Date());
   const [remainingTimeStr, setRemainingTimeStr] = useState('');
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [isCooldown, currentUser?.cooldown_until]);
+  }, [isCooldown, cooldownVal]);
 
   const handleCheckSafety = async () => {
     if (!content.trim()) return;
@@ -115,6 +117,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
 
     setImagePreview(URL.createObjectURL(file));
     setImageFile(file);
+    setIsUploadingImage(true);
 
     try {
       const uploadedUrl = await uploadPostImage(file);
@@ -124,11 +127,16 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setImagePreview('');
       setImageFile(null);
       setErrorMessage(error.message || 'Tải ảnh thất bại');
+    } finally {
+      setIsUploadingImage(false);
     }
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    }
     if (!canStartCreation(submitLockRef.current)) return;
     setMessage('');
     setErrorMessage('');
@@ -165,20 +173,33 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     submitLockRef.current = true;
     setIsSubmitting(true);
     try {
+      let finalImageUrl = imageUrl;
+      // Đảm bảo nếu người dùng chọn ảnh mà Cloudinary chưa kịp tải xong thì lập tức tải và đợi
+      if (imageFile && !finalImageUrl) {
+        setIsUploadingImage(true);
+        finalImageUrl = await uploadPostImage(imageFile);
+        setImageUrl(finalImageUrl);
+        setIsUploadingImage(false);
+      }
+
       const result = await createPost({
         userId: currentUser.id,
         content: content.trim(),
-        imageUrl: imageUrl || null,
+        imageUrl: finalImageUrl || null,
       });
 
-      onAddPost(result.data);
+      onAddPost(result.data, result.cooldown);
       setContent('');
       setImageUrl('');
       setImagePreview('');
+      setImageFile(null);
       setShowImageInput(false);
       setAiPreview(null);
       setMessage('Đăng bài thành công');
     } catch (error) {
+      if (error.cooldown) {
+        onAddPost(null, error.cooldown);
+      }
       const msg = error.message === 'Failed to fetch'
         ? 'Không thể kết nối đến máy chủ bài viết (cổng 5000). Vui lòng kiểm tra backend server.'
         : (error.message || 'Đăng bài thất bại');
@@ -186,11 +207,12 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     } finally {
       submitLockRef.current = false;
       setIsSubmitting(false);
+      setIsUploadingImage(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs mb-5 transition duration-200">
+    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(e); }} className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs mb-5 transition duration-200">
       {/* Banner cảnh báo bị khóa tài khoản hoặc đang chịu án phạt cooldown */}
       {isBanned && (
         <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2.5 text-xs">
@@ -202,17 +224,18 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       )}
 
       {isCooldown && (
-        <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5 text-xs">
-          <Timer className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="space-y-0.5">
-            <div className="font-semibold flex items-center gap-1.5">
-              <span>Đang bị hạn chế đăng bài và bình luận</span>
-              <span className="font-mono bg-amber-200/70 px-1.5 py-0.5 rounded text-[11px] text-amber-950 font-bold">
-                {remainingTimeStr || 'Đang đếm ngược...'}
-              </span>
+        <div className="mb-4 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100 flex items-start gap-3 text-xs shadow-xs animate-fade-in">
+          <Timer className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+          <div className="space-y-1.5 flex-1">
+            <div className="font-extrabold text-sm flex items-center justify-between flex-wrap gap-2">
+              <span className="text-amber-900 dark:text-amber-100">🚫 Bạn đang bị vô hiệu hóa Đăng bài & Bình luận</span>
+              <div className="flex items-center gap-1.5 font-mono bg-amber-200/90 dark:bg-amber-900/80 px-2.5 py-1 rounded-xl text-xs text-amber-950 dark:text-amber-100 font-extrabold shadow-2xs border border-amber-300/70">
+                <span>Thời gian gỡ phạt còn lại:</span>
+                <span className="text-rose-600 dark:text-rose-400">{remainingTimeStr || 'Đang đếm ngược...'}</span>
+              </div>
             </div>
-            <div className="text-[11px] text-amber-800">
-              Lý do: {currentUser?.cooldown_reason || 'Vi phạm tiêu chuẩn cộng đồng (bạo lực)'}. Khi countdown về 0 bạn sẽ tự động được mở quyền.
+            <div className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+              Lý do: {currentUser?.cooldown_reason || 'Vi phạm tiêu chuẩn bạo lực'}. Hệ thống tự động vô hiệu hóa toàn bộ quyền đăng bài và bình luận cho đến khi hết hạn phạt.
             </div>
           </div>
         </div>
@@ -242,7 +265,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               isBanned 
                 ? "Tài khoản của bạn đang bị khóa..." 
                 : isCooldown 
-                ? "Bạn đang trong thời gian bị hạn chế đăng bài..." 
+                ? `🚫 Bạn đang bị cấm đăng bài và bình luận (Gỡ phạt sau: ${remainingTimeStr || 'Đang đếm...'})` 
                 : currentUser 
                 ? `${currentUser.name || currentUser.full_name || currentUser.username || 'Bạn'} ơi, bạn đang nghĩ gì thế?` 
                 : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."
@@ -318,10 +341,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
             <div className="flex items-center gap-1 sm:gap-2">
               <button
                 type="button"
+                disabled={isBanned || isCooldown}
                 onClick={() => setShowImageInput(!showImageInput)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition duration-150 ${
                   showImageInput || imageUrl ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                } ${(isBanned || isCooldown) ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 <Image className="w-4 h-4 text-emerald-500" />
                 <span>Ảnh / Media</span>
@@ -330,9 +354,9 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               <button
                 type="button"
                 onClick={handleCheckSafety}
-                disabled={isAiChecking || !content.trim()}
+                disabled={isBanned || isCooldown || isAiChecking || !content.trim()}
                 title="Kiểm tra độc hại qua mô hình AI trước khi đăng"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-4 h-4 text-blue-500" />
                 <span>{isAiChecking ? 'AI đang duyệt...' : 'Duyệt thử AI'}</span>
@@ -340,11 +364,12 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
             </div>
 
             <button
-              type="submit"
-              disabled={isSubmitting || !content.trim()}
-              className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150"
+              type="button"
+              onClick={handleSubmit}
+              disabled={isBanned || isCooldown || isSubmitting || isUploadingImage || !content.trim()}
+              className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 cursor-pointer"
             >
-              <span>{isSubmitting ? 'Đang đăng...' : 'Đăng bài'}</span>
+              <span>{isUploadingImage ? 'Đang tải ảnh...' : isSubmitting ? 'Đang đăng...' : 'Đăng bài'}</span>
               <Send className="w-3.5 h-3.5" />
             </button>
           </div>

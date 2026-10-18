@@ -236,6 +236,25 @@ class AuthService:
             )
 
 
+                # Kiểm tra tự động mở khóa Cooldown nếu đã hết thời gian phạt
+        if user.status == "cooldown":
+            now = datetime.now(timezone.utc)
+            if user.cooldown_until:
+                cd_until = user.cooldown_until
+                if cd_until.tzinfo is None:
+                    cd_until = cd_until.replace(tzinfo=timezone.utc)
+                if cd_until <= now:
+                    user.status = "active"
+                    user.cooldown_until = None
+                    user.cooldown_reason = None
+                    user.cooldown_violation_text = None
+                    db.commit()
+                    db.refresh(user)
+            else:
+                user.status = "active"
+                db.commit()
+                db.refresh(user)
+
         # Kiểm tra tài khoản có bị khóa hay không
         if user.status == "banned":
             if user.banned_until:
