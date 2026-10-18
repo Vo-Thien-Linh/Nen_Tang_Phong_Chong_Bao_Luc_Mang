@@ -27,7 +27,7 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
+import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi, resolveReportApi } from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -815,18 +815,82 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveReport = (reportId, status, adminNotes) => {
+  const handleResolveReport = async (reportId, resolution, legacyNotes) => {
+    // Chuẩn hóa tham số: hỗ trợ cả dạng object { status, newLabel, oldLabel, adminNotes } và dạng legacy
+    const status = typeof resolution === 'object' ? resolution.status : resolution;
+    const adminNotes = typeof resolution === 'object' ? resolution.adminNotes : legacyNotes;
+    const newLabel = typeof resolution === 'object' ? resolution.newLabel : 'Toxic';
+    const oldLabel = typeof resolution === 'object' ? resolution.oldLabel : 'Normal';
+
+    // 1. Cập nhật state danh sách báo cáo
     setReports(prev => prev.map(r => {
       if (r.id === reportId) {
-        return { ...r, status, adminNotes };
+        return { 
+          ...r, 
+          status, 
+          adminNotes,
+          newLabel: status === 'resolved_violation' ? newLabel : (r.newLabel || oldLabel),
+          actionTaken: status === 'resolved_violation' ? 'relabel_and_hide' : 'dismissed_keep_original_label'
+        };
       }
       return r;
     }));
 
-    // Nếu xác nhận vi phạm -> Ẩn bài viết tương ứng (nếu là post)
     const report = reports.find(r => r.id === reportId);
-    if (report && report.targetType === 'post' && status === 'resolved_violation') {
-      setPosts(prev => prev.map(p => p.id === report.targetId ? { ...p, isHidden: true } : p));
+
+    // 2. PHÂN NHÁNH XỬ LÝ:
+    if (status === 'resolved_violation') {
+      // BÁO CÁO ĐÚNG: Gán lại nhãn mới (Toxic / Hate Speech / Violence) & ẩn nội dung
+      if (report && report.targetType === 'post') {
+        setPosts(prev => prev.map(p => p.id === report.targetId ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
+      } else if (report && report.targetType === 'comment') {
+        setPosts(prev => prev.map(p => ({
+          ...p,
+          comments: (p.comments || []).map(c => (c.id === report.targetId || c._id === report.targetId) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
+        })));
+      }
+
+      // Tạo bản ghi trong Nhật ký hiệu chỉnh nhãn AI (aiOverrides) để xuất file
+      const newOverride = {
+        id: `ovr-${Date.now()}`,
+        adminName: currentUser?.full_name || currentUser?.name || 'Điều Hành Viên Hệ Thống',
+        contentType: report?.targetType || 'post',
+        contentId: report?.targetId || reportId,
+        rawText: report?.contentExcerpt || report?.targetExcerpt || report?.imageUrl || 'Nội dung vi phạm',
+        imageUrl: report?.imageUrl || null,
+        originalAiLabel: oldLabel || report?.aiStatus?.label || 'Normal',
+        correctedLabel: newLabel,
+        overrideReason: adminNotes || `Xác nhận vi phạm từ báo cáo (${report?.reasonLabel || report?.reason || 'Báo cáo vi phạm'}): Gán lại nhãn ${newLabel}`,
+        isExportedForRetraining: false,
+        createdAt: new Date().toLocaleString('vi-VN')
+      };
+      setAiOverrides(prev => [newOverride, ...prev]);
+
+      // Đồng bộ tới backend server
+      try {
+        await resolveReportApi({
+          reportId,
+          status,
+          newLabel,
+          oldLabel,
+          adminNotes,
+          userId: currentUser?.id
+        });
+      } catch (e) {
+        console.warn('Lỗi gọi API resolveReportApi:', e.message);
+      }
+    } else {
+      // BÁO CÁO SAI: Giữ nguyên nhãn cũ, không ẩn nội dung!
+      try {
+        await resolveReportApi({
+          reportId,
+          status: 'dismissed',
+          adminNotes,
+          userId: currentUser?.id
+        });
+      } catch (e) {
+        console.warn('Lỗi gọi API resolveReportApi:', e.message);
+      }
     }
   };
 
@@ -1306,6 +1370,7 @@ export default function App() {
               onResolveAppeal={handleResolveAppeal}
               reports={reports}
               onResolveReport={handleResolveReport}
+              aiOverrides={aiOverrides}
               posts={posts}
               onUnhidePost={(postId) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved' } : p))}
               currentUser={currentUser}
