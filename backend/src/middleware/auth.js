@@ -37,6 +37,11 @@ export function createAuthMiddleware({ userRepository }) {
       userId = req.header('x-user-id')?.trim();
     }
 
+    // 3. Nếu chưa có từ header, cho phép lấy từ query param userId (hỗ trợ direct link download/export)
+    if (!userId && req.query?.userId) {
+      userId = String(req.query.userId).trim();
+    }
+
     if (!userId) {
       if (required) {
         warnRejectedAuth('thiếu header x-user-id');

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
 import FriendsView from './components/FriendsView';
@@ -27,7 +27,23 @@ import {
   initialAiOverrides,
   initialUsersList
 } from './data/mockData';
-import { fetchPosts, fetchPostById, createComment, updatePost, deletePost, sharePost, updateUserSanctionApi } from './api/client';
+import { 
+  fetchPosts, 
+  fetchPostById, 
+  createComment, 
+  updatePost, 
+  deletePost, 
+  sharePost, 
+  updateUserSanctionApi, 
+  resolveReportApi,
+  createReportApi,
+  fetchReportsList,
+  fetchAppealsList,
+  createAppealApi,
+  resolveAppealApi,
+  fetchAiOverridesList,
+  createAiOverrideApi
+} from './api/client';
 import { applyUpdatedPostToList } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
@@ -110,6 +126,36 @@ export default function App() {
   const [appeals, setAppeals] = useState(initialAppeals);
   const [aiOverrides, setAiOverrides] = useState(initialAiOverrides);
   const [usersList, setUsersList] = useState(initialUsersList);
+
+  // Tải dữ liệu kiểm duyệt THẬT từ CSDL PostgreSQL (reports, appeals, ai-overrides)
+  const loadModerationData = useCallback(async () => {
+    const effectiveUserId = currentUser?.id || configuredUserId;
+    if (!effectiveUserId) return;
+    try {
+      const [reportsRes, appealsRes, overridesRes] = await Promise.allSettled([
+        fetchReportsList(effectiveUserId),
+        fetchAppealsList(effectiveUserId),
+        fetchAiOverridesList(effectiveUserId)
+      ]);
+      if (reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value?.data)) {
+        setReports(reportsRes.value.data);
+      }
+      if (appealsRes.status === 'fulfilled' && Array.isArray(appealsRes.value?.data)) {
+        setAppeals(appealsRes.value.data);
+      }
+      if (overridesRes.status === 'fulfilled' && Array.isArray(overridesRes.value?.data)) {
+        setAiOverrides(overridesRes.value.data);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải dữ liệu kiểm duyệt từ CSDL PostgreSQL:', err.message);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'moderation' || (currentUser && hasRole(currentUser, ROLES.MODERATOR))) {
+      loadModerationData();
+    }
+  }, [activeTab, currentUser, loadModerationData]);
 
   // Trạng thái modal
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -797,8 +843,33 @@ export default function App() {
     setReportTarget(target);
   };
 
-  const handleSubmitReport = (reportData) => {
+  const handleSubmitReport = async (reportData) => {
+    // 1. Cập nhật state lạc quan (optimistic)
     setReports(prev => [reportData, ...prev]);
+
+    // 2. Lưu trực tiếp vào CSDL PostgreSQL thật
+    try {
+      const res = await createReportApi({
+        reporter: {
+          id: currentUser?.id || reportData.reporter?.id,
+          name: currentUser?.full_name || currentUser?.name || 'Người dùng'
+        },
+        targetType: reportData.targetType,
+        targetId: reportData.targetId,
+        targetAuthor: reportData.targetAuthor,
+        contentExcerpt: reportData.contentExcerpt || reportData.targetExcerpt,
+        reason: reportData.reason,
+        reasonLabel: reportData.reasonLabel,
+        details: reportData.details
+      }, currentUser?.id);
+
+      if (res?.data) {
+        setReports(prev => prev.map(r => r.id === reportData.id ? res.data : r));
+      }
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gửi báo cáo lên API CSDL:', err.message);
+    }
 
     // Gửi thông báo hệ thống xác nhận cho người báo cáo
     const notif = {
@@ -815,18 +886,140 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveReport = (reportId, status, adminNotes) => {
+  const handleResolveReport = async (reportId, resolution, legacyNotes) => {
+    // Chuẩn hóa tham số: hỗ trợ cả dạng object { status, newLabel, oldLabel, adminNotes } và dạng legacy
+    const status = typeof resolution === 'object' ? resolution.status : resolution;
+    const adminNotes = typeof resolution === 'object' ? resolution.adminNotes : legacyNotes;
+    const newLabel = typeof resolution === 'object' ? resolution.newLabel : 'Toxic';
+    const oldLabel = typeof resolution === 'object' ? resolution.oldLabel : 'Normal';
+
+    // 1. Cập nhật state danh sách báo cáo lạc quan
     setReports(prev => prev.map(r => {
       if (r.id === reportId) {
-        return { ...r, status, adminNotes };
+        return { 
+          ...r, 
+          status, 
+          adminNotes,
+          newLabel: status === 'resolved_violation' ? newLabel : (r.newLabel || oldLabel),
+          actionTaken: status === 'resolved_violation' ? 'relabel_and_hide' : 'dismissed_keep_original_label'
+        };
       }
       return r;
     }));
 
-    // Nếu xác nhận vi phạm -> Ẩn bài viết tương ứng (nếu là post)
     const report = reports.find(r => r.id === reportId);
-    if (report && report.targetType === 'post' && status === 'resolved_violation') {
-      setPosts(prev => prev.map(p => p.id === report.targetId ? { ...p, isHidden: true } : p));
+
+    // 2. PHÂN NHÁNH XỬ LÝ TRÊN FEED BÀI VIẾT:
+    if (status === 'resolved_violation') {
+      if (newLabel === 'Normal') {
+        // Chuyển về trạng thái bình thường: Khôi phục hiển thị & bỏ ẩn
+        if (report && report.targetType === 'post') {
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : p));
+        } else if (report && report.targetType === 'comment') {
+          setPosts(prev => prev.map(p => ({
+            ...p,
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: false, is_hidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : c)
+          })));
+        }
+
+        // Nghiệp vụ: Chuyển về Normal -> Gỡ toàn bộ án phạt cho tác giả nếu trùng currentUser
+        const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          setCurrentUser(prev => ({
+            ...prev,
+            status: 'active',
+            cooldownUntil: null,
+            cooldown_until: null,
+            cooldownReason: null,
+            cooldown_reason: null,
+            cooldownViolationText: null,
+            cooldown_violation_text: null
+          }));
+        }
+      } else {
+        // BÁO CÁO ĐÚNG: Gán lại nhãn vi phạm (Toxic / Hate Speech / Violence) & ẩn nội dung
+        if (report && report.targetType === 'post') {
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
+        } else if (report && report.targetType === 'comment') {
+          setPosts(prev => prev.map(p => ({
+            ...p,
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
+          })));
+        }
+
+        const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          if (newLabel === 'Violence') {
+            const cdUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'cooldown',
+              cooldownUntil: cdUntil,
+              cooldown_until: cdUntil,
+              cooldownReason: 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+              cooldown_reason: 'Vi phạm bạo lực trong nội dung (Báo cáo vi phạm đã được xác minh)',
+              cooldownViolationText: report?.contentExcerpt,
+              cooldown_violation_text: report?.contentExcerpt
+            }));
+          } else {
+            // Chuyển sang Hate Speech hoặc Toxic -> Gỡ cooldown nếu từng bị cooldown do nhãn Violence cũ
+            setCurrentUser(prev => prev.status === 'cooldown' ? ({
+              ...prev,
+              status: 'active',
+              cooldownUntil: null,
+              cooldown_until: null,
+              cooldownReason: null,
+              cooldown_reason: null,
+              cooldownViolationText: null,
+              cooldown_violation_text: null
+            }) : prev);
+          }
+        }
+      }
+
+      // Tạo bản ghi trong Nhật ký hiệu chỉnh nhãn AI (aiOverrides) để xuất file
+      const newOverride = {
+        id: `ovr-${Date.now()}`,
+        adminName: currentUser?.full_name || currentUser?.name || 'Điều Hành Viên Hệ Thống',
+        contentType: report?.targetType || 'post',
+        contentId: report?.targetId || reportId,
+        rawText: report?.contentExcerpt || report?.targetExcerpt || report?.imageUrl || 'Nội dung vi phạm',
+        imageUrl: report?.imageUrl || null,
+        originalAiLabel: oldLabel || report?.aiStatus?.label || 'Normal',
+        correctedLabel: newLabel,
+        overrideReason: adminNotes || `Xác nhận vi phạm từ báo cáo (${report?.reasonLabel || report?.reason || 'Báo cáo vi phạm'}): Gán lại nhãn ${newLabel}`,
+        isExportedForRetraining: false,
+        createdAt: new Date().toLocaleString('vi-VN')
+      };
+      setAiOverrides(prev => [newOverride, ...prev]);
+
+      // Đồng bộ tới backend server CSDL thật
+      try {
+        await resolveReportApi({
+          reportId,
+          status,
+          newLabel,
+          oldLabel,
+          adminNotes,
+          userId: currentUser?.id
+        });
+        await loadModerationData();
+      } catch (e) {
+        console.warn('Lỗi gọi API resolveReportApi:', e.message);
+      }
+    } else {
+      // BÁO CÁO SAI: Giữ nguyên nhãn cũ, không ẩn nội dung!
+      try {
+        await resolveReportApi({
+          reportId,
+          status: 'dismissed',
+          adminNotes,
+          userId: currentUser?.id
+        });
+        await loadModerationData();
+      } catch (e) {
+        console.warn('Lỗi gọi API resolveReportApi:', e.message);
+      }
     }
   };
 
@@ -837,12 +1030,12 @@ export default function App() {
     setAppealItem(item);
   };
 
-  const handleSubmitAppeal = (appealData) => {
+  const handleSubmitAppeal = async (appealData) => {
     setAppeals(prev => [appealData, ...prev]);
 
     // Cập nhật trạng thái appeal trên bài viết
     setPosts(prev => prev.map(p => {
-      if (p.id === appealData.contentId) {
+      if (String(p.id) === String(appealData.contentId) || `post-${p.id}` === String(appealData.contentId)) {
         return {
           ...p,
           appeal: {
@@ -855,6 +1048,29 @@ export default function App() {
       }
       return p;
     }));
+
+    // Lưu vào CSDL PostgreSQL thật qua API
+    try {
+      const res = await createAppealApi({
+        user: {
+          id: currentUser?.id || appealData.user?.id,
+          name: currentUser?.full_name || currentUser?.name || 'Người dùng'
+        },
+        contentType: appealData.contentType,
+        contentId: appealData.contentId,
+        originalText: appealData.originalText,
+        aiPredictedLabel: appealData.aiPredictedLabel,
+        aiConfidence: appealData.aiConfidence,
+        aiActionTaken: appealData.aiActionTaken,
+        appealReason: appealData.appealReason
+      }, currentUser?.id);
+      if (res?.data) {
+        setAppeals(prev => prev.map(a => a.id === appealData.id ? res.data : a));
+      }
+      await loadModerationData();
+    } catch (err) {
+      console.warn('Lỗi gửi khiếu nại lên CSDL PostgreSQL:', err.message);
+    }
 
     // Thông báo cho user
     const notif = {
@@ -871,26 +1087,41 @@ export default function App() {
     addLocalNotification(notif);
   };
 
-  const handleResolveAppeal = async (appealId, status, adminNotes) => {
-    const appeal = appeals.find(a => a.id === appealId);
+  const handleResolveAppeal = async (appealId, statusOrData, adminNotesArg, newLabelArg) => {
+    let status = statusOrData;
+    let adminNotes = adminNotesArg;
+    let newLabel = newLabelArg || 'Normal';
+
+    if (typeof statusOrData === 'object' && statusOrData !== null) {
+      status = statusOrData.status;
+      adminNotes = statusOrData.adminNotes;
+      newLabel = statusOrData.newLabel || 'Normal';
+    }
+
+    const appeal = appeals.find(a => String(a.id) === String(appealId));
     if (!appeal) return;
 
     // Cập nhật trạng thái đơn khiếu nại
-    setAppeals(prev => prev.map(a => a.id === appealId ? { ...a, status, adminNotes } : a));
+    setAppeals(prev => prev.map(a => String(a.id) === String(appealId) ? { ...a, status, adminNotes, newLabel: status === 'approved' ? newLabel : null } : a));
 
-    // Nếu chấp thuận khiếu nại (Minh oan False Positive):
+    // Nếu chấp thuận khiếu nại (Approved):
     if (status === 'approved') {
-      // 1. Phục hồi bài viết hoặc bình luận: bỏ ẩn, đặt nhãn Normal / approved
+      const isNormal = newLabel === 'Normal';
+      const isHidden = !isNormal;
+
+      // 1. Phục hồi bài viết hoặc bình luận
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
-            if (c.id === appeal.contentId) {
+            if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
-                isHidden: false,
-                isSoftHidden: false,
-                ai_status: 'approved',
-                aiStatus: { label: 'Normal', confidence: 0.99 },
+                isHidden,
+                is_hidden: isHidden,
+                isSoftHidden: isHidden,
+                ai_label: newLabel,
+                ai_status: isNormal ? 'approved' : 'hidden',
+                aiStatus: { label: newLabel, confidence: 0.99 },
                 appeal: { ...c.appeal, status: 'approved' }
               };
             }
@@ -900,13 +1131,15 @@ export default function App() {
         }));
       } else {
         setPosts(prev => prev.map(p => {
-          if (p.id === appeal.contentId) {
+          if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
-              isHidden: false,
-              isSoftHidden: false,
-              ai_status: 'approved',
-              aiStatus: { label: 'Normal', confidence: 0.99 },
+              isHidden,
+              is_hidden: isHidden,
+              isSoftHidden: isHidden,
+              ai_label: newLabel,
+              ai_status: isNormal ? 'approved' : 'hidden',
+              aiStatus: { label: newLabel, confidence: 0.99 },
               appeal: { ...p.appeal, status: 'approved' }
             };
           }
@@ -914,50 +1147,67 @@ export default function App() {
         }));
       }
 
-      // 2. Mở khóa tài khoản khi bị phạt oan (Reset countdown về 0 ngay lập tức)
+      // 2. Nghiệp vụ án phạt theo nhãn:
       const targetUserId = appeal.user?.id || appeal.userId;
       if (targetUserId) {
-        try {
-          await updateUserSanctionApi({
-            targetUserId,
-            action: 'clear_cooldown'
-          });
-        } catch (err) {
-          console.error('Lỗi khi gỡ cooldown phạt oan:', err);
-        }
+        if (newLabel === 'Violence') {
+          // Phạt cooldown 10 phút
+          if (currentUser && currentUser.id === targetUserId) {
+            const cooldownUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'cooldown',
+              cooldownUntil,
+              cooldown_until: cooldownUntil,
+              cooldownReason: 'Vi phạm bạo lực trong nội dung (Khiếu nại được thẩm định lại)'
+            }));
+          }
+        } else {
+          // Normal hoặc Toxic hoặc Hate Speech: Gỡ bỏ cooldown
+          try {
+            await updateUserSanctionApi({
+              targetUserId,
+              action: 'clear_cooldown'
+            });
+          } catch (err) {
+            console.error('Lỗi khi gỡ cooldown:', err);
+          }
 
-        // Cập nhật state nếu trùng với currentUser
-        if (currentUser && currentUser.id === targetUserId) {
-          setCurrentUser(prev => ({
-            ...prev,
-            status: 'active',
-            cooldownUntil: null,
-            cooldown_until: null,
-            cooldownReason: null,
-            cooldown_reason: null,
-            cooldownViolationText: null,
-            cooldown_violation_text: null
-          }));
+          if (currentUser && currentUser.id === targetUserId) {
+            setCurrentUser(prev => ({
+              ...prev,
+              status: 'active',
+              cooldownUntil: null,
+              cooldown_until: null,
+              cooldownReason: null,
+              cooldown_reason: null,
+              cooldownViolationText: null,
+              cooldown_violation_text: null
+            }));
+          }
         }
       }
 
       // 3. Ghi nhận vào tập dữ liệu hiệu chỉnh AI (Active Learning)
       const newOverride = {
         id: `ovr-${Date.now()}`,
-        adminName: `${currentUser?.name || 'Admin'} (Admin)`,
+        adminName: `${currentUser?.name || currentUser?.full_name || 'Admin'} (Admin)`,
         contentType: appeal.contentType || 'post',
         contentId: appeal.contentId,
         rawText: appeal.originalText,
-        originalAiLabel: appeal.aiPredictedLabel,
-        originalConfidence: appeal.aiConfidence,
-        correctedLabel: 'Normal',
-        overrideReason: `Giải quyết khiếu nại thành công: ${adminNotes || appeal.appealReason}`,
+        originalAiLabel: appeal.aiPredictedLabel || 'Toxic',
+        originalConfidence: appeal.aiConfidence || 0.90,
+        correctedLabel: newLabel,
+        overrideReason: adminNotes || (newLabel === 'Normal' ? `Minh oan thành công: ${appeal.appealReason}` : `Hiệu chỉnh nhãn sang ${newLabel}`),
         isExportedForRetraining: false,
         createdAt: 'Vừa xong'
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // 4. Gửi thông báo chúc mừng / xin lỗi cho user
+      // 4. Gửi thông báo
+      const notifMsg = newLabel === 'Normal'
+        ? `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận an toàn (Normal), án phạt được gỡ bỏ ngay lập tức.`
+        : `Nội dung của bạn sau khi xem xét lại được chuyển sang nhãn "${newLabel}".`;
       const apologyNotif = {
         id: `notif-${Date.now()}`,
         type: 'system',
@@ -965,7 +1215,7 @@ export default function App() {
           name: 'Nexus Support Admin',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
         },
-        content: `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận là AI False Positive, án phạt được gỡ bỏ ngay lập tức.`,
+        content: notifMsg,
         time: 'Vừa xong',
         isRead: false
       };
@@ -975,7 +1225,7 @@ export default function App() {
       if (appeal.contentType === 'comment') {
         setPosts(prev => prev.map(p => {
           const updatedComments = (p.comments || []).map(c => {
-            if (c.id === appeal.contentId) {
+            if (String(c.id) === String(appeal.contentId) || String(c._id) === String(appeal.contentId)) {
               return {
                 ...c,
                 appeal: { ...c.appeal, status: 'rejected' }
@@ -987,7 +1237,7 @@ export default function App() {
         }));
       } else {
         setPosts(prev => prev.map(p => {
-          if (p.id === appeal.contentId) {
+          if (String(p.id) === String(appeal.contentId) || `post-${p.id}` === String(appeal.contentId)) {
             return {
               ...p,
               appeal: { ...p.appeal, status: 'rejected' }
@@ -996,6 +1246,22 @@ export default function App() {
           return p;
         }));
       }
+    }
+
+    // Gửi yêu cầu cập nhật lên CSDL PostgreSQL thật
+    try {
+      const res = await resolveAppealApi({
+        appealId,
+        status,
+        newLabel,
+        adminNotes,
+        userId: currentUser?.id
+      });
+      await loadModerationData();
+      return res;
+    } catch (err) {
+      console.warn('Lỗi gọi resolveAppealApi:', err.message);
+      throw err;
     }
   };
 
@@ -1306,9 +1572,11 @@ export default function App() {
               onResolveAppeal={handleResolveAppeal}
               reports={reports}
               onResolveReport={handleResolveReport}
+              aiOverrides={aiOverrides}
               posts={posts}
               onUnhidePost={(postId) => setPosts(prev => prev.map(p => p.id === postId ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved' } : p))}
               currentUser={currentUser}
+              onRefresh={loadModerationData}
             />
           ) : (
             <div className="max-w-md mx-auto my-12 p-6 bg-white rounded-lg border border-slate-200 text-center">
