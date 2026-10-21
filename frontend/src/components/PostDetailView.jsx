@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, MessageCircle, Heart, Repeat, ShieldAlert, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Heart, Repeat, ShieldAlert, Sparkles, Loader2, AlertCircle, Scale } from 'lucide-react';
 import PostCard from './PostCard';
 import { fetchPostById } from '../api/client';
 import { initialPosts } from '../data/mockData';
@@ -215,13 +215,32 @@ export default function PostDetailView({
               {errorMessage}
             </p>
           </div>
-          <button
-            onClick={onBack}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Quay lại trang trước</span>
-          </button>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Quay lại trang trước</span>
+            </button>
+            {onOpenAppealModal && (
+              <button
+                type="button"
+                onClick={() => onOpenAppealModal({
+                  targetType: meta?.targetCommentId ? 'comment' : 'post',
+                  targetId: postId,
+                  targetAuthor: currentUser,
+                  contentExcerpt: meta?.actor?.name ? 'Nội dung từ ' + meta.actor.name : 'Bài viết/bình luận đã bị ẩn hoặc gỡ bỏ',
+                  imageUrl: null,
+                  aiStatus: { label: 'Bạo lực / Thù ghét', confidence: 0.95, action: 'hide' }
+                })}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+              >
+                <Scale className="w-4 h-4" />
+                <span>Gửi đơn kháng cáo</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : post ? (
         <div className="space-y-6">

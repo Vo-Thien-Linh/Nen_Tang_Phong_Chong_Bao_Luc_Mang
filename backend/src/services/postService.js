@@ -15,7 +15,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
     if (!user) return false;
     if (user.status === 'banned') return true;
     if (user.status === 'cooldown' || user.cooldown_until) {
-      if (!user.cooldown_until) return false;
+      if (!user.cooldown_until) return true;
       const cooldownUntil = new Date(user.cooldown_until);
       return !Number.isNaN(cooldownUntil.getTime()) && cooldownUntil > clock();
     }
@@ -23,7 +23,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
   };
 
   return {
-    async createPost({ user, content, imageUrl }) {
+    async createPost({ user, content, imageUrl, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để đăng bài');
         error.statusCode = 401;
@@ -58,8 +58,18 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         contentType: 'post',
       });
 
-      // Phạt thời gian 10 phút nếu vi phạm Bạo lực (văn bản hoặc hình ảnh) -> VÔ HIỆU HÓA & CHẶN TẠO BÀI VIẾT LUÔN
+      // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu vi phạm Bạo lực/Xúc phạm
       if (harmonized.applyCooldown) {
+        if (!forcePost) {
+          return {
+            nudge: true,
+            warningType: 'violence',
+            predictedLabel: harmonized.finalLabel || 'Violence',
+            message: 'Chúng tôi nhận thấy bài viết của bạn có thể chứa từ ngữ bạo lực/xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi đăng không?',
+          };
+        }
+
+        // Người dùng đã được cảnh báo và chọn [Vẫn tiếp tục đăng] -> Kích hoạt ẩn bài và phạt Cooldown 10 phút
         const d = new Date(clock().getTime() + harmonized.cooldownMinutes * 60 * 1000);
         if (postRepository.pool) {
           await postRepository.pool.query(
@@ -68,36 +78,61 @@ export function createPostService({ postRepository, moderationHook, imageModerat
              WHERE id = $3`,
             [d.toISOString(), normalizedContent || '[Hình ảnh bạo lực]', user.id]
           );
-          if (harmonized.notificationMessage) {
-            try {
-              await postRepository.pool.query(
-                `INSERT INTO notifications (recipient_id, actor_id, type, content)
-                 VALUES ($1, $2, 'ai_moderation', $3)`,
-                [user.id, user.id, harmonized.notificationMessage]
-              );
-            } catch (err) {}
+        }
+
+        const hiddenPost = await postRepository.createPost({
+          authorId: user.id,
+          content: normalizedContent,
+          imageUrl: normalizeText(imageUrl) || null,
+          createdAt: clock(),
+          aiStatus: 'hidden',
+          aiLabel: harmonized.finalLabel,
+          aiConfidence: harmonized.confidence,
+          ...(heldModeration ? { imageModeration: heldModeration } : {}),
+        });
+
+        if (postRepository.pool && harmonized.notificationMessage) {
+          const cleanPostId = Number(String(hiddenPost?.id || '').replace(/\D/g, '')) || null;
+          try {
+            await postRepository.pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+              [user.id, user.id, harmonized.notificationMessage, cleanPostId]
+            );
+          } catch (notifErr) {
+            console.error('Lỗi gửi thông báo kiểm duyệt bài viết:', notifErr.message);
           }
         }
-        const error = new Error('Nội dung vi phạm tiêu chuẩn bạo lực. Bài viết đã bị chặn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.');
+
+        const error = new Error('Nội dung vi phạm tiêu chuẩn bạo lực. Bài viết đã bị ẩn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.');
         error.statusCode = 403;
         error.cooldown = {
           status: 'cooldown',
           cooldown_until: d.toISOString(),
           cooldown_reason: 'Vi phạm bạo lực trong bài viết',
         };
+        error.post = hiddenPost;
         throw error;
       }
 
-      const post = await postRepository.createPost({
+      const postInput = {
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
-        aiLabel: harmonized.finalLabel,
-        aiConfidence: harmonized.confidence,
-        aiStatus: harmonized.aiStatus,
-        ...(heldModeration ? { imageModeration: heldModeration } : {}),
-      });
+      };
+      if (harmonized.aiStatus && harmonized.aiStatus !== 'approved') {
+        postInput.aiStatus = harmonized.aiStatus;
+      }
+      if (harmonized.finalLabel && harmonized.finalLabel !== 'Normal') {
+        postInput.aiLabel = harmonized.finalLabel;
+        postInput.aiConfidence = harmonized.confidence;
+      }
+      if (heldModeration) {
+        postInput.imageModeration = heldModeration;
+      }
+
+      const post = await postRepository.createPost(postInput);
 
       // Tự động gửi thông báo kiểm duyệt về tài khoản khi bài viết bị ẩn do vi phạm
       if (postRepository.pool && harmonized.notificationMessage) {

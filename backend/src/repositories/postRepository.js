@@ -191,10 +191,9 @@ export function createPostRepository({ pool }) {
            AND (
              p.image_moderation_status IS NULL
              OR p.image_moderation_status IN ('safe', 'sensitive')
+             OR p.author_id = $2
              OR (p.image_moderation_status IN ('pending_review', 'rejected_hold')
-                 AND p.author_id = $2
-                 AND (p.image_moderation_status <> 'rejected_hold'
-                      OR p.moderation_expires_at > CURRENT_TIMESTAMP))
+                 AND (p.moderation_expires_at IS NULL OR p.moderation_expires_at > CURRENT_TIMESTAMP))
            )`,
         [cleanId, viewerId]
       );
@@ -289,9 +288,7 @@ export function createPostRepository({ pool }) {
       try {
         await client.query('BEGIN');
         const result = await client.query(
-          `DELETE FROM posts
-           WHERE id = $1 AND author_id = $2
-           RETURNING id`,
+          `UPDATE posts SET ai_status = 'hidden', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND (author_id = $2 OR $2 IS NULL) RETURNING id`,
           [postId, authorId]
         );
 

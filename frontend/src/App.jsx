@@ -784,7 +784,7 @@ export default function App() {
   };
 
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
-  const handleAddComment = async (postId, newComment) => {
+  const handleAddComment = async (postId, newComment, options = {}) => {
     if (!currentUser) {
       handleRequireAuth("Chỉ đăng nhập mới được bình luận (User Story 5)");
       return;
@@ -797,8 +797,14 @@ export default function App() {
         userId: currentUser.id,
         postId,
         content: newComment.content || '',
-        imageUrl: newComment.image || null
+        imageUrl: newComment.image || null,
+        forceComment: Boolean(options?.forceComment),
       });
+
+      // Nhận Friendly Nudge từ server cho bình luận
+      if (res.nudge) {
+        return { nudge: true, message: res.message, content: newComment.content };
+      }
       if (res.cooldown) {
         const cooldownData = {
           status: 'cooldown',
@@ -1504,6 +1510,8 @@ export default function App() {
         {/* Tab 4: Thông báo */}
         {activeTab === 'notifications' && (
           <NotificationsView 
+            currentUser={currentUser}
+            onOpenAppealModal={handleOpenAppealModal}
             notifications={notifications}
             onMarkAllAsRead={handleMarkAllAsRead}
             onMarkAsRead={handleMarkAsRead}
