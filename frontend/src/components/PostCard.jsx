@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, Reply, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
-  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles
+  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock
 } from 'lucide-react';
 import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
@@ -189,6 +189,7 @@ export default function PostCard({
   }, [isCooldown, cooldownVal]);
   const commentFileInputRef = useRef(null);
   const commentSubmitLockRef = useRef(false);
+  const [commentNudgeData, setCommentNudgeData] = useState(null);
   useEffect(() => {
     if (post.imageModeration?.status !== 'rejected_hold' || holdRemaining == null) return undefined;
     const timer = setInterval(() => setHoldRemaining((value) => Math.max(0, value - 1)), 1000);
@@ -504,8 +505,7 @@ export default function PostCard({
     }
   };
 
-  const handleCommentSubmit = async (e) => {
-    e.preventDefault();
+  const doSubmitComment = async (forceComment = false) => {
     if (commentSubmitLockRef.current) return;
     if (!currentUser) {
       if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
@@ -538,7 +538,7 @@ export default function PostCard({
       }
     }
 
-    onAddComment(post.id, {
+    const commentPayload = {
       id: `cmt-${Date.now()}`,
       author: {
         id: currentUser.id,
@@ -549,12 +549,28 @@ export default function PostCard({
       image: uploadedUrl,
       time: "Vừa xong",
       likes: 0
-    });
+    };
+
+    const res = await onAddComment(post.id, commentPayload, { forceComment });
+    if (res?.nudge) {
+      setCommentNudgeData({
+        message: res.message,
+        contentSnippet: commentText.trim(),
+        payload: commentPayload
+      });
+      commentSubmitLockRef.current = false;
+      return;
+    }
 
     setCommentText('');
     setReplyingTo(null);
     handleRemoveCommentImage();
     commentSubmitLockRef.current = false;
+  };
+
+  const handleCommentSubmit = async (e) => {
+    e.preventDefault();
+    await doSubmitComment(false);
   };
 
   const handleShare = () => {
@@ -930,9 +946,9 @@ export default function PostCard({
       )}
 
       {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
-      {post.originalPost !== undefined && (
+      {Boolean(post.originalPost) && (
         <div className="mx-4 sm:mx-5 mb-3 mt-1">
-          {post.originalPost ? (
+          {(post.originalPost?.author || post.originalPost?.id || post.originalPost?.content) && !post.originalPost?.isDeleted ? (
             <div 
               onClick={() => setShowOriginalModal(true)}
               className="border border-slate-200/90 hover:border-blue-300 hover:shadow-xs rounded-2xl overflow-hidden bg-slate-50/80 text-xs transition-all duration-200 cursor-pointer group/orig"
@@ -1166,7 +1182,7 @@ export default function PostCard({
           title={isCooldown ? `Đang bị khóa bình luận (${cooldownRemainingStr || 'Đang đếm...'})` : undefined}
         >
           <MessageCircle className={`w-4 h-4 ${isCooldown ? 'text-amber-600' : 'text-slate-500'}`} />
-          <span>{isCooldown ? 'Bình luận (Khóa)' : 'Bình luận'}</span>
+          <span>{isCooldown ? 'Xem bình luận (Đang bị khóa)' : 'Bình luận'}</span>
         </button>
 
         <button

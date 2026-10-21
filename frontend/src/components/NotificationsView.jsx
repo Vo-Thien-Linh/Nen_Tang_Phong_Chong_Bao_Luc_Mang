@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { 
   Bell, Heart, MessageCircle, Repeat, ShieldAlert, CheckCheck, 
-  Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox
+  Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox, Scale, Lock
 } from 'lucide-react';
 
 export default function NotificationsView({ 
@@ -14,6 +14,8 @@ export default function NotificationsView({
   isLoading = false,
   onOpenProfile,
   onViewPost,
+  onOpenAppealModal,
+  currentUser,
   activeFilter = 'all',
   onFilterChange,
 }) {
@@ -289,6 +291,35 @@ export default function NotificationsView({
                             Xem bài viết <ChevronRight className="w-3 h-3" />
                           </span>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Nút Kháng Cáo trực tiếp nếu là thông báo vi phạm / xử phạt */}
+                    {(['ai_moderation', 'system', 'warning', 'report'].includes(item.type) || (item.content && (item.content.includes('vi phạm') || item.content.includes('bị ẩn') || item.content.includes('khóa') || item.content.includes('phạt')))) && onOpenAppealModal && (
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onMarkAsRead(item.id);
+                            onOpenAppealModal({
+                              targetType: item.targetCommentId ? 'comment' : 'post',
+                              targetId: item.targetPost?.id || item.targetPostId || item.id,
+                              targetAuthor: currentUser || { id: currentUser?.id, name: currentUser?.name },
+                              contentExcerpt: item.targetPost?.contentSnippet || item.content || 'Nội dung bị xử phạt',
+                              imageUrl: item.targetPost?.image || null,
+                              aiStatus: {
+                                label: item.content?.includes('Bạo lực') ? 'Violence' : item.content?.includes('Hate Speech') ? 'Hate Speech' : 'Toxic',
+                                confidence: 0.95,
+                                action: 'hide'
+                              }
+                            });
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-semibold shadow-2xs transition cursor-pointer"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                          <span>Gửi kháng cáo</span>
+                        </button>
                       </div>
                     )}
 

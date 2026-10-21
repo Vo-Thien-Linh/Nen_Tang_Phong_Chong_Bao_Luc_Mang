@@ -85,9 +85,6 @@ export function mapPostToResponse(post) {
       status: post.ai_status || 'approved',
     },
     moderationStatus: post.ai_status || 'approved',
-    ai_label: post.ai_label || 'Normal',
-    aiLabel: post.ai_label || 'Normal',
-    ai_status: post.ai_status || 'approved',
     // Thông tin bài gốc nếu đây là bài chia sẻ
     originalPost: post.original_post
       ? {
@@ -119,7 +116,19 @@ export function createPostsController({ postService, postRepository, imageModera
           user: req.user,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          forcePost: Boolean(req.body?.forcePost),
         });
+
+        // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu người dùng gõ từ ngữ quá khích
+        if (post?.nudge) {
+          return res.status(200).json({
+            success: true,
+            nudge: true,
+            warningType: post.warningType || 'violence',
+            predictedLabel: post.predictedLabel || 'Violence',
+            message: post.message || 'Chúng tôi nhận thấy bài viết của bạn có thể chứa từ ngữ bạo lực/xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi đăng không?',
+          });
+        }
 
         const mappedPost = mapPostToResponse(post);
         if (mappedPost.ai_status !== 'hidden' && !['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
@@ -258,8 +267,22 @@ export function createPostsController({ postService, postRepository, imageModera
           contentType: 'comment',
         });
 
-        // Áp dụng Cooldown 10 phút nếu vi phạm Bạo lực -> VÔ HIỆU HÓA & CHẶN BÌNH LUẬN LUÔN
+        const forceComment = Boolean(req.body?.forceComment);
+
+        // Áp dụng Cooldown nếu vi phạm Bạo lực
         if (harmonized.applyCooldown) {
+          // NẾU CHƯA XÁC NHẬN "VẪN TIẾP TỤC ĐĂNG" (Friendly Nudge)
+          if (!forceComment) {
+            return res.status(200).json({
+              success: true,
+              nudge: true,
+              warningType: 'violence',
+              predictedLabel: harmonized.finalLabel || 'Violence',
+              message: 'Chúng tôi nhận thấy bình luận của bạn có thể chứa từ ngữ bạo lực/xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi gửi không?',
+            });
+          }
+
+          // CỐ TÌNH BẤM GỬI -> PHẠT COOLDOWN VÀ ẨN BÌNH LUẬN
           const d = new Date(Date.now() + harmonized.cooldownMinutes * 60 * 1000);
           if (postRepository.pool) {
             await postRepository.pool.query(
@@ -268,16 +291,30 @@ export function createPostsController({ postService, postRepository, imageModera
                WHERE id = $3`,
               [d.toISOString(), normalizedContent || '[Hình ảnh bạo lực]', req.user.id]
             );
-            if (harmonized.notificationMessage) {
-              try {
-                await postRepository.pool.query(
-                  `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
-                   VALUES ($1, $2, 'ai_moderation', $3, $4)`,
-                  [req.user.id, req.user.id, harmonized.notificationMessage, postId]
-                );
-              } catch (err) {}
-            }
           }
+
+          const hiddenComment = await postRepository.createComment({
+            postId,
+            authorId: req.user.id,
+            content: normalizedContent,
+            imageUrl: imageUrl || null,
+            aiLabel: harmonized.finalLabel,
+            aiStatus: 'hidden',
+            isHidden: true,
+            isSoftHidden: false,
+            ...(heldModeration ? { imageModeration: heldModeration } : {}),
+          });
+
+          if (postRepository.pool && harmonized.notificationMessage) {
+            try {
+              await postRepository.pool.query(
+                `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+                 VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+                [req.user.id, req.user.id, harmonized.notificationMessage, postId]
+              );
+            } catch (err) {}
+          }
+
           const commentCooldown = {
             status: 'cooldown',
             cooldown_until: d.toISOString(),
@@ -285,8 +322,9 @@ export function createPostsController({ postService, postRepository, imageModera
           };
           return res.status(403).json({
             success: false,
-            message: 'Bình luận vi phạm tiêu chuẩn bạo lực. Bình luận đã bị chặn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.',
+            message: 'Bình luận vi phạm tiêu chuẩn bạo lực. Bình luận đã bị ẩn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.',
             cooldown: commentCooldown,
+            data: hiddenComment,
           });
         }
 

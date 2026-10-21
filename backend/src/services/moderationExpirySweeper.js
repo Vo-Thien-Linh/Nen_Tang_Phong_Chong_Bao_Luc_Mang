@@ -3,8 +3,8 @@ export async function sweepExpiredModeration(db, clock = () => new Date()) {
   try {
     await client.query('BEGIN');
     const now = clock();
-    await client.query(`DELETE FROM comments WHERE image_moderation_status = 'rejected_hold' AND moderation_expires_at <= $1`, [now]);
-    const result = await client.query(`DELETE FROM posts WHERE image_moderation_status = 'rejected_hold' AND moderation_expires_at <= $1`, [now]);
+    await client.query(`UPDATE comments SET is_hidden = TRUE, ai_status = 'hidden' WHERE image_moderation_status = 'rejected_hold' AND moderation_expires_at <= $1`, [now]);
+    const result = await client.query(`UPDATE posts SET ai_status = 'hidden' WHERE image_moderation_status = 'rejected_hold' AND moderation_expires_at <= $1`, [now]);
     await client.query('COMMIT');
     return result.rowCount || 0;
   } catch (error) {
