@@ -194,7 +194,9 @@ export default function MessagesView({
 
     const connectWs = () => {
       try {
-        ws = new WebSocket(`ws://localhost:8000/api/v1/messages/ws/${currentUser.id}`);
+        const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+        const wsUrl = fastApiUrl.replace(/^http/, 'ws');
+        ws = new WebSocket(`${wsUrl}/api/v1/messages/ws/${currentUser.id}`);
 
         ws.onopen = () => {
           pingInterval = setInterval(() => {

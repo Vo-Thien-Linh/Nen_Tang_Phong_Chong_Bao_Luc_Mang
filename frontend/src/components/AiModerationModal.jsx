@@ -29,7 +29,8 @@ export default function AiModerationModal({ isOpen, onClose }) {
 
     try {
       // Gọi sang API FastAPI (Python)
-      const res = await fetch('http://localhost:8000/api/v1/moderate', {
+      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+      const res = await fetch(`${fastApiUrl}/api/v1/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: comment })
