@@ -619,7 +619,8 @@ export default function App() {
   useEffect(() => {
     let eventSource = null;
     try {
-      eventSource = new EventSource('http://localhost:5000/api/realtime/stream');
+      const nodeApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream`);
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);

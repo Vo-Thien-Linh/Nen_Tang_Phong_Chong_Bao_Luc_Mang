@@ -12,7 +12,8 @@ export async function moderateTextContent(text) {
   }
 
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/v1/moderate', {
+    const fastApiBase = process.env.FASTAPI_URL || 'http://127.0.0.1:8000';
+    const res = await fetch(`${fastApiBase}/api/v1/moderate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: text.trim() }),
