@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS posts (
     -- Kiểm duyệt nội dung AI
     ai_label VARCHAR(50) DEFAULT 'Normal', -- 'Normal', 'Toxic', 'Violence', 'Hate Speech'
     ai_confidence NUMERIC(5, 4) DEFAULT 0.9900,
-    ai_status VARCHAR(20) DEFAULT 'approved', -- 'approved', 'warned', 'hidden'
+    ai_status VARCHAR(20) DEFAULT 'approved', -- 'approved' (hiển thị), 'warned' (cảnh báo), 'hidden' (ẩn cứng: xóa mềm hoặc vi phạm, giữ lại trong DB nhưng ẩn hoàn toàn trên frontend)
     
     -- Bộ đếm cache để truy vấn News Feed tốc độ cao
     likes_count INT DEFAULT 0,

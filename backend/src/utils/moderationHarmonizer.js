@@ -23,11 +23,13 @@ export function harmonizeModeration({ textMod = {}, imageModeration = null, cont
   const vRejectThreshold = thresholds.violence_reject || 0.8;
   const nsfwThreshold = thresholds.nsfw_blur || 0.7;
 
-  const isImageViolence = (scores.violence || 0) >= vRejectThreshold ||
+  const isImageViolence = ['sensitive', 'pending_review'].includes(imageModeration?.decision) ? false : (
+    (scores.violence || 0) >= vRejectThreshold ||
     imageModeration?.decision === 'rejected' ||
     imageModeration?.decision === 'rejected_hold' ||
     imageModeration?.category === 'VIOLATION' ||
-    imageModeration?.label === 'violence';
+    imageModeration?.label === 'violence'
+  );
 
   const isImageNsfw = (scores.nsfw || 0) >= nsfwThreshold ||
     imageModeration?.decision === 'sensitive' ||
@@ -54,8 +56,8 @@ export function harmonizeModeration({ textMod = {}, imageModeration = null, cont
       isHidden: true,
       isSoftHidden: false,
       aiStatus: 'hidden',
-      applyCooldown: true,
-      cooldownMinutes: 10,
+      applyCooldown: textLabel === 'Violence',
+      cooldownMinutes: textLabel === 'Violence' ? 10 : 0,
       notificationMessage: notifMessage,
       reason: violationDetail,
       confidence: Math.max(textConfidence, scores.violence || 0.9),

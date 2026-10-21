@@ -3,6 +3,7 @@ import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer } from 
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
+import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 
@@ -19,6 +20,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [imageAiPreview, setImageAiPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [nudgeData, setNudgeData] = useState(null);
   const submitLockRef = useRef(false);
 
   // Trạng thái xử phạt / cấm đăng bài
@@ -133,49 +135,31 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     }
   };
 
-  const handleSubmit = async (e) => {
-    if (e) {
-      if (typeof e.preventDefault === 'function') e.preventDefault();
-      if (typeof e.stopPropagation === 'function') e.stopPropagation();
-    }
-    if (!canStartCreation(submitLockRef.current)) return;
+  const doSubmitPost = async (forcePost = false) => {
     setMessage('');
     setErrorMessage('');
 
     if (!currentUser?.id) {
-      if (onRequireLogin) {
-        onRequireLogin();
-      }
+      if (onRequireLogin) onRequireLogin();
       return;
     }
-
     if (isBanned) {
       setErrorMessage('Tài khoản của bạn đang bị khóa. Không thể tạo bài viết mới.');
       return;
     }
-
     if (isCooldown) {
       setErrorMessage(`Bạn đang bị cấm đăng bài và bình luận. Thời gian còn lại: ${remainingTimeStr}`);
       return;
     }
-
     if (!content.trim()) {
       setErrorMessage('Nội dung là bắt buộc');
       return;
-    }
-
-    if (aiPreview && (aiPreview.label === 'Violence' || aiPreview.label === 'Hate Speech')) {
-      const confirmed = window.confirm(
-        `Cảnh báo AI: Nội dung này bị phân loại là "${aiPreview.label}". Bạn có chắc chắn muốn đăng không?`
-      );
-      if (!confirmed) return;
     }
 
     submitLockRef.current = true;
     setIsSubmitting(true);
     try {
       let finalImageUrl = imageUrl;
-      // Đảm bảo nếu người dùng chọn ảnh mà Cloudinary chưa kịp tải xong thì lập tức tải và đợi
       if (imageFile && !finalImageUrl) {
         setIsUploadingImage(true);
         finalImageUrl = await uploadPostImage(imageFile);
@@ -187,7 +171,17 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         userId: currentUser.id,
         content: content.trim(),
         imageUrl: finalImageUrl || null,
+        forcePost,
       });
+
+      // Nhận gợi ý nhắc nhở nhẹ nhàng (Friendly Nudge) từ AI
+      if (result.nudge) {
+        setNudgeData({
+          message: result.message,
+          contentSnippet: content.trim(),
+        });
+        return;
+      }
 
       onAddPost(result.data, result.cooldown);
       setContent('');
@@ -210,6 +204,15 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setIsSubmitting(false);
       setIsUploadingImage(false);
     }
+  };
+
+    const handleSubmit = async (e) => {
+    if (e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    }
+    if (!canStartCreation(submitLockRef.current)) return;
+    await doSubmitPost(false);
   };
 
   return (
@@ -376,6 +379,21 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
           </div>
         </div>
       </div>
+      <FriendlyNudgeModal
+        isOpen={Boolean(nudgeData)}
+        message={nudgeData?.message}
+        targetType="bài viết"
+        contentSnippet={nudgeData?.contentSnippet}
+        isSubmitting={isSubmitting}
+        onEdit={() => {
+          setNudgeData(null);
+          submitLockRef.current = false;
+        }}
+        onConfirmForce={async () => {
+          setNudgeData(null);
+          await doSubmitPost(true);
+        }}
+      />
     </form>
   );
 }
