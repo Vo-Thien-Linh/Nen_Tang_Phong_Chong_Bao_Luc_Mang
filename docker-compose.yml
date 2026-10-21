@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  fastapi-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    restart: always
+
+  express-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.express
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - DATABASE_URL=${DATABASE_URL}
+      - FASTAPI_URL=http://fastapi-backend:8000
+      - IMAGE_MODERATION_API_URL=http://fastapi-backend:8000/api/v1/moderate/image
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+    depends_on:
+      - fastapi-backend
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - express-backend
+      - fastapi-backend
+    restart: always

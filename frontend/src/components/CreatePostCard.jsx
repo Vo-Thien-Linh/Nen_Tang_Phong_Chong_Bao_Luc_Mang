@@ -61,7 +61,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     setIsAiChecking(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/v1/moderate', {
+      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+      const res = await fetch(`${fastApiUrl}/api/v1/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: content })
