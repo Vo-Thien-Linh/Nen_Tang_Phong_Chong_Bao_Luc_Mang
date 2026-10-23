@@ -1,0 +1,78 @@
+name: WINGS Social CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - 'feature/**'
+      - 'feat/**'
+      - 'fix/**'
+      - 'test/**'
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  workflow_dispatch:
+
+jobs:
+  # ========================================================
+  # JOB 1: KIỂM THỬ FRONTEND (Vite + React)
+  # ========================================================
+  frontend-check:
+    name: 🎨 Frontend Check (51 Unit Tests & Build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Tải mã nguồn từ GitHub
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Cài đặt môi trường Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+
+      - name: 📦 Cài đặt thư viện Frontend
+        working-directory: frontend
+        run: npm install
+
+      - name: 🧪 Chạy 51 bài Unit Test Frontend
+        working-directory: frontend
+        run: npm test
+
+      - name: 🏗️ Kiểm tra Build Production (Vite Build)
+        working-directory: frontend
+        run: npm run build
+
+  # ========================================================
+  # JOB 2: KIỂM THỬ BACKEND (Node.js Express + AI Moderation)
+  # ========================================================
+  backend-check:
+    name: ⚙️ Backend Check (66 Unit & Integration Tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Tải mã nguồn từ GitHub
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Cài đặt môi trường Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package.json
+
+      - name: 📦 Cài đặt thư viện Backend
+        working-directory: backend
+        run: npm install
+
+      - name: 🧪 Chạy 66 bài Unit Test Backend
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: test
+        run: npm test
