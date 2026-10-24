@@ -15,7 +15,23 @@ function formatRelativeTime(createdAt) {
   const diffHours = Math.floor(diffMinutes / 60);
   if (diffHours < 24) return `${diffHours} giờ trước`;
 
-  return `${Math.floor(diffHours / 24)} ngày trước`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays} ngày trước`;
+
+  if (diffDays < 30) {
+    const diffWeeks = Math.floor(diffDays / 7);
+    return diffWeeks <= 1 ? 'tuần trước' : `${diffWeeks} tuần trước`;
+  }
+
+  if (diffDays < 365) {
+    const diffMonths = Math.max(1, Math.floor(diffDays / 30));
+    return `${diffMonths} tháng trước`;
+  }
+
+  const day = String(createdDate.getDate()).padStart(2, '0');
+  const month = String(createdDate.getMonth() + 1).padStart(2, '0');
+  const year = createdDate.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 export function mapPostToResponse(post) {
