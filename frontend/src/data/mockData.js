@@ -104,7 +104,7 @@ export const initialPosts = [
   {
     id: "post-avatar-1",
     author: {
-      id: "user-current",
+      id: "a0000000-0000-0000-0000-000000000001",
       name: "Võ Thiện Linh",
       username: "linh.vothien.16",
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
@@ -138,7 +138,7 @@ export const initialPosts = [
   {
     id: "post-2",
     author: {
-      id: "user-current",
+      id: "a0000000-0000-0000-0000-000000000001",
       name: "Võ Thiện Linh",
       username: "linh.vothien.16",
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
@@ -206,7 +206,7 @@ export const initialPosts = [
   {
     id: "post-flagged-appeal",
     author: {
-      id: "user-current",
+      id: "a0000000-0000-0000-0000-000000000001",
       name: "Võ Thiện Linh",
       username: "linh.vothien.16",
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
@@ -455,7 +455,7 @@ export const initialReports = [
   {
     id: "rep-3",
     reporter: { 
-      id: "user-current", 
+      id: "a0000000-0000-0000-0000-000000000001", 
       name: "Võ Thiện Linh", 
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80" 
     },
@@ -482,7 +482,7 @@ export const initialAppeals = [
   {
     id: "app-1",
     user: { 
-      id: "user-current", 
+      id: "a0000000-0000-0000-0000-000000000001", 
       name: "Võ Thiện Linh", 
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80" 
     },
@@ -550,7 +550,7 @@ export const initialAiOverrides = [
 // Danh sách người dùng hệ thống phục vụ phân hệ Quản Lý Người Dùng (Admin User Management)
 export const initialUsersList = [
   {
-    id: "user-current",
+    id: "a0000000-0000-0000-0000-000000000001",
     name: "Võ Thiện Linh",
     username: "linh.vothien.16",
     email: "linh.vothien@example.com",
