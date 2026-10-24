@@ -131,7 +131,8 @@ export function createPostsController({ postService, postRepository, imageModera
         }
 
         const mappedPost = mapPostToResponse(post);
-        if (mappedPost.ai_status !== 'hidden' && !['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
+        const isHiddenPost = post.ai_status === 'hidden' || mappedPost.moderationStatus === 'hidden';
+        if (!isHiddenPost && !['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
           realtimeService.broadcast({
             type: 'POST_CREATED',
             post: mappedPost,
@@ -140,7 +141,7 @@ export function createPostsController({ postService, postRepository, imageModera
 
         res.status(201).json({
           success: true,
-          message: mappedPost.ai_status === 'hidden'
+          message: isHiddenPost
             ? 'Bài viết đã được tạo nhưng bị ẩn do vi phạm tiêu chuẩn cộng đồng.'
             : 'Đăng bài thành công',
           data: mappedPost,
