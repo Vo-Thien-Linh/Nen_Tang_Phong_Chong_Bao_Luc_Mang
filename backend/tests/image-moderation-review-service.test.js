@@ -17,10 +17,10 @@ function mockPool({ rows = [], failAt = null } = {}) {
   return { queries, connect: async () => client };
 }
 
-test('first review of a missing item returns a conflict without writing', async () => {
+test('first review of a missing item returns not found without writing', async () => {
   const pool = mockPool();
   const result = await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
-  assert.equal(result.statusCode, 409);
+  assert.equal(result.statusCode, 404);
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
   assert.equal(pool.queries.at(-1).sql, 'ROLLBACK');
 });
