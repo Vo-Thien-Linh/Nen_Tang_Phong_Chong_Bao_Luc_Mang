@@ -94,6 +94,16 @@ test('publishing an approved comment increments its parent count once', async ()
   assert.deepEqual(countUpdate[0].values, [9]);
 });
 
+test('first review of a comment uses comment table columns', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', post_id: 9, ai_status: 'approved', is_hidden: false, image_moderation_status: 'pending_review' }] });
+  await reviewImageModeration({ pool, contentType: 'comment', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
+  const select = pool.queries.find(({ sql }) => sql.startsWith('SELECT'));
+  const notification = pool.queries.find(({ sql }) => sql.includes('INSERT INTO notifications'));
+  assert.match(select.sql, /FROM comments/);
+  assert.match(select.sql, /author_id, post_id, content/);
+  assert.deepEqual(notification.values, ['author', 'Bình luận của bạn đã được duyệt', 9]);
+});
+
 test('final violence rejection does not increment its parent comment count', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', post_id: 9, ai_status: 'approved', is_hidden: false, image_moderation_status: 'appeal_pending' }] });
   await reviewImageModeration({ pool, contentType: 'comment', contentId: 4, stage: 'final', decision: 'violence', reviewerId: 'moderator' });
