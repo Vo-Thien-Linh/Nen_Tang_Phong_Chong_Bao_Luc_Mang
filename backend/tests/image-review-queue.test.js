@@ -24,6 +24,12 @@ test('moderator queue lists first review items', async () => {
   assert.match(pool.queries[0].sql, /image_moderation_status = \$1/);
 });
 
+test('queue lists only items with an image', async () => {
+  const pool = makeQueuePool();
+  await listReviewQueue(pool, 'pending_review', { type: 'post' });
+  assert.match(pool.queries[0].sql, /item\.image_url IS NOT NULL AND BTRIM\(item\.image_url\) <> ''/);
+});
+
 test('moderator can list final review items with previous decision', async () => {
   const previousDecision = { label: 'Violence', reviewerName: 'Mod', reviewedAt: '2026-10-24T12:00:00Z' };
   const pool = makeQueuePool({ comments: [{ id: 8, content_type: 'comment', author_id: 'author', author_name: 'A', content: 'text', image_url: '/image.jpg', status: 'appeal_pending', model_label: 'Violence', safe: 0.1, nsfw: 0.2, violence: 0.7, created_at: new Date('2026-10-25T00:00:00Z'), previous_decision: previousDecision, appealed_at: '2026-10-24T13:00:00Z' }] });
