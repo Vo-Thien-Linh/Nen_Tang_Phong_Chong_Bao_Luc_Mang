@@ -84,6 +84,21 @@ test('final review records the final reviewer and prior appeal status in its log
   assert.equal(log.values[9], 'sensitive');
 });
 
+test('final review uses valid columns for posts and comments', async () => {
+  for (const contentType of ['post', 'comment']) {
+    const item = { id: 4, author_id: 'author', image_moderation_status: 'appeal_pending', ...(contentType === 'comment' ? { post_id: 9 } : {}) };
+    const pool = mockPool({ rows: [item] });
+    await reviewImageModeration({ pool, contentType, contentId: 4, stage: 'final', decision: 'safe', reviewerId: 'moderator' });
+    const select = pool.queries.find(({ sql }) => sql.startsWith('SELECT'));
+    const update = pool.queries.find(({ sql }) => sql.startsWith('UPDATE'));
+    assert.match(select.sql, new RegExp(`FROM ${contentType === 'post' ? 'posts' : 'comments'}`));
+    if (contentType === 'post') assert.doesNotMatch(select.sql, /\bpost_id\b/);
+    else assert.match(select.sql, /author_id, post_id, content/);
+    assert.match(update.sql, /RETURNING id, author_id, image_moderation_status/);
+    assert.doesNotMatch(update.sql, /post_id/);
+  }
+});
+
 test('failed first review rolls back without notifying the author', async () => {
   const pool = mockPool({
     rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'pending_review' }],
