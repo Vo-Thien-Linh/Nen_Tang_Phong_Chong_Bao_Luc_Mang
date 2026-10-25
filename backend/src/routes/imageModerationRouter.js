@@ -1,7 +1,6 @@
 import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
-import { createPostRepository } from '../repositories/postRepository.js';
 import { mapPostToResponse } from '../controllers/postsController.js';
 import { realtimeService } from '../services/realtimeService.js';
 import { reviewImageModeration } from '../services/imageModerationReviewService.js';
@@ -59,21 +58,65 @@ async function decide(req, res, next, pool, stage, fixedDecision = null) {
   } catch (error) { return next(error); }
 }
 
-async function broadcastPublishedItem(pool, { id, type }) {
-  const repository = createPostRepository({ pool });
+export async function broadcastPublishedItem(pool, { id, type }) {
   if (type === 'post') {
-    const post = await repository.findById(id);
+    const result = await pool.query(
+      `SELECT p.id, p.author_id, p.content, p.image_url, p.image_moderation_status,
+              p.image_moderation_label, p.image_moderation_safe, p.image_moderation_nsfw,
+              p.image_moderation_violence, p.image_moderation_thresholds, p.image_moderation_appealed_at,
+              p.moderation_expires_at, p.created_at, p.edited_at, p.ai_label, p.ai_confidence,
+              p.ai_status, p.likes_count, p.comments_count, p.shares_count,
+              u.full_name, u.username, u.avatar_url, u.is_verified
+       FROM posts p JOIN users u ON u.id = p.author_id
+       WHERE p.id = $1 AND p.image_moderation_status IN ('safe', 'sensitive')`,
+      [id]
+    );
+    const post = result.rows[0];
     if (post?.ai_status === 'approved') realtimeService.broadcast({ type: 'POST_CREATED', post: mapPostToResponse(post) });
     return;
   }
-  const result = await pool.query('SELECT post_id FROM comments WHERE id = $1', [id]);
-  const postId = result.rows[0]?.post_id;
-  if (!postId) return;
-  const post = await repository.findById(postId);
-  const comment = post?.comments?.find((row) => String(row.id) === String(id));
-  if (comment?.ai_status === 'approved' && post?.ai_status === 'approved') {
-    realtimeService.broadcast({ type: 'COMMENT_CREATED', postId: String(postId), comment });
-  }
+  const result = await pool.query(
+    `SELECT c.id, c.post_id, c.author_id, c.content, c.image_url, c.image_label,
+            c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
+            c.image_moderation_violence, c.image_moderation_thresholds,
+            c.image_moderation_appealed_at, c.moderation_expires_at, c.is_hidden,
+            c.ai_label, c.ai_confidence, c.created_at,
+            u.full_name, u.username, u.avatar_url, u.is_verified
+     FROM comments c JOIN users u ON u.id = c.author_id
+     WHERE c.id = $1 AND c.image_moderation_status IN ('safe', 'sensitive')`,
+    [id]
+  );
+  const row = result.rows[0];
+  if (!row || row.is_hidden) return;
+  const postResult = await pool.query(`SELECT id, ai_status FROM posts WHERE id = $1`, [row.post_id]);
+  if (postResult.rows[0]?.ai_status !== 'approved') return;
+  realtimeService.broadcast({
+    type: 'COMMENT_CREATED',
+    postId: String(row.post_id),
+    comment: {
+      id: String(row.id),
+      author: { id: row.author_id, name: row.full_name, username: row.username, avatar: row.avatar_url, isVerified: Boolean(row.is_verified) },
+      content: row.content,
+      image: row.image_url || null,
+      imageModeration: row.image_moderation_status ? {
+        status: row.image_moderation_status,
+        scores: { safe: row.image_moderation_safe, nsfw: row.image_moderation_nsfw, violence: row.image_moderation_violence },
+        thresholds: row.image_moderation_thresholds || null,
+        moderationExpiresAt: row.moderation_expires_at || null,
+        appealedAt: row.image_moderation_appealed_at || null,
+      } : null,
+      image_label: row.image_label,
+      is_hidden: false,
+      isHidden: false,
+      is_soft_hidden: false,
+      isSoftHidden: false,
+      ai_label: row.ai_label || 'Normal',
+      aiLabel: row.ai_label || 'Normal',
+      ai_confidence: Number(row.ai_confidence ?? 0.99),
+      time: row.created_at,
+      createdAt: row.created_at,
+    },
+  });
 }
 
 export async function listReviewQueue(pool, status, query = {}, withPreviousDecision = false) {
