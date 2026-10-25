@@ -41,3 +41,15 @@ test('first review records reviewer and time', async () => {
   assert.equal(update.values[2], reviewedAt);
   assert.equal(result.data.reviewedAt, reviewedAt);
 });
+
+test('first review writes a moderation log entry', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'pending_review', image_moderation_safe: 0.91 }] });
+  await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
+  const log = pool.queries.find(({ sql }) => sql.includes('INSERT INTO moderation_logs'));
+  assert.equal(log.values[0], 'moderator');
+  assert.equal(log.values[6], 'image_review_first_safe');
+  assert.equal(log.values[7], 'first');
+  assert.equal(log.values[8], 'pending_review');
+  assert.equal(log.values[9], 'safe');
+  assert.deepEqual(JSON.parse(log.values[10]), { safe: 0.91 });
+});
