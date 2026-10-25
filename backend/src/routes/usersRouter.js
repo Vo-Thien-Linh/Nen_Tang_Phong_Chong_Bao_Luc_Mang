@@ -6,8 +6,10 @@ import { getModerationNoticeText } from '../services/moderationNotificationText.
 
 function formatImageModerationForViewer(imageModeration, contentType, authorId, viewerId) {
   if (!imageModeration) return null;
+  const isReviewOnlyStatus = ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(imageModeration.status);
   const ownerCanSeeReview = String(authorId) === String(viewerId)
     && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(imageModeration.status);
+  if (isReviewOnlyStatus && !ownerCanSeeReview) return null;
   if (!ownerCanSeeReview) return imageModeration;
   return {
     ...imageModeration,

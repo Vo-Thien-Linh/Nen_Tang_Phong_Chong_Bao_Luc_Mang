@@ -38,11 +38,12 @@ function formatRelativeTime(createdAt) {
 export function mapPostToResponse(post, viewerId = null) {
   const postOwnStatus = ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(post.image_moderation_status);
   const exposePostReview = postOwnStatus && String(post.author_id) === String(viewerId);
+  const exposePostImageModeration = ['safe', 'sensitive'].includes(post.image_moderation_status) || exposePostReview;
   return {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
-    imageModeration: post.image_moderation_status ? {
+    imageModeration: post.image_moderation_status && exposePostImageModeration ? {
       status: post.image_moderation_status,
       moderationExpiresAt: post.moderation_expires_at || null,
       remainingSeconds: post.moderation_expires_at ? Math.max(0, Math.ceil((new Date(post.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
@@ -91,7 +92,8 @@ export function mapPostToResponse(post, viewerId = null) {
       },
       content: c.content,
       image: c.image || c.image_url || null,
-      imageModeration: c.imageModeration ? {
+      imageModeration: c.imageModeration && (['safe', 'sensitive'].includes(c.imageModeration.status)
+        || (String(c.author?.id) === String(viewerId) && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(c.imageModeration.status))) ? {
         ...c.imageModeration,
         ...(String(c.author?.id) === String(viewerId) && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(c.imageModeration.status) ? {
           noticeText: getModerationNoticeText('comment', c.imageModeration.status),
