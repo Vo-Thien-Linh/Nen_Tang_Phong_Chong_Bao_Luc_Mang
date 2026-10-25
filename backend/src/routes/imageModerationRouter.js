@@ -50,12 +50,17 @@ async function decide(req, res, next, pool, stage, fixedDecision = null) {
     stage,
     decision,
     reviewerId: req.user.id,
-  }).catch((error) => { next(error); return null; });
-  if (!result) return;
+  });
   if (!result.ok) return res.status(result.statusCode).json({ success: false, message: result.message });
   if (result.data.published) await broadcastPublishedItem(pool, result.data);
   return res.json({ success: true, data: result.data, message: "Đã cập nhật trạng thái duyệt ảnh" });
-  } catch (error) { return next(error); }
+  } catch (error) {
+    console.error('Image review decision failed', {
+      code: error.code || 'UNKNOWN',
+      message: error.message || 'Unknown error',
+    });
+    return res.status(500).json({ success: false, message: 'Đã có lỗi hệ thống' });
+  }
 }
 
 export async function broadcastPublishedItem(pool, { id, type }) {

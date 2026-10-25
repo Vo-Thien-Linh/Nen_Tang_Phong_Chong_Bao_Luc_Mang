@@ -3,6 +3,7 @@ import { imageReviewNotification } from './moderationNotificationText.js';
 
 const TABLE_BY_TYPE = { post: 'posts', comment: 'comments' };
 const DECISION_LABEL = { safe: 'Safe', nsfw: 'NSFW', violence: 'Violence' };
+const reviewNotFoundMessage = 'Không tìm thấy mục cần duyệt';
 const conflictMessage = 'Mục này đã được xử lý hoặc không còn tồn tại';
 const appealExpiredMessage = 'Đã hết thời gian kháng cáo';
 const appealedMessage = 'Bạn đã khiếu nại mục này';
@@ -100,7 +101,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
     const item = existing.rows[0];
     if (!item) {
       await client.query('ROLLBACK');
-      return { ok: false, statusCode: 409, message: conflictMessage };
+      return { ok: false, statusCode: 404, message: reviewNotFoundMessage };
     }
     const transition = transitionImageModeration({
       status: item.image_moderation_status,
