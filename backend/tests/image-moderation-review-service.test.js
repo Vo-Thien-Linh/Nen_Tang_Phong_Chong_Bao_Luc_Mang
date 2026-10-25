@@ -59,7 +59,7 @@ test('first review of a post writes valid notification columns', async () => {
   await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
   const notification = pool.queries.find(({ sql }) => sql.includes('INSERT INTO notifications'));
   assert.match(notification.sql, /\(recipient_id, type, content, target_post_id\)/);
-  assert.deepEqual(notification.values, ['author', 'BÃ i viáº¿t cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c duyá»‡t', 4]);
+  assert.deepEqual(notification.values, ['author', 'Bài viết của bạn đã được duyệt', 4]);
 });
 
 test('final review records the final reviewer and prior appeal status in its log', async () => {
