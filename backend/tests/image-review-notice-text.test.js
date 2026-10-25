@@ -9,3 +9,7 @@ test('rejected admin post notice uses post wording', () => {
 test('rejected admin comment notice uses comment wording', () => {
   assert.match(getModerationNoticeText('comment', 'rejected_admin'), /^Bình luận của bạn/);
 });
+
+test('appeal pending notice says the appeal is under review', () => {
+  assert.equal(getModerationNoticeText('post', 'appeal_pending'), 'Khiếu nại của bạn đang được xem xét');
+});
