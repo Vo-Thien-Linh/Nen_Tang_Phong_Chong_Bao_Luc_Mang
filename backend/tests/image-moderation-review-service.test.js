@@ -8,7 +8,7 @@ function mockPool({ rows = [], failAt = null } = {}) {
     async query(sql, values = []) {
       queries.push({ sql, values });
       if (sql.startsWith('SELECT')) return { rows };
-      if (sql.startsWith('UPDATE') && !failAt) return { rows: [{ id: 4, author_id: 'author', post_id: 9 }] };
+      if (sql.startsWith('UPDATE') && !(failAt && sql.startsWith(failAt))) return { rows: [{ id: 4, author_id: 'author', post_id: 9 }] };
       if (failAt && sql.startsWith(failAt)) throw new Error('mock database failure');
       return { rows: [], rowCount: 1 };
     },
@@ -52,4 +52,15 @@ test('first review writes a moderation log entry', async () => {
   assert.equal(log.values[8], 'pending_review');
   assert.equal(log.values[9], 'safe');
   assert.deepEqual(JSON.parse(log.values[10]), { safe: 0.91 });
+});
+
+test('failed first review rolls back without notifying the author', async () => {
+  const pool = mockPool({
+    rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'pending_review' }],
+    failAt: 'INSERT INTO moderation_logs',
+  });
+  await assert.rejects(() => reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' }), /mock database failure/);
+  assert.equal(pool.queries.some(({ sql }) => sql === 'COMMIT'), false);
+  assert.equal(pool.queries.at(-1).sql, 'ROLLBACK');
+  assert.equal(pool.queries.some(({ sql }) => sql.includes('INSERT INTO notifications')), false);
 });
