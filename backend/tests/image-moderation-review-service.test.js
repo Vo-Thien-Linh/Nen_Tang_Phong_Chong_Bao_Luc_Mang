@@ -135,6 +135,21 @@ test('owner can appeal an admin rejected item', async () => {
   assert.equal(pool.queries.at(-1).sql, 'COMMIT');
 });
 
+test('appeal submit uses valid columns for posts and comments', async () => {
+  for (const contentType of ['post', 'comment']) {
+    const item = { id: 4, author_id: 'author', image_moderation_status: 'rejected_admin', ...(contentType === 'comment' ? { post_id: 9 } : {}) };
+    const pool = mockPool({ rows: [item] });
+    await appealImageModeration({ pool, contentType, contentId: 4, authorId: 'author' });
+    const select = pool.queries.find(({ sql }) => sql.startsWith('SELECT'));
+    const update = pool.queries.find(({ sql }) => sql.startsWith('UPDATE'));
+    assert.match(select.sql, new RegExp(`FROM ${contentType === 'post' ? 'posts' : 'comments'}`));
+    if (contentType === 'post') assert.doesNotMatch(select.sql, /\bpost_id\b/);
+    else assert.match(select.sql, /author_id, post_id, content/);
+    assert.match(update.sql, /RETURNING id/);
+    assert.doesNotMatch(update.sql, /RETURNING id, post_id/);
+  }
+});
+
 test('owner can appeal an unexpired held item', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_hold', moderation_expires_at: new Date('2026-10-25T00:10:00Z'), content: 'image post' }] });
   const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:05:00Z') });
