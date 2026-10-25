@@ -86,6 +86,13 @@ test('failed first review rolls back without notifying the author', async () => 
   assert.equal(pool.queries.some(({ sql }) => sql.includes('INSERT INTO notifications')), false);
 });
 
+test('decide rolls back when a statement fails', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'pending_review' }], failAt: 'INSERT INTO notifications' });
+  await assert.rejects(() => reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' }), /mock database failure/);
+  assert.equal(pool.queries.some(({ sql }) => sql === 'COMMIT'), false);
+  assert.equal(pool.queries.at(-1).sql, 'ROLLBACK');
+});
+
 test('publishing an approved comment increments its parent count once', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', post_id: 9, ai_status: 'approved', is_hidden: false, image_moderation_status: 'pending_review' }] });
   await reviewImageModeration({ pool, contentType: 'comment', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
