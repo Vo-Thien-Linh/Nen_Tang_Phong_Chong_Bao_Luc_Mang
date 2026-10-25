@@ -25,3 +25,11 @@ export function areImageReviewActionsDisabled(pendingKey) {
 export function getPreviousImageDecisionLabel(item) {
   return item?.previousDecision?.label || null;
 }
+
+export function getImageReviewFailure(error) {
+  return {
+    removeItem: error?.status === 409,
+    pendingKey: null,
+    toast: { type: 'error', message: error?.message || 'Không thể cập nhật quyết định.' },
+  };
+}

@@ -12,7 +12,7 @@ import ReportResolutionModal from './ReportResolutionModal';
 import AppealResolutionModal from './AppealResolutionModal';
 import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
 import { fetchPendingImageModeration, fetchImageAppealQueue, reviewImageModeration } from '../api/client';
-import { applyImageReviewQueueResult } from '../utils/imageModerationReviewLogic';
+import { applyImageReviewQueueResult, getImageReviewFailure } from '../utils/imageModerationReviewLogic';
 import ImageModerationQueue from './ImageModerationQueue';
 
 /**
@@ -66,7 +66,7 @@ export default function ModeratorView({
 
   useEffect(() => {
     loadImageQueues().catch((error) => {
-      setToast({ type: 'error', message: error.message || 'Không thể tải hàng đợi duyệt ảnh' });
+      setToast(failure.toast);
     });
   }, [currentUser?.id]);
 
@@ -80,11 +80,12 @@ export default function ModeratorView({
       setItems((previous) => applyImageReviewQueueResult(previous, item, { succeeded: true }));
       setToast({ type: 'success', message: stage === 'first' ? 'ÄÃ£ duyá»‡t áº£nh thÃ nh cÃ´ng.' : 'ÄÃ£ giáº£i quyáº¿t khiáº¿u náº¡i áº£nh.' });
     } catch (error) {
-      if (error.status === 409) {
+      const failure = getImageReviewFailure(error);
+      if (failure.removeItem) {
         const setItems = stage === 'first' ? setImageReviewItems : setImageAppealItems;
         setItems((previous) => applyImageReviewQueueResult(previous, item, { status: 409 }));
       }
-      setToast({ type: 'error', message: error.message || 'Không thể cập nhật quyết định.' });
+      setToast(failure.toast);
     } finally {
       setPendingImageDecision(null);
       setTimeout(() => setToast(null), 4500);
