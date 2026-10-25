@@ -81,3 +81,10 @@ test('owner can appeal an unexpired held item', async () => {
   assert.equal(result.data.status, 'appeal_pending');
   assert.match(update.sql, /moderation_expires_at > \$4/);
 });
+
+test('non owner cannot appeal an image item', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_admin' }] });
+  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'other-user' });
+  assert.equal(result.statusCode, 404);
+  assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
+});
