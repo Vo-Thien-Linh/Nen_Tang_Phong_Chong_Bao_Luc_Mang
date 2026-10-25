@@ -57,6 +57,12 @@ test('keep item and show message on server error', () => {
   assert.deepEqual(error.toast, { type: 'error', message: 'Đã có lỗi hệ thống' });
 });
 
+test('buttons are re-enabled after an error', () => {
+  const failure = getImageReviewFailure({ status: 500, message: 'Database unavailable' });
+  assert.equal(failure.pendingKey, null);
+  assert.equal(areImageReviewActionsDisabled(failure.pendingKey), false);
+});
+
 test('all review buttons are disabled while a request is pending', () => {
   assert.equal(areImageReviewActionsDisabled('post-1'), true);
   assert.equal(areImageReviewActionsDisabled(null), false);
