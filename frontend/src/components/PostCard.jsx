@@ -18,7 +18,8 @@ import {
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { computeMeasuredPopoverPlacement } from '../utils/popoverLogic';
 import { canDeletePost, canEditPost, canReportPost } from '../utils/postActionLogic';
-import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
+import { getModerationNoticeText, moderationViolationNotice } from '../utils/moderationNoticeLogic';
+import { canSubmitImageAppeal } from '../utils/imageModerationReviewLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
@@ -138,6 +139,7 @@ export default function PostCard({
   const commentInputRef = useRef(null);
 
   const handleReplyToComment = (targetComment) => {
+    if (['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(targetComment.imageModeration?.status || targetComment.image_moderation_status)) return;
     if (isBanned || isCooldown) return;
     if (!currentUser && onRequireAuth) {
       onRequireAuth("Vui lòng đăng nhập để trả lời bình luận");
@@ -158,6 +160,12 @@ export default function PostCard({
   const [revealedComments, setRevealedComments] = useState({});
   const [revealedSensitivePost, setRevealedSensitivePost] = useState(false);
   const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
+  const [appealSubmitting, setAppealSubmitting] = useState(false);
+  const [appealError, setAppealError] = useState('');
+  const appealLockRef = useRef(false);
+  const commentAppealLocksRef = useRef(new Set());
+  const [pendingCommentAppealId, setPendingCommentAppealId] = useState(null);
+  const [commentAppealError, setCommentAppealError] = useState('');
   const isBanned = currentUser?.status === 'banned';
   const cooldownVal = currentUser?.cooldown_until || currentUser?.cooldownUntil;
   const cooldownUntil = cooldownVal ? new Date(cooldownVal) : null;
@@ -196,8 +204,45 @@ export default function PostCard({
     return () => clearInterval(timer);
   }, [post.imageModeration?.status, holdRemaining]);
   const handleModerationAppeal = async () => {
-    await appealPostModeration({ userId: currentUser?.id, postId: post.id });
-    onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'pending_review', moderationExpiresAt: null, remainingSeconds: null } });
+    if (appealLockRef.current || !canSubmitImageAppeal(post.imageModeration?.status, appealSubmitting)) return;
+    appealLockRef.current = true;
+    setAppealSubmitting(true);
+    setAppealError('');
+    try {
+      const result = await appealPostModeration({ userId: currentUser?.id, postId: post.id });
+      onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', appealedAt: result.data?.appealedAt || new Date().toISOString(), moderationExpiresAt: null, remainingSeconds: null } });
+    } catch (error) {
+      setAppealError(error.message || 'Không thể gửi khiếu nại.');
+    } finally {
+      appealLockRef.current = false;
+      setAppealSubmitting(false);
+    }
+  };
+  const handleCommentModerationAppeal = async (comment) => {
+    const id = String(comment.id);
+    if (commentAppealLocksRef.current.has(id) || !canSubmitImageAppeal(comment.imageModeration?.status, pendingCommentAppealId === id)) return;
+    commentAppealLocksRef.current.add(id);
+    setPendingCommentAppealId(id);
+    setCommentAppealError('');
+    try {
+      const result = await appealCommentModeration({ userId: currentUser?.id, postId: post.id, commentId: comment.id });
+      onUpdatePost?.(post.id, { commentModeration: {
+        id,
+        imageModeration: {
+          ...comment.imageModeration,
+          status: 'appeal_pending',
+          noticeType: 'appeal_pending',
+          appealedAt: result.data?.appealedAt || new Date().toISOString(),
+          moderationExpiresAt: null,
+          remainingSeconds: null,
+        },
+      } });
+    } catch (error) {
+      setCommentAppealError(error.message || 'Không thể gửi khiếu nại.');
+    } finally {
+      commentAppealLocksRef.current.delete(id);
+      setPendingCommentAppealId(null);
+    }
   };
 
   // Tự động mở khung bình luận và highlight đúng bình luận được nhắc đến từ thông báo
@@ -636,6 +681,7 @@ export default function PostCard({
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
   const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
+  if (post.imageModeration?.status === 'rejected_final') return null;
   if (post.imageModeration?.status === 'rejected_hold' && holdRemaining === 0) return null;
 
   // Nếu bài viết bị ẩn cứng (Hate Speech hoặc Bạo lực)
@@ -646,7 +692,8 @@ export default function PostCard({
     return null;
   }
   const isToxicText = (post.ai_label === 'Toxic' || post.aiLabel === 'Toxic' || post.aiStatus?.label === 'Toxic') && post.ai_status !== 'hidden';
-  const isNsfwImage = (post.imageModeration?.status === 'sensitive' || post.image_label === 'NSFW' || post.imageLabel === 'NSFW' || post.image_moderation_status === 'sensitive') && post.ai_status !== 'hidden';
+  const adminImageReviewStatus = ['rejected_admin', 'appeal_pending'].includes(post.imageModeration?.status);
+  const isNsfwImage = adminImageReviewStatus || ((post.imageModeration?.status === 'sensitive' || post.image_label === 'NSFW' || post.imageLabel === 'NSFW' || post.image_moderation_status === 'sensitive') && post.ai_status !== 'hidden');
   const isSensitivePost = isToxicText || isNsfwImage;
 
   return (
@@ -851,6 +898,20 @@ export default function PostCard({
 
 
       {/* KHUNG CẢNH BÁO NỘI DUNG NHẠY CẢM HỢP NHẤT (Twitter / Reddit style) */}
+      {isAuthor && ['rejected_admin', 'appeal_pending'].includes(post.imageModeration?.status) && (
+        <div className="mx-4 sm:mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{post.imageModeration.noticeText || getModerationNoticeText('post', post.imageModeration.status)}</span>
+            {post.imageModeration.status === 'rejected_admin' && (
+              <button type="button" disabled={appealSubmitting} onClick={handleModerationAppeal} className="rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white disabled:cursor-wait disabled:opacity-50">
+                {appealSubmitting ? 'Đang gửi...' : 'Khiếu nại'}
+              </button>
+            )}
+          </div>
+          {appealError && <p className="mt-1 text-rose-700">{appealError}</p>}
+        </div>
+      )}
+
       {isSensitivePost && !revealedSensitivePost ? (
         <div className="mx-4 sm:mx-5 my-3.5 p-6 bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-800/40 rounded-2xl flex flex-col items-center justify-center text-center gap-3.5 shadow-2xs">
           <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-xs">
@@ -858,7 +919,7 @@ export default function PostCard({
           </div>
           <div className="max-w-md">
             <h4 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-100">
-              Cảnh báo: Nội dung nhạy cảm
+              {adminImageReviewStatus ? 'Nội dung nhạy cảm' : 'Cảnh báo: Nội dung nhạy cảm'}
             </h4>
             <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1 leading-relaxed">
               {isToxicText && isNsfwImage
@@ -874,7 +935,7 @@ export default function PostCard({
             className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
           >
             <Eye className="w-4 h-4" />
-            <span>Xem toàn bộ bài viết</span>
+            <span>{adminImageReviewStatus ? 'Xem' : 'Xem toàn bộ bài viết'}</span>
           </button>
         </div>
       ) : (
@@ -1362,15 +1423,18 @@ export default function PostCard({
                 if (!aSoft && bSoft) return -1;
                 return 0;
               }).map((comment) => {
+                if ((comment.imageModeration?.status || comment.image_moderation_status) === 'rejected_final') return null;
                 const isCommentAuthor = currentUser && (currentUser.id === comment.author?.id);
                 const canViewHiddenComment = isCommentAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
-                const isHardHidden = Boolean(comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' || comment.image_moderation_status === 'rejected_hold');
-                const isSoftHidden = Boolean(comment.is_soft_hidden || comment.isSoftHidden || comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic' || comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || comment.imageModeration?.status === 'sensitive');
+                const commentImageStatus = comment.imageModeration?.status || comment.image_moderation_status;
+                const isAdminImageReview = ['rejected_admin', 'appeal_pending'].includes(commentImageStatus);
+                const isHardHidden = Boolean(comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' || commentImageStatus === 'rejected_hold');
+                const isSoftHidden = !isAdminImageReview && Boolean(comment.is_soft_hidden || comment.isSoftHidden || comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic' || comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || commentImageStatus === 'sensitive');
                 const isRevealed = Boolean(revealedComments[comment.id]);
                 const isThisCommentHighlighted = highlightedCommentId && String(comment.id) === String(highlightedCommentId);
 
                 const isToxicText = comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic';
-                const isNsfwImg = comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || comment.imageModeration?.status === 'sensitive';
+                const isNsfwImg = comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || ['sensitive', 'rejected_admin', 'appeal_pending'].includes(commentImageStatus);
 
                 // 1. Trường hợp bình luận bị ẩn cứng (Bạo lực hoặc Thù ghét - Text hoặc Ảnh)
                 if (isHardHidden) {
@@ -1394,6 +1458,15 @@ export default function PostCard({
                           )}
                         </div>
                       </div>
+                      {isCommentAuthor && isAdminImageReview && (
+                        <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{comment.imageModeration?.noticeText || getModerationNoticeText('comment', commentImageStatus)}</span>
+                            {commentImageStatus === 'rejected_admin' && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                          </div>
+                          {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
+                        </div>
+                      )}
                       {isCommentAuthor && (
                         <button
                           type="button"
@@ -1467,6 +1540,15 @@ export default function PostCard({
                     <div className={`flex-1 bg-white dark:bg-slate-800/90 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${
                       isSoftHidden ? 'border-amber-200 dark:border-amber-800/40 bg-amber-50/20 dark:bg-amber-950/10' : ''
                     }`}>
+                      {isCommentAuthor && isAdminImageReview && (
+                        <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{comment.imageModeration?.noticeText || getModerationNoticeText('comment', commentImageStatus)}</span>
+                            {commentImageStatus === 'rejected_admin' && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                          </div>
+                          {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
+                        </div>
+                      )}
                       {/* Tiêu đề cảnh báo nếu đang mở xem bình luận Toxic / NSFW đã ẩn mềm */}
                       {isSoftHidden && isRevealed && (
                         <div className="text-[10px] text-amber-800 dark:text-amber-300 flex items-center justify-between pb-1 border-b border-amber-200 dark:border-amber-800/50 mb-1.5">
@@ -1507,12 +1589,17 @@ export default function PostCard({
                       {/* Hiển thị hình ảnh đính kèm (ẩn mềm chung đã được mở, không lồng thêm lớp blur thứ hai) */}
                       {comment.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 max-w-xs group">
-                          <img
-                            src={comment.image}
-                            alt="Bình luận có ảnh"
-                            className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition"
-                            onClick={() => window.open(comment.image, '_blank')}
-                          />
+                          {['sensitive', 'rejected_admin', 'appeal_pending'].includes(commentImageStatus) && !isRevealed ? (
+                            <div className="relative">
+                              <img src={comment.image} alt="Bình luận có ảnh" className="w-full max-h-52 object-cover blur-xl select-none scale-105" />
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
+                                <span className="text-[11px] font-semibold">Nội dung nhạy cảm</span>
+                                <button type="button" onClick={() => setRevealedComments((previous) => ({ ...previous, [comment.id]: true }))} className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <img src={comment.image} alt="Bình luận có ảnh" className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition" onClick={() => window.open(comment.image, '_blank')} />
+                          )}
                         </div>
                       )}
 

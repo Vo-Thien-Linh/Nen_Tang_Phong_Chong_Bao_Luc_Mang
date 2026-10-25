@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   AlertTriangle, FileText, MessageSquare, 
   Search, EyeOff, ArrowLeft, CheckCircle2,
@@ -11,6 +11,54 @@ import VerifiedBadge from './VerifiedBadge';
 import ReportResolutionModal from './ReportResolutionModal';
 import AppealResolutionModal from './AppealResolutionModal';
 import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
+import { fetchPendingImageModeration, fetchImageAppealQueue, reviewImageModeration } from '../api/client';
+import { formatRelativeTime } from '../utils/timeAgo';
+import { applyImageReviewQueueResult, areImageReviewActionsDisabled, getPreviousImageDecisionLabel } from '../utils/imageModerationReviewLogic';
+
+function ImageReviewQueueSection({ items, stage, pendingKey, onDecision, emptyText }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {items.length === 0 ? <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500">{emptyText}</div> : items.map((item) => {
+        const key = `${item.type}-${item.id}`;
+        const busy = pendingKey === key;
+        const anyPending = areImageReviewActionsDisabled(pendingKey);
+        const scores = item.modelScores || {};
+        return (
+          <article key={key} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            {item.imageUrl && <img src={item.imageUrl} alt="Há»ình áº£nh Ä‘ang Ä‘Æ°á»£c duyá»‡t" className="h-64 w-full bg-slate-100 object-contain" />}
+            <div className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{item.type === 'comment' ? 'Bình luận' : 'Bài viết'} · {item.author?.name || 'Người dùng'}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">{item.text || '[Không có văn bản]'}</p></div>
+                <span className="shrink-0 text-[11px] text-slate-500">{formatRelativeTime(item.createdAt)}</span>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                <p className="font-semibold text-slate-700">Điểm mô hình · {item.modelLabel || 'Chưa rõ'}</p>
+                <p className="mt-1">Safe {scores.safe ?? '-'} Â· NSFW {scores.nsfw ?? '-'} Â· Violence {scores.violence ?? '-'}</p>
+              </div>
+              {stage === 'final' && item.previousDecision && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  Quyết định trước: <strong>{getPreviousImageDecisionLabel(item)}</strong> · {item.previousDecision.reviewerName || 'Tự động'} · {item.previousDecision.reviewedAt ? formatRelativeTime(item.previousDecision.reviewedAt) : 'Không có'}
+                  {item.appealedAt && <div className="mt-1">Khiếu nại: {formatRelativeTime(item.appealedAt)}</div>}
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ['safe', 'An toàn', 'bg-emerald-600 hover:bg-emerald-700'],
+                  ['nsfw', 'Nhạy cảm', 'bg-amber-500 hover:bg-amber-600'],
+                  ['violence', 'Bạo lực', 'bg-rose-600 hover:bg-rose-700'],
+                ].map(([decision, label, color]) => (
+                  <button key={decision} type="button" disabled={anyPending} onClick={() => onDecision(item, stage, decision)} className={`rounded-lg px-2 py-2 text-xs font-semibold text-white transition disabled:cursor-wait disabled:opacity-50 ${color}`}>
+                    {busy ? 'Đang lưu...' : label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * Khu vực Kiểm duyệt nội dung (Moderator View)
@@ -46,13 +94,54 @@ export default function ModeratorView({
   const [isResolvingReport, setIsResolvingReport] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: '' }
+  const [imageReviewItems, setImageReviewItems] = useState([]);
+  const [imageAppealItems, setImageAppealItems] = useState([]);
+  const [pendingImageDecision, setPendingImageDecision] = useState(null);
   const appealsPerPage = 10;
+
+  const loadImageQueues = async () => {
+    if (!currentUser?.id) return;
+    const [first, final] = await Promise.all([
+      fetchPendingImageModeration(currentUser.id),
+      fetchImageAppealQueue(currentUser.id),
+    ]);
+    setImageReviewItems(first.data || []);
+    setImageAppealItems(final.data || []);
+  };
+
+  useEffect(() => {
+    loadImageQueues().catch((error) => {
+      setToast({ type: 'error', message: error.message || 'Không thể tải hàng đợi duyệt ảnh' });
+    });
+  }, [currentUser?.id]);
+
+  const handleImageDecision = async (item, stage, decision) => {
+    const key = `${item.type}-${item.id}`;
+    if (pendingImageDecision) return;
+    setPendingImageDecision(key);
+    try {
+      await reviewImageModeration({ userId: currentUser?.id, contentType: item.type, id: item.id, stage, decision });
+      const setItems = stage === 'first' ? setImageReviewItems : setImageAppealItems;
+      setItems((previous) => applyImageReviewQueueResult(previous, item, { succeeded: true }));
+      setToast({ type: 'success', message: stage === 'first' ? 'ÄÃ£ duyá»‡t áº£nh thÃ nh cÃ´ng.' : 'ÄÃ£ giáº£i quyáº¿t khiáº¿u náº¡i áº£nh.' });
+    } catch (error) {
+      if (error.status === 409) {
+        const setItems = stage === 'first' ? setImageReviewItems : setImageAppealItems;
+        setItems((previous) => applyImageReviewQueueResult(previous, item, { status: 409 }));
+      }
+      setToast({ type: 'error', message: error.message || 'Không thể cập nhật quyết định.' });
+    } finally {
+      setPendingImageDecision(null);
+      setTimeout(() => setToast(null), 4500);
+    }
+  };
 
   const handleManualRefresh = async () => {
     if (!onRefresh) return;
     setIsRefreshing(true);
     try {
       await onRefresh();
+      await loadImageQueues();
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
@@ -233,6 +322,20 @@ export default function ModeratorView({
       {/* Tabs điều hướng cấp 1 */}
       <div className="flex items-center gap-2 mt-6 border-b border-slate-200 pb-px">
         <button
+          onClick={() => setActiveTab('image-review')}
+          className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${activeTab === 'image-review' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+        >
+          <Eye className="w-4 h-4" /><span>Duyệt ảnh</span>
+          {imageReviewItems.length > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{imageReviewItems.length}</span>}
+        </button>
+        <button
+          onClick={() => setActiveTab('image-appeals')}
+          className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${activeTab === 'image-appeals' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+        >
+          <Scale className="w-4 h-4" /><span>Duyệt khiếu nại</span>
+          {imageAppealItems.length > 0 && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{imageAppealItems.length}</span>}
+        </button>
+        <button
           onClick={() => setActiveTab('appeals')}
           className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${
             activeTab === 'appeals'
@@ -303,6 +406,26 @@ export default function ModeratorView({
 
       {/* NỘI DUNG TỪNG PHÂN HỆ */}
       <div className="mt-6">
+
+        {activeTab === 'image-review' && (
+          <ImageReviewQueueSection
+            items={imageReviewItems}
+            stage="first"
+            pendingKey={pendingImageDecision}
+            onDecision={handleImageDecision}
+            emptyText="Không có ảnh nào đang chờ duyệt"
+          />
+        )}
+
+        {activeTab === 'image-appeals' && (
+          <ImageReviewQueueSection
+            items={imageAppealItems}
+            stage="final"
+            pendingKey={pendingImageDecision}
+            onDecision={handleImageDecision}
+            emptyText="Không có khiếu nại nào đang chờ duyệt"
+          />
+        )}
         
         {/* TAB 1: KHIẾU NẠI (APPEALS) */}
         {activeTab === 'appeals' && (

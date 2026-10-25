@@ -8,7 +8,7 @@ import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatRelativeTime } from '../utils/timeAgo';
 import { appealCommentModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
 import VerifiedBadge from './VerifiedBadge';
-import { moderationViolationNotice } from '../utils/moderationNoticeLogic';
+import { getModerationNoticeText, moderationViolationNotice } from '../utils/moderationNoticeLogic';
 import { 
   REACTIONS, 
   normalizeReactionCounts, 
@@ -43,6 +43,28 @@ export default function OriginalPostModal({
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [unblurredComments, setUnblurredComments] = useState({});
   const commentFileInputRef = useRef(null);
+  const commentAppealLocksRef = useRef(new Set());
+  const [pendingCommentAppealId, setPendingCommentAppealId] = useState(null);
+  const [commentAppealError, setCommentAppealError] = useState('');
+
+  const handleImageCommentAppeal = async (comment) => {
+    const id = String(comment.id);
+    if (commentAppealLocksRef.current.has(id)) return;
+    commentAppealLocksRef.current.add(id);
+    setPendingCommentAppealId(id);
+    setCommentAppealError('');
+    try {
+      const result = await appealCommentModeration({ userId: currentUser?.id, postId: post.id, commentId: comment.id });
+      const imageModeration = { ...comment.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', appealedAt: result.data?.appealedAt || new Date().toISOString(), moderationExpiresAt: null, remainingSeconds: null };
+      setComments((previous) => previous.map((entry) => String(entry.id) === id ? { ...entry, imageModeration } : entry));
+      onUpdatePost?.(post.id, { commentModeration: { id, imageModeration } });
+    } catch (error) {
+      setCommentAppealError(error.message || 'Không thể gửi khiếu nại.');
+    } finally {
+      commentAppealLocksRef.current.delete(id);
+      setPendingCommentAppealId(null);
+    }
+  };
 
   const handleCommentImageSelect = (e) => {
     const file = e.target.files?.[0];
@@ -562,7 +584,7 @@ export default function OriginalPostModal({
             {/* Danh sách bình luận */}
             <div className="space-y-3 pt-1">
               {comments && comments.length > 0 ? (
-                comments.map((cmt, idx) => (
+                comments.filter((item) => (item.imageModeration?.status || item.image_moderation_status) !== 'rejected_final').map((cmt, idx) => (
                   <div key={cmt.id || idx} className="flex gap-2.5 items-start text-xs animate-fade-in">
                     <img
                       src={cmt.author?.avatar || DEFAULT_AVATAR}
@@ -593,6 +615,15 @@ export default function OriginalPostModal({
                           {formatRelativeTime(cmt.time || cmt.createdAt || cmt.created_at)}
                         </span>
                       </div>
+                      {currentUser?.id === cmt.author?.id && ['rejected_admin', 'appeal_pending'].includes(cmt.imageModeration?.status) && (
+                        <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{cmt.imageModeration.noticeText || getModerationNoticeText('comment', cmt.imageModeration.status)}</span>
+                            {cmt.imageModeration.status === 'rejected_admin' && <button type="button" disabled={pendingCommentAppealId === String(cmt.id)} onClick={() => handleImageCommentAppeal(cmt)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(cmt.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                          </div>
+                          {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
+                        </div>
+                      )}
                       {cmt.content && (
                         <p className="text-slate-700 leading-relaxed whitespace-pre-line break-words">
                           {cmt.content}
@@ -601,7 +632,7 @@ export default function OriginalPostModal({
 
                       {cmt.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                          {['sensitive', 'rejected_hold'].includes(cmt.imageModeration?.status) && !unblurredComments[cmt.id] ? (
+                          {['sensitive', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(cmt.imageModeration?.status) && !unblurredComments[cmt.id] ? (
                             <div className="relative">
                               <img
                                 src={cmt.image}
@@ -610,16 +641,16 @@ export default function OriginalPostModal({
                               />
                               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center text-white">
                                 <ShieldAlert className="w-5 h-5 text-amber-400 mb-1" />
-                                <span className="text-[11px] font-semibold">{cmt.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm (NSFW)'}</span>
+                                <span className="text-[11px] font-semibold">{cmt.imageModeration?.status === 'rejected_hold' ? moderationViolationNotice('comment') : 'Nội dung nhạy cảm'}</span>
                                 <span className="text-[9px] text-slate-200 mb-2">Ảnh này được gắn nhãn nhạy cảm</span>
                                 <button
                                   type="button"
                                   onClick={() => setUnblurredComments(prev => ({ ...prev, [cmt.id]: true }))}
                                   className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-[10px] font-medium backdrop-blur-sm transition flex items-center gap-1 cursor-pointer"
                                 >
-                                  <Eye className="w-3 h-3" /> Xem ảnh
+                                  <Eye className="w-3 h-3" /> Xem
                                 </button>
-                                {cmt.imageModeration?.status === 'rejected_hold' && cmt.author?.id === currentUser?.id && <button type="button" onClick={() => appealCommentModeration({ userId: currentUser.id, postId: post.id, commentId: cmt.id })} className="mt-1 px-2.5 py-1 bg-rose-500 text-white rounded text-[10px]">Kháng cáo</button>}
+                                {cmt.imageModeration?.status === 'rejected_hold' && cmt.author?.id === currentUser?.id && <button type="button" disabled={pendingCommentAppealId === String(cmt.id)} onClick={() => handleImageCommentAppeal(cmt)} className="mt-1 px-2.5 py-1 bg-rose-500 text-white rounded text-[10px] disabled:opacity-50">Kháng cáo</button>}
                               </div>
                             </div>
                           ) : (

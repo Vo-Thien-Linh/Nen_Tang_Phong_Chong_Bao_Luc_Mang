@@ -693,6 +693,23 @@ export default function App() {
   };
 
   const handleUpdatePost = async (postId, changes) => {
+    if (changes?.imageModeration || changes?.commentModeration) {
+      setPosts((previous) => previous.flatMap((post) => {
+        if (String(post.id) !== String(postId)) return [post];
+        if (changes.imageModeration) {
+          if (changes.imageModeration.status === 'rejected_final') return [];
+          return [{ ...post, imageModeration: changes.imageModeration }];
+        }
+        const { id: commentId, ...commentChanges } = changes.commentModeration;
+        return [{
+          ...post,
+          comments: (post.comments || []).map((comment) => String(comment.id) === String(commentId)
+            ? { ...comment, ...commentChanges }
+            : comment),
+        }];
+      }));
+      return changes;
+    }
     if (!currentUser?.id) {
       handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
       throw new Error('Vui lòng đăng nhập để tiếp tục');
