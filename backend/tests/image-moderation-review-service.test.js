@@ -64,6 +64,15 @@ test('first review of a post writes valid notification columns', async () => {
   assert.deepEqual(notification.values, ['author', 'Bài viết của bạn đã được duyệt', 4]);
 });
 
+test('decide does not crash for an item without image scores', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'pending_review', image_moderation_safe: null, image_moderation_nsfw: null, image_moderation_violence: null, image_moderation_thresholds: null }] });
+  const result = await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
+  const log = pool.queries.find(({ sql }) => sql.includes('INSERT INTO moderation_logs'));
+  assert.equal(result.ok, true);
+  assert.equal(log.values[5], 0);
+  assert.deepEqual(JSON.parse(log.values[10]), { safe: null, nsfw: null, violence: null, thresholds: null });
+});
+
 test('final review records the final reviewer and prior appeal status in its log', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'appeal_pending', image_moderation_nsfw: 0.7 }] });
   await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'final', decision: 'nsfw', reviewerId: 'same-moderator' });
