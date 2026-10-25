@@ -64,3 +64,11 @@ test('regular users are rejected from both image review queues', async () => {
     assert.equal(res.statusCode, 403);
   }
 });
+
+test('appealed item appears in the final review list', async () => {
+  const pool = makeQueuePool({ posts: [{ id: 11, content_type: 'post', author_id: 'a', author_name: 'A', status: 'appeal_pending', created_at: '2026-10-25T00:00:00Z', appealed_at: '2026-10-25T00:01:00Z' }] });
+  const result = await listReviewQueue(pool, 'appeal_pending', { type: 'all' }, true);
+  assert.equal(result.data[0].id, '11');
+  assert.equal(result.data[0].status, 'appeal_pending');
+  assert.equal(result.data[0].appealedAt, '2026-10-25T00:01:00Z');
+});
