@@ -71,8 +71,8 @@ export function createUserRepository({ pool }) {
                 OR (p.ai_status = 'approved'
                     AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
               )
-              AND (p.image_moderation_status IS NULL
-                   OR p.image_moderation_status <> 'rejected_hold'
+              AND p.image_moderation_status IS DISTINCT FROM 'rejected_final'
+              AND (p.image_moderation_status IS DISTINCT FROM 'rejected_hold'
                    OR p.moderation_expires_at > CURRENT_TIMESTAMP))::int AS posts_count,
            (SELECT COUNT(*) FROM friendships
             WHERE (requester_id = u.id OR addressee_id = u.id)
@@ -161,7 +161,8 @@ export function createUserRepository({ pool }) {
            p.id, p.author_id, p.content, p.image_url, p.privacy,
            p.ai_label, p.ai_confidence, p.ai_status,
            p.image_moderation_status, p.image_moderation_safe, p.image_moderation_nsfw,
-           p.image_moderation_violence, p.image_moderation_thresholds, p.moderation_expires_at,
+           p.image_moderation_violence, p.image_moderation_thresholds,
+           p.image_moderation_appealed_at, p.moderation_expires_at,
            p.likes_count, p.comments_count, p.shares_count,
            p.created_at, p.original_post_id,
            u.username, u.full_name, u.avatar_url, u.is_verified,
@@ -179,19 +180,20 @@ export function createUserRepository({ pool }) {
            orig_u.is_verified AS orig_author_is_verified
          FROM posts p
          JOIN users u ON u.id = p.author_id
-         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id
+         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id AND orig_p.ai_status = 'approved'
+           AND (orig_p.image_moderation_status IS NULL OR orig_p.image_moderation_status IN ('safe', 'sensitive'))
          LEFT JOIN users orig_u ON orig_u.id = orig_p.author_id
          WHERE p.author_id = $1
+           AND p.image_moderation_status IS DISTINCT FROM 'rejected_final'
            AND (
              p.author_id = $2
              OR (p.ai_status = 'approved'
                  AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
            )
-           AND (p.image_moderation_status IS NULL
-                OR p.image_moderation_status <> 'rejected_hold'
+           AND (p.image_moderation_status IS DISTINCT FROM 'rejected_hold'
                 OR p.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY p.created_at DESC`,
-        [userId, viewerId || userId]
+        [userId, viewerId]
       );
 
       if (result.rows.length === 0) return [];
@@ -221,21 +223,21 @@ export function createUserRepository({ pool }) {
       const commentsResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status,
                 c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
-                c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
+                c.image_moderation_thresholds, c.image_moderation_appealed_at, c.moderation_expires_at, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
-         WHERE c.post_id = ANY($1::bigint[]) AND c.is_hidden = false
+         WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
+           AND c.image_moderation_status IS DISTINCT FROM 'rejected_final'
            AND (
              c.author_id = $2
              OR c.image_moderation_status IS NULL
              OR c.image_moderation_status IN ('safe', 'sensitive')
            )
-           AND (c.image_moderation_status IS NULL
-                OR c.image_moderation_status <> 'rejected_hold'
+           AND (c.image_moderation_status IS DISTINCT FROM 'rejected_hold'
                 OR c.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY c.created_at ASC`,
-        [postIds, viewerId || userId]
+        [postIds, viewerId]
       );
 
       // Nhóm reactions và comments theo post
@@ -278,6 +280,7 @@ export function createUserRepository({ pool }) {
               scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
               thresholds: c.image_moderation_thresholds || null,
               moderationExpiresAt: c.moderation_expires_at || null,
+              appealedAt: c.image_moderation_appealed_at || null,
             } : null,
             created_at: c.created_at,
           });
@@ -299,6 +302,7 @@ export function createUserRepository({ pool }) {
             scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
             thresholds: post.image_moderation_thresholds || null,
             moderationExpiresAt: post.moderation_expires_at || null,
+            appealedAt: post.image_moderation_appealed_at || null,
           } : null,
         };
       });

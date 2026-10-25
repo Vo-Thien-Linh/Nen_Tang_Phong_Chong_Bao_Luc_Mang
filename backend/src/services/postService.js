@@ -173,7 +173,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      const existingPost = await postRepository.findById(postId);
+      const existingPost = await postRepository.findById(postId, user.id);
       if (!existingPost) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
@@ -183,6 +183,12 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       if (existingPost.author_id !== user.id) {
         const error = new Error('Bạn không có quyền chỉnh sửa bài viết này');
         error.statusCode = 403;
+        throw error;
+      }
+
+      if (['rejected_admin', 'appeal_pending', 'rejected_final'].includes(existingPost.image_moderation_status)) {
+        const error = new Error('KhÃ´ng thá»ƒ chá»‰nh sá»­a ná»™i dung Ä‘ang trong quy trÃ¬nh duyá»‡t');
+        error.statusCode = 409;
         throw error;
       }
 
@@ -234,7 +240,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      const existingPost = await postRepository.findById(postId);
+      const existingPost = await postRepository.findById(postId, user.id);
       if (!existingPost) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
@@ -248,7 +254,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       await postRepository.deletePost({ postId, authorId: user.id });
-      return { id: String(postId) };
+      return { id: String(postId), imageModerationStatus: existingPost.image_moderation_status };
     },
 
     async sharePost({ user, originalPostId, content }) {
@@ -267,14 +273,14 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       // 3. Kiểm tra bài gốc tồn tại và không bị ẩn
-      const originalPost = await postRepository.findById(originalPostId);
+      const originalPost = await postRepository.findById(originalPostId, user.id);
       if (!originalPost) {
         const error = new Error('Bài viết gốc không tồn tại');
         error.statusCode = 404;
         throw error;
       }
 
-      if (originalPost.ai_status === 'hidden') {
+      if (originalPost.ai_status === 'hidden' || ['rejected_admin', 'appeal_pending', 'rejected_final'].includes(originalPost.image_moderation_status)) {
         const error = new Error('Không thể chia sẻ bài viết đã bị ẩn');
         error.statusCode = 403;
         throw error;

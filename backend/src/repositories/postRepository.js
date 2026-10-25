@@ -10,6 +10,7 @@ const postSelect = `
     p.image_moderation_nsfw,
     p.image_moderation_violence,
     p.image_moderation_thresholds,
+    p.image_moderation_appealed_at,
     p.moderation_expires_at,
     p.privacy,
     p.ai_label,
@@ -98,6 +99,7 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
           scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
           thresholds: c.image_moderation_thresholds,
           moderationExpiresAt: c.moderation_expires_at || null,
+          appealedAt: c.image_moderation_appealed_at || null,
         } : null,
         created_at: c.created_at,
         time: 'Vừa xong',
@@ -191,9 +193,9 @@ export function createPostRepository({ pool }) {
            AND (
              p.image_moderation_status IS NULL
              OR p.image_moderation_status IN ('safe', 'sensitive')
-             OR p.author_id = $2
-             OR (p.image_moderation_status IN ('pending_review', 'rejected_hold')
-                 AND (p.moderation_expires_at IS NULL OR p.moderation_expires_at > CURRENT_TIMESTAMP))
+             OR (p.author_id = $2
+                 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
+                 AND (p.image_moderation_status <> 'rejected_hold' OR p.moderation_expires_at > CURRENT_TIMESTAMP))
            )`,
         [cleanId, viewerId]
       );
@@ -220,14 +222,15 @@ export function createPostRepository({ pool }) {
       const commentResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
-                c.image_moderation_violence, c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
+                c.image_moderation_violence, c.image_moderation_thresholds, c.image_moderation_appealed_at, c.moderation_expires_at, c.created_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
            WHERE c.post_id = $1 AND (c.is_hidden = false OR c.author_id = $2)
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
-                  OR (c.image_moderation_status = 'rejected_hold' AND c.moderation_expires_at > CURRENT_TIMESTAMP AND c.author_id = $2))
+                  OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
+                      AND (c.image_moderation_status <> 'rejected_hold' OR c.moderation_expires_at > CURRENT_TIMESTAMP)))
          ORDER BY c.created_at ASC`,
         [cleanId, viewerId]
       );
@@ -242,7 +245,8 @@ export function createPostRepository({ pool }) {
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
-           WHERE p.id = $1`,
+           WHERE p.id = $1 AND p.ai_status = 'approved'
+             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
           [post.original_post_id]
         );
         post.original_post = originalResult.rows[0] || null;
@@ -263,6 +267,7 @@ export function createPostRepository({ pool }) {
         `UPDATE posts
          SET content = $3, image_url = $4${moderationFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND author_id = $2
+           AND COALESCE(image_moderation_status, '') NOT IN ('rejected_admin', 'appeal_pending', 'rejected_final')
          RETURNING id`,
         [postId, authorId, content, imageUrl,
           imageModeration?.decision || null,
@@ -288,7 +293,8 @@ export function createPostRepository({ pool }) {
       try {
         await client.query('BEGIN');
         const result = await client.query(
-          `UPDATE posts SET ai_status = 'hidden', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND (author_id = $2 OR $2 IS NULL) RETURNING id`,
+          `UPDATE posts SET ai_status = 'hidden', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND (author_id = $2 OR $2 IS NULL)
+             AND COALESCE(image_moderation_status, '') <> 'rejected_final' RETURNING id`,
           [postId, authorId]
         );
 
@@ -383,7 +389,8 @@ export function createPostRepository({ pool }) {
         params.push(viewerId);
         visibilityWhere = `(p.ai_status = 'approved' OR p.author_id = $1)
           AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')
-               OR (p.image_moderation_status = 'rejected_hold' AND p.moderation_expires_at > CURRENT_TIMESTAMP AND p.author_id = $1))`;
+               OR (p.author_id = $1 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
+                   AND (p.image_moderation_status <> 'rejected_hold' OR p.moderation_expires_at > CURRENT_TIMESTAMP)))`;
       }
 
       const result = await pool.query(
@@ -418,13 +425,17 @@ export function createPostRepository({ pool }) {
 
       const commentsResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
+                c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
+                c.image_moderation_violence, c.image_moderation_thresholds,
+                c.image_moderation_appealed_at, c.moderation_expires_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
            WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
-                  OR (c.image_moderation_status = 'rejected_hold' AND c.moderation_expires_at > CURRENT_TIMESTAMP AND c.author_id = $2))
+                  OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
+                      AND (c.image_moderation_status <> 'rejected_hold' OR c.moderation_expires_at > CURRENT_TIMESTAMP)))
          ORDER BY c.created_at ASC`,
         [postIds, viewerId]
       );
@@ -443,7 +454,8 @@ export function createPostRepository({ pool }) {
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
-           WHERE p.id = ANY($1::bigint[])`,
+           WHERE p.id = ANY($1::bigint[]) AND p.ai_status = 'approved'
+             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
           [originalPostIds]
         );
         const originalPostMap = new Map(originalPostsResult.rows.map((op) => [Number(op.id), op]));

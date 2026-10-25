@@ -4,28 +4,28 @@ export function moderationRejectionNotification(contentType = 'post') {
     : 'Bài viết của bạn chứa ảnh bị từ chối sau khi quản trị viên xem xét';
 }
 
-const imageReviewTypeName = (contentType) => contentType === 'comment' ? 'BÃ¬nh luáº­n' : 'BÃ i viáº¿t';
+const imageReviewTypeName = (contentType) => contentType === 'comment' ? 'Bình luận' : 'Bài viết';
 
 export function getModerationNoticeText(contentType = 'post', status = '') {
   const type = imageReviewTypeName(contentType);
   if (status === 'rejected_admin') {
-    return `${type} cá»§a báº¡n vi pháº¡m tiÃªu chuáº©n cá»™ng Ä‘á»“ng nÃªn chÃºng tÃ´i khÃ´ng cho phÃ©p hiá»ƒn thá»‹ trÃªn báº£ng feed.`;
+    return `${type} của bạn vi phạm tiêu chuẩn cộng đồng nên chúng tôi không cho phép hiển thị trên bảng feed.`;
   }
-  if (status === 'appeal_pending') return 'Khiáº¿u náº¡i cá»§a báº¡n Ä‘ang Ä‘Æ°á»£c xem xÃ©t';
-  if (status === 'pending_review') return 'Äang chá» quáº£n trá»‹ viÃªn duyá»‡t';
+  if (status === 'appeal_pending') return 'Khiếu nại của bạn đang được xem xét';
+  if (status === 'pending_review') return 'Đang chờ quản trị viên duyệt';
   if (status === 'rejected_hold') return moderationRejectionNotification(contentType);
   return '';
 }
 
 export function imageReviewNotification(contentType = 'post', stage = 'first', decision = 'safe') {
   const type = imageReviewTypeName(contentType);
-  const lowerType = contentType === 'comment' ? 'bÃ¬nh luáº­n' : 'bÃ i viáº¿t';
+  const lowerType = contentType === 'comment' ? 'bình luận' : 'bài viết';
   if (stage === 'first') {
-    if (decision === 'safe') return `${type} cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c duyá»‡t`;
-    if (decision === 'nsfw') return `${type} cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c duyá»‡t vÃ  Ä‘Æ°á»£c Ä‘Ã¡nh dáº¥u lÃ  ná»™i dung nháº¡y cáº£m`;
+    if (decision === 'safe') return `${type} của bạn đã được duyệt`;
+    if (decision === 'nsfw') return `${type} của bạn đã được duyệt và được đánh dấu là nội dung nhạy cảm`;
     return getModerationNoticeText(contentType, 'rejected_admin');
   }
-  if (decision === 'safe') return `Khiáº¿u náº¡i cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c cháº¥p nháº­n. ${type} Ä‘Ã£ Ä‘Æ°á»£c Ä‘Äƒng bÃ¬nh thÆ°á»ng.`;
-  if (decision === 'nsfw') return `Khiáº¿u náº¡i cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c cháº¥p nháº­n. ${type} Ä‘Ã£ Ä‘Æ°á»£c Ä‘Äƒng vá»›i cáº£nh bÃ¡o ná»™i dung nháº¡y cáº£m.`;
-  return `Sau khi xem xÃ©t láº¡i, ${lowerType} cá»§a báº¡n váº«n vi pháº¡m tiÃªu chuáº©n cá»™ng Ä‘á»“ng. Quyáº¿t Ä‘á»‹nh nÃ y lÃ  cuá»‘i cÃ¹ng vÃ  ${lowerType} Ä‘Ã£ bá»‹ áº©n hoÃ n toÃ n.`;
+  if (decision === 'safe') return `Khiếu nại của bạn đã được chấp nhận. ${type} đã được đăng bình thường.`;
+  if (decision === 'nsfw') return `Khiếu nại của bạn đã được chấp nhận. ${type} đã được đăng với cảnh báo nội dung nhạy cảm.`;
+  return `Sau khi xem xét lại, ${lowerType} của bạn vẫn vi phạm tiêu chuẩn cộng đồng. Quyết định này là cuối cùng và ${lowerType} đã bị ẩn hoàn toàn.`;
 }

@@ -88,7 +88,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT id, author_id, post_id, content, image_url, image_moderation_status,
+      `SELECT id, author_id, post_id, content, image_url, ai_status, is_hidden, image_moderation_status,
               image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
               image_moderation_thresholds, image_moderation_appealed_at, moderation_expires_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
@@ -122,6 +122,9 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
     if (!updated.rows[0]) {
       await client.query('ROLLBACK');
       return { ok: false, statusCode: 409, message: conflictMessage };
+    }
+    if (contentType === 'comment' && transition.visibleToOthers && item.ai_status === 'approved' && !item.is_hidden) {
+      await client.query(`UPDATE posts SET comments_count = comments_count + 1 WHERE id = $1`, [item.post_id]);
     }
     const scores = {
       safe: item.image_moderation_safe,

@@ -2,6 +2,22 @@ import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
 import { VALID_ROLES, normalizeRole } from '../utils/rbac.js';
+import { getModerationNoticeText } from '../services/moderationNotificationText.js';
+
+function formatImageModerationForViewer(imageModeration, contentType, authorId, viewerId) {
+  if (!imageModeration) return null;
+  const ownerCanSeeReview = String(authorId) === String(viewerId)
+    && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(imageModeration.status);
+  if (!ownerCanSeeReview) return imageModeration;
+  return {
+    ...imageModeration,
+    noticeText: getModerationNoticeText(contentType, imageModeration.status),
+    noticeType: imageModeration.status,
+    canAppeal: ['rejected_admin', 'rejected_hold'].includes(imageModeration.status)
+      && (imageModeration.status !== 'rejected_hold' || new Date(imageModeration.moderationExpiresAt) > new Date()),
+    appealedAt: imageModeration.appealedAt || null,
+  };
+}
 
 /**
  * Chuyển đổi dữ liệu user từ DB sang format chuẩn cho Frontend
@@ -338,7 +354,7 @@ export function createUsersRouter({ pool }) {
         },
         content: p.content,
         image: p.image_url || null,
-        imageModeration: p.imageModeration || null,
+        imageModeration: formatImageModerationForViewer(p.imageModeration, 'post', p.author_id, viewerId),
         createdAt: p.created_at,
         likesCount: p.likes_count || 0,
         commentsCount: p.comments_count || 0,
@@ -356,7 +372,7 @@ export function createUsersRouter({ pool }) {
           author: c.author,
           content: c.content,
           image: c.image || null,
-          imageModeration: c.imageModeration || null,
+          imageModeration: formatImageModerationForViewer(c.imageModeration, 'comment', c.author?.id, viewerId),
           time: c.created_at,
         })),
         originalPost: p.original_post_id && p.orig_id ? {
