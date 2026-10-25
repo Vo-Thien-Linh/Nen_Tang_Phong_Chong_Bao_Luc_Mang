@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reviewImageModeration } from '../src/services/imageModerationReviewService.js';
+import { reviewImageModeration, appealImageModeration } from '../src/services/imageModerationReviewService.js';
 
 function mockPool({ rows = [], failAt = null } = {}) {
   const queries = [];
@@ -63,4 +63,13 @@ test('failed first review rolls back without notifying the author', async () => 
   assert.equal(pool.queries.some(({ sql }) => sql === 'COMMIT'), false);
   assert.equal(pool.queries.at(-1).sql, 'ROLLBACK');
   assert.equal(pool.queries.some(({ sql }) => sql.includes('INSERT INTO notifications')), false);
+});
+
+test('owner can appeal an admin rejected item', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_admin', content: 'image post' }] });
+  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:00:00Z') });
+  assert.equal(result.data.status, 'appeal_pending');
+  assert.equal(pool.queries.some(({ sql }) => sql.includes('image_moderation_appealed_at IS NULL')), true);
+  assert.equal(pool.queries.some(({ sql }) => sql.includes('INSERT INTO notifications')), false);
+  assert.equal(pool.queries.at(-1).sql, 'COMMIT');
 });
