@@ -111,3 +111,10 @@ test('appeal of a published item is rejected', async () => {
   assert.equal(result.statusCode, 409);
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
 });
+
+test('decide endpoints reject invalid decision values', async () => {
+  let connected = false;
+  const result = await reviewImageModeration({ pool: { connect: async () => { connected = true; } }, contentType: 'post', contentId: 4, stage: 'first', decision: 'reject', reviewerId: 'moderator' });
+  assert.equal(result.statusCode, 400);
+  assert.equal(connected, false);
+});
