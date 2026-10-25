@@ -40,3 +40,13 @@ test('image review queues filter by post or comment type', async () => {
   assert.match(pool.queries[0].sql, /FROM comments item/);
   assert.doesNotMatch(pool.queries[0].sql, /FROM posts item/);
 });
+
+test('image review queues return the oldest item first', async () => {
+  const pool = makeQueuePool({
+    posts: [{ id: 9, content_type: 'post', author_id: 'a', author_name: 'A', status: 'pending_review', created_at: '2026-10-25T02:00:00Z' }],
+    comments: [{ id: 3, content_type: 'comment', author_id: 'b', author_name: 'B', status: 'pending_review', created_at: '2026-10-25T01:00:00Z' }],
+  });
+  const result = await listReviewQueue(pool, 'pending_review', { type: 'all' });
+  assert.equal(result.data[0].type, 'comment');
+  assert.equal(result.data[1].type, 'post');
+});
