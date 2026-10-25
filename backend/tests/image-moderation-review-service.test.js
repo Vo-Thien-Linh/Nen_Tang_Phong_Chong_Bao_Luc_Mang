@@ -46,6 +46,8 @@ test('first review writes a moderation log entry', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'pending_review', image_moderation_safe: 0.91 }] });
   await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
   const log = pool.queries.find(({ sql }) => sql.includes('INSERT INTO moderation_logs'));
+  assert.match(log.sql, /\(user_id, content_type, content_id, raw_text, predicted_label, confidence, action_taken,/);
+  assert.doesNotMatch(log.sql, /post_id/);
   assert.equal(log.values[0], 'moderator');
   assert.equal(log.values[6], 'image_review_first_safe');
   assert.equal(log.values[7], 'first');
