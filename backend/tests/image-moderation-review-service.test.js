@@ -96,3 +96,11 @@ test('appeal after the hold window is rejected', async () => {
   assert.equal(result.message, 'Đã hết thời gian kháng cáo');
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
 });
+
+test('second appeal is rejected and leaves the item unchanged', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_admin', image_moderation_appealed_at: new Date('2026-10-24T00:00:00Z') }] });
+  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author' });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.message, 'Bạn đã khiếu nại mục này');
+  assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
+});
