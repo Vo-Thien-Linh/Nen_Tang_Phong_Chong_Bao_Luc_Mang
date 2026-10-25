@@ -9,12 +9,13 @@ const appealedMessage = 'Bạn đã khiếu nại mục này';
 
 export async function appealImageModeration({ pool, contentType, contentId, authorId, clock = () => new Date() }) {
   const table = TABLE_BY_TYPE[contentType];
+  const parentPostColumn = contentType === 'comment' ? 'post_id, ' : '';
   if (!table) return { ok: false, statusCode: 400, message: 'Loại nội dung không hợp lệ' };
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT id, author_id, post_id, content, image_moderation_status,
+      `SELECT id, author_id, ${parentPostColumn}content, image_moderation_status,
               image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
               image_moderation_thresholds, image_moderation_appealed_at, moderation_expires_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
@@ -48,7 +49,7 @@ export async function appealImageModeration({ pool, contentType, contentId, auth
            moderation_expires_at = NULL
        WHERE id = $1 AND author_id = $2 AND image_moderation_status = $3
          AND image_moderation_appealed_at IS NULL ${expiryGuard}
-       RETURNING id, post_id`,
+       RETURNING id`,
       params
     );
     if (!updated.rows[0]) {
@@ -81,6 +82,7 @@ export async function appealImageModeration({ pool, contentType, contentId, auth
 
 export async function reviewImageModeration({ pool, contentType, contentId, stage, decision, reviewerId, clock = () => new Date() }) {
   const table = TABLE_BY_TYPE[contentType];
+  const parentPostColumn = contentType === 'comment' ? 'post_id, ' : '';
   if (!table || !['first', 'final'].includes(stage)) return { ok: false, statusCode: 400, message: 'Yêu cầu không hợp lệ' };
   if (!Object.hasOwn(DECISION_LABEL, decision)) return { ok: false, statusCode: 400, message: 'Nhãn quyết định không hợp lệ' };
   const expectedStatus = stage === 'first' ? 'pending_review' : 'appeal_pending';
@@ -88,7 +90,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT id, author_id, post_id, content, image_url, ai_status, is_hidden, image_moderation_status,
+      `SELECT id, author_id, ${parentPostColumn}content, image_url, ai_status, is_hidden, image_moderation_status,
               image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
               image_moderation_thresholds, image_moderation_appealed_at, moderation_expires_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
@@ -116,7 +118,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
            image_moderation_reviewed_at = $3,
            moderation_expires_at = NULL
        WHERE id = $4 AND image_moderation_status = $5
-       RETURNING id, author_id, post_id, image_moderation_status`,
+       RETURNING id, author_id, image_moderation_status`,
       [transition.nextStatus, reviewerId, reviewedAt, contentId, expectedStatus]
     );
     if (!updated.rows[0]) {
