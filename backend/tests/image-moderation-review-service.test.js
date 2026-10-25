@@ -73,6 +73,12 @@ test('publishing an approved comment increments its parent count once', async ()
   assert.deepEqual(countUpdate[0].values, [9]);
 });
 
+test('final violence rejection does not increment its parent comment count', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', post_id: 9, ai_status: 'approved', is_hidden: false, image_moderation_status: 'appeal_pending' }] });
+  await reviewImageModeration({ pool, contentType: 'comment', contentId: 4, stage: 'final', decision: 'violence', reviewerId: 'moderator' });
+  assert.equal(pool.queries.some(({ sql }) => sql.includes('comments_count = comments_count + 1')), false);
+});
+
 test('owner can appeal an admin rejected item', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_admin', content: 'image post' }] });
   const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:00:00Z') });
