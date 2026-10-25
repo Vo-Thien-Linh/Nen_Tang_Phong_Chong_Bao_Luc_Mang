@@ -63,6 +63,14 @@ test('buttons are re-enabled after an error', () => {
   assert.equal(areImageReviewActionsDisabled(failure.pendingKey), false);
 });
 
+test('remove item on conflict response and show message', () => {
+  const items = [{ id: 1, type: 'post' }];
+  const failure = getImageReviewFailure({ status: 409, message: 'Mục này đã được xử lý hoặc không còn tồn tại' });
+  assert.equal(failure.removeItem, true);
+  assert.deepEqual(applyImageReviewQueueResult(items, items[0], { status: 409 }), []);
+  assert.equal(failure.toast.message, 'Mục này đã được xử lý hoặc không còn tồn tại');
+});
+
 test('all review buttons are disabled while a request is pending', () => {
   assert.equal(areImageReviewActionsDisabled('post-1'), true);
   assert.equal(areImageReviewActionsDisabled(null), false);
