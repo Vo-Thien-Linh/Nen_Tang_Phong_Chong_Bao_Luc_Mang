@@ -104,3 +104,10 @@ test('second appeal is rejected and leaves the item unchanged', async () => {
   assert.equal(result.message, 'Bạn đã khiếu nại mục này');
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
 });
+
+test('appeal of a published item is rejected', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'sensitive' }] });
+  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author' });
+  assert.equal(result.statusCode, 409);
+  assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
+});
