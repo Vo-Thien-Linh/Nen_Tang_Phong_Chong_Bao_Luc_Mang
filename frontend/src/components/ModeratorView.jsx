@@ -690,11 +690,22 @@ export default function ModeratorView({
                                 <strong>Báo cáo ĐÚNG:</strong> Đã xác nhận vi phạm &amp; gán lại nhãn <strong className="uppercase underline">{report.newLabel || 'Toxic'}</strong>
                               </span>
                             </div>
-                            {report.adminNotes && (
-                              <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
-                                Ghi chú: {report.adminNotes}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {report.adminNotes && (
+                                <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
+                                  Ghi chú: {report.adminNotes}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReportForResolve(report)}
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 rounded-md shadow-2xs transition cursor-pointer shrink-0 flex items-center gap-1"
+                                title="Xem lại hoặc chỉnh sửa phán quyết này nếu duyệt nhầm"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                <span>Đổi phán quyết</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                         {report.status === 'dismissed' && (
@@ -705,11 +716,22 @@ export default function ModeratorView({
                                 <strong>Báo cáo SAI:</strong> Bác bỏ báo cáo &amp; giữ nguyên nhãn ban đầu (<strong>{report.oldLabel || 'Normal'}</strong>)
                               </span>
                             </div>
-                            {report.adminNotes && (
-                              <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
-                                Ghi chú: {report.adminNotes}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {report.adminNotes && (
+                                <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
+                                  Ghi chú: {report.adminNotes}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReportForResolve(report)}
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 rounded-md shadow-2xs transition cursor-pointer shrink-0 flex items-center gap-1"
+                                title="Xem lại hoặc chỉnh sửa phán quyết này nếu duyệt nhầm"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                <span>Đổi phán quyết</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

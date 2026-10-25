@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { formatRelativeTime } from '../utils/timeAgo';
 import { 
-  Bell, Heart, MessageCircle, Repeat, ShieldAlert, CheckCheck, 
+  Bell, Heart, MessageCircle, Repeat, ShieldAlert, ShieldCheck, CheckCheck, 
   Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox, Scale, Lock
 } from 'lucide-react';
 
@@ -21,6 +22,45 @@ export default function NotificationsView({
 }) {
   const [internalFilter, setInternalFilter] = useState('all');
   const currentFilter = onFilterChange ? activeFilter : internalFilter;
+
+  // Tự động re-render mỗi 30 giây để cập nhật relative time ("Vừa xong" -> "1 phút trước", "2 phút trước", v.v.)
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Tính toán thời gian tương đối động dựa trên timestamp thật của thông báo
+  const formatNotificationTime = (item) => {
+    if (!item) return 'Vừa xong';
+
+    // 1. Kiểm tra timestamp ISO từ CSDL hoặc LocalStorage (createdAt / created_at)
+    const rawTime = item.createdAt || item.created_at || item.createdAtIso;
+    if (rawTime) {
+      const parsedDate = new Date(rawTime);
+      if (!isNaN(parsedDate.getTime())) {
+        return formatRelativeTime(parsedDate);
+      }
+    }
+
+    // 2. Nếu id chứa epoch timestamp (ví dụ notif-1729867123456)
+    if (typeof item.id === 'string') {
+      const match = item.id.match(/\d{11,13}/);
+      if (match) {
+        const tsNum = parseInt(match[0], 10);
+        if (!isNaN(tsNum) && tsNum > 1600000000000) {
+          return formatRelativeTime(new Date(tsNum));
+        }
+      }
+    }
+
+    // 3. Nếu item.time đã là relative time có sẵn từ Backend (ví dụ '11 phút trước', '2 giờ trước')
+    if (item.time && item.time !== 'Vừa xong') {
+      return item.time;
+    }
+
+    return 'Vừa xong';
+  };
 
   const handleFilterClick = (filterKey) => {
     if (onFilterChange) {
@@ -60,6 +100,12 @@ export default function NotificationsView({
           </div>
         );
       case 'ai_moderation':
+      case 'report_receipt':
+        return (
+          <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs">
+            <ShieldCheck className="w-3 h-3" />
+          </div>
+        );
       case 'system':
         return (
           <div className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs">
@@ -190,10 +236,29 @@ export default function NotificationsView({
             </div>
           ) : filteredNotifications.length > 0 ? (
             filteredNotifications.map((item) => {
-              const actor = item.user || {
-                name: 'Nexus Shield',
-                avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
-              };
+              const isSystemOrModeration = 
+                ['system', 'ai_moderation', 'moderation_alert', 'warning', 'report', 'appeal', 'report_receipt'].includes(item.type) ||
+                item.isReceipt ||
+                (item.content && (
+                  item.content.includes('thẩm định lại') || 
+                  item.content.includes('tạm khóa') ||
+                  item.content.includes('khiếu nại') ||
+                  item.content.includes('báo cáo') ||
+                  item.content.includes('vi phạm') ||
+                  item.content.includes('chuyển sang nhãn')
+                ));
+
+              const actor = isSystemOrModeration
+                ? {
+                    id: 'system',
+                    name: 'Thông báo hệ thống',
+                    avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
+                  }
+                : (item.user || {
+                    id: 'system',
+                    name: 'Thông báo hệ thống',
+                    avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
+                  });
 
               return (
                 <div
@@ -294,39 +359,76 @@ export default function NotificationsView({
                       </div>
                     )}
 
-                    {/* Nút Kháng Cáo trực tiếp nếu là thông báo vi phạm / xử phạt */}
-                    {(['ai_moderation', 'system', 'warning', 'report'].includes(item.type) || (item.content && (item.content.includes('vi phạm') || item.content.includes('bị ẩn') || item.content.includes('khóa') || item.content.includes('phạt')))) && onOpenAppealModal && (
-                      <div className="mt-2.5 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onMarkAsRead(item.id);
-                            onOpenAppealModal({
-                              targetType: item.targetCommentId ? 'comment' : 'post',
-                              targetId: item.targetPost?.id || item.targetPostId || item.id,
-                              targetAuthor: currentUser || { id: currentUser?.id, name: currentUser?.name },
-                              contentExcerpt: item.targetPost?.contentSnippet || item.content || 'Nội dung bị xử phạt',
-                              imageUrl: item.targetPost?.image || null,
-                              aiStatus: {
-                                label: item.content?.includes('Bạo lực') ? 'Violence' : item.content?.includes('Hate Speech') ? 'Hate Speech' : 'Toxic',
-                                confidence: 0.95,
-                                action: 'hide'
-                              }
-                            });
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-semibold shadow-2xs transition cursor-pointer"
-                        >
-                          <Scale className="w-3.5 h-3.5" />
-                          <span>Gửi kháng cáo</span>
-                        </button>
-                      </div>
-                    )}
+                    {/* Phân định: Người đi báo cáo (Receipt) vs Người bị xử phạt vi phạm (Sanction) */}
+                    {(() => {
+                      const isReportReceipt = 
+                        item.isReceipt || 
+                        item.type === 'report_receipt' || 
+                        item.content?.includes('Báo cáo của bạn') || 
+                        item.content?.includes('đã được tiếp nhận');
+
+                      const isSanctionNotice = 
+                        !isReportReceipt && 
+                        onOpenAppealModal && 
+                        (
+                          item.type === 'ai_moderation' || 
+                          item.type === 'moderation_alert' || 
+                          (item.content && (
+                            item.content.includes('của bạn bị ẩn') || 
+                            item.content.includes('của bạn bị cảnh báo') || 
+                            item.content.includes('của bạn đã bị khóa') || 
+                            item.content.includes('bị áp dụng án phạt')
+                          ))
+                        );
+
+                      if (isReportReceipt) {
+                        return (
+                          <div className="mt-2.5 flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 rounded-lg text-xs font-medium">
+                              <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                              <span>Đã tiếp nhận báo cáo • Chờ Quản trị viên xử lý</span>
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      if (isSanctionNotice) {
+                        return (
+                          <div className="mt-2.5 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onMarkAsRead(item.id);
+                                onOpenAppealModal({
+                                  targetType: item.targetCommentId ? 'comment' : 'post',
+                                  targetId: item.targetPost?.id || item.targetPostId || item.id,
+                                  targetAuthor: currentUser || { id: currentUser?.id, name: currentUser?.name },
+                                  contentExcerpt: item.targetPost?.contentSnippet || 'Nội dung bị xử phạt',
+                                  imageUrl: item.targetPost?.image || null,
+                                  aiStatus: {
+                                    label: item.content?.includes('Bạo lực') ? 'Violence' : item.content?.includes('Hate Speech') ? 'Hate Speech' : 'Toxic',
+                                    confidence: 0.95,
+                                    action: 'hide'
+                                  }
+                                });
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-semibold shadow-2xs transition cursor-pointer"
+                            >
+                              <Scale className="w-3.5 h-3.5" />
+                              <span>Gửi kháng cáo</span>
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    })()}
 
                     {/* Thời gian */}
                     <div className="flex items-center gap-2 mt-1.5">
                       <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                        {item.time || 'Vừa xong'}
+                        {formatNotificationTime(item)}
                       </span>
                       {!item.isRead && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400">

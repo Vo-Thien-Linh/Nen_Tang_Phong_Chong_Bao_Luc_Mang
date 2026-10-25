@@ -562,6 +562,39 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                 adminNotes || `Xác nhận vi phạm từ báo cáo #${dbRep.id}: Gán lại nhãn ${finalNewLabel}`
               ]
             );
+          } else if (status === 'dismissed') {
+            // Khi đổi phán quyết hoặc xử lý Báo cáo SAI: khôi phục hiển thị nếu trước đó bị ẩn nhầm
+            if (dbRep.target_type === 'post') {
+              await pool.query(
+                `UPDATE posts 
+                 SET ai_label = 'Normal', ai_status = 'approved',
+                     image_moderation_status = 'approved', image_moderation_label = 'safe',
+                     moderation_expires_at = NULL 
+                 WHERE id = $1`,
+                [dbRep.target_id]
+              );
+            } else if (dbRep.target_type === 'comment') {
+              await pool.query(
+                `UPDATE comments 
+                 SET ai_label = 'Normal', is_hidden = FALSE,
+                     image_moderation_status = 'approved', image_moderation_label = 'safe',
+                     moderation_expires_at = NULL 
+                 WHERE id = $1`,
+                [dbRep.target_id]
+              );
+            }
+            if (targetAuthorId) {
+              await pool.query(
+                `UPDATE users 
+                 SET status = 'active', 
+                     cooldown_until = NULL, 
+                     cooldown_reason = NULL, 
+                     cooldown_violation_text = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1`,
+                [targetAuthorId]
+              );
+            }
           }
         }
       }
