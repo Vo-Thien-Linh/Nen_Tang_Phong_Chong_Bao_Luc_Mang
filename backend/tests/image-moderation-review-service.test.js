@@ -88,3 +88,11 @@ test('non owner cannot appeal an image item', async () => {
   assert.equal(result.statusCode, 404);
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
 });
+
+test('appeal after the hold window is rejected', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_hold', moderation_expires_at: new Date('2026-10-25T00:01:00Z') }] });
+  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:02:00Z') });
+  assert.equal(result.statusCode, 410);
+  assert.equal(result.message, 'Đã hết thời gian kháng cáo');
+  assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
+});
