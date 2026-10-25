@@ -193,7 +193,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setMessage('Đăng bài thành công');
     } catch (error) {
       if (error.cooldown) {
-        onAddPost(null, error.cooldown);
+        onAddPost(null, error.cooldown, { content: content.trim(), imageUrl: finalImageUrl, label: 'Violence' });
       }
       const msg = error.message === 'Failed to fetch'
         ? 'Không thể kết nối đến máy chủ bài viết (cổng 5000). Vui lòng kiểm tra backend server.'

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   X, AlertTriangle, CheckCircle, ShieldAlert, 
   HelpCircle, Sparkles, ArrowRight, Image as ImageIcon,
@@ -32,6 +32,33 @@ export default function ReportResolutionModal({
   
   // Ghi chú / lý do của quản trị viên
   const [adminNotes, setAdminNotes] = useState('');
+
+  // Tự động đồng bộ và gợi ý khi mở modal hoặc đổi phán quyết
+  useEffect(() => {
+    if (report && isOpen) {
+      if (report.status === 'dismissed') {
+        // Đang là Báo cáo SAI -> Admin bấm đổi phán quyết thì gợi ý sang Báo cáo ĐÚNG
+        setDecision('resolved_violation');
+        const rReason = (report.reason || '').toLowerCase();
+        if (rReason.includes('hate')) setNewLabel('Hate Speech');
+        else if (rReason.includes('violen') || rReason.includes('bạo lực')) setNewLabel('Violence');
+        else setNewLabel('Toxic');
+        setAdminNotes(report.adminNotes || '');
+      } else if (report.status === 'resolved_violation') {
+        // Đang là Báo cáo ĐÚNG -> Gợi ý sang Báo cáo SAI nếu muốn minh oan
+        setDecision('dismissed');
+        setAdminNotes(report.adminNotes || '');
+      } else {
+        // Pending
+        setDecision('dismissed');
+        const rReason = (report.reason || '').toLowerCase();
+        if (rReason.includes('hate')) setNewLabel('Hate Speech');
+        else if (rReason.includes('violen') || rReason.includes('bạo lực')) setNewLabel('Violence');
+        else setNewLabel('Toxic');
+        setAdminNotes('');
+      }
+    }
+  }, [report, isOpen]);
 
   const handleSubmit = (e) => {
     e.preventDefault();

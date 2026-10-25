@@ -9,11 +9,61 @@ import {
 } from '../api/client';
 import { initialNotifications } from '../data/mockData';
 
+// Hàm chuẩn hóa sắp xếp thông báo: MỚI NHẤT LUÔN LUÔN Ở ĐẦU
+const sortNewestFirst = (list) => {
+  const getTs = (item) => {
+    if (item.createdAtIso) {
+      const t = new Date(item.createdAtIso).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (item.createdAt) {
+      const t = new Date(item.createdAt).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (typeof item.id === 'string' && item.id.startsWith('notif-')) {
+      const digits = item.id.replace(/\D/g, '');
+      const num = Number(digits);
+      if (num > 1000000000000) return num;
+    }
+    if (item.time === 'Vừa xong') return Date.now();
+    return 0;
+  };
+  return [...list].sort((a, b) => getTs(b) - getTs(a));
+};
+
+// Helper lưu trữ thông báo cục bộ / hệ thống / admin vào LocalStorage theo userId
+const getStoredLocalNotifs = (userId) => {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(`nexussocial_local_notifs_${userId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveStoredLocalNotifs = (userId, notifs) => {
+  if (!userId) return;
+  try {
+    const localOnly = notifs.filter((n) =>
+      String(n.id).startsWith('notif-') || String(n.id).startsWith('local-')
+    );
+    localStorage.setItem(`nexussocial_local_notifs_${userId}`, JSON.stringify(localOnly.slice(0, 30)));
+  } catch {
+    // ignore
+  }
+};
+
 export function useNotifications({ currentUser, activeTab }) {
-  const [notifications, setNotifications] = useState(initialNotifications);
-  const [unreadCount, setUnreadCount] = useState(
-    () => initialNotifications.filter((n) => !n.isRead).length
-  );
+  const [notifications, setNotifications] = useState(() => {
+    const stored = getStoredLocalNotifs(currentUser?.id);
+    return [...stored, ...initialNotifications];
+  });
+  const [unreadCount, setUnreadCount] = useState(() => {
+    const stored = getStoredLocalNotifs(currentUser?.id);
+    const unreadStored = stored.filter((n) => !n.isRead).length;
+    return initialNotifications.filter((n) => !n.isRead).length + unreadStored;
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [toastNotification, setToastNotification] = useState(null);
@@ -21,7 +71,7 @@ export function useNotifications({ currentUser, activeTab }) {
   const prevUnreadCountRef = useRef(unreadCount);
   const prevItemsRef = useRef(notifications);
 
-  // Hàm tải danh sách thông báo từ Backend
+  // Hàm tải danh sách thông báo từ Backend (Hợp nhất dữ liệu DB và thông báo hệ thống cục bộ)
   const refreshNotifications = useCallback(
     async (filter = activeFilter, showSpinner = false) => {
       if (!currentUser?.id) return;
@@ -35,23 +85,43 @@ export function useNotifications({ currentUser, activeTab }) {
         });
 
         if (res.success && Array.isArray(res.data)) {
-          // Kiểm tra xem có thông báo mới tinh chưa có ở danh sách trước không
-          if (prevItemsRef.current.length > 0 && res.data.length > 0) {
-            const latestItem = res.data[0];
-            const isAlreadyExisted = prevItemsRef.current.some(
-              (p) => String(p.id) === String(latestItem.id)
-            );
-            // Nếu có item mới xuất hiện và chưa đọc, kích hoạt Toast
-            if (!isAlreadyExisted && !latestItem.isRead && activeTab !== 'notifications') {
-              setToastNotification(latestItem);
-            }
-          }
+          // Lấy danh sách thông báo hệ thống / admin từ LocalStorage
+          const storedLocals = getStoredLocalNotifs(currentUser.id);
 
-          setNotifications(res.data);
-          prevItemsRef.current = res.data;
+          setNotifications((prev) => {
+            const currentLocals = prev.filter(
+              (p) => String(p.id).startsWith('notif-') || String(p.id).startsWith('local-')
+            );
+            const allLocalsMap = new Map();
+            [...storedLocals, ...currentLocals].forEach((item) => allLocalsMap.set(String(item.id), item));
+            
+            // Giữ lại các thông báo cục bộ chưa có trong backend
+            const distinctLocals = Array.from(allLocalsMap.values()).filter(
+              (loc) => !res.data.some((d) => String(d.id) === String(loc.id))
+            );
+
+            // Kiểm tra xem có thông báo mới tinh chưa có ở danh sách trước không
+            if (prevItemsRef.current.length > 0 && res.data.length > 0) {
+              const latestItem = res.data[0];
+              const isAlreadyExisted = prevItemsRef.current.some(
+                (p) => String(p.id) === String(latestItem.id)
+              );
+              // Nếu có item mới xuất hiện và chưa đọc, kích hoạt Toast
+              if (!isAlreadyExisted && !latestItem.isRead && activeTab !== 'notifications') {
+                setToastNotification(latestItem);
+              }
+            }
+
+            const merged = sortNewestFirst([...distinctLocals, ...res.data]);
+            prevItemsRef.current = merged;
+            return merged;
+          });
+
           if (typeof res.unreadCount === 'number') {
-            setUnreadCount(res.unreadCount);
-            prevUnreadCountRef.current = res.unreadCount;
+            const storedLocals = getStoredLocalNotifs(currentUser.id);
+            const unreadLocals = storedLocals.filter((n) => !n.isRead).length;
+            setUnreadCount(res.unreadCount + unreadLocals);
+            prevUnreadCountRef.current = res.unreadCount + unreadLocals;
           }
         }
       } catch (err) {
@@ -66,6 +136,15 @@ export function useNotifications({ currentUser, activeTab }) {
   // Khi đăng nhập hoặc đổi filter -> tải lại danh sách
   useEffect(() => {
     if (currentUser?.id) {
+      // Nạp thông báo cục bộ đã lưu của user này
+      const stored = getStoredLocalNotifs(currentUser.id);
+      if (stored.length > 0) {
+        setNotifications((prev) => {
+          const map = new Map();
+          [...stored, ...prev].forEach((item) => map.set(String(item.id), item));
+          return Array.from(map.values());
+        });
+      }
       refreshNotifications(activeFilter, true);
     }
   }, [currentUser?.id, activeFilter, refreshNotifications]);
@@ -85,12 +164,15 @@ export function useNotifications({ currentUser, activeTab }) {
       try {
         const res = await fetchUnreadNotificationsCount({ userId: currentUser.id });
         if (res.success && typeof res.unreadCount === 'number') {
-          // Nếu số lượng chưa đọc tăng lên -> tải lại full danh sách
-          if (res.unreadCount > prevUnreadCountRef.current) {
+          const storedLocals = getStoredLocalNotifs(currentUser.id);
+          const unreadLocals = storedLocals.filter((n) => !n.isRead).length;
+          const totalUnread = res.unreadCount + unreadLocals;
+
+          if (totalUnread > prevUnreadCountRef.current) {
             refreshNotifications(activeFilter, false);
           }
-          setUnreadCount(res.unreadCount);
-          prevUnreadCountRef.current = res.unreadCount;
+          setUnreadCount(totalUnread);
+          prevUnreadCountRef.current = totalUnread;
         }
       } catch {
         // Polling âm thầm bỏ qua lỗi mạng tạm thời
@@ -112,20 +194,24 @@ export function useNotifications({ currentUser, activeTab }) {
 
   // Đánh dấu 1 thông báo là đã đọc
   const handleMarkAsRead = async (id) => {
-    // Optimistic update ngay lập tức trên UI
-    setNotifications((prev) =>
-      prev.map((n) => (String(n.id) === String(id) ? { ...n, isRead: true } : n))
-    );
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (String(n.id) === String(id) ? { ...n, isRead: true } : n));
+      saveStoredLocalNotifs(currentUser?.id, updated);
+      return updated;
+    });
     setUnreadCount((prev) => Math.max(0, prev - 1));
 
-    if (currentUser?.id) {
+    // Nếu là ID từ database backend, đồng bộ lên server
+    if (currentUser?.id && !String(id).startsWith('notif-') && !String(id).startsWith('local-')) {
       try {
         const res = await markNotificationAsRead({
           userId: currentUser.id,
           notificationId: id,
         });
         if (res.success && typeof res.unreadCount === 'number') {
-          setUnreadCount(res.unreadCount);
+          const storedLocals = getStoredLocalNotifs(currentUser.id);
+          const unreadLocals = storedLocals.filter((n) => !n.isRead).length;
+          setUnreadCount(res.unreadCount + unreadLocals);
         }
       } catch (err) {
         console.error('Lỗi đánh dấu đã đọc:', err);
@@ -135,7 +221,11 @@ export function useNotifications({ currentUser, activeTab }) {
 
   // Đánh dấu tất cả là đã đọc
   const handleMarkAllAsRead = async () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setNotifications((prev) => {
+      const updated = prev.map((n) => ({ ...n, isRead: true }));
+      saveStoredLocalNotifs(currentUser?.id, updated);
+      return updated;
+    });
     setUnreadCount(0);
 
     if (currentUser?.id) {
@@ -150,12 +240,16 @@ export function useNotifications({ currentUser, activeTab }) {
   // Xóa 1 thông báo
   const handleDeleteNotification = async (id) => {
     const target = notifications.find((n) => String(n.id) === String(id));
-    setNotifications((prev) => prev.filter((n) => String(n.id) !== String(id)));
+    setNotifications((prev) => {
+      const updated = prev.filter((n) => String(n.id) !== String(id));
+      saveStoredLocalNotifs(currentUser?.id, updated);
+      return updated;
+    });
     if (target && !target.isRead) {
       setUnreadCount((prev) => Math.max(0, prev - 1));
     }
 
-    if (currentUser?.id) {
+    if (currentUser?.id && !String(id).startsWith('notif-') && !String(id).startsWith('local-')) {
       try {
         await deleteNotificationApi({
           userId: currentUser.id,
@@ -169,7 +263,11 @@ export function useNotifications({ currentUser, activeTab }) {
 
   // Xóa tất cả thông báo đã đọc
   const handleClearReadNotifications = async () => {
-    setNotifications((prev) => prev.filter((n) => !n.isRead));
+    setNotifications((prev) => {
+      const updated = prev.filter((n) => !n.isRead);
+      saveStoredLocalNotifs(currentUser?.id, updated);
+      return updated;
+    });
 
     if (currentUser?.id) {
       try {
@@ -182,21 +280,29 @@ export function useNotifications({ currentUser, activeTab }) {
 
   // Thêm thông báo hệ thống / cảnh báo trực tiếp từ frontend (Report, Appeal, Admin action)
   const addLocalNotification = (notif) => {
+    const nowIso = new Date().toISOString();
     const newNotif = {
+      ...notif,
       id: notif.id || `notif-${Date.now()}`,
       type: notif.type || 'system',
       user: notif.user || {
-        name: 'Nexus Admin Shield',
+        id: 'system',
+        name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
       },
       content: notif.content || '',
-      time: 'Vừa xong',
-      createdAt: new Date().toISOString(),
-      isRead: false,
+      createdAt: notif.createdAt || notif.created_at || nowIso,
+      created_at: notif.created_at || notif.createdAt || nowIso,
+      time: notif.time || 'Vừa xong',
+      isRead: notif.isRead ?? false,
       targetPost: notif.targetPost || null,
     };
 
-    setNotifications((prev) => [newNotif, ...prev]);
+    setNotifications((prev) => {
+      const nextList = sortNewestFirst([newNotif, ...prev.filter((p) => String(p.id) !== String(newNotif.id))]);
+      saveStoredLocalNotifs(currentUser?.id, nextList);
+      return nextList;
+    });
     setUnreadCount((prev) => prev + 1);
     setToastNotification(newNotif);
   };

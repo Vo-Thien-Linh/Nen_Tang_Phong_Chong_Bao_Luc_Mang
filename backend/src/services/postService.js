@@ -97,7 +97,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
             await postRepository.pool.query(
               `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
                VALUES ($1, $2, 'ai_moderation', $3, $4)`,
-              [user.id, user.id, harmonized.notificationMessage, cleanPostId]
+              [user.id, null, harmonized.notificationMessage, cleanPostId]
             );
           } catch (notifErr) {
             console.error('Lỗi gửi thông báo kiểm duyệt bài viết:', notifErr.message);
