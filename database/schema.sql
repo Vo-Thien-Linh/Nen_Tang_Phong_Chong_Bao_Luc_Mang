@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS posts (
     image_moderation_thresholds JSONB DEFAULT NULL,
     image_moderation_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     image_moderation_reviewed_at TIMESTAMPTZ DEFAULT NULL,
+    image_moderation_appealed_at TIMESTAMPTZ DEFAULT NULL,
     moderation_expires_at TIMESTAMPTZ DEFAULT NULL,
     privacy VARCHAR(20) DEFAULT 'public', -- 'public', 'friends', 'private'
     
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS comments (
     image_moderation_thresholds JSONB DEFAULT NULL,
     image_moderation_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     image_moderation_reviewed_at TIMESTAMPTZ DEFAULT NULL,
+    image_moderation_appealed_at TIMESTAMPTZ DEFAULT NULL,
     moderation_expires_at TIMESTAMPTZ DEFAULT NULL,
     
     -- Kiểm duyệt AI cho bình luận
@@ -188,9 +190,20 @@ CREATE TABLE IF NOT EXISTS moderation_logs (
     predicted_label VARCHAR(50) NOT NULL, -- 'Normal', 'Toxic', 'Hate Speech', 'Violence'
     confidence NUMERIC(5, 4) NOT NULL,
     action_taken VARCHAR(50) NOT NULL,    -- 'allow', 'warn_user', 'cooldown_30s', 'auto_hide'
+    image_review_stage VARCHAR(20),
+    image_review_previous_status VARCHAR(20),
+    image_review_new_status VARCHAR(20),
+    image_review_scores JSONB,
     latency_ms NUMERIC(6, 2),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_posts_image_appeal_queue
+    ON posts(image_moderation_status, image_moderation_appealed_at)
+    WHERE image_moderation_status = 'appeal_pending';
+CREATE INDEX IF NOT EXISTS idx_comments_image_appeal_queue
+    ON comments(image_moderation_status, image_moderation_appealed_at)
+    WHERE image_moderation_status = 'appeal_pending';
 
 -- ========================================================
 -- 8. BẢNG CONVERSATIONS (Cuộc trò chuyện & Hộp thư chờ người lạ)
