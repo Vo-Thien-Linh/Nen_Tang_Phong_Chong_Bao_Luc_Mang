@@ -24,3 +24,10 @@ test('first review of a missing item returns a conflict without writing', async 
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
   assert.equal(pool.queries.at(-1).sql, 'ROLLBACK');
 });
+
+test('first review is rejected when the item is no longer pending', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'safe' }] });
+  const result = await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
+  assert.equal(result.statusCode, 409);
+  assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
+});
