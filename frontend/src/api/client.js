@@ -129,13 +129,19 @@ export async function previewPostImage(file, userId) {
 }
 
 export async function fetchPendingImageModeration(userId) {
-  return request('/api/admin/image-moderation/pending', { headers: userId ? { 'x-user-id': userId } : {} });
+  return request('/api/admin/image-moderation/pending?type=all&page=1&limit=100', { headers: userId ? { 'x-user-id': userId } : {} });
 }
 
-export async function reviewImageModeration({ userId, contentType, id, decision }) {
-  return request(`/api/admin/image-moderation/${contentType}/${id}/${decision}`, {
+export async function fetchImageAppealQueue(userId) {
+  return request('/api/admin/image-moderation/appeals?type=all&page=1&limit=100', { headers: userId ? { 'x-user-id': userId } : {} });
+}
+
+export async function reviewImageModeration({ userId, contentType, id, decision, stage = 'first' }) {
+  const normalizedDecision = decision === 'approve' ? 'safe' : decision === 'reject' ? 'violence' : decision;
+  return request(`/api/admin/image-moderation/${contentType}/${id}/decide`, {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({ stage, decision: normalizedDecision }),
   });
 }
 
