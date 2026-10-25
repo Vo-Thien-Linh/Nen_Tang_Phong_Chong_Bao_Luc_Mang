@@ -65,6 +65,14 @@ test('failed first review rolls back without notifying the author', async () => 
   assert.equal(pool.queries.some(({ sql }) => sql.includes('INSERT INTO notifications')), false);
 });
 
+test('publishing an approved comment increments its parent count once', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', post_id: 9, ai_status: 'approved', is_hidden: false, image_moderation_status: 'pending_review' }] });
+  await reviewImageModeration({ pool, contentType: 'comment', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
+  const countUpdate = pool.queries.filter(({ sql }) => sql.includes('comments_count = comments_count + 1'));
+  assert.equal(countUpdate.length, 1);
+  assert.deepEqual(countUpdate[0].values, [9]);
+});
+
 test('owner can appeal an admin rejected item', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_admin', content: 'image post' }] });
   const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:00:00Z') });
