@@ -32,3 +32,11 @@ test('moderator can list final review items with previous decision', async () =>
   assert.equal(result.data[0].appealedAt, '2026-10-24T13:00:00Z');
   assert.match(pool.queries[0].sql, /image_review_stage = 'first'/);
 });
+
+test('image review queues filter by post or comment type', async () => {
+  const pool = makeQueuePool();
+  await listReviewQueue(pool, 'pending_review', { type: 'comment' });
+  assert.equal(pool.queries.length, 1);
+  assert.match(pool.queries[0].sql, /FROM comments item/);
+  assert.doesNotMatch(pool.queries[0].sql, /FROM posts item/);
+});
