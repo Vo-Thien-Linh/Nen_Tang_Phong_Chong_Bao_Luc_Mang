@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { listReviewQueue } from '../src/routes/imageModerationRouter.js';
+import { createImageModerationRouter, listReviewQueue } from '../src/routes/imageModerationRouter.js';
 
 function makeQueuePool(rowsByTable = {}) {
   const queries = [];
@@ -49,4 +49,18 @@ test('image review queues return the oldest item first', async () => {
   const result = await listReviewQueue(pool, 'pending_review', { type: 'all' });
   assert.equal(result.data[0].type, 'comment');
   assert.equal(result.data[1].type, 'post');
+});
+
+test('regular users are rejected from both image review queues', async () => {
+  const userId = '123e4567-e89b-12d3-a456-426614174000';
+  const pool = { async query(sql) { return sql.includes('FROM users') ? { rows: [{ id: userId, role: 'user', status: 'active' }] } : { rows: [] }; } };
+  const router = createImageModerationRouter({ pool });
+  for (const path of ['/pending', '/appeals']) {
+    const handlers = router.stack.find((layer) => layer.route?.path === path).route.stack;
+    const req = { query: {}, header: (name) => name === 'x-user-id' ? userId : undefined };
+    const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await handlers[0].handle(req, res, () => {});
+    await handlers[1].handle(req, res, () => {});
+    assert.equal(res.statusCode, 403);
+  }
 });
