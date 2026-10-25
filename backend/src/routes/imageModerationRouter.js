@@ -107,6 +107,7 @@ export async function listReviewQueue(pool, status, query = {}, withPreviousDeci
        FROM ${table} item JOIN users author ON author.id = item.author_id
        ${commentJoin} ${reviewerJoin}
        WHERE item.image_moderation_status = $1
+         AND item.image_url IS NOT NULL AND BTRIM(item.image_url) <> ''
        ORDER BY item.created_at ASC, item.id ASC
        LIMIT $2`,
       [status, fetchCount]
