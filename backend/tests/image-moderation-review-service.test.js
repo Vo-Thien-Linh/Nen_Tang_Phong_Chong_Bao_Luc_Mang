@@ -54,6 +54,17 @@ test('first review writes a moderation log entry', async () => {
   assert.deepEqual(JSON.parse(log.values[10]), { safe: 0.91 });
 });
 
+test('final review records the final reviewer and prior appeal status in its log', async () => {
+  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'appeal_pending', image_moderation_nsfw: 0.7 }] });
+  await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'final', decision: 'nsfw', reviewerId: 'same-moderator' });
+  const log = pool.queries.find(({ sql }) => sql.includes('INSERT INTO moderation_logs'));
+  assert.equal(log.values[0], 'same-moderator');
+  assert.equal(log.values[6], 'image_review_final_nsfw');
+  assert.equal(log.values[7], 'final');
+  assert.equal(log.values[8], 'appeal_pending');
+  assert.equal(log.values[9], 'sensitive');
+});
+
 test('failed first review rolls back without notifying the author', async () => {
   const pool = mockPool({
     rows: [{ id: 4, author_id: 'author', content: 'hello', image_moderation_status: 'pending_review' }],
