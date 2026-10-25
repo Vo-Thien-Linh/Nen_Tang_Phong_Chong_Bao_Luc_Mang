@@ -6,6 +6,7 @@ import {
   applyImageReviewQueueResult,
   areImageReviewActionsDisabled,
   getPreviousImageDecisionLabel,
+  getImageReviewFailure,
 } from '../src/utils/imageModerationReviewLogic.js';
 
 test('rejected admin item shows its in-place notice and appeal button', () => {
@@ -46,6 +47,14 @@ test('queue item is removed after a conflict response', () => {
 test('queue item remains after a server error', () => {
   const items = [{ id: 1, type: 'post' }];
   assert.equal(applyImageReviewQueueResult(items, items[0], { status: 500 }), items);
+});
+
+test('keep item and show message on server error', () => {
+  const items = [{ id: 1, type: 'post' }];
+  const error = getImageReviewFailure({ status: 500, message: 'Đã có lỗi hệ thống' });
+  assert.equal(error.removeItem, false);
+  assert.equal(applyImageReviewQueueResult(items, items[0], { status: 500 }), items);
+  assert.deepEqual(error.toast, { type: 'error', message: 'Đã có lỗi hệ thống' });
 });
 
 test('all review buttons are disabled while a request is pending', () => {
