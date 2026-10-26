@@ -151,7 +151,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
       [item.author_id, imageReviewNotification(contentType, stage, decision), contentType === 'post' ? item.id : item.post_id]
     );
     await client.query('COMMIT');
-    return { ok: true, data: { id: String(item.id), type: contentType, status: transition.nextStatus, decision, published: transition.visibleToOthers, reviewedAt } };
+    return { ok: true, data: { id: String(item.id), type: contentType, postId: contentType === 'comment' ? String(item.post_id) : undefined, status: transition.nextStatus, decision, published: transition.visibleToOthers, reviewedAt } };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;

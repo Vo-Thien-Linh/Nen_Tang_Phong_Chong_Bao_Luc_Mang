@@ -4,6 +4,7 @@ import { createUserRepository } from '../repositories/userRepository.js';
 import { mapPostToResponse } from '../controllers/postsController.js';
 import { realtimeService } from '../services/realtimeService.js';
 import { reviewImageModeration } from '../services/imageModerationReviewService.js';
+import { getFinalRejectionEvent } from '../services/imageModerationRealtimeEvents.js';
 
 const listTypes = new Set(['all', 'post', 'comment']);
 
@@ -53,6 +54,9 @@ async function decide(req, res, next, pool, stage, fixedDecision = null) {
   });
   if (!result.ok) return res.status(result.statusCode).json({ success: false, message: result.message });
   if (result.data.published) await broadcastPublishedItem(pool, result.data);
+  if (result.data.status === 'rejected_final') {
+    realtimeService.broadcast(getFinalRejectionEvent(result.data));
+  }
   return res.json({ success: true, data: result.data, message: "Đã cập nhật trạng thái duyệt ảnh" });
   } catch (error) {
     console.error('Image review decision failed', {
