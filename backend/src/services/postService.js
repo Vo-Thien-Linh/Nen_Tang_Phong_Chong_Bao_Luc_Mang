@@ -187,7 +187,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       if (['rejected_admin', 'appeal_pending', 'rejected_final'].includes(existingPost.image_moderation_status)) {
-        const error = new Error('KhÃ´ng thá»ƒ chá»‰nh sá»­a ná»™i dung Ä‘ang trong quy trÃ¬nh duyá»‡t');
+        const error = new Error('Không thể chỉnh sửa nội dung đang trong quy trình duyệt');
         error.statusCode = 409;
         throw error;
       }
