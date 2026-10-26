@@ -20,6 +20,7 @@ import PostCard from './PostCard';
 import OriginalPostModal from './OriginalPostModal';
 import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
+import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -1282,10 +1283,24 @@ export default function ProfileView({
                     >
                       {post.image || post.image_url ? (
                         <div className="aspect-square overflow-hidden bg-slate-100 relative">
+                          {shouldHideContentForViewer({
+                            isAuthor: Boolean(currentUser?.id && String(currentUser.id) === String(post.author_id || post.author?.id)),
+                            status: post.imageModeration?.status || post.image_moderation_status,
+                            isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(post.imageModeration?.status || post.image_moderation_status),
+                          }) && (
+                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
+                              <span className="text-xs font-semibold">Nội dung nhạy cảm</span>
+                              <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</span>
+                            </div>
+                          )}
                           <img 
                             src={post.image || post.image_url} 
                             alt="Thumb" 
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200" 
+                            className={`w-full h-full object-cover group-hover:scale-105 transition duration-200 ${shouldHideContentForViewer({
+                              isAuthor: Boolean(currentUser?.id && String(currentUser.id) === String(post.author_id || post.author?.id)),
+                              status: post.imageModeration?.status || post.image_moderation_status,
+                              isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(post.imageModeration?.status || post.image_moderation_status),
+                            }) ? 'blur-xl scale-105' : ''}`}
                           />
                         </div>
                       ) : (

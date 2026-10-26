@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatRelativeTime } from '../utils/timeAgo';
-import { appealCommentModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
+import { appealCommentModeration, appealPostModeration, createComment, updatePostReaction, sharePost, fetchPostById, uploadPostImage } from '../api/client';
 import VerifiedBadge from './VerifiedBadge';
 import { getModerationNoticeText, moderationViolationNotice } from '../utils/moderationNoticeLogic';
+import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic';
 import { 
   REACTIONS, 
   normalizeReactionCounts, 
@@ -31,6 +32,7 @@ export default function OriginalPostModal({
 }) {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState([]);
+  const [postImageModeration, setPostImageModeration] = useState(post?.imageModeration || null);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(null);
@@ -47,6 +49,39 @@ export default function OriginalPostModal({
   const commentAppealLocksRef = useRef(new Set());
   const [pendingCommentAppealId, setPendingCommentAppealId] = useState(null);
   const [commentAppealError, setCommentAppealError] = useState('');
+  const [postAppealSubmitting, setPostAppealSubmitting] = useState(false);
+  const [postAppealError, setPostAppealError] = useState('');
+  const postAppealLockRef = useRef(false);
+
+  useEffect(() => {
+    setPostImageModeration(post?.imageModeration || null);
+  }, [post?.id, post?.imageModeration]);
+
+  const handleImagePostAppeal = async () => {
+    if (postAppealLockRef.current) return;
+    postAppealLockRef.current = true;
+    setPostAppealSubmitting(true);
+    setPostAppealError('');
+    try {
+      const result = await appealPostModeration({ userId: currentUser?.id, postId: post.id });
+      const imageModeration = {
+        ...postImageModeration,
+        status: 'appeal_pending',
+        noticeType: 'appeal_pending',
+        noticeText: getModerationNoticeText('post', 'appeal_pending'),
+        appealedAt: result.data?.appealedAt || new Date().toISOString(),
+        moderationExpiresAt: null,
+        remainingSeconds: null,
+      };
+      setPostImageModeration(imageModeration);
+      onUpdatePost?.(post.id, { imageModeration });
+    } catch (error) {
+      setPostAppealError(error.message || 'Không thể gửi khiếu nại.');
+    } finally {
+      postAppealLockRef.current = false;
+      setPostAppealSubmitting(false);
+    }
+  };
 
   const handleImageCommentAppeal = async (comment) => {
     const id = String(comment.id);
@@ -152,6 +187,9 @@ export default function OriginalPostModal({
   const authorAvatar = post.author?.avatar || DEFAULT_AVATAR;
   const timeDisplay = formatRelativeTime(post.createdAt || post.created_at);
   const postImage = post.image || post.imageUrl || post.image_url;
+  const originalImageStatus = postImageModeration?.status || post.image_moderation_status;
+  const isOriginalPostAuthor = Boolean(currentUser?.id && String(currentUser.id) === String(post.author?.id || post.author_id));
+  const hideOriginalPostImage = shouldHideContentForViewer({ isAuthor: isOriginalPostAuthor, status: originalImageStatus, isSensitive: originalImageStatus === 'sensitive' });
   const activeReactionObj = REACTIONS.find(r => r.id === currentReaction);
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
 
@@ -338,7 +376,7 @@ export default function OriginalPostModal({
                     {(post.author?.isVerified || post.author?.is_verified) && (
                       <VerifiedBadge size="sm" />
                     )}
-                    {(post.ai_label || post.aiLabel) && (
+                    {(post.ai_label || post.aiLabel) && !['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(originalImageStatus) && (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
                         <ShieldCheck className="w-3 h-3" />
                         <span>{post.ai_label || post.aiLabel}</span>
@@ -369,6 +407,20 @@ export default function OriginalPostModal({
               )}
             </div>
 
+            {isOriginalPostAuthor && ['rejected_admin', 'appeal_pending', 'pending_review', 'rejected_hold'].includes(originalImageStatus) && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{postImageModeration?.noticeText || getModerationNoticeText('post', originalImageStatus)}</span>
+                  {['rejected_admin', 'rejected_hold'].includes(originalImageStatus) && (
+                    <button type="button" disabled={postAppealSubmitting} onClick={handleImagePostAppeal} className="rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">
+                      {postAppealSubmitting ? 'Đang gửi...' : 'Khiếu nại'}
+                    </button>
+                  )}
+                </div>
+                {postAppealError && <p className="mt-1 text-rose-700">{postAppealError}</p>}
+              </div>
+            )}
+
             {/* Nội dung chữ */}
             {post.content && (
               <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line break-words pt-1">
@@ -389,8 +441,14 @@ export default function OriginalPostModal({
                 <img
                   src={postImage}
                   alt="Ảnh bài viết gốc"
-                  className="w-full max-h-[380px] object-cover group-hover:scale-[1.01] transition duration-200"
+                  className={`w-full max-h-[380px] object-cover group-hover:scale-[1.01] transition duration-200 ${hideOriginalPostImage ? 'blur-xl scale-105' : ''}`}
                 />
+                {hideOriginalPostImage && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
+                    <span className="text-xs font-semibold">Nội dung nhạy cảm</span>
+                    <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</span>
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-center justify-center">
                   <span className="opacity-0 group-hover:opacity-100 bg-slate-900/80 text-white text-xs px-3 py-1.5 rounded-full font-medium transition backdrop-blur-xs">
                     Nhấn để phóng to
@@ -585,7 +643,11 @@ export default function OriginalPostModal({
             {/* Danh sách bình luận */}
             <div className="space-y-3 pt-1">
               {comments && comments.length > 0 ? (
-                comments.filter((item) => (item.imageModeration?.status || item.image_moderation_status) !== 'rejected_final').map((cmt, idx) => (
+                comments.filter((item) => (item.imageModeration?.status || item.image_moderation_status) !== 'rejected_final').map((cmt, idx) => {
+                  const imageStatus = cmt.imageModeration?.status || cmt.image_moderation_status;
+                  const isCommentAuthor = Boolean(currentUser?.id && String(currentUser.id) === String(cmt.author?.id || cmt.author_id));
+                  const hideCommentImage = shouldHideContentForViewer({ isAuthor: isCommentAuthor, status: imageStatus, isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(imageStatus) });
+                  return (
                   <div key={cmt.id || idx} className="flex gap-2.5 items-start text-xs animate-fade-in">
                     <img
                       src={cmt.author?.avatar || DEFAULT_AVATAR}
@@ -616,11 +678,11 @@ export default function OriginalPostModal({
                           {formatRelativeTime(cmt.time || cmt.createdAt || cmt.created_at)}
                         </span>
                       </div>
-                      {currentUser?.id === cmt.author?.id && ['rejected_admin', 'appeal_pending'].includes(cmt.imageModeration?.status) && (
+                      {isCommentAuthor && ['rejected_admin', 'appeal_pending', 'pending_review', 'rejected_hold'].includes(imageStatus) && (
                         <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-900">
                           <div className="flex items-center justify-between gap-2">
-                            <span>{cmt.imageModeration.noticeText || getModerationNoticeText('comment', cmt.imageModeration.status)}</span>
-                            {cmt.imageModeration.status === 'rejected_admin' && <button type="button" disabled={pendingCommentAppealId === String(cmt.id)} onClick={() => handleImageCommentAppeal(cmt)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(cmt.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                            <span>{cmt.imageModeration?.noticeText || getModerationNoticeText('comment', imageStatus)}</span>
+                            {['rejected_admin', 'rejected_hold'].includes(imageStatus) && <button type="button" disabled={pendingCommentAppealId === String(cmt.id)} onClick={() => handleImageCommentAppeal(cmt)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(cmt.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
                           </div>
                           {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
                         </div>
@@ -633,7 +695,7 @@ export default function OriginalPostModal({
 
                       {cmt.image && (
                         <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 max-w-xs group">
-                          {['sensitive', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(cmt.imageModeration?.status) && !unblurredComments[cmt.id] ? (
+                          {hideCommentImage && !unblurredComments[cmt.id] ? (
                             <div className="relative">
                               <img
                                 src={cmt.image}
@@ -678,7 +740,7 @@ export default function OriginalPostModal({
                       )}
                     </div>
                   </div>
-                ))
+                ); })
               ) : (
                 <div className="text-center py-6 text-slate-400">
                   <MessageCircle className="w-8 h-8 mx-auto text-slate-300 mb-1.5" />

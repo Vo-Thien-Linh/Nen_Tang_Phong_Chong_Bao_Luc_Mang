@@ -14,6 +14,11 @@ export function shouldShowPostAiLabel(post) {
     && !['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(post.imageModeration?.status);
 }
 
+export function shouldHideContentForViewer({ isAuthor = false, status = null, isSensitive = false } = {}) {
+  if (isAuthor) return false;
+  return Boolean(isSensitive) || ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(status);
+}
+
 export function canSubmitImageAppeal(status, isSubmitting = false) {
   return !isSubmitting && ['rejected_admin', 'rejected_hold'].includes(status);
 }
