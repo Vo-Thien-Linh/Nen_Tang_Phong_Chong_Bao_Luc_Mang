@@ -40,3 +40,9 @@ export function applyUpdatedPostToList(posts, updatedPost) {
 export function removePostFromList(posts, postId) {
   return posts.filter((post) => String(post.id) !== String(postId));
 }
+
+export async function runPostDeleteAction({ deleteRequest, onSuccess }) {
+  const result = await deleteRequest();
+  onSuccess?.(result);
+  return result;
+}

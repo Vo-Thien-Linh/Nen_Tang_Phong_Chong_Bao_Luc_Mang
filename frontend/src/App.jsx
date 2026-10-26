@@ -45,7 +45,7 @@ import {
   fetchAiOverridesList,
   createAiOverrideApi
 } from './api/client';
-import { applyUpdatedPostToList } from './utils/postActionLogic';
+import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
   clearPostNotice,
@@ -743,17 +743,13 @@ export default function App() {
     }
 
     try {
-      await deletePost({ userId: currentUser.id, postId });
-      setPosts(prev => prev.map(post => (
-        String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
-      )));
+      await runPostDeleteAction({
+        deleteRequest: () => deletePost({ userId: currentUser.id, postId }),
+        onSuccess: () => setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
+        ))),
+      });
     } catch (error) {
-      if (error.status === 404) {
-        setPosts(prev => prev.map(post => (
-          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
-        )));
-        throw new Error('Bài viết không tồn tại');
-      }
       throw new Error(error.message || 'Xóa bài viết thất bại');
     }
   };
@@ -1457,8 +1453,8 @@ export default function App() {
             onRequireLogin={handleRequireLogin}
             onOpenProfile={handleOpenUserProfile}
             onEditPost={handleUpdatePost}
-            onDeletePost={(delPostId) => {
-              handleDeleteOwnPost(delPostId);
+            onDeletePost={async (delPostId) => {
+              await handleDeleteOwnPost(delPostId);
               handleTabChange(viewedPostDetail.previousTab || 'notifications');
             }}
             openPostMenuId={openPostMenuId}
