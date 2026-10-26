@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS comments (
     ai_label VARCHAR(50) DEFAULT 'Normal',
     ai_confidence NUMERIC(5, 4) DEFAULT 0.9900,
     is_hidden BOOLEAN DEFAULT FALSE,
+    is_soft_hidden BOOLEAN DEFAULT FALSE,
+    ai_status VARCHAR(20) DEFAULT 'approved',
     
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
