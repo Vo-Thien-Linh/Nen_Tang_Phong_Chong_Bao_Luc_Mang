@@ -14,7 +14,7 @@ for (const [, table, body] of schema.matchAll(/CREATE TABLE IF NOT EXISTS\s+(\w+
   }
   tableColumns.set(table.toLowerCase(), columns);
 }
-for (const migration of ['002_posts_edited_at.sql', '003_add_share_post.sql', '004_add_image_moderation.sql', '005_add_moderation_expiry.sql', '006_image_appeal_review_columns.sql', '007_add_comment_moderation_state.sql']) {
+for (const migration of ['002_posts_edited_at.sql', '003_add_share_post.sql', '004_add_image_moderation.sql', '005_add_moderation_expiry.sql', '006_image_appeal_review_columns.sql', '007_add_comment_moderation_state.sql', '008_image_review_notification_snapshot.sql']) {
   const sql = readFileSync(fileURLToPath(new URL(`../../database/migrations/${migration}`, import.meta.url)), 'utf8');
   for (const [, table, additions] of sql.matchAll(/ALTER TABLE\s+(\w+)\s+([\s\S]*?);/gi)) {
     const known = tableColumns.get(table.toLowerCase());
