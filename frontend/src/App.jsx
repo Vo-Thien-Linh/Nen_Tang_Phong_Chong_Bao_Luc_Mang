@@ -1638,6 +1638,11 @@ export default function App() {
         notification={toastNotification}
         onClose={() => setToastNotification(null)}
         onClick={() => {
+          if (toastNotification?.snapshot?.type === 'moderation_removal') {
+            handleTabChange('notifications');
+            setToastNotification(null);
+            return;
+          }
           const targetId = toastNotification?.targetPost?.id || toastNotification?.targetPostId;
           if (targetId) {
             handleViewPost(targetId, {

@@ -3,6 +3,7 @@ import {
   Bell, Heart, MessageCircle, Repeat, ShieldAlert, CheckCheck, 
   Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox, Scale, Lock
 } from 'lucide-react';
+import { getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
 
 export default function NotificationsView({ 
   notifications = [], 
@@ -190,6 +191,7 @@ export default function NotificationsView({
             </div>
           ) : filteredNotifications.length > 0 ? (
             filteredNotifications.map((item) => {
+              const snapshotPreview = getNotificationSnapshotPreview(item);
               const actor = item.user || {
                 name: 'Nexus Shield',
                 avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
@@ -201,7 +203,7 @@ export default function NotificationsView({
                   onClick={() => {
                     onMarkAsRead(item.id);
                     const targetPostId = item.targetPost?.id || item.targetPostId;
-                    if (targetPostId && onViewPost) {
+                    if (!snapshotPreview.isRemoval && targetPostId && onViewPost) {
                       onViewPost(targetPostId, {
                         type: item.type,
                         actor,
@@ -259,7 +261,18 @@ export default function NotificationsView({
                     </div>
 
                     {/* Preview bài viết liên quan nếu có */}
-                    {(item.targetPost || item.targetPostId) && (
+                    {snapshotPreview.isRemoval ? (
+                      <div className="mt-2 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50">
+                        {snapshotPreview.content && <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-line break-words">{snapshotPreview.content}</p>}
+                        {snapshotPreview.images.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {snapshotPreview.images.map((imageUrl) => (
+                              <img key={imageUrl} src={imageUrl} alt="Nội dung đã bị xóa" className="h-16 w-16 rounded-lg object-cover" />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (item.targetPost || item.targetPostId) && (
                       <div
                         onClick={(e) => {
                           e.stopPropagation();
@@ -295,7 +308,7 @@ export default function NotificationsView({
                     )}
 
                     {/* Nút Kháng Cáo trực tiếp nếu là thông báo vi phạm / xử phạt */}
-                    {(['ai_moderation', 'system', 'warning', 'report'].includes(item.type) || (item.content && (item.content.includes('vi phạm') || item.content.includes('bị ẩn') || item.content.includes('khóa') || item.content.includes('phạt')))) && onOpenAppealModal && (
+                    {!snapshotPreview.isRemoval && (['ai_moderation', 'system', 'warning', 'report'].includes(item.type) || (item.content && (item.content.includes('vi phạm') || item.content.includes('bị ẩn') || item.content.includes('khóa') || item.content.includes('phạt')))) && onOpenAppealModal && (
                       <div className="mt-2.5 flex items-center gap-2">
                         <button
                           type="button"

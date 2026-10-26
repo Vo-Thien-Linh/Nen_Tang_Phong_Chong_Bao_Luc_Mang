@@ -85,7 +85,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT id, author_id, ${parentPostColumn}content, image_url, ${hiddenColumn}image_moderation_status,
+      `SELECT id, author_id, ${parentPostColumn}content, image_url, created_at, ${hiddenColumn}image_moderation_status,
               image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
               image_moderation_thresholds, image_moderation_appealed_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
@@ -137,10 +137,20 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
       [reviewerId, contentType, contentId, item.content || '', DECISION_LABEL[decision], confidence,
         `image_review_${stage}_${decision}`, stage, expectedStatus, transition.nextStatus, JSON.stringify(scores)]
     );
+    const removalSnapshot = stage === 'final' && decision === 'violence'
+      ? {
+          type: 'moderation_removal',
+          contentType,
+          content: item.content || '',
+          imageUrls: item.image_url ? [item.image_url] : [],
+          createdAt: item.created_at || null,
+          excerpt: (item.content || '').slice(0, 160),
+        }
+      : null;
     await client.query(
-      `INSERT INTO notifications (recipient_id, type, content, target_post_id)
-       VALUES ($1, 'system', $2, $3)`,
-      [item.author_id, imageReviewNotification(contentType, stage, decision), contentType === 'post' ? item.id : item.post_id]
+      `INSERT INTO notifications (recipient_id, type, content, target_post_id, payload)
+       VALUES ($1, 'system', $2, $3, $4::jsonb)`,
+      [item.author_id, imageReviewNotification(contentType, stage, decision), contentType === 'post' ? item.id : item.post_id, JSON.stringify(removalSnapshot)]
     );
     await client.query('COMMIT');
     return { ok: true, data: { id: String(item.id), type: contentType, postId: contentType === 'comment' ? String(item.post_id) : undefined, status: transition.nextStatus, decision, published: transition.visibleToOthers, reviewedAt } };

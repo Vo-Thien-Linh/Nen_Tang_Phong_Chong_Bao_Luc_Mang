@@ -27,5 +27,5 @@ export function imageReviewNotification(contentType = 'post', stage = 'first', d
   }
   if (decision === 'safe') return `Khiếu nại của bạn đã được chấp nhận. ${type} đã được đăng bình thường.`;
   if (decision === 'nsfw') return `Khiếu nại của bạn đã được chấp nhận. ${type} đã được đăng với cảnh báo nội dung nhạy cảm.`;
-  return `Sau khi xem xét lại, ${lowerType} của bạn vẫn vi phạm tiêu chuẩn cộng đồng. Quyết định này là cuối cùng và ${lowerType} đã bị ẩn hoàn toàn.`;
+  return `Sau khi xem xét lại, ${lowerType} của bạn vẫn vi phạm tiêu chuẩn cộng đồng nên đã bị xóa.`;
 }

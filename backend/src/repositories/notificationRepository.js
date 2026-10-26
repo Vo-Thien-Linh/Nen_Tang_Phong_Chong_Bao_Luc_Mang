@@ -22,6 +22,7 @@ export function createNotificationRepository({ pool }) {
           n.actor_id,
           n.type,
           n.content,
+          n.payload,
           n.target_post_id,
           n.is_read,
           n.created_at,
