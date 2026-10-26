@@ -950,6 +950,12 @@ export default function PostCard({
                 Trạng thái: {post.moderationStatus}
               </span>
             )}
+
+            {isAuthor && postImageStatus === 'sensitive' && (
+              <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {post.imageModeration?.noticeText || getModerationNoticeText('post', 'sensitive')}
+              </div>
+            )}
             
             {/* Thanh cảnh báo nhỏ khi đang xem bài viết nhạy cảm */}
             {isSensitivePost && revealedSensitivePost && (
@@ -1542,6 +1548,11 @@ export default function PostCard({
                             {['rejected_admin', 'rejected_hold'].includes(commentImageStatus) && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
                           </div>
                           {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
+                        </div>
+                      )}
+                      {isCommentAuthor && commentImageStatus === 'sensitive' && (
+                        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                          {comment.imageModeration?.noticeText || getModerationNoticeText('comment', 'sensitive')}
                         </div>
                       )}
                       {/* Tiêu đề cảnh báo nếu đang mở xem bình luận Toxic / NSFW đã ẩn mềm */}

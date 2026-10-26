@@ -24,6 +24,14 @@ export function formatImageModerationForViewer(imageModeration, contentType, aut
     ?? null;
 
   if (!authorCanSeeReview) {
+    if (isAuthor && status === 'sensitive') {
+      return {
+        ...publicFields,
+        status,
+        noticeType: 'sensitive_author',
+        noticeText: getModerationNoticeText(contentType, status),
+      };
+    }
     return { ...publicFields, status };
   }
 

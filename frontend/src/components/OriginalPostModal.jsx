@@ -420,6 +420,11 @@ export default function OriginalPostModal({
             )}
 
             {/* Nội dung chữ */}
+            {isOriginalPostAuthor && originalImageStatus === 'sensitive' && (
+              <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {postImageModeration?.noticeText || getModerationNoticeText('post', 'sensitive')}
+              </div>
+            )}
             {post.content && (
               <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line break-words pt-1">
                 {post.content}
@@ -683,6 +688,11 @@ export default function OriginalPostModal({
                             {['rejected_admin', 'rejected_hold'].includes(imageStatus) && <button type="button" disabled={pendingCommentAppealId === String(cmt.id)} onClick={() => handleImageCommentAppeal(cmt)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(cmt.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
                           </div>
                           {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
+                        </div>
+                      )}
+                      {isCommentAuthor && imageStatus === 'sensitive' && (
+                        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                          {cmt.imageModeration?.noticeText || getModerationNoticeText('comment', 'sensitive')}
                         </div>
                       )}
                       {cmt.content && (

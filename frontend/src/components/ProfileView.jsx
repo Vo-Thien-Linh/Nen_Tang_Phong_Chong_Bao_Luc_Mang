@@ -21,6 +21,7 @@ import OriginalPostModal from './OriginalPostModal';
 import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
 import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic';
+import { getModerationNoticeText } from '../utils/moderationNoticeLogic';
 import { getProfilePosts } from '../utils/profilePostLogic';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
@@ -1305,6 +1306,12 @@ export default function ProfileView({
                       ) : (
                         <div className="p-4 h-36 flex items-center justify-center text-xs text-slate-600 bg-slate-50 italic text-center">
                           "{post.content.slice(0, 70)}..."
+                        </div>
+                      )}
+                      {String(currentUser?.id) === String(post.author_id || post.author?.id)
+                        && (post.imageModeration?.status || post.image_moderation_status) === 'sensitive' && (
+                        <div className="px-2 py-1.5 border-t border-amber-200 bg-amber-50 text-[10px] leading-snug text-amber-900">
+                          {post.imageModeration?.noticeText || getModerationNoticeText('post', 'sensitive')}
                         </div>
                       )}
                       <div className="p-2 text-[11px] font-semibold text-slate-600 truncate border-t border-slate-100">
