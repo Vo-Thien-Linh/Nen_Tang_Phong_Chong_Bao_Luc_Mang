@@ -21,6 +21,7 @@ import OriginalPostModal from './OriginalPostModal';
 import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
 import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic';
+import { getProfilePosts } from '../utils/profilePostLogic';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -371,9 +372,7 @@ export default function ProfileView({
   };
 
   // Danh sách bài viết hiển thị
-  const userPosts = profilePosts !== null
-    ? profilePosts
-    : posts.filter(post => post.author && (post.author.id === targetUserId));
+  const userPosts = getProfilePosts({ isOwnProfile, posts, profilePosts, targetUserId });
 
   // Trích xuất toàn bộ ảnh thực tế từ các bài viết trong Database
   const realUserPhotos = [
