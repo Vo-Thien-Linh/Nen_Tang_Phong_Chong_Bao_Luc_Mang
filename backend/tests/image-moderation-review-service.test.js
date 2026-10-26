@@ -60,8 +60,8 @@ test('first review of a post writes valid notification columns', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'pending_review' }] });
   await reviewImageModeration({ pool, contentType: 'post', contentId: 4, stage: 'first', decision: 'safe', reviewerId: 'moderator' });
   const notification = pool.queries.find(({ sql }) => sql.includes('INSERT INTO notifications'));
-  assert.match(notification.sql, /\(recipient_id, type, content, target_post_id\)/);
-  assert.deepEqual(notification.values, ['author', 'Bài viết của bạn đã được duyệt', 4]);
+  assert.match(notification.sql, /\(recipient_id, type, content, target_post_id, payload\)/);
+  assert.deepEqual(notification.values, ['author', 'Bài viết của bạn đã được duyệt', 4, 'null']);
 });
 
 test('decide does not crash for an item without image scores', async () => {
@@ -132,7 +132,7 @@ test('first review of a comment uses comment table columns', async () => {
   const notification = pool.queries.find(({ sql }) => sql.includes('INSERT INTO notifications'));
   assert.match(select.sql, /FROM comments/);
   assert.match(select.sql, /author_id, post_id, content/);
-  assert.deepEqual(notification.values, ['author', 'Bình luận của bạn đã được duyệt', 9]);
+  assert.deepEqual(notification.values, ['author', 'Bình luận của bạn đã được duyệt', 9, 'null']);
 });
 
 test('final violence rejection does not increment its parent comment count', async () => {
