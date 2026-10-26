@@ -255,6 +255,17 @@ export function createPostRepository({ pool }) {
       return post;
     },
 
+    async findByIdForOwnerAction(postId) {
+      const cleanId = Number(String(postId).replace(/^post-/, ''));
+      if (Number.isNaN(cleanId)) return null;
+
+      const result = await pool.query(
+        `${postSelect} WHERE p.id = $1`,
+        [cleanId]
+      );
+      return result.rows[0] || null;
+    },
+
     async updatePost({ postId, authorId, content, imageUrl, imageModeration }) {
       const moderationFields = imageModeration ? `,
          image_moderation_status = $5,
@@ -267,7 +278,7 @@ export function createPostRepository({ pool }) {
         `UPDATE posts
          SET content = $3, image_url = $4${moderationFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND author_id = $2
-           AND COALESCE(image_moderation_status, '') NOT IN ('rejected_admin', 'appeal_pending', 'rejected_final')
+           AND COALESCE(image_moderation_status, '') NOT IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final')
          RETURNING id`,
         [postId, authorId, content, imageUrl,
           imageModeration?.decision || null,
@@ -275,7 +286,7 @@ export function createPostRepository({ pool }) {
           imageModeration?.images?.[0]?.scores?.nsfw || null,
           imageModeration?.images?.[0]?.scores?.violence || null,
           imageModeration?.thresholds || null,
-          imageModeration?.moderationExpiresAt || null].slice(imageModeration ? 0 : 4)
+          imageModeration?.moderationExpiresAt || null].slice(0, imageModeration ? 10 : 4)
       );
 
       if (!result.rows[0]) {
@@ -293,7 +304,7 @@ export function createPostRepository({ pool }) {
       try {
         await client.query('BEGIN');
         const result = await client.query(
-          `UPDATE posts SET ai_status = 'hidden', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND (author_id = $2 OR $2 IS NULL)
+          `DELETE FROM posts WHERE id = $1 AND (author_id = $2 OR $2 IS NULL)
              AND COALESCE(image_moderation_status, '') <> 'rejected_final' RETURNING id`,
           [postId, authorId]
         );

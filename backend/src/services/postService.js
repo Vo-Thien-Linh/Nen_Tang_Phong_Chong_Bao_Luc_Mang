@@ -173,7 +173,9 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      const existingPost = await postRepository.findById(postId, user.id);
+      const existingPost = postRepository.findByIdForOwnerAction
+        ? await postRepository.findByIdForOwnerAction(postId)
+        : await postRepository.findById(postId, user.id);
       if (!existingPost) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
@@ -186,7 +188,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      if (['rejected_admin', 'appeal_pending', 'rejected_final'].includes(existingPost.image_moderation_status)) {
+      if (['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(existingPost.image_moderation_status)) {
         const error = new Error('Không thể chỉnh sửa nội dung đang trong quy trình duyệt');
         error.statusCode = 409;
         throw error;
@@ -197,12 +199,6 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         error.statusCode = 403;
         throw error;
       }
-      if (existingPost.image_moderation_status === 'rejected_hold' && new Date(existingPost.moderation_expires_at) > clock()) {
-        const error = new Error('Bài viết đang trong thời gian kháng cáo và không thể chỉnh sửa');
-        error.statusCode = 409;
-        throw error;
-      }
-
       if (isRestrictedUser(user)) {
         const error = new Error('Tài khoản của bạn đang bị hạn chế');
         error.statusCode = 403;
@@ -240,8 +236,16 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      const existingPost = await postRepository.findById(postId, user.id);
+      const existingPost = postRepository.findByIdForOwnerAction
+        ? await postRepository.findByIdForOwnerAction(postId)
+        : await postRepository.findById(postId, user.id);
       if (!existingPost) {
+        const error = new Error('Bài viết không tồn tại');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (existingPost.image_moderation_status === 'rejected_final') {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
         throw error;
