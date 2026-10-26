@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, UserPlus, Check, User, Sparkles, MessageCircle } from 'lucide-react';
 import { REACTIONS } from '../utils/reactionLogic';
 import { DEFAULT_AVATAR } from '../constants/defaults';
@@ -98,8 +99,8 @@ export default function PostReactionsModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
       <div 
         className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden flex flex-col max-h-[82vh] transition-all"
         onClick={(e) => e.stopPropagation()}
@@ -256,7 +257,8 @@ export default function PostReactionsModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
