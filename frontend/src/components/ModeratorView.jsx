@@ -78,7 +78,7 @@ export default function ModeratorView({
       await reviewImageModeration({ userId: currentUser?.id, contentType: item.type, id: item.id, stage, decision });
       const setItems = stage === 'first' ? setImageReviewItems : setImageAppealItems;
       setItems((previous) => applyImageReviewQueueResult(previous, item, { succeeded: true }));
-      setToast({ type: 'success', message: stage === 'first' ? 'ÄÃ£ duyá»‡t áº£nh thÃ nh cÃ´ng.' : 'ÄÃ£ giáº£i quyáº¿t khiáº¿u náº¡i áº£nh.' });
+      setToast({ type: 'success', message: stage === 'first' ? 'Đã duyệt ảnh thành công.' : 'Đã giải quyết khiếu nại ảnh.' });
     } catch (error) {
       const failure = getImageReviewFailure(error);
       if (failure.removeItem) {
