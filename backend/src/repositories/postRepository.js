@@ -295,7 +295,7 @@ export function createPostRepository({ pool }) {
         throw error;
       }
 
-      return this.findById(result.rows[0].id);
+      return this.findById(result.rows[0].id, authorId);
     },
 
     async deletePost({ postId, authorId }) {
