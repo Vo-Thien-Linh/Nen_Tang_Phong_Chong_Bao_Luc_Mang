@@ -194,8 +194,7 @@ export function createPostRepository({ pool }) {
              p.image_moderation_status IS NULL
              OR p.image_moderation_status IN ('safe', 'sensitive')
              OR (p.author_id = $2
-                 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
-                 AND (p.image_moderation_status <> 'rejected_hold' OR p.moderation_expires_at > CURRENT_TIMESTAMP))
+                 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'))
            )`,
         [cleanId, viewerId]
       );
@@ -229,8 +228,7 @@ export function createPostRepository({ pool }) {
          JOIN users u ON u.id = c.author_id
            WHERE c.post_id = $1 AND (c.is_hidden = false OR c.author_id = $2)
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
-                  OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
-                      AND (c.image_moderation_status <> 'rejected_hold' OR c.moderation_expires_at > CURRENT_TIMESTAMP)))
+                  OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
          ORDER BY c.created_at ASC`,
         [cleanId, viewerId]
       );
@@ -400,8 +398,7 @@ export function createPostRepository({ pool }) {
         params.push(viewerId);
         visibilityWhere = `(p.ai_status = 'approved' OR p.author_id = $1)
           AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')
-               OR (p.author_id = $1 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
-                   AND (p.image_moderation_status <> 'rejected_hold' OR p.moderation_expires_at > CURRENT_TIMESTAMP)))`;
+               OR (p.author_id = $1 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))`;
       }
 
       const result = await pool.query(
@@ -445,8 +442,7 @@ export function createPostRepository({ pool }) {
          JOIN users u ON u.id = c.author_id
            WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
-                  OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')
-                      AND (c.image_moderation_status <> 'rejected_hold' OR c.moderation_expires_at > CURRENT_TIMESTAMP)))
+                  OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
          ORDER BY c.created_at ASC`,
         [postIds, viewerId]
       );

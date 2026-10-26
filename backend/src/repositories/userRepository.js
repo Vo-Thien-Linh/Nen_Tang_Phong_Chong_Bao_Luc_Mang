@@ -71,9 +71,7 @@ export function createUserRepository({ pool }) {
                 OR (p.ai_status = 'approved'
                     AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
               )
-              AND p.image_moderation_status IS DISTINCT FROM 'rejected_final'
-              AND (p.image_moderation_status IS DISTINCT FROM 'rejected_hold'
-                   OR p.moderation_expires_at > CURRENT_TIMESTAMP))::int AS posts_count,
+              AND p.image_moderation_status IS DISTINCT FROM 'rejected_final')::int AS posts_count,
            (SELECT COUNT(*) FROM friendships
             WHERE (requester_id = u.id OR addressee_id = u.id)
               AND status = 'accepted')::int AS friends_count
@@ -190,8 +188,6 @@ export function createUserRepository({ pool }) {
              OR (p.ai_status = 'approved'
                  AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
            )
-           AND (p.image_moderation_status IS DISTINCT FROM 'rejected_hold'
-                OR p.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY p.created_at DESC`,
         [userId, viewerId]
       );
@@ -234,8 +230,6 @@ export function createUserRepository({ pool }) {
              OR c.image_moderation_status IS NULL
              OR c.image_moderation_status IN ('safe', 'sensitive')
            )
-           AND (c.image_moderation_status IS DISTINCT FROM 'rejected_hold'
-                OR c.moderation_expires_at > CURRENT_TIMESTAMP)
          ORDER BY c.created_at ASC`,
         [postIds, viewerId]
       );
