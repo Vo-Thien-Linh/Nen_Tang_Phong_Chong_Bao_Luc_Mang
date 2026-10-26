@@ -14,7 +14,7 @@ for (const [, table, body] of schema.matchAll(/CREATE TABLE IF NOT EXISTS\s+(\w+
   }
   tableColumns.set(table.toLowerCase(), columns);
 }
-for (const migration of ['002_posts_edited_at.sql', '003_add_share_post.sql', '004_add_image_moderation.sql', '005_add_moderation_expiry.sql', '006_image_appeal_review_columns.sql']) {
+for (const migration of ['002_posts_edited_at.sql', '003_add_share_post.sql', '004_add_image_moderation.sql', '005_add_moderation_expiry.sql', '006_image_appeal_review_columns.sql', '007_add_comment_moderation_state.sql']) {
   const sql = readFileSync(fileURLToPath(new URL(`../../database/migrations/${migration}`, import.meta.url)), 'utf8');
   for (const [, table, additions] of sql.matchAll(/ALTER TABLE\s+(\w+)\s+([\s\S]*?);/gi)) {
     const known = tableColumns.get(table.toLowerCase());
@@ -54,8 +54,9 @@ test('edit and delete queries use valid columns', async () => {
   const client = {
     async query(sql) {
       queries.push(sql);
-      if (sql.startsWith('UPDATE')) return { rows: [] };
+      if (sql.startsWith('UPDATE')) return { rows: [{ id: 1 }] };
       if (sql.startsWith('DELETE')) return { rows: [{ id: 1 }] };
+      if (sql.includes('FROM posts p')) return { rows: [{ id: 1, author_id: 'u1', image_moderation_status: null }] };
       return { rows: [] };
     },
     release() {},
@@ -63,6 +64,8 @@ test('edit and delete queries use valid columns', async () => {
   const pool = {
     async query(sql) {
       queries.push(sql);
+      if (sql.startsWith('UPDATE posts')) return { rows: [{ id: 1 }] };
+      if (sql.includes('FROM posts p')) return { rows: [{ id: 1, author_id: 'u1', image_moderation_status: null }] };
       return { rows: [] };
     },
     async connect() { return client; },
@@ -70,7 +73,8 @@ test('edit and delete queries use valid columns', async () => {
   const repository = createPostRepository({ pool });
 
   await repository.findByIdForOwnerAction('1');
-  await assert.rejects(() => repository.updatePost({ postId: '1', authorId: 'u1', content: 'text', imageUrl: null }));
+  const updated = await repository.updatePost({ postId: '1', authorId: 'u1', content: 'text', imageUrl: null });
+  assert.equal(updated.id, 1);
   await repository.deletePost({ postId: '1', authorId: 'u1' });
 
   for (const sql of queries) validateStatement(sql);
