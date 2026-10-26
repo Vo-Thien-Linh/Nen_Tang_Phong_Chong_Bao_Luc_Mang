@@ -129,6 +129,7 @@ export default function OriginalPostModal({
       const feedMatch = allPosts?.find(p => String(p.id) === String(post.id));
       const source = feedMatch || post;
 
+      setPostImageModeration(source.imageModeration || null);
       const initialComments = source.comments || [];
       setComments(initialComments);
       const initialCounts = normalizeReactionCounts(source.reactionCounts || source.counts);
@@ -144,6 +145,7 @@ export default function OriginalPostModal({
           .then((res) => {
             const apiData = res?.data;
             if (apiData) {
+              setPostImageModeration(apiData.imageModeration || null);
               if (Array.isArray(apiData.comments)) {
                 setComments(apiData.comments);
               }
