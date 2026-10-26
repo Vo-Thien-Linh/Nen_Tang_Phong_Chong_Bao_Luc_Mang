@@ -5,6 +5,6 @@ import { getModerationNoticeText } from '../src/utils/moderationNoticeLogic.js';
 
 test('author sees own rejected admin post without overlay but with notice', () => {
   assert.equal(shouldHideContentForViewer({ isAuthor: true, status: 'rejected_admin', isSensitive: true }), false);
-  assert.match(getModerationNoticeText('post', 'rejected_admin'), /không cho phép hiển thị/i);
+  assert.equal(getModerationNoticeText('post', 'rejected_admin'), 'Bài viết của bạn đã vi phạm tiêu chuẩn cộng đồng.');
   assert.equal(canSubmitImageAppeal('rejected_admin'), true);
 });

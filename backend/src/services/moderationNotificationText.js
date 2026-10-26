@@ -1,21 +1,11 @@
-export function moderationRejectionNotification(contentType = 'post') {
-  return contentType === 'comment'
-    ? 'Bình luận của bạn chứa ảnh bị từ chối sau khi quản trị viên xem xét'
-    : 'Bài viết của bạn chứa ảnh bị từ chối sau khi quản trị viên xem xét';
-}
+import {
+  getModerationNoticeText,
+  moderationRejectionNotification,
+} from '../../../shared/moderationNoticeText.js';
+
+export { getModerationNoticeText, moderationRejectionNotification };
 
 const imageReviewTypeName = (contentType) => contentType === 'comment' ? 'Bình luận' : 'Bài viết';
-
-export function getModerationNoticeText(contentType = 'post', status = '') {
-  const type = imageReviewTypeName(contentType);
-  if (status === 'rejected_admin') {
-    return `${type} của bạn vi phạm tiêu chuẩn cộng đồng nên chúng tôi không cho phép hiển thị trên bảng feed.`;
-  }
-  if (status === 'appeal_pending') return 'Khiếu nại của bạn đang được xem xét';
-  if (status === 'pending_review') return 'Đang chờ quản trị viên duyệt';
-  if (status === 'rejected_hold') return moderationRejectionNotification(contentType);
-  return '';
-}
 
 export function imageReviewNotification(contentType = 'post', stage = 'first', decision = 'safe') {
   const type = imageReviewTypeName(contentType);

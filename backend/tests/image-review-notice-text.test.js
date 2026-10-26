@@ -11,7 +11,7 @@ test('rejected admin comment notice uses comment wording', () => {
 });
 
 test('appeal pending notice says the appeal is under review', () => {
-  assert.equal(getModerationNoticeText('post', 'appeal_pending'), 'Khiếu nại của bạn đang được xem xét');
+  assert.equal(getModerationNoticeText('post', 'appeal_pending'), 'Khiếu nại của bạn đang được xem xét.');
 });
 
 test('final violence notification confirms permanent removal using comment wording', () => {
