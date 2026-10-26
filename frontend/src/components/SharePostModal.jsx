@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Share2, Loader2, ImageOff, Link, Copy, Check, MessageCircle, 
   Send, Search, Users, ExternalLink, Sparkles 
@@ -157,9 +158,9 @@ export default function SharePostModal({ post, currentUser, onConfirm, onClose }
            (f.username && f.username.toLowerCase().includes(q));
   });
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
@@ -587,6 +588,7 @@ export default function SharePostModal({ post, currentUser, onConfirm, onClose }
           to   { opacity: 1; transform: scale(1); }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 }
