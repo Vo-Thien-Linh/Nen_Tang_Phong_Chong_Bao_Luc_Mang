@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, ExternalLink, ShieldCheck, CheckCircle2, Share2, 
   MessageCircle, ThumbsUp, Send, Loader2, Bookmark,
@@ -264,9 +265,9 @@ export default function OriginalPostModal({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div 
@@ -700,6 +701,7 @@ export default function OriginalPostModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
