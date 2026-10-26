@@ -222,7 +222,11 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeImageUrl(imageUrl),
-        ...(heldModeration ? { imageModeration: heldModeration } : {}),
+        ...(heldModeration
+          ? { imageModeration: heldModeration }
+          : !normalizeImageUrl(imageUrl)
+            ? { imageModeration: { decision: null, label: null, images: [], thresholds: null } }
+            : {}),
       });
 
       await moderationHook.afterPostEdited(post);
