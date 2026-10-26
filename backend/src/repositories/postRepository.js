@@ -277,9 +277,9 @@ export function createPostRepository({ pool }) {
         [postId, authorId, content, imageUrl,
           imageModeration?.decision || null,
           imageModeration?.label || null,
-          imageModeration?.images?.[0]?.scores?.safe || null,
-          imageModeration?.images?.[0]?.scores?.nsfw || null,
-          imageModeration?.images?.[0]?.scores?.violence || null,
+          imageModeration?.images?.[0]?.scores?.safe ?? null,
+          imageModeration?.images?.[0]?.scores?.nsfw ?? null,
+          imageModeration?.images?.[0]?.scores?.violence ?? null,
           imageModeration?.thresholds || null].slice(0, imageModeration ? 10 : 4)
       );
 
