@@ -23,7 +23,6 @@ test('feed and profile produce the same author state for a rejected admin post',
     label: row.image_moderation_label,
     scores: { safe: 0.1, nsfw: 0.1, violence: 0.9 },
     thresholds: {},
-    moderationExpiresAt: null,
     appealedAt: null,
   }, 'post', row.author_id, 'author-1');
 

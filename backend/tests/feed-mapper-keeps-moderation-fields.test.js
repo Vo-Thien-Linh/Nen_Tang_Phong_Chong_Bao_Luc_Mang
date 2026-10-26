@@ -21,7 +21,8 @@ test('feed mapper keeps moderation fields', () => {
   assert.equal(response.imageModeration.label, 'Violence');
   assert.deepEqual(response.imageModeration.scores, { safe: 0.1, nsfw: 0.2, violence: 0.9 });
   assert.deepEqual(response.imageModeration.thresholds, { violence: 0.8 });
-  assert.equal(response.imageModeration.moderationExpiresAt, '2026-10-27T00:00:00Z');
   assert.equal(response.imageModeration.appealedAt, '2026-10-20T00:00:00Z');
-  assert.equal(typeof response.imageModeration.remainingSeconds, 'number');
+  assert.equal(response.imageModeration.canAppeal, true);
+  assert.equal('moderationExpiresAt' in response.imageModeration, false);
+  assert.equal('remainingSeconds' in response.imageModeration, false);
 });

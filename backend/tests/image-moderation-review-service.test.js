@@ -165,26 +165,10 @@ test('appeal submit uses valid columns for posts and comments', async () => {
   }
 });
 
-test('owner can appeal an unexpired held item', async () => {
-  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_hold', moderation_expires_at: new Date('2026-10-25T00:10:00Z'), content: 'image post' }] });
-  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:05:00Z') });
-  const update = pool.queries.find(({ sql }) => sql.startsWith('UPDATE'));
-  assert.equal(result.data.status, 'appeal_pending');
-  assert.match(update.sql, /moderation_expires_at > \$4/);
-});
-
 test('non owner cannot appeal an image item', async () => {
   const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_admin' }] });
   const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'other-user' });
   assert.equal(result.statusCode, 404);
-  assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
-});
-
-test('appeal after the hold window is rejected', async () => {
-  const pool = mockPool({ rows: [{ id: 4, author_id: 'author', image_moderation_status: 'rejected_hold', moderation_expires_at: new Date('2026-10-25T00:01:00Z') }] });
-  const result = await appealImageModeration({ pool, contentType: 'post', contentId: 4, authorId: 'author', clock: () => new Date('2026-10-25T00:02:00Z') });
-  assert.equal(result.statusCode, 410);
-  assert.equal(result.message, 'Đã hết thời gian kháng cáo');
   assert.equal(pool.queries.some(({ sql }) => sql.startsWith('UPDATE')), false);
 });
 

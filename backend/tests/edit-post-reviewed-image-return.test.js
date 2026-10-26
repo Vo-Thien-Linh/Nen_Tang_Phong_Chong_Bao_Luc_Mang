@@ -23,7 +23,6 @@ test('edited image held for review is returned to its author', async () => {
     imageUrl: 'image.jpg',
     imageModeration: {
       decision: 'rejected_hold',
-      moderationExpiresAt: '2026-10-26T12:00:00.000Z',
       images: [{ scores: { safe: 0.1, nsfw: 0, violence: 0.9 } }],
     },
   });
