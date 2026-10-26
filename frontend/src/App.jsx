@@ -46,6 +46,7 @@ import {
   createAiOverrideApi
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
+import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
   clearPostNotice,
@@ -1736,7 +1737,7 @@ export default function App() {
             setToastNotification(null);
             return;
           }
-          const targetId = toastNotification?.targetPost?.id || toastNotification?.targetPostId;
+          const targetId = getNotificationNavigationTarget(toastNotification);
           if (targetId) {
             handleViewPost(targetId, {
               type: toastNotification.type,

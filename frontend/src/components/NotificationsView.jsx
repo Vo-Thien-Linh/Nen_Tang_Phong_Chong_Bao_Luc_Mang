@@ -4,7 +4,7 @@ import {
   Bell, Heart, MessageCircle, Repeat, ShieldAlert, ShieldCheck, CheckCheck, 
   Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox, Scale, Lock
 } from 'lucide-react';
-import { getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
+import { getNotificationNavigationTarget, getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
 
 export default function NotificationsView({ 
   notifications = [], 
@@ -266,8 +266,8 @@ export default function NotificationsView({
                   key={item.id}
                   onClick={() => {
                     onMarkAsRead(item.id);
-                    const targetPostId = item.targetPost?.id || item.targetPostId;
-                    if (!snapshotPreview.isRemoval && targetPostId && onViewPost) {
+                    const targetPostId = getNotificationNavigationTarget(item);
+                    if (targetPostId && onViewPost) {
                       onViewPost(targetPostId, {
                         type: item.type,
                         actor,

@@ -11,3 +11,8 @@ export function getNotificationSnapshotPreview(notification) {
     contentType: snapshot.contentType || null,
   };
 }
+
+export function getNotificationNavigationTarget(notification) {
+  if (getNotificationSnapshotPreview(notification).isRemoval) return null;
+  return notification?.targetPost?.id || notification?.targetPostId || null;
+}
