@@ -19,7 +19,7 @@ import { DEFAULT_AVATAR } from '../constants/defaults';
 import { computeMeasuredPopoverPlacement } from '../utils/popoverLogic';
 import { canDeletePost, canEditPost, canReportPost } from '../utils/postActionLogic';
 import { getModerationNoticeText, moderationViolationNotice } from '../utils/moderationNoticeLogic';
-import { canSubmitImageAppeal } from '../utils/imageModerationReviewLogic';
+import { canSubmitImageAppeal, shouldShowPostAiLabel } from '../utils/imageModerationReviewLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
 import DeletePostModal from './DeletePostModal';
@@ -210,7 +210,7 @@ export default function PostCard({
     setAppealError('');
     try {
       const result = await appealPostModeration({ userId: currentUser?.id, postId: post.id });
-      onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', appealedAt: result.data?.appealedAt || new Date().toISOString(), moderationExpiresAt: null, remainingSeconds: null } });
+      onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', noticeText: getModerationNoticeText('post', 'appeal_pending'), appealedAt: result.data?.appealedAt || new Date().toISOString(), moderationExpiresAt: null, remainingSeconds: null } });
     } catch (error) {
       setAppealError(error.message || 'Không thể gửi khiếu nại.');
     } finally {
@@ -232,6 +232,7 @@ export default function PostCard({
           ...comment.imageModeration,
           status: 'appeal_pending',
           noticeType: 'appeal_pending',
+          noticeText: getModerationNoticeText('comment', 'appeal_pending'),
           appealedAt: result.data?.appealedAt || new Date().toISOString(),
           moderationExpiresAt: null,
           remainingSeconds: null,
@@ -786,7 +787,7 @@ export default function PostCard({
 
         <div className="flex items-center gap-2">
           {/* Nhãn AI Moderation */}
-          {post.aiStatus && (
+          {shouldShowPostAiLabel(post) && (
             <span 
               title={`Hệ thống AI phân loại: ${post.aiStatus.label} (${(post.aiStatus.confidence * 100).toFixed(0)}%)`}
               className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 ${getAiBadgeColor(post.aiStatus.label)}`}

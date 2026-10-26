@@ -598,6 +598,28 @@ export default function ProfileView({
     onAddPost && onAddPost(result?.data);
   };
 
+  const handleProfilePostUpdate = (postId, changes) => {
+    setProfilePosts((previous) => {
+      const source = previous || userPosts;
+      return source.flatMap((post) => {
+        if (String(post.id) !== String(postId)) return [post];
+        if (changes?.imageModeration) {
+          return changes.imageModeration.status === 'rejected_final'
+            ? []
+            : [{ ...post, imageModeration: changes.imageModeration }];
+        }
+        const { id: commentId, ...commentChanges } = changes.commentModeration;
+        return [{
+          ...post,
+          comments: (post.comments || []).map((comment) => String(comment.id) === String(commentId)
+            ? { ...comment, ...commentChanges }
+            : comment),
+        }];
+      });
+    });
+    onEditPost?.(postId, changes);
+  };
+
   return (
     <div className="bg-slate-100 min-h-screen pb-16">
 
@@ -1237,6 +1259,7 @@ export default function ProfileView({
                         onRequireLogin={onRequireAuth}
                         onOpenProfile={onOpenUserProfile}
                         onEditPost={onEditPost}
+                        onUpdatePost={handleProfilePostUpdate}
                         onDeletePost={onDeletePost}
                         onSharePost={onSharePost}
                         allPosts={posts}

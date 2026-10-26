@@ -9,6 +9,11 @@ export function getImageReviewNotice(status, contentType = 'post', canAppeal = f
   };
 }
 
+export function shouldShowPostAiLabel(post) {
+  return Boolean(post?.aiStatus)
+    && !['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(post.imageModeration?.status);
+}
+
 export function canSubmitImageAppeal(status, isSubmitting = false) {
   return !isSubmitting && ['rejected_admin', 'rejected_hold'].includes(status);
 }
