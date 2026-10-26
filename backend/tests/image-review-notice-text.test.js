@@ -17,5 +17,5 @@ test('appeal pending notice says the appeal is under review', () => {
 test('final violence notification confirms permanent removal using comment wording', () => {
   const message = imageReviewNotification('comment', 'final', 'violence');
   assert.match(message, /^Sau khi xem xét lại, bình luận của bạn/);
-  assert.match(message, /đã bị ẩn hoàn toàn\.$/);
+  assert.match(message, /đã bị xóa\.$/);
 });
