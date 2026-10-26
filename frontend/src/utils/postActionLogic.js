@@ -21,7 +21,10 @@ export function cancelEditPost(originalPost) {
 export function applyUpdatedPostToList(posts, updatedPost) {
   if (!Array.isArray(posts) || !updatedPost) return posts;
   return posts.map((post) => {
-    if (String(post.id) !== String(updatedPost.id)) return post;
+    if (String(post.id) !== String(updatedPost.id)) {
+      if (String(post.originalPost?.id) !== String(updatedPost.id)) return post;
+      return { ...post, originalPost: { ...post.originalPost, ...updatedPost } };
+    }
 
     return {
       ...post,
