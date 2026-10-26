@@ -49,6 +49,38 @@ export default function AuthModal({
   const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
   const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
 
+  // Trạng thái kết nối máy chủ Backend AI
+  const [isBackendReady, setIsBackendReady] = useState(true);
+  const [isCheckingBackend, setIsCheckingBackend] = useState(false);
+
+  // Kiểm tra sức khỏe Backend FastAPI khi mở Modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isMounted = true;
+    let timer = null;
+
+    const checkServerStatus = async () => {
+      setIsCheckingBackend(true);
+      const ready = await authService.checkHealth();
+      if (isMounted) {
+        setIsBackendReady(ready);
+        setIsCheckingBackend(false);
+        if (!ready) {
+          timer = setTimeout(checkServerStatus, 2500);
+        }
+      }
+    };
+
+    checkServerStatus();
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isOpen]);
+
+
   // Common Feedback & Timer States
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -347,7 +379,17 @@ export default function AuthModal({
               className="w-11 h-11 rounded-full object-cover ring-2 ring-white/30 shadow-sm"
             />
             <div>
-              <h2 className="text-xl font-black tracking-tight">WINGS</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-black tracking-tight">WINGS</h2>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                  isBackendReady 
+                    ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30' 
+                    : 'bg-amber-500/20 text-amber-200 border-amber-400/30 animate-pulse'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isBackendReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  {isBackendReady ? 'AI & CSDL Sẵn sàng' : 'AI: Đang nạp...'}
+                </span>
+              </div>
               <p className="text-xs text-blue-100 font-medium">social network • Nền tảng kết nối văn minh</p>
             </div>
           </div>

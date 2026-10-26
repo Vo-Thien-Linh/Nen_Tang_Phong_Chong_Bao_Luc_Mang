@@ -8,6 +8,20 @@ const STORAGE_KEYS = {
 };
 
 export const authService = {
+  // Kiểm tra trạng thái máy chủ FastAPI đã sẵn sàng chưa
+  checkHealth: async () => {
+    try {
+      const fastApiRoot = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(`${fastApiRoot}/api/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
   // Lấy danh sách tài khoản đã từng đăng nhập trên trình duyệt này
   getSavedAccounts: () => {
     try {
@@ -125,7 +139,7 @@ export const authService = {
   },
 
   // ĐĂNG NHẬP (Hỗ trợ cả Email HOẶC Số điện thoại)
-  login: async (identifier, password) => {
+  login: async (identifier, password, retryCount = 1) => {
     if (!identifier || !identifier.trim() || !password || !password.trim()) {
       throw new Error("Vui lòng nhập đầy đủ thông tin");
     }
@@ -174,7 +188,12 @@ export const authService = {
     } catch (err) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000). Vui lòng đảm bảo backend FastAPI đang chạy.");
+        if (retryCount > 0) {
+          // Backend có thể đang nạp AI/CSDL, tự động chờ 1.5s và thử lại
+          await new Promise(res => setTimeout(res, 1500));
+          return authService.login(identifier, password, retryCount - 1);
+        }
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }
@@ -245,7 +264,7 @@ export const authService = {
     } catch (err) {
       clearTimeout(regTimeoutId);
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000). Vui lòng đảm bảo backend FastAPI đang chạy.");
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }
@@ -273,7 +292,7 @@ export const authService = {
       return data;
     } catch (err) {
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }
@@ -298,7 +317,7 @@ export const authService = {
       return data;
     } catch (err) {
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }
@@ -323,7 +342,7 @@ export const authService = {
       return data;
     } catch (err) {
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }
@@ -354,7 +373,7 @@ export const authService = {
       return data;
     } catch (err) {
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }
@@ -396,7 +415,7 @@ export const authService = {
       return data;
     } catch (err) {
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error("Không thể kết nối đến máy chủ Backend (http://localhost:8000).");
+        throw new Error("⏳ Máy chủ Backend đang trong quá trình nạp mô hình AI & CSDL. Vui lòng chờ 5 - 10 giây rồi thử lại.");
       }
       throw err;
     }

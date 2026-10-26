@@ -277,7 +277,7 @@ export const initialNotifications = [
     id: "notif-4",
     type: "system",
     user: {
-      name: "AI Shield Moderator",
+      name: "Thông báo hệ thống",
       avatar: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80"
     },
     content: "Báo cáo an toàn: Hệ thống vừa tự động chặn 1 bình luận vi phạm chính sách nội dung độc hại.",

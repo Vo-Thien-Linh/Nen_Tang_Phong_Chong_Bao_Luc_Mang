@@ -1,4 +1,4 @@
-import { Bell, Heart, MessageCircle, Repeat, ShieldAlert, X } from 'lucide-react';
+import { Bell, Heart, MessageCircle, Repeat, ShieldAlert, ShieldCheck, X } from 'lucide-react';
 import { getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
 
 export default function NotificationToast({ notification, onClose, onClick }) {
@@ -12,6 +12,8 @@ export default function NotificationToast({ notification, onClose, onClick }) {
         return <MessageCircle className="w-3.5 h-3.5 fill-blue-500 text-blue-500" />;
       case 'share':
         return <Repeat className="w-3.5 h-3.5 text-emerald-500" />;
+      case 'report_receipt':
+        return <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />;
       case 'system':
       case 'ai_moderation':
       case 'moderation_alert':
@@ -22,7 +24,7 @@ export default function NotificationToast({ notification, onClose, onClick }) {
   };
 
   const actor = notification.user || {
-    name: 'Nexus Shield',
+    name: 'Thông báo hệ thống',
     avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
   };
   const snapshotPreview = getNotificationSnapshotPreview(notification);
