@@ -160,7 +160,7 @@ export function createUserRepository({ pool }) {
         `SELECT
            p.id, p.author_id, p.content, p.image_url, p.privacy,
            p.ai_label, p.ai_confidence, p.ai_status,
-           p.image_moderation_status, p.image_moderation_safe, p.image_moderation_nsfw,
+           p.image_moderation_status, p.image_moderation_label, p.image_moderation_safe, p.image_moderation_nsfw,
            p.image_moderation_violence, p.image_moderation_thresholds,
            p.image_moderation_appealed_at, p.moderation_expires_at,
            p.likes_count, p.comments_count, p.shares_count,
@@ -221,7 +221,7 @@ export function createUserRepository({ pool }) {
 
       // Lấy comments
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status,
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
                 c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
                 c.image_moderation_thresholds, c.image_moderation_appealed_at, c.moderation_expires_at, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
@@ -277,6 +277,7 @@ export function createUserRepository({ pool }) {
             image: c.image_url || null,
             imageModeration: c.image_moderation_status ? {
               status: c.image_moderation_status,
+              label: c.image_moderation_label || null,
               scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
               thresholds: c.image_moderation_thresholds || null,
               moderationExpiresAt: c.moderation_expires_at || null,
@@ -299,6 +300,7 @@ export function createUserRepository({ pool }) {
           comments: commentsByPost.get(pid) || [],
           imageModeration: post.image_moderation_status ? {
             status: post.image_moderation_status,
+            label: post.image_moderation_label || null,
             scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
             thresholds: post.image_moderation_thresholds || null,
             moderationExpiresAt: post.moderation_expires_at || null,

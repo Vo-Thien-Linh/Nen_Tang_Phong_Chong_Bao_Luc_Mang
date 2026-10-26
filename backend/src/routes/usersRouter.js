@@ -2,24 +2,7 @@ import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
 import { VALID_ROLES, normalizeRole } from '../utils/rbac.js';
-import { getModerationNoticeText } from '../services/moderationNotificationText.js';
-
-function formatImageModerationForViewer(imageModeration, contentType, authorId, viewerId) {
-  if (!imageModeration) return null;
-  const isReviewOnlyStatus = ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(imageModeration.status);
-  const ownerCanSeeReview = String(authorId) === String(viewerId)
-    && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(imageModeration.status);
-  if (isReviewOnlyStatus && !ownerCanSeeReview) return null;
-  if (!ownerCanSeeReview) return imageModeration;
-  return {
-    ...imageModeration,
-    noticeText: getModerationNoticeText(contentType, imageModeration.status),
-    noticeType: imageModeration.status,
-    canAppeal: ['rejected_admin', 'rejected_hold'].includes(imageModeration.status)
-      && (imageModeration.status !== 'rejected_hold' || new Date(imageModeration.moderationExpiresAt) > new Date()),
-    appealedAt: imageModeration.appealedAt || null,
-  };
-}
+import { formatImageModerationForViewer } from '../services/imageModerationResponse.js';
 
 /**
  * Chuyển đổi dữ liệu user từ DB sang format chuẩn cho Frontend

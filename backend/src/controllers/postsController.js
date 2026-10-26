@@ -1,7 +1,7 @@
 import { realtimeService } from '../services/realtimeService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
-import { getModerationNoticeText } from '../services/moderationNotificationText.js';
+import { formatImageModerationForViewer } from '../services/imageModerationResponse.js';
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -36,27 +36,19 @@ function formatRelativeTime(createdAt) {
 }
 
 export function mapPostToResponse(post, viewerId = null) {
-  const postOwnStatus = ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(post.image_moderation_status);
-  const exposePostReview = postOwnStatus && String(post.author_id) === String(viewerId);
-  const exposePostImageModeration = ['safe', 'sensitive'].includes(post.image_moderation_status) || exposePostReview;
+  const imageModeration = formatImageModerationForViewer(post.image_moderation_status ? {
+    status: post.image_moderation_status,
+    moderationExpiresAt: post.moderation_expires_at || null,
+    label: post.image_moderation_label || null,
+    scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
+    thresholds: post.image_moderation_thresholds || null,
+    appealedAt: post.image_moderation_appealed_at || null,
+  } : null, 'post', post.author_id, viewerId);
   return {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
-    imageModeration: post.image_moderation_status && exposePostImageModeration ? {
-      status: post.image_moderation_status,
-      moderationExpiresAt: post.moderation_expires_at || null,
-      remainingSeconds: post.moderation_expires_at ? Math.max(0, Math.ceil((new Date(post.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
-      label: post.image_moderation_label,
-      scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
-      ...(exposePostReview ? {
-        noticeText: getModerationNoticeText('post', post.image_moderation_status),
-        noticeType: post.image_moderation_status,
-        canAppeal: ['rejected_admin', 'rejected_hold'].includes(post.image_moderation_status)
-          && (post.image_moderation_status !== 'rejected_hold' || new Date(post.moderation_expires_at) > new Date()),
-        appealedAt: post.image_moderation_appealed_at || null,
-      } : {}),
-    } : null,
+    imageModeration,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
     editedAt: post.edited_at || null,
@@ -92,17 +84,13 @@ export function mapPostToResponse(post, viewerId = null) {
       },
       content: c.content,
       image: c.image || c.image_url || null,
-      imageModeration: c.imageModeration && (['safe', 'sensitive'].includes(c.imageModeration.status)
-        || (String(c.author?.id) === String(viewerId) && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(c.imageModeration.status))) ? {
-        ...c.imageModeration,
-        ...(String(c.author?.id) === String(viewerId) && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(c.imageModeration.status) ? {
-          noticeText: getModerationNoticeText('comment', c.imageModeration.status),
-          noticeType: c.imageModeration.status,
-          canAppeal: ['rejected_admin', 'rejected_hold'].includes(c.imageModeration.status)
-            && (c.imageModeration.status !== 'rejected_hold' || new Date(c.imageModeration.moderationExpiresAt) > new Date()),
-          appealedAt: c.imageModeration.appealedAt || null,
-        } : {}),
-      } : null,
+      imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
+        status: c.image_moderation_status,
+        scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+        thresholds: c.image_moderation_thresholds || null,
+        moderationExpiresAt: c.moderation_expires_at || null,
+        appealedAt: c.image_moderation_appealed_at || null,
+      } : null), 'comment', c.author?.id ?? c.author_id, viewerId),
       image_label: c.image_label || c.imageLabel || null,
       imageLabel: c.image_label || c.imageLabel || null,
       is_hidden: Boolean(c.is_hidden || c.isHidden),
@@ -256,7 +244,7 @@ export function createPostsController({ postService, postRepository, imageModera
         const posts = await postService.listVisiblePosts({ user: req.user });
         res.json({
           success: true,
-          data: posts.map(mapPostToResponse),
+          data: posts.map((post) => mapPostToResponse(post, req.user?.id)),
         });
       } catch (error) {
         next(error);
