@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Image as ImageIcon, Save } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
@@ -7,16 +7,19 @@ import { validateImageFile } from '../utils/imageLogic';
 
 export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [content, setContent] = useState(post?.content || '');
-  const [imageUrl, setImageUrl] = useState(post?.image || '');
+  const [imageUrl, setImageUrl] = useState(post?.image || post?.image_url || '');
   const [imagePreview, setImagePreview] = useState('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const imageUploadIdRef = useRef(0);
 
   if (!isOpen || !post) return null;
 
   const handleImageChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    event.target.value = '';
 
     const validation = validateImageFile(file);
     if (!validation.valid) {
@@ -26,13 +29,18 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     }
 
     setErrorMessage('');
+    const uploadId = ++imageUploadIdRef.current;
+    setIsUploadingImage(true);
     setImagePreview(URL.createObjectURL(file));
     try {
       const uploadedUrl = await uploadPostImage(file);
-      setImageUrl(uploadedUrl);
+      if (uploadId === imageUploadIdRef.current) setImageUrl(uploadedUrl);
     } catch (error) {
+      if (uploadId !== imageUploadIdRef.current) return;
       setImagePreview('');
       setErrorMessage(error.message || 'Tải ảnh thất bại');
+    } finally {
+      if (uploadId === imageUploadIdRef.current) setIsUploadingImage(false);
     }
   };
 
@@ -40,6 +48,10 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     event.preventDefault();
     if (!content.trim()) {
       setErrorMessage('Nội dung không được để trống');
+      return;
+    }
+    if (isUploadingImage) {
+      setErrorMessage('Vui lòng chờ ảnh tải lên xong trước khi lưu');
       return;
     }
 
@@ -95,6 +107,8 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
             src={imagePreview || imageUrl}
             alt="Ảnh đính kèm bài viết"
             onRemove={() => {
+              imageUploadIdRef.current += 1;
+              setIsUploadingImage(false);
               setImageUrl('');
               setImagePreview('');
             }}
@@ -113,7 +127,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
           </button>
           <button
             type="submit"
-            disabled={isSaving}
+            disabled={isSaving || isUploadingImage}
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
