@@ -1435,7 +1435,7 @@ export default function App() {
         {activeTab === 'post' && viewedPostDetail && (
           <PostDetailView
             postId={viewedPostDetail.postId}
-            post={viewedPostDetail.post}
+            post={posts.find((item) => String(item.id) === String(viewedPostDetail.postId)) || viewedPostDetail.post}
             meta={viewedPostDetail.meta}
             currentUser={currentUser}
             onBack={() => {
