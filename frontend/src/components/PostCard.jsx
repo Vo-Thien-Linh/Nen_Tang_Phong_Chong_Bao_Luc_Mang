@@ -945,7 +945,7 @@ export default function PostCard({
                 <button type="button" disabled={appealSubmitting} onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">Khiếu nại</button>
               </div>
             )}
-            {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (
+            {post.moderationStatus && post.moderationStatus !== 'approved' && !postImageStatus && post.author?.id === currentUser?.id && (
               <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                 Trạng thái: {post.moderationStatus}
               </span>
