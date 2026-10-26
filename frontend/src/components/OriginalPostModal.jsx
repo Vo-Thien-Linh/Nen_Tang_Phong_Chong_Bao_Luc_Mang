@@ -70,8 +70,6 @@ export default function OriginalPostModal({
         noticeType: 'appeal_pending',
         noticeText: getModerationNoticeText('post', 'appeal_pending'),
         appealedAt: result.data?.appealedAt || new Date().toISOString(),
-        moderationExpiresAt: null,
-        remainingSeconds: null,
       };
       setPostImageModeration(imageModeration);
       onUpdatePost?.(post.id, { imageModeration });
@@ -91,7 +89,7 @@ export default function OriginalPostModal({
     setCommentAppealError('');
     try {
       const result = await appealCommentModeration({ userId: currentUser?.id, postId: post.id, commentId: comment.id });
-      const imageModeration = { ...comment.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', noticeText: getModerationNoticeText('comment', 'appeal_pending'), appealedAt: result.data?.appealedAt || new Date().toISOString(), moderationExpiresAt: null, remainingSeconds: null };
+      const imageModeration = { ...comment.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', noticeText: getModerationNoticeText('comment', 'appeal_pending'), appealedAt: result.data?.appealedAt || new Date().toISOString() };
       setComments((previous) => previous.map((entry) => String(entry.id) === id ? { ...entry, imageModeration } : entry));
       onUpdatePost?.(post.id, { commentModeration: { id, imageModeration } });
     } catch (error) {

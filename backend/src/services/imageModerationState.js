@@ -7,7 +7,7 @@ function decisionStatus(decision, rejectedStatus) {
   return null;
 }
 
-export function transitionImageModeration({ status, action, decision, appealedAt = null, expiresAt = null, now = new Date() }) {
+export function transitionImageModeration({ status, action, decision, appealedAt = null }) {
   if (action === 'first_review') {
     if (status !== 'pending_review') return { ok: false, statusCode: 409, reason: 'handled' };
     const nextStatus = decisionStatus(decision, 'rejected_admin');
@@ -25,9 +25,6 @@ export function transitionImageModeration({ status, action, decision, appealedAt
 
   if (action === 'appeal') {
     if (appealedAt) return { ok: false, statusCode: 409, reason: 'already_appealed' };
-    if (status === 'rejected_hold' && (!expiresAt || new Date(expiresAt) <= new Date(now))) {
-      return { ok: false, statusCode: 410, reason: 'expired' };
-    }
     if (!['rejected_admin', 'rejected_hold'].includes(status)) {
       return { ok: false, statusCode: 409, reason: 'not_appealable' };
     }

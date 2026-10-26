@@ -11,7 +11,6 @@ const postSelect = `
     p.image_moderation_violence,
     p.image_moderation_thresholds,
     p.image_moderation_appealed_at,
-    p.moderation_expires_at,
     p.privacy,
     p.ai_label,
     p.ai_confidence,
@@ -98,7 +97,6 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
           status: c.image_moderation_status,
           scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
           thresholds: c.image_moderation_thresholds,
-          moderationExpiresAt: c.moderation_expires_at || null,
           appealedAt: c.image_moderation_appealed_at || null,
         } : null,
         created_at: c.created_at,
@@ -143,9 +141,9 @@ export function createPostRepository({ pool }) {
       const result = await pool.query(
         `INSERT INTO posts (author_id, content, image_url, privacy, image_moderation_status,
                             image_moderation_label, image_moderation_safe, image_moderation_nsfw,
-                            image_moderation_violence, image_moderation_thresholds, moderation_expires_at,
+                            image_moderation_violence, image_moderation_thresholds,
                             ai_label, ai_confidence, ai_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING id`,
         [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
           imgLabel,
@@ -153,7 +151,6 @@ export function createPostRepository({ pool }) {
           nsfwScore,
           violenceScore,
           imageModeration?.thresholds || null,
-          imageModeration?.moderationExpiresAt || null,
           aiLabel, aiConfidence, aiStatus]
       );
 
@@ -175,7 +172,6 @@ export function createPostRepository({ pool }) {
         image_moderation_nsfw: imageModeration?.images?.[0]?.scores?.nsfw || null,
         image_moderation_violence: imageModeration?.images?.[0]?.scores?.violence || null,
         image_moderation_thresholds: imageModeration?.thresholds || null,
-        moderation_expires_at: imageModeration?.moderationExpiresAt || null,
         likes_count: 0,
         comments_count: 0,
         shares_count: 0,
@@ -221,7 +217,7 @@ export function createPostRepository({ pool }) {
       const commentResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
-                c.image_moderation_violence, c.image_moderation_thresholds, c.image_moderation_appealed_at, c.moderation_expires_at, c.created_at,
+                c.image_moderation_violence, c.image_moderation_thresholds, c.image_moderation_appealed_at, c.created_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
@@ -270,8 +266,7 @@ export function createPostRepository({ pool }) {
          image_moderation_safe = $6,
          image_moderation_nsfw = $7,
          image_moderation_violence = $8,
-         image_moderation_thresholds = $9,
-         moderation_expires_at = $10` : '';
+         image_moderation_thresholds = $9` : '';
       const result = await pool.query(
         `UPDATE posts
          SET content = $3, image_url = $4${moderationFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -283,8 +278,7 @@ export function createPostRepository({ pool }) {
           imageModeration?.images?.[0]?.scores?.safe || null,
           imageModeration?.images?.[0]?.scores?.nsfw || null,
           imageModeration?.images?.[0]?.scores?.violence || null,
-          imageModeration?.thresholds || null,
-          imageModeration?.moderationExpiresAt || null].slice(0, imageModeration ? 10 : 4)
+          imageModeration?.thresholds || null].slice(0, imageModeration ? 9 : 4)
       );
 
       if (!result.rows[0]) {
@@ -335,9 +329,9 @@ export function createPostRepository({ pool }) {
       const res = await pool.query(
         `INSERT INTO comments (post_id, author_id, content, image_url, image_label,
                               image_moderation_status, image_moderation_safe, image_moderation_nsfw,
-                              image_moderation_violence, image_moderation_thresholds, moderation_expires_at,
+                              image_moderation_violence, image_moderation_thresholds,
                               ai_label, ai_confidence, is_hidden, is_soft_hidden, ai_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING id, post_id, author_id, content, image_url, image_label,
                    image_moderation_status, image_moderation_safe, image_moderation_nsfw,
                    image_moderation_violence, image_moderation_thresholds,
@@ -346,7 +340,7 @@ export function createPostRepository({ pool }) {
           safeScore,
           nsfwScore,
           violenceScore,
-          imageModeration?.thresholds || null, imageModeration?.moderationExpiresAt || null,
+          imageModeration?.thresholds || null,
           aiLabel, aiConfidence, Boolean(isHidden), Boolean(isSoftHidden), aiStatus]
       );
 
@@ -357,7 +351,7 @@ export function createPostRepository({ pool }) {
       const detail = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
-                c.image_moderation_violence, c.image_moderation_thresholds, c.moderation_expires_at, c.created_at,
+                c.image_moderation_violence, c.image_moderation_thresholds, c.created_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
@@ -435,7 +429,7 @@ export function createPostRepository({ pool }) {
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds,
-                c.image_moderation_appealed_at, c.moderation_expires_at,
+                c.image_moderation_appealed_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c

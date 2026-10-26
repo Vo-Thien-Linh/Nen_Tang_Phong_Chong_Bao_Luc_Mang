@@ -38,7 +38,6 @@ function formatRelativeTime(createdAt) {
 export function mapPostToResponse(post, viewerId = null) {
   const imageModeration = formatImageModerationForViewer(post.image_moderation_status ? {
     status: post.image_moderation_status,
-    moderationExpiresAt: post.moderation_expires_at || null,
     label: post.image_moderation_label || null,
     scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
     thresholds: post.image_moderation_thresholds || null,
@@ -88,7 +87,6 @@ export function mapPostToResponse(post, viewerId = null) {
         status: c.image_moderation_status,
         scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
         thresholds: c.image_moderation_thresholds || null,
-        moderationExpiresAt: c.moderation_expires_at || null,
         appealedAt: c.image_moderation_appealed_at || null,
       } : null), 'comment', c.author?.id ?? c.author_id, viewerId),
       image_label: c.image_label || c.imageLabel || null,
@@ -289,7 +287,7 @@ export function createPostsController({ postService, postRepository, imageModera
           ? await imageModerationClient(imageUrl)
           : null;
         const heldModeration = imageModeration?.decision === 'rejected'
-          ? { ...imageModeration, decision: 'rejected_hold', moderationExpiresAt: new Date(Date.now() + Number(imageModeration.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
+          ? { ...imageModeration, decision: 'rejected_hold' }
           : imageModeration;
 
         // Kết hợp hài hoà kiểm duyệt ngôn từ và hình ảnh (NSFW -> Toxic, Violence -> Violence)
@@ -408,11 +406,8 @@ export function createPostsController({ postService, postRepository, imageModera
             status: comment.image_moderation_status,
             noticeText: getModerationNoticeText('comment', comment.image_moderation_status),
             noticeType: comment.image_moderation_status,
-            canAppeal: ['rejected_admin', 'rejected_hold'].includes(comment.image_moderation_status)
-              && (comment.image_moderation_status !== 'rejected_hold' || new Date(comment.moderation_expires_at) > new Date()),
+            canAppeal: ['rejected_admin', 'rejected_hold'].includes(comment.image_moderation_status),
             appealedAt: comment.image_moderation_appealed_at || null,
-            moderationExpiresAt: comment.moderation_expires_at || null,
-            remainingSeconds: comment.moderation_expires_at ? Math.max(0, Math.ceil((new Date(comment.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
             scores: { safe: comment.image_moderation_safe, nsfw: comment.image_moderation_nsfw, violence: comment.image_moderation_violence },
           } : null,
           time: 'Vừa xong',

@@ -159,7 +159,6 @@ export default function PostCard({
   const [unblurredPosts, setUnblurredPosts] = useState({});
   const [revealedComments, setRevealedComments] = useState({});
   const [revealedSensitivePost, setRevealedSensitivePost] = useState(false);
-  const [holdRemaining, setHoldRemaining] = useState(post.imageModeration?.remainingSeconds ?? null);
   const [appealSubmitting, setAppealSubmitting] = useState(false);
   const [appealError, setAppealError] = useState('');
   const appealLockRef = useRef(false);
@@ -198,11 +197,6 @@ export default function PostCard({
   const commentFileInputRef = useRef(null);
   const commentSubmitLockRef = useRef(false);
   const [commentNudgeData, setCommentNudgeData] = useState(null);
-  useEffect(() => {
-    if (post.imageModeration?.status !== 'rejected_hold' || holdRemaining == null) return undefined;
-    const timer = setInterval(() => setHoldRemaining((value) => Math.max(0, value - 1)), 1000);
-    return () => clearInterval(timer);
-  }, [post.imageModeration?.status, holdRemaining]);
   const handleModerationAppeal = async () => {
     if (appealLockRef.current || !canSubmitImageAppeal(post.imageModeration?.status, appealSubmitting)) return;
     appealLockRef.current = true;
@@ -210,7 +204,7 @@ export default function PostCard({
     setAppealError('');
     try {
       const result = await appealPostModeration({ userId: currentUser?.id, postId: post.id });
-      onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', noticeText: getModerationNoticeText('post', 'appeal_pending'), appealedAt: result.data?.appealedAt || new Date().toISOString(), moderationExpiresAt: null, remainingSeconds: null } });
+      onUpdatePost?.(post.id, { imageModeration: { ...post.imageModeration, status: 'appeal_pending', noticeType: 'appeal_pending', noticeText: getModerationNoticeText('post', 'appeal_pending'), appealedAt: result.data?.appealedAt || new Date().toISOString() } });
     } catch (error) {
       setAppealError(error.message || 'Không thể gửi khiếu nại.');
     } finally {
@@ -234,8 +228,6 @@ export default function PostCard({
           noticeType: 'appeal_pending',
           noticeText: getModerationNoticeText('comment', 'appeal_pending'),
           appealedAt: result.data?.appealedAt || new Date().toISOString(),
-          moderationExpiresAt: null,
-          remainingSeconds: null,
         },
       } });
     } catch (error) {
@@ -683,7 +675,6 @@ export default function PostCard({
   const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
   if (post.imageModeration?.status === 'rejected_final') return null;
-  if (post.imageModeration?.status === 'rejected_hold' && holdRemaining === 0) return null;
 
   // Nếu bài viết bị ẩn cứng (Hate Speech hoặc Bạo lực)
   const isAuthor = Boolean(currentUser && (currentUser.id === post.author_id || currentUser.id === post.author?.id));
@@ -950,8 +941,8 @@ export default function PostCard({
             )}
             {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
               <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
-                  <span>{moderationViolationNotice('post')}. Sẽ bị xóa sau {String(Math.floor((holdRemaining || 0) / 60)).padStart(2, '0')}:{String((holdRemaining || 0) % 60).padStart(2, '0')} nếu không kháng cáo</span>
-                <button type="button" onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white">Kháng cáo</button>
+                <span>{post.imageModeration.noticeText || moderationViolationNotice('post')}</span>
+                <button type="button" disabled={appealSubmitting} onClick={handleModerationAppeal} className="ml-3 rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">Khiếu nại</button>
               </div>
             )}
             {post.moderationStatus && post.moderationStatus !== 'approved' && post.author?.id === currentUser?.id && (

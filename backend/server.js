@@ -452,8 +452,7 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                 await pool.query(
                   `UPDATE posts 
                    SET ai_label = 'Normal', ai_status = 'approved',
-                       image_moderation_status = 'approved', image_moderation_label = 'safe',
-                       moderation_expires_at = NULL 
+                       image_moderation_status = 'approved', image_moderation_label = 'safe'
                    WHERE id = $1`,
                   [dbRep.target_id]
                 );
@@ -461,8 +460,7 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                 await pool.query(
                   `UPDATE comments 
                    SET ai_label = 'Normal', is_hidden = FALSE,
-                       image_moderation_status = 'approved', image_moderation_label = 'safe',
-                       moderation_expires_at = NULL 
+                       image_moderation_status = 'approved', image_moderation_label = 'safe'
                    WHERE id = $1`,
                   [dbRep.target_id]
                 );
@@ -834,8 +832,7 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
             await client.query(
               `UPDATE posts 
                SET ai_status = 'approved', ai_label = 'Normal',
-                   image_moderation_status = 'approved', image_moderation_label = 'safe',
-                   moderation_expires_at = NULL 
+                   image_moderation_status = 'approved', image_moderation_label = 'safe'
                WHERE id = $1`,
               [updatedRow.content_id]
             );
@@ -843,8 +840,7 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
             await client.query(
               `UPDATE comments 
                SET is_hidden = FALSE, ai_label = 'Normal',
-                   image_moderation_status = 'approved', image_moderation_label = 'safe',
-                   moderation_expires_at = NULL 
+                   image_moderation_status = 'approved', image_moderation_label = 'safe'
                WHERE id = $1`,
               [updatedRow.content_id]
             );
@@ -1081,8 +1077,7 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), async (req, r
             `UPDATE posts 
              SET ai_label = $1, ai_status = $2,
                  image_moderation_status = CASE WHEN $1 = 'Normal' THEN 'approved' ELSE image_moderation_status END,
-                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END,
-                 moderation_expires_at = CASE WHEN $1 = 'Normal' THEN NULL ELSE moderation_expires_at END
+                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END
              WHERE id = $3 RETURNING author_id`,
             [correctedLabel, newStatus, numContentId]
           );
@@ -1093,8 +1088,7 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), async (req, r
             `UPDATE comments 
              SET ai_label = $1, is_hidden = $2,
                  image_moderation_status = CASE WHEN $1 = 'Normal' THEN 'approved' ELSE image_moderation_status END,
-                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END,
-                 moderation_expires_at = CASE WHEN $1 = 'Normal' THEN NULL ELSE moderation_expires_at END
+                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END
              WHERE id = $3 RETURNING author_id`,
             [correctedLabel, isHidden, numContentId]
           );

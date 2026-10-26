@@ -8,7 +8,6 @@ class ImageModerationThresholds:
     nsfw_blur: float = 0.70
     review_floor: float = 0.40
     safe_min: float = 0.80
-    appeal_window_minutes: int = 10
 
     def snapshot(self):
         return asdict(self)
@@ -37,11 +36,4 @@ def get_image_moderation_thresholds():
         and 0 < candidate.review_floor < candidate.violence_reject <= 1
         and 0 < candidate.safe_min <= 1
     )
-    try:
-        window = int(os.getenv("IMAGE_MOD_APPEAL_WINDOW_MINUTES", "10"))
-    except (TypeError, ValueError):
-        window = 10
-    if window <= 0:
-        window = 10
-    candidate = ImageModerationThresholds(candidate.violence_reject, candidate.nsfw_blur, candidate.review_floor, candidate.safe_min, window)
-    return candidate if valid else ImageModerationThresholds(appeal_window_minutes=window)
+    return candidate if valid else DEFAULT_THRESHOLDS

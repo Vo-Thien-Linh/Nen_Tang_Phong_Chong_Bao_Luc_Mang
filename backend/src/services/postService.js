@@ -3,7 +3,7 @@ import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 
 export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const holdViolent = (result) => result?.decision === 'rejected'
-    ? { ...result, decision: 'rejected_hold', moderationExpiresAt: new Date(clock().getTime() + Number(result.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
+    ? { ...result, decision: 'rejected_hold' }
     : result;
   const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
   const normalizeImageUrl = (value) => {

@@ -5,7 +5,6 @@ const TABLE_BY_TYPE = { post: 'posts', comment: 'comments' };
 const DECISION_LABEL = { safe: 'Safe', nsfw: 'NSFW', violence: 'Violence' };
 const reviewNotFoundMessage = 'Không tìm thấy mục cần duyệt';
 const conflictMessage = 'Mục này đã được xử lý hoặc không còn tồn tại';
-const appealExpiredMessage = 'Đã hết thời gian kháng cáo';
 const appealedMessage = 'Bạn đã khiếu nại mục này';
 
 export async function appealImageModeration({ pool, contentType, contentId, authorId, clock = () => new Date() }) {
@@ -18,7 +17,7 @@ export async function appealImageModeration({ pool, contentType, contentId, auth
     const existing = await client.query(
       `SELECT id, author_id, ${parentPostColumn}content, image_moderation_status,
               image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
-              image_moderation_thresholds, image_moderation_appealed_at, moderation_expires_at
+              image_moderation_thresholds, image_moderation_appealed_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
       [contentId]
     );
@@ -32,26 +31,20 @@ export async function appealImageModeration({ pool, contentType, contentId, auth
       status: item.image_moderation_status,
       action: 'appeal',
       appealedAt: item.image_moderation_appealed_at,
-      expiresAt: item.moderation_expires_at,
-      now,
     });
     if (!transition.ok) {
       await client.query('ROLLBACK');
-      const message = transition.reason === 'expired' ? appealExpiredMessage
-        : transition.reason === 'already_appealed' ? appealedMessage : conflictMessage;
+      const message = transition.reason === 'already_appealed' ? appealedMessage : conflictMessage;
       return { ok: false, statusCode: transition.statusCode, message };
     }
     const appealedAt = now;
-    const expiryGuard = item.image_moderation_status === 'rejected_hold' ? 'AND moderation_expires_at > $4' : '';
-    const params = [contentId, authorId, transition.previousStatus, appealedAt];
     const updated = await client.query(
       `UPDATE ${table}
-       SET image_moderation_status = 'appeal_pending', image_moderation_appealed_at = $4,
-           moderation_expires_at = NULL
-       WHERE id = $1 AND author_id = $2 AND image_moderation_status = $3
-         AND image_moderation_appealed_at IS NULL ${expiryGuard}
+       SET image_moderation_status = 'appeal_pending', image_moderation_appealed_at = $3
+       WHERE id = $1 AND author_id = $2 AND image_moderation_status = $4
+         AND image_moderation_appealed_at IS NULL
        RETURNING id`,
-      params
+      [contentId, authorId, appealedAt, transition.previousStatus]
     );
     if (!updated.rows[0]) {
       await client.query('ROLLBACK');
@@ -94,7 +87,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
     const existing = await client.query(
       `SELECT id, author_id, ${parentPostColumn}content, image_url, ${hiddenColumn}image_moderation_status,
               image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
-              image_moderation_thresholds, image_moderation_appealed_at, moderation_expires_at
+              image_moderation_thresholds, image_moderation_appealed_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
       [contentId]
     );
@@ -117,8 +110,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
       `UPDATE ${table}
        SET image_moderation_status = $1,
            image_moderation_reviewed_by = $2,
-           image_moderation_reviewed_at = $3,
-           moderation_expires_at = NULL
+           image_moderation_reviewed_at = $3
        WHERE id = $4 AND image_moderation_status = $5
        RETURNING id, author_id, image_moderation_status`,
       [transition.nextStatus, reviewerId, reviewedAt, contentId, expectedStatus]

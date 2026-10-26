@@ -73,7 +73,7 @@ export async function broadcastPublishedItem(pool, { id, type }) {
       `SELECT p.id, p.author_id, p.content, p.image_url, p.image_moderation_status,
               p.image_moderation_label, p.image_moderation_safe, p.image_moderation_nsfw,
               p.image_moderation_violence, p.image_moderation_thresholds, p.image_moderation_appealed_at,
-              p.moderation_expires_at, p.created_at, p.edited_at, p.ai_label, p.ai_confidence,
+              p.created_at, p.edited_at, p.ai_label, p.ai_confidence,
               p.ai_status, p.likes_count, p.comments_count, p.shares_count,
               u.full_name, u.username, u.avatar_url, u.is_verified
        FROM posts p JOIN users u ON u.id = p.author_id
@@ -88,7 +88,7 @@ export async function broadcastPublishedItem(pool, { id, type }) {
     `SELECT c.id, c.post_id, c.author_id, c.content, c.image_url, c.image_label,
             c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
             c.image_moderation_violence, c.image_moderation_thresholds,
-            c.image_moderation_appealed_at, c.moderation_expires_at, c.is_hidden,
+            c.image_moderation_appealed_at, c.is_hidden,
             c.ai_label, c.ai_confidence, c.created_at,
             u.full_name, u.username, u.avatar_url, u.is_verified
      FROM comments c JOIN users u ON u.id = c.author_id
@@ -111,7 +111,6 @@ export async function broadcastPublishedItem(pool, { id, type }) {
         status: row.image_moderation_status,
         scores: { safe: row.image_moderation_safe, nsfw: row.image_moderation_nsfw, violence: row.image_moderation_violence },
         thresholds: row.image_moderation_thresholds || null,
-        moderationExpiresAt: row.moderation_expires_at || null,
         appealedAt: row.image_moderation_appealed_at || null,
       } : null,
       image_label: row.image_label,

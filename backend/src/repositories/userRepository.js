@@ -160,7 +160,7 @@ export function createUserRepository({ pool }) {
            p.ai_label, p.ai_confidence, p.ai_status,
            p.image_moderation_status, p.image_moderation_label, p.image_moderation_safe, p.image_moderation_nsfw,
            p.image_moderation_violence, p.image_moderation_thresholds,
-           p.image_moderation_appealed_at, p.moderation_expires_at,
+           p.image_moderation_appealed_at,
            p.likes_count, p.comments_count, p.shares_count,
            p.created_at, p.original_post_id,
            u.username, u.full_name, u.avatar_url, u.is_verified,
@@ -219,7 +219,7 @@ export function createUserRepository({ pool }) {
       const commentsResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
                 c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
-                c.image_moderation_thresholds, c.image_moderation_appealed_at, c.moderation_expires_at, c.created_at,
+                c.image_moderation_thresholds, c.image_moderation_appealed_at, c.created_at,
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
@@ -274,7 +274,6 @@ export function createUserRepository({ pool }) {
               label: c.image_moderation_label || null,
               scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
               thresholds: c.image_moderation_thresholds || null,
-              moderationExpiresAt: c.moderation_expires_at || null,
               appealedAt: c.image_moderation_appealed_at || null,
             } : null,
             created_at: c.created_at,
@@ -297,7 +296,6 @@ export function createUserRepository({ pool }) {
             label: post.image_moderation_label || null,
             scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
             thresholds: post.image_moderation_thresholds || null,
-            moderationExpiresAt: post.moderation_expires_at || null,
             appealedAt: post.image_moderation_appealed_at || null,
           } : null,
         };

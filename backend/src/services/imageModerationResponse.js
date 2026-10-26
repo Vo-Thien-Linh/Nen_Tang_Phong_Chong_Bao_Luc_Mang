@@ -17,32 +17,22 @@ export function formatImageModerationForViewer(imageModeration, contentType, aut
     noticeType: _noticeType,
     canAppeal: _canAppeal,
     appealedAt: _appealedAt,
-    remainingSeconds: _remainingSeconds,
     ...publicFields
   } = imageModeration;
-  const moderationExpiresAt = imageModeration.moderationExpiresAt
-    ?? imageModeration.moderation_expires_at
-    ?? null;
   const appealedAt = imageModeration.appealedAt
     ?? imageModeration.image_moderation_appealed_at
     ?? null;
 
   if (!authorCanSeeReview) {
-    return { ...publicFields, status, moderationExpiresAt };
+    return { ...publicFields, status };
   }
 
-  const expiryTime = moderationExpiresAt ? new Date(moderationExpiresAt).getTime() : Number.NaN;
   return {
     ...publicFields,
     status,
-    moderationExpiresAt,
-    remainingSeconds: Number.isFinite(expiryTime)
-      ? Math.max(0, Math.ceil((expiryTime - Date.now()) / 1000))
-      : null,
     noticeText: getModerationNoticeText(contentType, status),
     noticeType: status,
-    canAppeal: ['rejected_admin', 'rejected_hold'].includes(status)
-      && (status !== 'rejected_hold' || (Number.isFinite(expiryTime) && expiryTime > Date.now())),
+    canAppeal: ['rejected_admin', 'rejected_hold'].includes(status),
     appealedAt: appealedAt || null,
   };
 }
