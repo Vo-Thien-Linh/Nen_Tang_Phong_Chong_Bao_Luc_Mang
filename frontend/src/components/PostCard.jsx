@@ -937,7 +937,7 @@ export default function PostCard({
           {/* Nội dung bài viết */}
           <div className="px-4 sm:px-5 pb-3">
             {post.imageModeration?.status === 'pending_review' && post.author?.id === currentUser?.id && (
-              <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Đang chờ quản trị viên duyệt</div>
+              <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{getModerationNoticeText('post', 'pending_review')}</div>
             )}
             {post.imageModeration?.status === 'rejected_hold' && post.author?.id === currentUser?.id && (
               <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900">
