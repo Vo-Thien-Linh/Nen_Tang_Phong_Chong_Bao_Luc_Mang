@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
     type VARCHAR(30) NOT NULL, -- 'like', 'comment', 'friend_request', 'friend_accept', 'system'
     content TEXT NOT NULL,
+    payload JSONB,
     target_post_id BIGINT REFERENCES posts(id) ON DELETE CASCADE,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
