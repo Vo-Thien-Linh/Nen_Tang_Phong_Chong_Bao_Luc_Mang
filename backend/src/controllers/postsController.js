@@ -2,6 +2,7 @@ import { realtimeService } from '../services/realtimeService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 import { formatImageModerationForViewer } from '../services/imageModerationResponse.js';
+import { getModerationNoticeText } from '../services/moderationNotificationText.js';
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
