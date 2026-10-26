@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Image as ImageIcon, Save } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
@@ -56,8 +57,8 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-3 py-6" onMouseDown={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 px-3 py-6" onMouseDown={onClose}>
       <form
         onSubmit={handleSubmit}
         onMouseDown={(event) => event.stopPropagation()}
@@ -120,6 +121,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body
   );
 }
