@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView';
 import PostDetailView from './components/PostDetailView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
-import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost } from './utils/creationFlowLogic';
+import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost, replacePostComments } from './utils/creationFlowLogic';
 import { handleRealtimeFeedEvent } from './utils/realtimeFeedLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
@@ -693,6 +693,12 @@ export default function App() {
   };
 
   const handleUpdatePost = async (postId, changes) => {
+    if (Array.isArray(changes?.comments)) {
+      setPosts((previous) => previous.map((post) => String(post.id) === String(postId)
+        ? replacePostComments(post, changes.comments, changes.commentsCount)
+        : post));
+      return changes;
+    }
     if (changes?.imageModeration || changes?.commentModeration) {
       setPosts((previous) => previous.flatMap((post) => {
         if (String(post.id) !== String(postId)) return [post];

@@ -18,6 +18,18 @@ export function appendCreatedComment(post, comment) {
   };
 }
 
+export function replacePostComments(post, comments, commentsCount = comments?.length) {
+  if (!post || !Array.isArray(comments)) return post;
+  const uniqueComments = comments.filter((comment, index) =>
+    comments.findIndex((item) => String(item.id) === String(comment.id)) === index
+  );
+  return {
+    ...post,
+    comments: uniqueComments,
+    commentsCount: Number.isFinite(Number(commentsCount)) ? Number(commentsCount) : uniqueComments.length,
+  };
+}
+
 export function canStartCreation(isPending) {
   return !isPending;
 }
