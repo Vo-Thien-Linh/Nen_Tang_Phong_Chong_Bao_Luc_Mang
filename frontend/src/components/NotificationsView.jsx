@@ -74,7 +74,7 @@ export default function NotificationsView({
   const filteredNotifications = notifications.filter((item) => {
     if (currentFilter === 'unread') return !item.isRead;
     if (currentFilter === 'interaction') return ['like', 'comment', 'share', 'reaction'].includes(item.type);
-    if (currentFilter === 'system') return ['system', 'ai_moderation', 'report', 'appeal', 'warning'].includes(item.type);
+    if (currentFilter === 'system') return ['system', 'ai_moderation', 'report', 'appeal', 'warning', 'report_receipt'].includes(item.type);
     return true;
   });
 
