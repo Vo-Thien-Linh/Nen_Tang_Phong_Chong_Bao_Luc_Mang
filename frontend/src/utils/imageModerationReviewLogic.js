@@ -43,3 +43,10 @@ export function getImageReviewFailure(error) {
     toast: { type: 'error', message: error?.message || 'Không thể cập nhật quyết định.' },
   };
 }
+
+export function getImageReviewLoadFailure() {
+  return {
+    type: 'error',
+    message: 'Không thể tải hàng đợi duyệt ảnh. Vui lòng thử lại.',
+  };
+}

@@ -12,7 +12,7 @@ import ReportResolutionModal from './ReportResolutionModal';
 import AppealResolutionModal from './AppealResolutionModal';
 import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
 import { fetchPendingImageModeration, fetchImageAppealQueue, reviewImageModeration } from '../api/client';
-import { applyImageReviewQueueResult, getImageReviewFailure } from '../utils/imageModerationReviewLogic';
+import { applyImageReviewQueueResult, getImageReviewFailure, getImageReviewLoadFailure } from '../utils/imageModerationReviewLogic';
 import ImageModerationQueue from './ImageModerationQueue';
 
 /**
@@ -65,12 +65,7 @@ export default function ModeratorView({
   };
 
   useEffect(() => {
-    loadImageQueues().catch(() => {
-      setToast({
-        type: 'error',
-        message: 'Không thể tải hàng đợi duyệt ảnh. Vui lòng thử lại.',
-      });
-    });
+    loadImageQueues().catch(() => setToast(getImageReviewLoadFailure()));
   }, [currentUser?.id]);
 
   const handleImageDecision = async (item, stage, decision) => {
