@@ -10,5 +10,6 @@ test('no garbled notice text exists', async () => {
   assert.doesNotMatch(backendText, /vi phạm tiêu chuẩn cộng đồng nên chúng tôi không cho phép hiển thị/);
   assert.match(backendText, /Sau khi xem xét lại/);
   assert.equal(getModerationNoticeText('post', 'rejected_hold'), 'Bài viết của bạn đã vi phạm tiêu chuẩn cộng đồng.');
-  assert.match(sharedText, /Bình luận của bạn đã vi phạm tiêu chuẩn cộng đồng\./);
+  assert.match(sharedText, /moderationTypeName\(contentType\)/);
+  assert.equal(getModerationNoticeText('comment', 'rejected_hold'), 'Bình luận của bạn đã vi phạm tiêu chuẩn cộng đồng.');
 });
