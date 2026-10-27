@@ -12,11 +12,11 @@ import { createUsersRouter } from './src/routes/usersRouter.js';
 import { createNotificationsRouter } from './src/routes/notificationsRouter.js';
 import { createImageModerationRouter } from './src/routes/imageModerationRouter.js';
 import { realtimeService } from './src/services/realtimeService.js';
-import { startModerationExpirySweeper } from './src/services/moderationExpirySweeper.js';
 import { createModerationAppealRouter } from './src/routes/moderationAppealRouter.js';
 import { createImagePreviewRouter } from './src/routes/imagePreviewRouter.js';
 import { createUserRepository } from './src/repositories/userRepository.js';
 import { createAuthMiddleware } from './src/middleware/auth.js';
+import { restoreReportedTextModeration } from './src/services/reportDismissal.js';
 
 dotenv.config();
 
@@ -453,8 +453,7 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                 await pool.query(
                   `UPDATE posts 
                    SET ai_label = 'Normal', ai_status = 'approved',
-                       image_moderation_status = 'approved', image_moderation_label = 'safe',
-                       moderation_expires_at = NULL 
+                       image_moderation_status = 'approved', image_moderation_label = 'safe'
                    WHERE id = $1`,
                   [dbRep.target_id]
                 );
@@ -462,8 +461,7 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                 await pool.query(
                   `UPDATE comments 
                    SET ai_label = 'Normal', is_hidden = FALSE,
-                       image_moderation_status = 'approved', image_moderation_label = 'safe',
-                       moderation_expires_at = NULL 
+                       image_moderation_status = 'approved', image_moderation_label = 'safe'
                    WHERE id = $1`,
                   [dbRep.target_id]
                 );
@@ -563,38 +561,11 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
               ]
             );
           } else if (status === 'dismissed') {
-            // Khi đổi phán quyết hoặc xử lý Báo cáo SAI: khôi phục hiển thị nếu trước đó bị ẩn nhầm
-            if (dbRep.target_type === 'post') {
-              await pool.query(
-                `UPDATE posts 
-                 SET ai_label = 'Normal', ai_status = 'approved',
-                     image_moderation_status = 'approved', image_moderation_label = 'safe',
-                     moderation_expires_at = NULL 
-                 WHERE id = $1`,
-                [dbRep.target_id]
-              );
-            } else if (dbRep.target_type === 'comment') {
-              await pool.query(
-                `UPDATE comments 
-                 SET ai_label = 'Normal', is_hidden = FALSE,
-                     image_moderation_status = 'approved', image_moderation_label = 'safe',
-                     moderation_expires_at = NULL 
-                 WHERE id = $1`,
-                [dbRep.target_id]
-              );
-            }
-            if (targetAuthorId) {
-              await pool.query(
-                `UPDATE users 
-                 SET status = 'active', 
-                     cooldown_until = NULL, 
-                     cooldown_reason = NULL, 
-                     cooldown_violation_text = NULL,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1`,
-                [targetAuthorId]
-              );
-            }
+            // Restore only text moderation; report data does not identify image state or restriction ownership.
+            await restoreReportedTextModeration(pool, {
+              targetType: dbRep.target_type,
+              targetId: dbRep.target_id,
+            });
           }
         }
       }
@@ -868,8 +839,7 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
             await client.query(
               `UPDATE posts 
                SET ai_status = 'approved', ai_label = 'Normal',
-                   image_moderation_status = 'approved', image_moderation_label = 'safe',
-                   moderation_expires_at = NULL 
+                   image_moderation_status = 'approved', image_moderation_label = 'safe'
                WHERE id = $1`,
               [updatedRow.content_id]
             );
@@ -877,8 +847,7 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
             await client.query(
               `UPDATE comments 
                SET is_hidden = FALSE, ai_label = 'Normal',
-                   image_moderation_status = 'approved', image_moderation_label = 'safe',
-                   moderation_expires_at = NULL 
+                   image_moderation_status = 'approved', image_moderation_label = 'safe'
                WHERE id = $1`,
               [updatedRow.content_id]
             );
@@ -1115,8 +1084,7 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), async (req, r
             `UPDATE posts 
              SET ai_label = $1, ai_status = $2,
                  image_moderation_status = CASE WHEN $1 = 'Normal' THEN 'approved' ELSE image_moderation_status END,
-                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END,
-                 moderation_expires_at = CASE WHEN $1 = 'Normal' THEN NULL ELSE moderation_expires_at END
+                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END
              WHERE id = $3 RETURNING author_id`,
             [correctedLabel, newStatus, numContentId]
           );
@@ -1127,8 +1095,7 @@ app.post('/api/admin/override-ai-label', requireRole('moderator'), async (req, r
             `UPDATE comments 
              SET ai_label = $1, is_hidden = $2,
                  image_moderation_status = CASE WHEN $1 = 'Normal' THEN 'approved' ELSE image_moderation_status END,
-                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END,
-                 moderation_expires_at = CASE WHEN $1 = 'Normal' THEN NULL ELSE moderation_expires_at END
+                 image_moderation_label = CASE WHEN $1 = 'Normal' THEN 'safe' ELSE image_moderation_label END
              WHERE id = $3 RETURNING author_id`,
             [correctedLabel, isHidden, numContentId]
           );
@@ -1383,9 +1350,6 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-const stopModerationExpirySweeper = startModerationExpirySweeper(pool);
-process.once('SIGINT', () => { stopModerationExpirySweeper(); process.exit(0); });
-process.once('SIGTERM', () => { stopModerationExpirySweeper(); process.exit(0); });
 app.listen(PORT, async () => {
   console.log('Server Backend đang chạy tại http://localhost:' + PORT);
   if (process.env.NODE_ENV === 'production') {

@@ -4,6 +4,7 @@ import {
   Bell, Heart, MessageCircle, Repeat, ShieldAlert, ShieldCheck, CheckCheck, 
   Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox, Scale, Lock
 } from 'lucide-react';
+import { getNotificationNavigationTarget, getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
 
 export default function NotificationsView({ 
   notifications = [], 
@@ -73,7 +74,7 @@ export default function NotificationsView({
   const filteredNotifications = notifications.filter((item) => {
     if (currentFilter === 'unread') return !item.isRead;
     if (currentFilter === 'interaction') return ['like', 'comment', 'share', 'reaction'].includes(item.type);
-    if (currentFilter === 'system') return ['system', 'ai_moderation', 'report', 'appeal', 'warning'].includes(item.type);
+    if (currentFilter === 'system') return ['system', 'ai_moderation', 'report', 'appeal', 'warning', 'report_receipt'].includes(item.type);
     return true;
   });
 
@@ -236,6 +237,7 @@ export default function NotificationsView({
             </div>
           ) : filteredNotifications.length > 0 ? (
             filteredNotifications.map((item) => {
+              const snapshotPreview = getNotificationSnapshotPreview(item);
               const isSystemOrModeration = 
                 ['system', 'ai_moderation', 'moderation_alert', 'warning', 'report', 'appeal', 'report_receipt'].includes(item.type) ||
                 item.isReceipt ||
@@ -259,13 +261,12 @@ export default function NotificationsView({
                     name: 'Thông báo hệ thống',
                     avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
                   });
-
               return (
                 <div
                   key={item.id}
                   onClick={() => {
                     onMarkAsRead(item.id);
-                    const targetPostId = item.targetPost?.id || item.targetPostId;
+                    const targetPostId = getNotificationNavigationTarget(item);
                     if (targetPostId && onViewPost) {
                       onViewPost(targetPostId, {
                         type: item.type,
@@ -324,7 +325,18 @@ export default function NotificationsView({
                     </div>
 
                     {/* Preview bài viết liên quan nếu có */}
-                    {(item.targetPost || item.targetPostId) && (
+                    {snapshotPreview.isRemoval ? (
+                      <div className="mt-2 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50">
+                        {snapshotPreview.content && <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-line break-words">{snapshotPreview.content}</p>}
+                        {snapshotPreview.images.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {snapshotPreview.images.map((imageUrl) => (
+                              <img key={imageUrl} src={imageUrl} alt="Nội dung đã bị xóa" className="h-16 w-16 rounded-lg object-cover" />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (item.targetPost || item.targetPostId) && (
                       <div
                         onClick={(e) => {
                           e.stopPropagation();
@@ -367,7 +379,8 @@ export default function NotificationsView({
                         item.content?.includes('Báo cáo của bạn') || 
                         item.content?.includes('đã được tiếp nhận');
 
-                      const isSanctionNotice = 
+                      const isSanctionNotice =
+                        !snapshotPreview.isRemoval &&
                         !isReportReceipt && 
                         onOpenAppealModal && 
                         (

@@ -27,6 +27,7 @@ export function createReactionRepository({ pool }) {
           `SELECT id, author_id, likes_count
            FROM posts
            WHERE id = $1 AND ai_status = 'approved'
+             AND (image_moderation_status IS NULL OR image_moderation_status IN ('safe', 'sensitive'))
            FOR UPDATE`,
           [postId]
         );

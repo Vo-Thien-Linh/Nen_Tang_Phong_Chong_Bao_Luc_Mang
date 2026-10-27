@@ -80,7 +80,8 @@ export function createNotificationsController({ notificationRepository }) {
                   avatar:
                     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
                 },
-          targetPost: row.target_post_id
+          snapshot: row.payload || null,
+          targetPost: row.target_post_id && row.payload?.type !== 'moderation_removal'
             ? {
                 id: String(row.target_post_id),
                 contentSnippet: row.post_content

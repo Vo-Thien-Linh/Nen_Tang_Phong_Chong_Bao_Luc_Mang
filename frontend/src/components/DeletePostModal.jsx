@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Trash2, AlertTriangle, Loader2, X } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 
@@ -21,14 +22,14 @@ export default function DeletePostModal({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in"
       onMouseDown={onCancel}
     >
       <div 
         onMouseDown={(event) => event.stopPropagation()} 
-        className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-100 transition-all transform scale-100 overflow-hidden relative"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl border border-slate-100 transition-all transform scale-100 overflow-x-hidden relative"
         style={{ animation: 'fadeInScale 0.2s cubic-bezier(0.16, 1, 0.3, 1)' }}
       >
         {/* Nút đóng nhanh góc trên */}
@@ -127,6 +128,7 @@ export default function DeletePostModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

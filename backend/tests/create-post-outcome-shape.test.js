@@ -28,8 +28,7 @@ test('every moderation outcome returns the same success shape', async () => {
       imageModeration: decision ? {
         decision,
         images: [{ scores: { safe: 0.8, nsfw: 0.1, violence: 0.1 } }],
-        thresholds: { appeal_window_minutes: 10 },
-        moderationExpiresAt: decision === 'rejected_hold' ? '2030-01-01T00:10:00.000Z' : null,
+        thresholds: {},
       } : null,
     });
 

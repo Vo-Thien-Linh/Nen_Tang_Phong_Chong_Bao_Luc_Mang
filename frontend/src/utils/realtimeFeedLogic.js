@@ -26,6 +26,16 @@
     return prevPosts.filter((p) => String(p.id) !== String(deletedId));
   }
 
+  if (payload.type === 'COMMENT_DELETED') {
+    return prevPosts.map((post) => String(post.id) === String(payload.postId)
+      ? {
+          ...post,
+          commentsCount: Math.max(0, (post.commentsCount || 0) - 1),
+          comments: (post.comments || []).filter((comment) => String(comment.id) !== String(payload.commentId)),
+        }
+      : post);
+  }
+
   if (payload.type === 'COMMENT_CREATED') {
     const { postId, comment } = payload;
     if (!comment) return prevPosts;

@@ -22,6 +22,7 @@ export function createNotificationRepository({ pool }) {
           n.actor_id,
           n.type,
           n.content,
+          n.payload,
           n.target_post_id,
           n.is_read,
           n.created_at,
@@ -34,6 +35,8 @@ export function createNotificationRepository({ pool }) {
         LEFT JOIN users u ON u.id = n.actor_id
         LEFT JOIN posts p ON p.id = n.target_post_id
         WHERE n.recipient_id = $1 ${filterCondition}
+          AND (p.image_moderation_status IS DISTINCT FROM 'rejected_final'
+               OR (n.type = 'system' AND n.content LIKE 'Sau khi xem%'))
         ORDER BY n.created_at DESC
         LIMIT $2 OFFSET $3
       `;
@@ -44,9 +47,12 @@ export function createNotificationRepository({ pool }) {
 
     async getUnreadCount(recipientId) {
       const result = await pool.query(
-        `SELECT COUNT(*)::int AS count 
-         FROM notifications 
-         WHERE recipient_id = $1 AND is_read = FALSE`,
+        `SELECT COUNT(*)::int AS count
+         FROM notifications n
+         LEFT JOIN posts p ON p.id = n.target_post_id
+         WHERE n.recipient_id = $1 AND n.is_read = FALSE
+           AND (p.image_moderation_status IS DISTINCT FROM 'rejected_final'
+                OR (n.type = 'system' AND n.content LIKE 'Sau khi xem%'))`,
         [recipientId]
       );
       return result.rows[0]?.count || 0;

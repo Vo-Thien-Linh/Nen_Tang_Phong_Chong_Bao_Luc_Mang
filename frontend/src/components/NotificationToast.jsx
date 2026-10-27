@@ -1,4 +1,5 @@
 import { Bell, Heart, MessageCircle, Repeat, ShieldAlert, ShieldCheck, X } from 'lucide-react';
+import { getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
 
 export default function NotificationToast({ notification, onClose, onClick }) {
   if (!notification) return null;
@@ -26,6 +27,7 @@ export default function NotificationToast({ notification, onClose, onClick }) {
     name: 'Thông báo hệ thống',
     avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
   };
+  const snapshotPreview = getNotificationSnapshotPreview(notification);
 
   return (
     <aside
@@ -68,6 +70,16 @@ export default function NotificationToast({ notification, onClose, onClick }) {
             <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-100 dark:border-slate-700/50 truncate italic">
               &ldquo;{notification.targetPost.contentSnippet}&rdquo;
             </p>
+          )}
+          {snapshotPreview.isRemoval && (
+            <div className="mt-2 rounded-lg border border-rose-200/80 bg-rose-50/80 p-2 dark:border-rose-900/50 dark:bg-rose-950/30">
+              {snapshotPreview.content && <p className="line-clamp-2 break-words text-[11px] text-slate-700 dark:text-slate-200">{snapshotPreview.content}</p>}
+              {snapshotPreview.images.length > 0 && (
+                <div className="mt-1.5 flex gap-1.5">
+                  {snapshotPreview.images.map((imageUrl) => <img key={imageUrl} src={imageUrl} alt="Nội dung đã bị xóa" className="h-10 w-10 rounded object-cover" />)}
+                </div>
+              )}
+            </div>
           )}
         </div>
 

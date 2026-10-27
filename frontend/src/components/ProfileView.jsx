@@ -20,6 +20,9 @@ import PostCard from './PostCard';
 import OriginalPostModal from './OriginalPostModal';
 import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
+import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic';
+import { getModerationNoticeText } from '../utils/moderationNoticeLogic';
+import { getProfilePosts } from '../utils/profilePostLogic';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -370,9 +373,7 @@ export default function ProfileView({
   };
 
   // Danh sách bài viết hiển thị
-  const userPosts = profilePosts !== null
-    ? profilePosts
-    : posts.filter(post => post.author && (post.author.id === targetUserId));
+  const userPosts = getProfilePosts({ isOwnProfile, posts, profilePosts, targetUserId });
 
   // Trích xuất toàn bộ ảnh thực tế từ các bài viết trong Database
   const realUserPhotos = [
@@ -596,6 +597,28 @@ export default function ProfileView({
 
     // Cập nhật lên Feed trang chủ ngoài App
     onAddPost && onAddPost(result?.data);
+  };
+
+  const handleProfilePostUpdate = (postId, changes) => {
+    setProfilePosts((previous) => {
+      const source = previous || userPosts;
+      return source.flatMap((post) => {
+        if (String(post.id) !== String(postId)) return [post];
+        if (changes?.imageModeration) {
+          return changes.imageModeration.status === 'rejected_final'
+            ? []
+            : [{ ...post, imageModeration: changes.imageModeration }];
+        }
+        const { id: commentId, ...commentChanges } = changes.commentModeration;
+        return [{
+          ...post,
+          comments: (post.comments || []).map((comment) => String(comment.id) === String(commentId)
+            ? { ...comment, ...commentChanges }
+            : comment),
+        }];
+      });
+    });
+    onEditPost?.(postId, changes);
   };
 
   return (
@@ -1237,6 +1260,7 @@ export default function ProfileView({
                         onRequireLogin={onRequireAuth}
                         onOpenProfile={onOpenUserProfile}
                         onEditPost={onEditPost}
+                        onUpdatePost={handleProfilePostUpdate}
                         onDeletePost={onDeletePost}
                         onSharePost={onSharePost}
                         allPosts={posts}
@@ -1259,15 +1283,35 @@ export default function ProfileView({
                     >
                       {post.image || post.image_url ? (
                         <div className="aspect-square overflow-hidden bg-slate-100 relative">
+                          {shouldHideContentForViewer({
+                            isAuthor: Boolean(currentUser?.id && String(currentUser.id) === String(post.author_id || post.author?.id)),
+                            status: post.imageModeration?.status || post.image_moderation_status,
+                            isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(post.imageModeration?.status || post.image_moderation_status),
+                          }) && (
+                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
+                              <span className="text-xs font-semibold">Nội dung nhạy cảm</span>
+                              <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</span>
+                            </div>
+                          )}
                           <img 
                             src={post.image || post.image_url} 
                             alt="Thumb" 
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200" 
+                            className={`w-full h-full object-cover group-hover:scale-105 transition duration-200 ${shouldHideContentForViewer({
+                              isAuthor: Boolean(currentUser?.id && String(currentUser.id) === String(post.author_id || post.author?.id)),
+                              status: post.imageModeration?.status || post.image_moderation_status,
+                              isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(post.imageModeration?.status || post.image_moderation_status),
+                            }) ? 'blur-xl scale-105' : ''}`}
                           />
                         </div>
                       ) : (
                         <div className="p-4 h-36 flex items-center justify-center text-xs text-slate-600 bg-slate-50 italic text-center">
                           "{post.content.slice(0, 70)}..."
+                        </div>
+                      )}
+                      {String(currentUser?.id) === String(post.author_id || post.author?.id)
+                        && (post.imageModeration?.status || post.image_moderation_status) === 'sensitive' && (
+                        <div className="px-2 py-1.5 border-t border-amber-200 bg-amber-50 text-[10px] leading-snug text-amber-900">
+                          {post.imageModeration?.noticeText || getModerationNoticeText('post', 'sensitive')}
                         </div>
                       )}
                       <div className="p-2 text-[11px] font-semibold text-slate-600 truncate border-t border-slate-100">

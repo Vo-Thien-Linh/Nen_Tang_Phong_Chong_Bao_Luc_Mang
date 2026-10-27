@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView';
 import PostDetailView from './components/PostDetailView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
-import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost } from './utils/creationFlowLogic';
+import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost, replacePostComments } from './utils/creationFlowLogic';
 import { handleRealtimeFeedEvent } from './utils/realtimeFeedLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
@@ -45,7 +45,8 @@ import {
   fetchAiOverridesList,
   createAiOverrideApi
 } from './api/client';
-import { applyUpdatedPostToList } from './utils/postActionLogic';
+import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
+import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
   clearPostNotice,
@@ -742,6 +743,29 @@ export default function App() {
   };
 
   const handleUpdatePost = async (postId, changes) => {
+    if (Array.isArray(changes?.comments)) {
+      setPosts((previous) => previous.map((post) => String(post.id) === String(postId)
+        ? replacePostComments(post, changes.comments, changes.commentsCount)
+        : post));
+      return changes;
+    }
+    if (changes?.imageModeration || changes?.commentModeration) {
+      setPosts((previous) => previous.flatMap((post) => {
+        if (String(post.id) !== String(postId)) return [post];
+        if (changes.imageModeration) {
+          if (changes.imageModeration.status === 'rejected_final') return [];
+          return [{ ...post, imageModeration: changes.imageModeration }];
+        }
+        const { id: commentId, ...commentChanges } = changes.commentModeration;
+        return [{
+          ...post,
+          comments: (post.comments || []).map((comment) => String(comment.id) === String(commentId)
+            ? { ...comment, ...commentChanges }
+            : comment),
+        }];
+      }));
+      return changes;
+    }
     if (!currentUser?.id) {
       handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
       throw new Error('Vui lòng đăng nhập để tiếp tục');
@@ -775,17 +799,13 @@ export default function App() {
     }
 
     try {
-      await deletePost({ userId: currentUser.id, postId });
-      setPosts(prev => prev.map(post => (
-        String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
-      )));
+      await runPostDeleteAction({
+        deleteRequest: () => deletePost({ userId: currentUser.id, postId }),
+        onSuccess: () => setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
+        ))),
+      });
     } catch (error) {
-      if (error.status === 404) {
-        setPosts(prev => prev.map(post => (
-          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
-        )));
-        throw new Error('Bài viết không tồn tại');
-      }
       throw new Error(error.message || 'Xóa bài viết thất bại');
     }
   };
@@ -1509,7 +1529,7 @@ export default function App() {
         {activeTab === 'post' && viewedPostDetail && (
           <PostDetailView
             postId={viewedPostDetail.postId}
-            post={viewedPostDetail.post}
+            post={posts.find((item) => String(item.id) === String(viewedPostDetail.postId)) || viewedPostDetail.post}
             meta={viewedPostDetail.meta}
             currentUser={currentUser}
             onBack={() => {
@@ -1527,8 +1547,8 @@ export default function App() {
             onRequireLogin={handleRequireLogin}
             onOpenProfile={handleOpenUserProfile}
             onEditPost={handleUpdatePost}
-            onDeletePost={(delPostId) => {
-              handleDeleteOwnPost(delPostId);
+            onDeletePost={async (delPostId) => {
+              await handleDeleteOwnPost(delPostId);
               handleTabChange(viewedPostDetail.previousTab || 'notifications');
             }}
             openPostMenuId={openPostMenuId}
@@ -1712,7 +1732,12 @@ export default function App() {
         notification={toastNotification}
         onClose={() => setToastNotification(null)}
         onClick={() => {
-          const targetId = toastNotification?.targetPost?.id || toastNotification?.targetPostId;
+          if (toastNotification?.snapshot?.type === 'moderation_removal') {
+            handleTabChange('notifications');
+            setToastNotification(null);
+            return;
+          }
+          const targetId = getNotificationNavigationTarget(toastNotification);
           if (targetId) {
             handleViewPost(targetId, {
               type: toastNotification.type,

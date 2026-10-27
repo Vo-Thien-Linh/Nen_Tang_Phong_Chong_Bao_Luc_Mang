@@ -1,6 +1,8 @@
 import { realtimeService } from '../services/realtimeService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
+import { formatImageModerationForViewer } from '../services/imageModerationResponse.js';
+import { getModerationNoticeText } from '../services/moderationNotificationText.js';
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -34,18 +36,19 @@ function formatRelativeTime(createdAt) {
   return `${day}/${month}/${year}`;
 }
 
-export function mapPostToResponse(post) {
+export function mapPostToResponse(post, viewerId = null) {
+  const imageModeration = formatImageModerationForViewer(post.image_moderation_status ? {
+    status: post.image_moderation_status,
+    label: post.image_moderation_label || null,
+    scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
+    thresholds: post.image_moderation_thresholds || null,
+    appealedAt: post.image_moderation_appealed_at || null,
+  } : null, 'post', post.author_id, viewerId);
   return {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
-    imageModeration: post.image_moderation_status ? {
-      status: post.image_moderation_status,
-      moderationExpiresAt: post.moderation_expires_at || null,
-      remainingSeconds: post.moderation_expires_at ? Math.max(0, Math.ceil((new Date(post.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
-      label: post.image_moderation_label,
-      scores: { safe: post.image_moderation_safe, nsfw: post.image_moderation_nsfw, violence: post.image_moderation_violence },
-    } : null,
+    imageModeration,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
     editedAt: post.edited_at || null,
@@ -81,7 +84,12 @@ export function mapPostToResponse(post) {
       },
       content: c.content,
       image: c.image || c.image_url || null,
-      imageModeration: c.imageModeration || null,
+      imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
+        status: c.image_moderation_status,
+        scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+        thresholds: c.image_moderation_thresholds || null,
+        appealedAt: c.image_moderation_appealed_at || null,
+      } : null), 'comment', c.author?.id ?? c.author_id, viewerId),
       image_label: c.image_label || c.imageLabel || null,
       imageLabel: c.image_label || c.imageLabel || null,
       is_hidden: Boolean(c.is_hidden || c.isHidden),
@@ -146,7 +154,7 @@ export function createPostsController({ postService, postRepository, imageModera
           });
         }
 
-        const mappedPost = mapPostToResponse(post);
+        const mappedPost = mapPostToResponse(post, req.user?.id);
         const isHiddenPost = post.ai_status === 'hidden' || mappedPost.moderationStatus === 'hidden';
         if (!isHiddenPost && !['pending_review', 'rejected_hold'].includes(mappedPost.imageModeration?.status)) {
           realtimeService.broadcast({
@@ -184,7 +192,7 @@ export function createPostsController({ postService, postRepository, imageModera
 
         res.json({
           success: true,
-          data: mapPostToResponse(post),
+          data: mapPostToResponse(post, req.user?.id),
         });
       } catch (error) {
         next(error);
@@ -203,7 +211,7 @@ export function createPostsController({ postService, postRepository, imageModera
         res.json({
           success: true,
           message: 'Cập nhật bài viết thành công',
-          data: mapPostToResponse(post),
+          data: mapPostToResponse(post, req.user?.id),
         });
       } catch (error) {
         next(error);
@@ -212,15 +220,14 @@ export function createPostsController({ postService, postRepository, imageModera
 
     async deletePost(req, res, next) {
       try {
-        await postService.deletePost({
+        const deleted = await postService.deletePost({
           user: req.user,
           postId: req.params.postId,
         });
 
-        realtimeService.broadcast({
-          type: 'POST_DELETED',
-          postId: String(req.params.postId),
-        });
+        if (!['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(deleted.imageModerationStatus)) {
+          realtimeService.broadcast({ type: 'POST_DELETED', postId: String(req.params.postId) });
+        }
 
         res.json({
           success: true,
@@ -236,7 +243,7 @@ export function createPostsController({ postService, postRepository, imageModera
         const posts = await postService.listVisiblePosts({ user: req.user });
         res.json({
           success: true,
-          data: posts.map(mapPostToResponse),
+          data: posts.map((post) => mapPostToResponse(post, req.user?.id)),
         });
       } catch (error) {
         next(error);
@@ -247,6 +254,13 @@ export function createPostsController({ postService, postRepository, imageModera
       try {
         const { postId } = req.params;
         const { content, imageUrl } = req.body || {};
+
+        if (postService.getVisiblePost) {
+          const targetPost = await postService.getVisiblePost({ user: req.user, postId });
+          if (['rejected_admin', 'appeal_pending', 'rejected_final'].includes(targetPost.image_moderation_status)) {
+            return res.status(409).json({ success: false, message: 'Không thể bình luận về nội dung đang trong quy trình duyệt' });
+          }
+        }
 
         if (req.user?.status === 'banned') {
           return res.status(403).json({
@@ -274,7 +288,7 @@ export function createPostsController({ postService, postRepository, imageModera
           ? await imageModerationClient(imageUrl)
           : null;
         const heldModeration = imageModeration?.decision === 'rejected'
-          ? { ...imageModeration, decision: 'rejected_hold', moderationExpiresAt: new Date(Date.now() + Number(imageModeration.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
+          ? { ...imageModeration, decision: 'rejected_hold' }
           : imageModeration;
 
         // Kết hợp hài hoà kiểm duyệt ngôn từ và hình ảnh (NSFW -> Toxic, Violence -> Violence)
@@ -391,8 +405,10 @@ export function createPostsController({ postService, postRepository, imageModera
           aiStatus: comment.ai_status,
           imageModeration: comment.image_moderation_status ? {
             status: comment.image_moderation_status,
-            moderationExpiresAt: comment.moderation_expires_at || null,
-            remainingSeconds: comment.moderation_expires_at ? Math.max(0, Math.ceil((new Date(comment.moderation_expires_at).getTime() - Date.now()) / 1000)) : null,
+            noticeText: getModerationNoticeText('comment', comment.image_moderation_status),
+            noticeType: comment.image_moderation_status,
+            canAppeal: ['rejected_admin', 'rejected_hold'].includes(comment.image_moderation_status),
+            appealedAt: comment.image_moderation_appealed_at || null,
             scores: { safe: comment.image_moderation_safe, nsfw: comment.image_moderation_nsfw, violence: comment.image_moderation_violence },
           } : null,
           time: 'Vừa xong',
@@ -437,7 +453,7 @@ export function createPostsController({ postService, postRepository, imageModera
           content: content || '',
         });
 
-        const mappedSharedPost = mapPostToResponse(sharedPost);
+        const mappedSharedPost = mapPostToResponse(sharedPost, req.user?.id);
         realtimeService.broadcast({
           type: 'POST_SHARED',
           post: mappedSharedPost,

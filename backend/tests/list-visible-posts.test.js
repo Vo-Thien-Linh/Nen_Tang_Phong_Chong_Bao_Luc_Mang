@@ -22,3 +22,33 @@ test('author sees own posts while others see only approved posts', async () => {
   assert.match(queries[1].sql, /p\.ai_status = 'approved' OR p\.author_id = \$1/);
   assert.deepEqual(queries[1].params, ['author-1']);
 });
+
+test('rejected admin post is visible only to its author', async () => {
+  let publicSql = '';
+  let authorSql = '';
+  const repository = createPostRepository({ pool: { async query(sql) { if (!publicSql) publicSql = sql; else authorSql = sql; return { rows: [] }; } } });
+  await repository.findVisiblePosts({ viewerId: null });
+  await repository.findVisiblePosts({ viewerId: 'author-1' });
+  assert.doesNotMatch(publicSql, /rejected_admin/);
+  assert.match(authorSql, /p\.author_id = \$1 AND p\.image_moderation_status IN \([^)]*rejected_admin/);
+});
+
+test('appeal pending post is visible only to its author', async () => {
+  const queries = [];
+  const repository = createPostRepository({ pool: { async query(sql) { queries.push(sql); return { rows: [] }; } } });
+  await repository.findVisiblePosts({ viewerId: null });
+  await repository.findVisiblePosts({ viewerId: 'author-1' });
+  assert.doesNotMatch(queries[0], /appeal_pending/);
+  assert.match(queries[1], /p\.author_id = \$1 AND p\.image_moderation_status IN \([^)]*appeal_pending/);
+});
+
+test('rejected final post is hidden from everyone including its author', async () => {
+  const queries = [];
+  const repository = createPostRepository({ pool: { async query(sql) { queries.push(sql); return { rows: [] }; } } });
+  await repository.findVisiblePosts({ viewerId: null });
+  await repository.findVisiblePosts({ viewerId: 'author-1' });
+  for (const sql of queries) {
+    assert.doesNotMatch(sql, /rejected_final/);
+    assert.match(sql, /image_moderation_status IS NULL OR p\.image_moderation_status IN \('safe', 'sensitive'\)/);
+  }
+});

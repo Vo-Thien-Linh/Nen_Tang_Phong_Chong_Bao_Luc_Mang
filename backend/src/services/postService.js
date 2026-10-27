@@ -3,7 +3,7 @@ import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 
 export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const holdViolent = (result) => result?.decision === 'rejected'
-    ? { ...result, decision: 'rejected_hold', moderationExpiresAt: new Date(clock().getTime() + Number(result.thresholds?.appeal_window_minutes || 10) * 60_000).toISOString() }
+    ? { ...result, decision: 'rejected_hold' }
     : result;
   const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
   const normalizeImageUrl = (value) => {
@@ -173,7 +173,9 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      const existingPost = await postRepository.findById(postId);
+      const existingPost = postRepository.findByIdForOwnerAction
+        ? await postRepository.findByIdForOwnerAction(postId)
+        : await postRepository.findById(postId, user.id);
       if (!existingPost) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
@@ -186,17 +188,17 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      if (['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(existingPost.image_moderation_status)) {
+        const error = new Error('Không thể chỉnh sửa nội dung đang trong quy trình duyệt');
+        error.statusCode = 409;
+        throw error;
+      }
+
       if (existingPost.ai_status === 'hidden') {
         const error = new Error('Bài viết đang bị ẩn nên không thể chỉnh sửa');
         error.statusCode = 403;
         throw error;
       }
-      if (existingPost.image_moderation_status === 'rejected_hold' && new Date(existingPost.moderation_expires_at) > clock()) {
-        const error = new Error('Bài viết đang trong thời gian kháng cáo và không thể chỉnh sửa');
-        error.statusCode = 409;
-        throw error;
-      }
-
       if (isRestrictedUser(user)) {
         const error = new Error('Tài khoản của bạn đang bị hạn chế');
         error.statusCode = 403;
@@ -220,7 +222,11 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeImageUrl(imageUrl),
-        ...(heldModeration ? { imageModeration: heldModeration } : {}),
+        ...(heldModeration
+          ? { imageModeration: heldModeration }
+          : !normalizeImageUrl(imageUrl)
+            ? { imageModeration: { decision: null, label: null, images: [], thresholds: null } }
+            : {}),
       });
 
       await moderationHook.afterPostEdited(post);
@@ -234,8 +240,16 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
-      const existingPost = await postRepository.findById(postId);
+      const existingPost = postRepository.findByIdForOwnerAction
+        ? await postRepository.findByIdForOwnerAction(postId)
+        : await postRepository.findById(postId, user.id);
       if (!existingPost) {
+        const error = new Error('Bài viết không tồn tại');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (existingPost.image_moderation_status === 'rejected_final') {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
         throw error;
@@ -248,7 +262,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       await postRepository.deletePost({ postId, authorId: user.id });
-      return { id: String(postId) };
+      return { id: String(postId), imageModerationStatus: existingPost.image_moderation_status };
     },
 
     async sharePost({ user, originalPostId, content }) {
@@ -267,14 +281,14 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       // 3. Kiểm tra bài gốc tồn tại và không bị ẩn
-      const originalPost = await postRepository.findById(originalPostId);
+      const originalPost = await postRepository.findById(originalPostId, user.id);
       if (!originalPost) {
         const error = new Error('Bài viết gốc không tồn tại');
         error.statusCode = 404;
         throw error;
       }
 
-      if (originalPost.ai_status === 'hidden') {
+      if (originalPost.ai_status === 'hidden' || ['rejected_admin', 'appeal_pending', 'rejected_final'].includes(originalPost.image_moderation_status)) {
         const error = new Error('Không thể chia sẻ bài viết đã bị ẩn');
         error.statusCode = 403;
         throw error;
