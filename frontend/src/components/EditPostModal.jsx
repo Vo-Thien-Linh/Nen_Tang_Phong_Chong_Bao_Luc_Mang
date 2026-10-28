@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Image as ImageIcon, Save } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
+import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 
 export default function EditPostModal({ post, isOpen, onClose, onSave }) {
@@ -12,6 +13,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [nudgeData, setNudgeData] = useState(null);
   const imageUploadIdRef = useRef(0);
 
   if (!isOpen || !post) return null;
@@ -44,8 +46,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const doSave = async (forcePost = false) => {
     if (!content.trim()) {
       setErrorMessage('Nội dung không được để trống');
       return;
@@ -58,15 +59,33 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     setIsSaving(true);
     setErrorMessage('');
     try {
-      await onSave({
+      const result = await onSave({
         content: content.trim(),
         imageUrl: imageUrl || null,
+        forcePost,
       });
+
+      if (result?.nudge) {
+        setNudgeData({
+          message: result.message,
+          contentSnippet: content.trim(),
+          warningType: result.warningType,
+          predictedLabel: result.predictedLabel,
+        });
+        return;
+      }
+
+      onClose();
     } catch (error) {
       setErrorMessage(error.message || 'Cập nhật bài viết thất bại');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    await doSave(false);
   };
 
   return createPortal(
@@ -135,6 +154,22 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
           </button>
         </div>
       </form>
+
+      <FriendlyNudgeModal
+        isOpen={Boolean(nudgeData)}
+        message={nudgeData?.message}
+        targetType="bài viết"
+        warningType={nudgeData?.warningType}
+        contentSnippet={nudgeData?.contentSnippet}
+        isSubmitting={isSaving}
+        onEdit={() => {
+          setNudgeData(null);
+        }}
+        onConfirmForce={async () => {
+          setNudgeData(null);
+          await doSave(true);
+        }}
+      />
     </div>,
     document.body
   );

@@ -52,11 +52,11 @@ export async function createPost({ userId, content, imageUrl, forcePost }) {
   });
 }
 
-export async function updatePost({ userId, postId, content, imageUrl }) {
+export async function updatePost({ userId, postId, content, imageUrl, forcePost }) {
   return request(`/api/posts/${postId}`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl }),
+    body: JSON.stringify({ content, imageUrl, forcePost: Boolean(forcePost) }),
   });
 }
 

@@ -778,7 +778,13 @@ export default function App() {
         postId,
         content: changes.content,
         imageUrl: changes.imageUrl,
+        forcePost: changes.forcePost,
       });
+
+      if (result?.nudge) {
+        return result;
+      }
+
       const updatedPost = result.data;
       setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
       return updatedPost;

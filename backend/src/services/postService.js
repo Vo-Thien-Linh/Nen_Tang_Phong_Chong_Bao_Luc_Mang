@@ -58,16 +58,31 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         contentType: 'post',
       });
 
-      // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu vi phạm Bạo lực/Xúc phạm
-      if (harmonized.applyCooldown) {
-        if (!forcePost) {
-          return {
-            nudge: true,
-            warningType: 'violence',
-            predictedLabel: harmonized.finalLabel || 'Violence',
-            message: 'Chúng tôi nhận thấy bài viết của bạn có thể chứa từ ngữ bạo lực/xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi đăng không?',
-          };
+      // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu phát hiện từ ngữ tiêu cực hoặc vi phạm (Toxic, Hate Speech, Violence)
+      const isTextViolation = textMod && ['Violence', 'Hate Speech', 'Toxic'].includes(textMod.label);
+      const isViolationOrNegative = isTextViolation || harmonized.applyCooldown;
+
+      if (isViolationOrNegative && !forcePost) {
+        let nudgeMsg = 'Chúng tôi nhận thấy bài viết của bạn có thể chứa từ ngữ tiêu cực hoặc xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi đăng không?';
+        let warningType = 'toxic';
+
+        if (harmonized.finalLabel === 'Violence') {
+          nudgeMsg = 'Chúng tôi nhận thấy bài viết của bạn có thể chứa từ ngữ bạo lực hoặc đe dọa người khác. Bạn có muốn xem lại và chỉnh sửa trước khi đăng không?';
+          warningType = 'violence';
+        } else if (harmonized.finalLabel === 'Hate Speech') {
+          nudgeMsg = 'Chúng tôi nhận thấy bài viết của bạn có thể chứa ngôn từ mang tính thù ghét hoặc kích động. Bạn có muốn xem lại và chỉnh sửa trước khi đăng không?';
+          warningType = 'hate_speech';
         }
+
+        return {
+          nudge: true,
+          warningType,
+          predictedLabel: harmonized.finalLabel || textMod?.label || 'Toxic',
+          message: nudgeMsg,
+        };
+      }
+
+      if (harmonized.applyCooldown) {
 
         // Người dùng đã được cảnh báo và chọn [Vẫn tiếp tục đăng] -> Kích hoạt ẩn bài và phạt Cooldown 10 phút
         const d = new Date(clock().getTime() + harmonized.cooldownMinutes * 60 * 1000);
@@ -166,7 +181,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       return post;
     },
 
-    async editPost({ user, postId, content, imageUrl }) {
+    async editPost({ user, postId, content, imageUrl, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để tiếp tục');
         error.statusCode = 401;
@@ -212,16 +227,98 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      const textMod = await moderateTextContent(normalizedContent);
+
       const imageModeration = imageUrl && imageModerationClient
         ? await imageModerationClient(imageUrl)
         : null;
       const heldModeration = holdViolent(imageModeration);
+
+      const harmonized = harmonizeModeration({
+        textMod,
+        imageModeration: heldModeration,
+        contentType: 'post',
+      });
+
+      // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu chỉnh sửa thành từ ngữ tiêu cực hoặc vi phạm
+      const isTextViolation = textMod && ['Violence', 'Hate Speech', 'Toxic'].includes(textMod.label);
+      const isViolationOrNegative = isTextViolation || harmonized.applyCooldown;
+
+      if (isViolationOrNegative && !forcePost) {
+        let nudgeMsg = 'Chúng tôi nhận thấy nội dung chỉnh sửa của bạn có thể chứa từ ngữ tiêu cực hoặc xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi lưu không?';
+        let warningType = 'toxic';
+
+        if (harmonized.finalLabel === 'Violence') {
+          nudgeMsg = 'Chúng tôi nhận thấy nội dung chỉnh sửa của bạn có thể chứa từ ngữ bạo lực hoặc đe dọa người khác. Bạn có muốn xem lại và chỉnh sửa trước khi lưu không?';
+          warningType = 'violence';
+        } else if (harmonized.finalLabel === 'Hate Speech') {
+          nudgeMsg = 'Chúng tôi nhận thấy nội dung chỉnh sửa của bạn có thể chứa ngôn từ mang tính thù ghét hoặc kích động. Bạn có muốn xem lại và chỉnh sửa trước khi lưu không?';
+          warningType = 'hate_speech';
+        }
+
+        return {
+          nudge: true,
+          warningType,
+          predictedLabel: harmonized.finalLabel || textMod?.label || 'Toxic',
+          message: nudgeMsg,
+        };
+      }
+
+      if (harmonized.applyCooldown) {
+        // Cố tình sửa thành bạo lực -> Phạt Cooldown 10 phút và ẩn bài
+        const d = new Date(clock().getTime() + harmonized.cooldownMinutes * 60 * 1000);
+        if (postRepository.pool) {
+          await postRepository.pool.query(
+            `UPDATE users
+             SET status = 'cooldown', cooldown_until = $1, cooldown_reason = 'Vi phạm bạo lực khi chỉnh sửa bài viết', cooldown_violation_text = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [d.toISOString(), normalizedContent || '[Hình ảnh bạo lực]', user.id]
+          );
+        }
+
+        const hiddenPost = await postRepository.updatePost({
+          postId,
+          authorId: user.id,
+          content: normalizedContent,
+          imageUrl: normalizeImageUrl(imageUrl),
+          aiStatus: 'hidden',
+          aiLabel: harmonized.finalLabel,
+          aiConfidence: harmonized.confidence,
+          ...(heldModeration ? { imageModeration: heldModeration } : !normalizeImageUrl(imageUrl) ? { imageModeration: { decision: null, label: null, images: [], thresholds: null } } : {}),
+        });
+
+        if (postRepository.pool && harmonized.notificationMessage) {
+          const cleanPostId = Number(String(hiddenPost?.id || postId || '').replace(/\D/g, '')) || null;
+          try {
+            await postRepository.pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+              [user.id, null, harmonized.notificationMessage, cleanPostId]
+            );
+          } catch (notifErr) {
+            console.error('Lỗi gửi thông báo kiểm duyệt bài viết khi chỉnh sửa:', notifErr.message);
+          }
+        }
+
+        const error = new Error('Nội dung chỉnh sửa vi phạm tiêu chuẩn bạo lực. Bài viết đã bị ẩn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.');
+        error.statusCode = 403;
+        error.cooldown = {
+          status: 'cooldown',
+          cooldown_until: d.toISOString(),
+          cooldown_reason: 'Vi phạm bạo lực khi chỉnh sửa bài viết',
+        };
+        error.post = hiddenPost;
+        throw error;
+      }
 
       const post = await postRepository.updatePost({
         postId,
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeImageUrl(imageUrl),
+        aiStatus: harmonized.aiStatus,
+        aiLabel: harmonized.finalLabel,
+        aiConfidence: harmonized.confidence,
         ...(heldModeration
           ? { imageModeration: heldModeration }
           : !normalizeImageUrl(imageUrl)
