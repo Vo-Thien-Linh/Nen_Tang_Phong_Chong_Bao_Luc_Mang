@@ -179,6 +179,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         setNudgeData({
           message: result.message,
           contentSnippet: content.trim(),
+          warningType: result.warningType,
+          predictedLabel: result.predictedLabel,
         });
         return;
       }
@@ -193,7 +195,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setMessage('Đăng bài thành công');
     } catch (error) {
       if (error.cooldown) {
-        onAddPost(null, error.cooldown);
+        onAddPost(null, error.cooldown, { content: content.trim(), imageUrl: finalImageUrl, label: 'Violence' });
       }
       const msg = error.message === 'Failed to fetch'
         ? 'Không thể kết nối đến máy chủ bài viết (cổng 5000). Vui lòng kiểm tra backend server.'
@@ -383,6 +385,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         isOpen={Boolean(nudgeData)}
         message={nudgeData?.message}
         targetType="bài viết"
+        warningType={nudgeData?.warningType}
         contentSnippet={nudgeData?.contentSnippet}
         isSubmitting={isSubmitting}
         onEdit={() => {

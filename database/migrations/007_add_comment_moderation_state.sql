@@ -1,0 +1,3 @@
+ALTER TABLE comments
+    ADD COLUMN IF NOT EXISTS is_soft_hidden BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS ai_status VARCHAR(20) DEFAULT 'approved';

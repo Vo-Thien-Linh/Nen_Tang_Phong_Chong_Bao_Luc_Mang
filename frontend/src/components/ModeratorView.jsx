@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   AlertTriangle, FileText, MessageSquare, 
   Search, EyeOff, ArrowLeft, CheckCircle2,
@@ -11,6 +11,9 @@ import VerifiedBadge from './VerifiedBadge';
 import ReportResolutionModal from './ReportResolutionModal';
 import AppealResolutionModal from './AppealResolutionModal';
 import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exportUtils';
+import { fetchPendingImageModeration, fetchImageAppealQueue, reviewImageModeration } from '../api/client';
+import { applyImageReviewQueueResult, getImageReviewFailure, getImageReviewLoadFailure } from '../utils/imageModerationReviewLogic';
+import ImageModerationQueue from './ImageModerationQueue';
 
 /**
  * Khu vực Kiểm duyệt nội dung (Moderator View)
@@ -46,13 +49,53 @@ export default function ModeratorView({
   const [isResolvingReport, setIsResolvingReport] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: '' }
+  const [imageReviewItems, setImageReviewItems] = useState([]);
+  const [imageAppealItems, setImageAppealItems] = useState([]);
+  const [pendingImageDecision, setPendingImageDecision] = useState(null);
   const appealsPerPage = 10;
+
+  const loadImageQueues = async () => {
+    if (!currentUser?.id) return;
+    const [first, final] = await Promise.all([
+      fetchPendingImageModeration(currentUser.id),
+      fetchImageAppealQueue(currentUser.id),
+    ]);
+    setImageReviewItems(first.data || []);
+    setImageAppealItems(final.data || []);
+  };
+
+  useEffect(() => {
+    loadImageQueues().catch(() => setToast(getImageReviewLoadFailure()));
+  }, [currentUser?.id]);
+
+  const handleImageDecision = async (item, stage, decision) => {
+    const key = `${item.type}-${item.id}`;
+    if (pendingImageDecision) return;
+    setPendingImageDecision(key);
+    try {
+      await reviewImageModeration({ userId: currentUser?.id, contentType: item.type, id: item.id, stage, decision });
+      const setItems = stage === 'first' ? setImageReviewItems : setImageAppealItems;
+      setItems((previous) => applyImageReviewQueueResult(previous, item, { succeeded: true }));
+      setToast({ type: 'success', message: stage === 'first' ? 'Đã duyệt ảnh thành công.' : 'Đã giải quyết khiếu nại ảnh.' });
+    } catch (error) {
+      const failure = getImageReviewFailure(error);
+      if (failure.removeItem) {
+        const setItems = stage === 'first' ? setImageReviewItems : setImageAppealItems;
+        setItems((previous) => applyImageReviewQueueResult(previous, item, { status: 409 }));
+      }
+      setToast(failure.toast);
+    } finally {
+      setPendingImageDecision(null);
+      setTimeout(() => setToast(null), 4500);
+    }
+  };
 
   const handleManualRefresh = async () => {
     if (!onRefresh) return;
     setIsRefreshing(true);
     try {
       await onRefresh();
+      await loadImageQueues();
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);
     }
@@ -233,6 +276,20 @@ export default function ModeratorView({
       {/* Tabs điều hướng cấp 1 */}
       <div className="flex items-center gap-2 mt-6 border-b border-slate-200 pb-px">
         <button
+          onClick={() => setActiveTab('image-review')}
+          className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${activeTab === 'image-review' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+        >
+          <Eye className="w-4 h-4" /><span>Duyệt ảnh</span>
+          {imageReviewItems.length > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{imageReviewItems.length}</span>}
+        </button>
+        <button
+          onClick={() => setActiveTab('image-appeals')}
+          className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${activeTab === 'image-appeals' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+        >
+          <Scale className="w-4 h-4" /><span>Duyệt khiếu nại</span>
+          {imageAppealItems.length > 0 && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{imageAppealItems.length}</span>}
+        </button>
+        <button
           onClick={() => setActiveTab('appeals')}
           className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${
             activeTab === 'appeals'
@@ -303,6 +360,26 @@ export default function ModeratorView({
 
       {/* NỘI DUNG TỪNG PHÂN HỆ */}
       <div className="mt-6">
+
+        {activeTab === 'image-review' && (
+          <ImageModerationQueue
+            items={imageReviewItems}
+            stage="first"
+            pendingKey={pendingImageDecision}
+            onDecision={handleImageDecision}
+            emptyText="Không có ảnh nào đang chờ duyệt"
+          />
+        )}
+
+        {activeTab === 'image-appeals' && (
+          <ImageModerationQueue
+            items={imageAppealItems}
+            stage="final"
+            pendingKey={pendingImageDecision}
+            onDecision={handleImageDecision}
+            emptyText="Không có khiếu nại nào đang chờ duyệt"
+          />
+        )}
         
         {/* TAB 1: KHIẾU NẠI (APPEALS) */}
         {activeTab === 'appeals' && (
@@ -690,11 +767,22 @@ export default function ModeratorView({
                                 <strong>Báo cáo ĐÚNG:</strong> Đã xác nhận vi phạm &amp; gán lại nhãn <strong className="uppercase underline">{report.newLabel || 'Toxic'}</strong>
                               </span>
                             </div>
-                            {report.adminNotes && (
-                              <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
-                                Ghi chú: {report.adminNotes}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {report.adminNotes && (
+                                <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
+                                  Ghi chú: {report.adminNotes}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReportForResolve(report)}
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 rounded-md shadow-2xs transition cursor-pointer shrink-0 flex items-center gap-1"
+                                title="Xem lại hoặc chỉnh sửa phán quyết này nếu duyệt nhầm"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                <span>Đổi phán quyết</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                         {report.status === 'dismissed' && (
@@ -705,11 +793,22 @@ export default function ModeratorView({
                                 <strong>Báo cáo SAI:</strong> Bác bỏ báo cáo &amp; giữ nguyên nhãn ban đầu (<strong>{report.oldLabel || 'Normal'}</strong>)
                               </span>
                             </div>
-                            {report.adminNotes && (
-                              <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
-                                Ghi chú: {report.adminNotes}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {report.adminNotes && (
+                                <span className="text-[11px] text-slate-500 italic max-w-sm truncate">
+                                  Ghi chú: {report.adminNotes}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReportForResolve(report)}
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 rounded-md shadow-2xs transition cursor-pointer shrink-0 flex items-center gap-1"
+                                title="Xem lại hoặc chỉnh sửa phán quyết này nếu duyệt nhầm"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                <span>Đổi phán quyết</span>
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

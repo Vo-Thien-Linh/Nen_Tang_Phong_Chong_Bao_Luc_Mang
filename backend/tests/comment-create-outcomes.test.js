@@ -11,7 +11,7 @@ test('comment creation returns all image moderation outcomes without a re-read',
       imageModerationClient: async () => ({
         decision,
         images: [{ scores: { safe: 0.05, nsfw: 0.1, violence: 0.85 } }],
-        thresholds: { appeal_window_minutes: 10 },
+        thresholds: {},
       }),
       postRepository: {
         async createComment(input) {
@@ -28,7 +28,6 @@ test('comment creation returns all image moderation outcomes without a re-read',
             image_moderation_safe: 0.05,
             image_moderation_nsfw: 0.1,
             image_moderation_violence: 0.85,
-            moderation_expires_at: decision === 'rejected' ? '2030-01-01T00:10:00.000Z' : null,
           };
         },
       },

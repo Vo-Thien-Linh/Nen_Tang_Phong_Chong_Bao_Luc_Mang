@@ -21,8 +21,7 @@ test('returns the inserted post when the author re-read is hidden', async () => 
     imageModeration: {
       decision: 'rejected_hold',
       images: [{ scores: { safe: 0.01, nsfw: 0.04, violence: 0.95 } }],
-      thresholds: { violence_reject: 0.8, appeal_window_minutes: 10 },
-      moderationExpiresAt: '2030-01-01T00:10:00.000Z',
+      thresholds: { violence_reject: 0.8 },
     },
   });
 

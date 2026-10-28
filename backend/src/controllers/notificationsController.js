@@ -13,10 +13,22 @@ function formatRelativeTime(createdAt) {
   if (diffHours < 24) return `${diffHours} giờ trước`;
 
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return 'Hôm qua';
   if (diffDays < 7) return `${diffDays} ngày trước`;
 
-  return createdDate.toLocaleDateString('vi-VN');
+  if (diffDays < 30) {
+    const diffWeeks = Math.floor(diffDays / 7);
+    return diffWeeks <= 1 ? 'tuần trước' : `${diffWeeks} tuần trước`;
+  }
+
+  if (diffDays < 365) {
+    const diffMonths = Math.max(1, Math.floor(diffDays / 30));
+    return `${diffMonths} tháng trước`;
+  }
+
+  const day = String(createdDate.getDate()).padStart(2, '0');
+  const month = String(createdDate.getMonth() + 1).padStart(2, '0');
+  const year = createdDate.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 export function createNotificationsController({ notificationRepository }) {
@@ -45,23 +57,31 @@ export function createNotificationsController({ notificationRepository }) {
           isRead: Boolean(row.is_read),
           createdAt: row.created_at,
           time: formatRelativeTime(row.created_at),
-          user: row.actor_id
+          user: ['ai_moderation', 'system', 'warning', 'report', 'appeal', 'report_receipt'].includes(row.type)
             ? {
-                id: row.actor_id,
-                name: row.actor_name || 'Người dùng',
-                username: row.actor_username || '',
-                avatar:
-                  row.actor_avatar ||
-                  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
-              }
-            : {
                 id: 'system',
-                name: 'Nexus Shield',
+                name: 'Thông báo hệ thống',
                 username: 'system',
-                avatar:
-                  'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
-              },
-          targetPost: row.target_post_id
+                avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
+              }
+            : row.actor_id
+              ? {
+                  id: row.actor_id,
+                  name: row.actor_name || 'Người dùng',
+                  username: row.actor_username || '',
+                  avatar:
+                    row.actor_avatar ||
+                    'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+                }
+              : {
+                  id: 'system',
+                  name: 'Thông báo hệ thống',
+                  username: 'system',
+                  avatar:
+                    'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
+                },
+          snapshot: row.payload || null,
+          targetPost: row.target_post_id && row.payload?.type !== 'moderation_removal'
             ? {
                 id: String(row.target_post_id),
                 contentSnippet: row.post_content

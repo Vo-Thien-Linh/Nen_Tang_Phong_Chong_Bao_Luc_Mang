@@ -12,7 +12,8 @@ import SettingsView from './components/SettingsView';
 import PostDetailView from './components/PostDetailView';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
-import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost } from './utils/creationFlowLogic';
+import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost, replacePostComments } from './utils/creationFlowLogic';
+import { handleRealtimeFeedEvent } from './utils/realtimeFeedLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
@@ -44,11 +45,13 @@ import {
   fetchAiOverridesList,
   createAiOverrideApi
 } from './api/client';
-import { applyUpdatedPostToList } from './utils/postActionLogic';
+import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
+import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
   clearPostNotice,
   countVisiblePosts,
+  isHardHiddenPost,
   markDeletedPostNotice,
   markEditPostNotice,
   removeDeletedNotice,
@@ -624,43 +627,7 @@ export default function App() {
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          if (payload.type === 'POST_SHARED') {
-            const { post: sharedPost, originalPostId } = payload;
-            setPosts((prev) => {
-              const exists = prev.some((p) => String(p.id) === String(sharedPost.id));
-              const updated = prev.map((p) =>
-                String(p.id) === String(originalPostId)
-                  ? { ...p, sharesCount: (p.sharesCount || 0) + 1 }
-                  : p
-              );
-              return exists ? updated : [sharedPost, ...updated];
-            });
-          } else if (payload.type === 'POST_CREATED') {
-            const newPost = payload.post;
-            setPosts((prev) => {
-              if (prev.some((p) => String(p.id) === String(newPost.id))) return prev;
-              return [newPost, ...prev];
-            });
-          } else if (payload.type === 'POST_DELETED') {
-            const deletedId = payload.postId;
-            setPosts((prev) => prev.filter((p) => String(p.id) !== String(deletedId)));
-          } else if (payload.type === 'COMMENT_CREATED') {
-            const { postId, comment } = payload;
-            setPosts((prev) =>
-              prev.map((p) => {
-                if (String(p.id) === String(postId)) {
-                  const commentExists = (p.comments || []).some((c) => String(c.id) === String(comment.id));
-                  if (commentExists) return p;
-                  return {
-                    ...p,
-                    commentsCount: (p.commentsCount || 0) + 1,
-                    comments: [...(p.comments || []), comment],
-                  };
-                }
-                return p;
-              })
-            );
-          }
+          setPosts((prev) => handleRealtimeFeedEvent(prev, payload));
         } catch (parseErr) {
           console.warn('Realtime parse error:', parseErr);
         }
@@ -677,7 +644,7 @@ export default function App() {
   }, []);
 
   // Thêm bài viết mới
-  const handleAddPost = (newPost, cooldown) => {
+  const handleAddPost = (newPost, cooldown, violationInfo) => {
     if (!currentUser) {
       handleRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
       return;
@@ -694,7 +661,56 @@ export default function App() {
         ...prev,
         ...cooldownData
       }));
+
+      // Bắn thông báo xử phạt AI cho tác giả kèm nút kháng cáo
+      addLocalNotification({
+        id: `notif-ai-violence-${Date.now()}`,
+        type: 'ai_moderation',
+        user: {
+          id: 'system',
+          name: 'Thông báo hệ thống',
+          avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
+        },
+        content: 'Bài viết của bạn đã bị AI ẩn và tài khoản bị tạm khóa 10 phút do vi phạm chính sách về Bạo lực (Violence). Bạn có thể gửi kháng cáo nếu đây là sự nhầm lẫn của AI.',
+        time: 'Vừa xong',
+        isRead: false,
+        targetPost: violationInfo?.content ? {
+          id: String(newPost?.id || 'post-violence'),
+          contentSnippet: violationInfo.content,
+          image: violationInfo.imageUrl || null
+        } : null,
+        aiStatus: {
+          label: 'Violence',
+          confidence: 0.95,
+          action: 'hide'
+        }
+      });
+    } else if (newPost?.aiStatus?.status === 'hidden' || newPost?.moderationStatus === 'hidden') {
+      const label = newPost?.aiStatus?.label || newPost?.aiLabel || 'Hate Speech';
+      addLocalNotification({
+        id: `notif-ai-hidden-${Date.now()}`,
+        type: 'ai_moderation',
+        user: {
+          id: 'system',
+          name: 'Thông báo hệ thống',
+          avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
+        },
+        content: `Bài viết của bạn đã bị AI ẩn do vi phạm chính sách về ${label === 'Hate Speech' ? 'Ngôn từ thù ghét (Hate Speech)' : label}. Bạn có thể gửi kháng cáo nếu đây là sự nhầm lẫn của AI.`,
+        time: 'Vừa xong',
+        isRead: false,
+        targetPost: {
+          id: String(newPost.id),
+          contentSnippet: newPost.content,
+          image: newPost.image || null
+        },
+        aiStatus: {
+          label,
+          confidence: newPost?.aiStatus?.confidence || 0.95,
+          action: 'hide'
+        }
+      });
     }
+
     const postId = String(newPost?.id || '');
     const alreadyAdded = !postId || createdPostIdsRef.current.has(postId);
     if (alreadyAdded) return;
@@ -728,6 +744,29 @@ export default function App() {
   };
 
   const handleUpdatePost = async (postId, changes) => {
+    if (Array.isArray(changes?.comments)) {
+      setPosts((previous) => previous.map((post) => String(post.id) === String(postId)
+        ? replacePostComments(post, changes.comments, changes.commentsCount)
+        : post));
+      return changes;
+    }
+    if (changes?.imageModeration || changes?.commentModeration) {
+      setPosts((previous) => previous.flatMap((post) => {
+        if (String(post.id) !== String(postId)) return [post];
+        if (changes.imageModeration) {
+          if (changes.imageModeration.status === 'rejected_final') return [];
+          return [{ ...post, imageModeration: changes.imageModeration }];
+        }
+        const { id: commentId, ...commentChanges } = changes.commentModeration;
+        return [{
+          ...post,
+          comments: (post.comments || []).map((comment) => String(comment.id) === String(commentId)
+            ? { ...comment, ...commentChanges }
+            : comment),
+        }];
+      }));
+      return changes;
+    }
     if (!currentUser?.id) {
       handleRequireAuth("Vui lòng đăng nhập để tiếp tục");
       throw new Error('Vui lòng đăng nhập để tiếp tục');
@@ -739,7 +778,13 @@ export default function App() {
         postId,
         content: changes.content,
         imageUrl: changes.imageUrl,
+        forcePost: changes.forcePost,
       });
+
+      if (result?.nudge) {
+        return result;
+      }
+
       const updatedPost = result.data;
       setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
       return updatedPost;
@@ -761,17 +806,13 @@ export default function App() {
     }
 
     try {
-      await deletePost({ userId: currentUser.id, postId });
-      setPosts(prev => prev.map(post => (
-        String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
-      )));
+      await runPostDeleteAction({
+        deleteRequest: () => deletePost({ userId: currentUser.id, postId }),
+        onSuccess: () => setPosts(prev => prev.map(post => (
+          String(post.id) === String(postId) ? markDeletedPostNotice(post) : post
+        ))),
+      });
     } catch (error) {
-      if (error.status === 404) {
-        setPosts(prev => prev.map(post => (
-          String(post.id) === String(postId) ? markDeletedPostNotice(post, 'Bài viết không tồn tại') : post
-        )));
-        throw new Error('Bài viết không tồn tại');
-      }
       throw new Error(error.message || 'Xóa bài viết thất bại');
     }
   };
@@ -881,12 +922,14 @@ export default function App() {
     // Gửi thông báo hệ thống xác nhận cho người báo cáo
     const notif = {
       id: `notif-${Date.now()}`,
-      type: 'system',
+      type: 'report_receipt',
+      isReceipt: true,
       user: {
-        name: 'Nexus Admin Shield',
+        name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
       },
       content: `Báo cáo của bạn về nội dung của ${reportData.targetAuthor?.name || 'thành viên'} đã được tiếp nhận và chuyển đến Quản trị viên.`,
+      createdAt: new Date().toISOString(),
       time: 'Vừa xong',
       isRead: false
     };
@@ -954,6 +997,31 @@ export default function App() {
           })));
         }
 
+        // Tự động gửi thông báo xử phạt tới tác giả bài viết để tác giả có thể bấm "Gửi kháng cáo"
+        addLocalNotification({
+          id: `notif-admin-sanction-${Date.now()}`,
+          type: 'ai_moderation',
+          user: {
+            id: 'admin_moderator',
+            name: 'Thông báo hệ thống',
+            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
+          },
+          content: `Nội dung của bạn đã bị Quản trị viên gắn nhãn vi phạm (${newLabel}) sau khi xác minh báo cáo và đã bị ẩn. Bạn có thể gửi đơn kháng cáo nếu cho rằng quyết định này chưa chuẩn xác.`,
+          time: 'Vừa xong',
+          isRead: false,
+          targetPostId: report?.targetId,
+          targetPost: {
+            id: String(report?.targetId || ''),
+            contentSnippet: report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
+            image: report?.imageUrl || null
+          },
+          aiStatus: {
+            label: newLabel,
+            confidence: 1.0,
+            action: 'hide'
+          }
+        });
+
         const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
         if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
           if (newLabel === 'Violence') {
@@ -1015,7 +1083,16 @@ export default function App() {
         console.warn('Lỗi gọi API resolveReportApi:', e.message);
       }
     } else {
-      // BÁO CÁO SAI: Giữ nguyên nhãn cũ, không ẩn nội dung!
+      // BÁO CÁO SAI: Giữ nguyên nhãn cũ hoặc khôi phục hiển thị nội dung nếu trước đó từng bị ẩn nhầm!
+      if (report && report.targetType === 'post') {
+        setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : p));
+      } else if (report && report.targetType === 'comment') {
+        setPosts(prev => prev.map(p => ({
+          ...p,
+          comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: false, is_hidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : c)
+        })));
+      }
+
       try {
         await resolveReportApi({
           reportId,
@@ -1084,10 +1161,11 @@ export default function App() {
       id: `notif-${Date.now()}`,
       type: 'system',
       user: {
-        name: 'Nexus Appeals Team',
+        name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
       },
       content: 'Đơn khiếu nại kiểm duyệt của bạn đã được gửi. Quản trị viên sẽ kiểm tra ngữ cảnh thủ công sớm nhất.',
+      createdAt: new Date().toISOString(),
       time: 'Vừa xong',
       isRead: false
     };
@@ -1219,10 +1297,11 @@ export default function App() {
         id: `notif-${Date.now()}`,
         type: 'system',
         user: {
-          name: 'Nexus Support Admin',
+          name: 'Thông báo hệ thống',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
         },
         content: notifMsg,
+        createdAt: new Date().toISOString(),
         time: 'Vừa xong',
         isRead: false
       };
@@ -1329,7 +1408,7 @@ export default function App() {
       const notif = {
         id: `notif-${Date.now()}`,
         type: 'system',
-        user: { name: 'Admin Security', avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200' },
+        user: { name: 'Thông báo hệ thống', avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200' },
         content: `Tài khoản của bạn vừa bị cập nhật trạng thái: ${status === 'banned' ? 'Khóa vĩnh viễn' : 'Tạm khóa Cooldown'}.`,
         time: 'Vừa xong',
         isRead: false
@@ -1416,7 +1495,7 @@ export default function App() {
         {activeTab === 'home' && (
           <HomeView 
             currentUser={currentUser}
-            posts={posts.filter(p => !p.isHidden)}
+            posts={posts.filter(p => !isHardHiddenPost(p))}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
@@ -1457,7 +1536,7 @@ export default function App() {
         {activeTab === 'post' && viewedPostDetail && (
           <PostDetailView
             postId={viewedPostDetail.postId}
-            post={viewedPostDetail.post}
+            post={posts.find((item) => String(item.id) === String(viewedPostDetail.postId)) || viewedPostDetail.post}
             meta={viewedPostDetail.meta}
             currentUser={currentUser}
             onBack={() => {
@@ -1475,8 +1554,8 @@ export default function App() {
             onRequireLogin={handleRequireLogin}
             onOpenProfile={handleOpenUserProfile}
             onEditPost={handleUpdatePost}
-            onDeletePost={(delPostId) => {
-              handleDeleteOwnPost(delPostId);
+            onDeletePost={async (delPostId) => {
+              await handleDeleteOwnPost(delPostId);
               handleTabChange(viewedPostDetail.previousTab || 'notifications');
             }}
             openPostMenuId={openPostMenuId}
@@ -1660,7 +1739,12 @@ export default function App() {
         notification={toastNotification}
         onClose={() => setToastNotification(null)}
         onClick={() => {
-          const targetId = toastNotification?.targetPost?.id || toastNotification?.targetPostId;
+          if (toastNotification?.snapshot?.type === 'moderation_removal') {
+            handleTabChange('notifications');
+            setToastNotification(null);
+            return;
+          }
+          const targetId = getNotificationNavigationTarget(toastNotification);
           if (targetId) {
             handleViewPost(targetId, {
               type: toastNotification.type,

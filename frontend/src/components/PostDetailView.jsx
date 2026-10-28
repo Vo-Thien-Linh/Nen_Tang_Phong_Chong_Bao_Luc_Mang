@@ -46,18 +46,10 @@ export default function PostDetailView({
     }
 
     // Kiểm tra xem bài viết có sẵn trong allPosts hoặc initialPosts không
-    const sourceList = Array.isArray(allPosts) && allPosts.length > 0 ? allPosts : initialPosts;
-    const cachedPost = sourceList.find(
-      (p) =>
-        String(p.id) === String(postId) ||
-        String(p.id) === String(postId).replace(/^post-/, '') ||
-        `post-${p.id}` === String(postId)
-    ) || initialPosts.find(
-      (p) =>
-        String(p.id) === String(postId) ||
-        String(p.id) === String(postId).replace(/^post-/, '') ||
-        `post-${p.id}` === String(postId)
-    );
+    // 1. Kiểm tra xem bài viết đã có sẵn trong danh sách bài viết hiện tại (allPosts) không
+    const cachedPost = Array.isArray(allPosts) && allPosts.length > 0
+      ? allPosts.find((p) => String(p.id) === String(postId))
+      : null;
 
     if (cachedPost) {
       setPost(cachedPost);
@@ -65,6 +57,7 @@ export default function PostDetailView({
       return;
     }
 
+    // 2. Tải trực tiếp bài viết chính xác từ Backend API qua postId
     let isMounted = true;
     setIsLoading(true);
     setErrorMessage('');
@@ -82,17 +75,7 @@ export default function PostDetailView({
       .catch((err) => {
         if (!isMounted) return;
         console.warn('Lỗi khi tải chi tiết bài viết:', err);
-        const fallback = initialPosts.find(
-          (p) =>
-            String(p.id) === String(postId) ||
-            String(p.id) === String(postId).replace(/^post-/, '') ||
-            `post-${p.id}` === String(postId)
-        );
-        if (fallback) {
-          setPost(fallback);
-        } else {
-          setErrorMessage('Không thể tải bài viết này. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.');
-        }
+        setErrorMessage('Không thể tải bài viết này. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.');
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);

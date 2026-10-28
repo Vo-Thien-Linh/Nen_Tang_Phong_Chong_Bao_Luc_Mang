@@ -1,21 +1,27 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Image as ImageIcon, Save } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
+import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 
 export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [content, setContent] = useState(post?.content || '');
-  const [imageUrl, setImageUrl] = useState(post?.image || '');
+  const [imageUrl, setImageUrl] = useState(post?.image || post?.image_url || '');
   const [imagePreview, setImagePreview] = useState('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [nudgeData, setNudgeData] = useState(null);
+  const imageUploadIdRef = useRef(0);
 
   if (!isOpen || !post) return null;
 
   const handleImageChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    event.target.value = '';
 
     const validation = validateImageFile(file);
     if (!validation.valid) {
@@ -25,30 +31,52 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     }
 
     setErrorMessage('');
+    const uploadId = ++imageUploadIdRef.current;
+    setIsUploadingImage(true);
     setImagePreview(URL.createObjectURL(file));
     try {
       const uploadedUrl = await uploadPostImage(file);
-      setImageUrl(uploadedUrl);
+      if (uploadId === imageUploadIdRef.current) setImageUrl(uploadedUrl);
     } catch (error) {
+      if (uploadId !== imageUploadIdRef.current) return;
       setImagePreview('');
       setErrorMessage(error.message || 'Tải ảnh thất bại');
+    } finally {
+      if (uploadId === imageUploadIdRef.current) setIsUploadingImage(false);
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (event, forcePost = false) => {
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
     if (!content.trim()) {
       setErrorMessage('Nội dung không được để trống');
+      return;
+    }
+    if (isUploadingImage) {
+      setErrorMessage('Vui lòng chờ ảnh tải lên xong trước khi lưu');
       return;
     }
 
     setIsSaving(true);
     setErrorMessage('');
     try {
-      await onSave({
+      const result = await onSave({
         content: content.trim(),
         imageUrl: imageUrl || null,
+        forcePost,
       });
+
+      if (result?.nudge) {
+        setNudgeData({
+          message: result.message,
+          contentSnippet: content.trim(),
+          warningType: result.warningType,
+          predictedLabel: result.predictedLabel,
+        });
+        return;
+      }
     } catch (error) {
       setErrorMessage(error.message || 'Cập nhật bài viết thất bại');
     } finally {
@@ -56,8 +84,8 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-3 py-6" onMouseDown={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 px-3 py-6" onMouseDown={onClose}>
       <form
         onSubmit={handleSubmit}
         onMouseDown={(event) => event.stopPropagation()}
@@ -94,6 +122,8 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
             src={imagePreview || imageUrl}
             alt="Ảnh đính kèm bài viết"
             onRemove={() => {
+              imageUploadIdRef.current += 1;
+              setIsUploadingImage(false);
               setImageUrl('');
               setImagePreview('');
             }}
@@ -112,7 +142,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
           </button>
           <button
             type="submit"
-            disabled={isSaving}
+            disabled={isSaving || isUploadingImage}
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
@@ -120,6 +150,23 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
           </button>
         </div>
       </form>
-    </div>
+
+      <FriendlyNudgeModal
+        isOpen={Boolean(nudgeData)}
+        message={nudgeData?.message}
+        targetType="bài viết"
+        warningType={nudgeData?.warningType}
+        contentSnippet={nudgeData?.contentSnippet}
+        isSubmitting={isSaving}
+        onEdit={() => {
+          setNudgeData(null);
+        }}
+        onConfirmForce={async () => {
+          setNudgeData(null);
+          await handleSubmit(null, true);
+        }}
+      />
+    </div>,
+    document.body
   );
 }
