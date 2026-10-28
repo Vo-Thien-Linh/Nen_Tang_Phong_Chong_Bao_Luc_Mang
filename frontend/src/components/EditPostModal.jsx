@@ -46,7 +46,10 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     }
   };
 
-  const doSave = async (forcePost = false) => {
+  const handleSubmit = async (event, forcePost = false) => {
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
     if (!content.trim()) {
       setErrorMessage('Nội dung không được để trống');
       return;
@@ -74,18 +77,11 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
         });
         return;
       }
-
-      onClose();
     } catch (error) {
       setErrorMessage(error.message || 'Cập nhật bài viết thất bại');
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    await doSave(false);
   };
 
   return createPortal(
@@ -167,7 +163,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
         }}
         onConfirmForce={async () => {
           setNudgeData(null);
-          await doSave(true);
+          await handleSubmit(null, true);
         }}
       />
     </div>,

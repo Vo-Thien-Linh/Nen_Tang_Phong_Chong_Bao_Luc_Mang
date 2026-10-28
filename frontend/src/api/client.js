@@ -53,10 +53,17 @@ export async function createPost({ userId, content, imageUrl, forcePost }) {
 }
 
 export async function updatePost({ userId, postId, content, imageUrl, forcePost }) {
+  if (forcePost) {
+    return request(`/api/posts/${postId}`, {
+      method: 'PUT',
+      headers: userId ? { 'x-user-id': userId } : {},
+      body: JSON.stringify({ content, imageUrl, forcePost: true }),
+    });
+  }
   return request(`/api/posts/${postId}`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl, forcePost: Boolean(forcePost) }),
+    body: JSON.stringify({ content, imageUrl }),
   });
 }
 
