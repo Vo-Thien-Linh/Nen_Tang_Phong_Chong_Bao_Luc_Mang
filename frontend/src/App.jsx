@@ -51,6 +51,7 @@ import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
   clearPostNotice,
   countVisiblePosts,
+  isHardHiddenPost,
   markDeletedPostNotice,
   markEditPostNotice,
   removeDeletedNotice,
@@ -1488,7 +1489,7 @@ export default function App() {
         {activeTab === 'home' && (
           <HomeView 
             currentUser={currentUser}
-            posts={posts.filter(p => !p.isHidden)}
+            posts={posts.filter(p => !isHardHiddenPost(p))}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}

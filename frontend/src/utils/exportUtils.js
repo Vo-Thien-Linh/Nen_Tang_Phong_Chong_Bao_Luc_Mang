@@ -172,3 +172,143 @@ export function exportOverrideLogsToCSV(logs = [], customFileName) {
 
   return true;
 }
+
+/**
+ * Chuyển đổi dữ liệu các ca ảnh phân vân (pending_review) sang định dạng xuất file để huấn luyện (Retraining Dataset)
+ */
+export function formatUncertainItemsForExport(items = []) {
+  return items.map((item, index) => {
+    const scores = item.modelScores || {};
+    return {
+      'STT': index + 1,
+      'Loại nội dung': item.type === 'comment' ? 'Bình luận' : 'Bài viết',
+      'Tác giả': item.author?.name || 'Người dùng',
+      'Nội dung văn bản': item.text || item.content || '(Không có văn bản)',
+      'URL Hình ảnh phân vân': item.imageUrl || '',
+      'Nhãn AI dự đoán': item.modelLabel || 'Chưa rõ',
+      'Điểm An toàn (Safe)': scores.safe != null ? Number(scores.safe).toFixed(4) : '',
+      'Điểm Nhạy cảm (NSFW)': scores.nsfw != null ? Number(scores.nsfw).toFixed(4) : '',
+      'Điểm Bạo lực (Violence)': scores.violence != null ? Number(scores.violence).toFixed(4) : '',
+      'Trạng thái': 'Phân vân (Pending Review)',
+      'Thời gian ghi nhận': item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : ''
+    };
+  });
+}
+
+/**
+ * Xuất danh sách ảnh phân vân ra file Excel (.xlsx) để train AI
+ */
+export function exportUncertainItemsToExcel(items = [], customFileName) {
+  if (!Array.isArray(items) || items.length === 0) {
+    alert('Không có ảnh phân vân nào trong danh sách để xuất!');
+    return false;
+  }
+
+  try {
+    const dataRows = formatUncertainItemsForExport(items);
+    const headers = [
+      'STT',
+      'Loại nội dung',
+      'Tác giả',
+      'Nội dung văn bản',
+      'URL Hình ảnh phân vân',
+      'Nhãn AI dự đoán',
+      'Điểm An toàn (Safe)',
+      'Điểm Nhạy cảm (NSFW)',
+      'Điểm Bạo lực (Violence)',
+      'Trạng thái',
+      'Thời gian ghi nhận'
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(dataRows, { header: headers });
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 16 },
+      { wch: 22 },
+      { wch: 35 },
+      { wch: 50 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 22 },
+      { wch: 25 },
+      { wch: 22 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Anh_Phan_Van_De_Train');
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const fileName = customFileName || `Danh_sach_anh_phan_van_retrain_${dateStr}.xlsx`;
+
+    XLSX.writeFile(workbook, fileName);
+    return true;
+  } catch (err) {
+    console.error('Lỗi xuất Excel ảnh phân vân:', err);
+    return exportUncertainItemsToCSV(items, customFileName?.replace('.xlsx', '.csv'));
+  }
+}
+
+/**
+ * Xuất danh sách ảnh phân vân ra file CSV UTF-8 BOM
+ */
+export function exportUncertainItemsToCSV(items = [], customFileName) {
+  if (!Array.isArray(items) || items.length === 0) {
+    alert('Không có ảnh phân vân nào trong danh sách để xuất!');
+    return false;
+  }
+
+  const headers = [
+    'STT',
+    'Loại nội dung',
+    'Tác giả',
+    'Nội dung văn bản',
+    'URL Hình ảnh phân vân',
+    'Nhãn AI dự đoán',
+    'Điểm An toàn (Safe)',
+    'Điểm Nhạy cảm (NSFW)',
+    'Điểm Bạo lực (Violence)',
+    'Trạng thái',
+    'Thời gian ghi nhận'
+  ];
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const rows = items.map((item, index) => {
+    const scores = item.modelScores || {};
+    return [
+      escapeCsv(index + 1),
+      escapeCsv(item.type === 'comment' ? 'Bình luận' : 'Bài viết'),
+      escapeCsv(item.author?.name || 'Người dùng'),
+      escapeCsv(item.text || item.content || '(Không có văn bản)'),
+      escapeCsv(item.imageUrl || ''),
+      escapeCsv(item.modelLabel || 'Chưa rõ'),
+      escapeCsv(scores.safe != null ? Number(scores.safe).toFixed(4) : ''),
+      escapeCsv(scores.nsfw != null ? Number(scores.nsfw).toFixed(4) : ''),
+      escapeCsv(scores.violence != null ? Number(scores.violence).toFixed(4) : ''),
+      escapeCsv('Phân vân (Pending Review)'),
+      escapeCsv(item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '')
+    ].join(',');
+  });
+
+  const csvContent = '\uFEFF' + [headers.map(escapeCsv).join(','), ...rows].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  link.setAttribute('href', url);
+  link.setAttribute('download', customFileName || `Danh_sach_anh_phan_van_retrain_${dateStr}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  return true;
+}
