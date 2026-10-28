@@ -206,12 +206,26 @@ export function createPostsController({ postService, postRepository, imageModera
           postId: req.params.postId,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          forcePost: Boolean(req.body?.forcePost),
         });
 
+        if (post?.nudge) {
+          return res.status(200).json({
+            success: true,
+            nudge: true,
+            warningType: post.warningType || 'toxic',
+            predictedLabel: post.predictedLabel || 'Toxic',
+            message: post.message,
+          });
+        }
+
+        const mapped = mapPostToResponse(post, req.user?.id);
         res.json({
           success: true,
-          message: 'Cập nhật bài viết thành công',
-          data: mapPostToResponse(post, req.user?.id),
+          message: post.ai_status === 'hidden'
+            ? 'Bài viết đã được chỉnh sửa nhưng bị ẩn do vi phạm tiêu chuẩn cộng đồng.'
+            : 'Cập nhật bài viết thành công',
+          data: mapped,
         });
       } catch (error) {
         next(error);
@@ -300,18 +314,32 @@ export function createPostsController({ postService, postRepository, imageModera
 
         const forceComment = Boolean(req.body?.forceComment);
 
+        // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu bình luận chứa từ ngữ tiêu cực hoặc vi phạm (Toxic, Hate Speech, Violence)
+        const isTextViolation = textMod && ['Violence', 'Hate Speech', 'Toxic'].includes(textMod.label);
+        const isViolationOrNegative = isTextViolation || harmonized.applyCooldown;
+
+        if (isViolationOrNegative && !forceComment) {
+          let nudgeMsg = 'Chúng tôi nhận thấy bình luận của bạn có thể chứa từ ngữ tiêu cực hoặc xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi gửi không?';
+          let warningType = 'toxic';
+          if (harmonized.finalLabel === 'Violence') {
+            nudgeMsg = 'Chúng tôi nhận thấy bình luận của bạn có thể chứa từ ngữ bạo lực hoặc đe dọa người khác. Bạn có muốn xem lại và chỉnh sửa trước khi gửi không?';
+            warningType = 'violence';
+          } else if (harmonized.finalLabel === 'Hate Speech') {
+            nudgeMsg = 'Chúng tôi nhận thấy bình luận của bạn có thể chứa ngôn từ mang tính thù ghét hoặc kích động. Bạn có muốn xem lại và chỉnh sửa trước khi gửi không?';
+            warningType = 'hate_speech';
+          }
+
+          return res.status(200).json({
+            success: true,
+            nudge: true,
+            warningType,
+            predictedLabel: harmonized.finalLabel || textMod?.label || 'Toxic',
+            message: nudgeMsg,
+          });
+        }
+
         // Áp dụng Cooldown nếu vi phạm Bạo lực
         if (harmonized.applyCooldown) {
-          // NẾU CHƯA XÁC NHẬN "VẪN TIẾP TỤC ĐĂNG" (Friendly Nudge)
-          if (!forceComment) {
-            return res.status(200).json({
-              success: true,
-              nudge: true,
-              warningType: 'violence',
-              predictedLabel: harmonized.finalLabel || 'Violence',
-              message: 'Chúng tôi nhận thấy bình luận của bạn có thể chứa từ ngữ bạo lực/xúc phạm người khác. Bạn có muốn xem lại và chỉnh sửa trước khi gửi không?',
-            });
-          }
 
           // CỐ TÌNH BẤM GỬI -> PHẠT COOLDOWN VÀ ẨN BÌNH LUẬN
           const d = new Date(Date.now() + harmonized.cooldownMinutes * 60 * 1000);

@@ -8,7 +8,7 @@ import PostCard from './PostCard';
 import InlineNotice from './InlineNotice';
 import { suggestedFriends, trendingTopics } from '../data/mockData';
 import { DEFAULT_AVATAR } from '../constants/defaults';
-import { countVisiblePosts, isDeletedNoticePost } from '../utils/noticeLogic';
+import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
 
 export default function HomeView({ 
   currentUser, 
@@ -227,11 +227,13 @@ export default function HomeView({
     return result;
   };
 
+  const mainFeedPosts = (posts || []).filter(p => !isHardHiddenPost(p));
+
   const trimmedSearch = (searchQuery || '').trim().toLowerCase();
 
   let filteredPosts = feedFilter === 'following'
-    ? posts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
-    : rankAndInterleaveFeed(posts, refreshKey);
+    ? mainFeedPosts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
+    : rankAndInterleaveFeed(mainFeedPosts, refreshKey);
 
   if (trimmedSearch) {
     filteredPosts = filteredPosts.filter(p => {
@@ -282,7 +284,7 @@ export default function HomeView({
 
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
                 <div className="p-2 bg-slate-50 rounded-xl">
-                  <p className="text-sm font-black text-slate-800">{countVisiblePosts(posts.filter(p => p.author?.id === currentUser?.id))}</p>
+                  <p className="text-sm font-black text-slate-800">{countVisiblePosts(mainFeedPosts.filter(p => p.author?.id === currentUser?.id))}</p>
                   <p className="text-[10px] text-slate-400 font-medium">Bài viết</p>
                 </div>
                 <div className="p-2 bg-slate-50 rounded-xl">

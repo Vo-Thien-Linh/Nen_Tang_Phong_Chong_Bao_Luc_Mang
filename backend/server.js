@@ -1256,6 +1256,86 @@ app.get('/api/admin/ai-overrides/export', requireRole('moderator'), async (req, 
   }
 });
 
+
+// 5.12 Xuất file Excel / CSV danh sách ảnh phân vân (pending_review) để huấn luyện mô hình (Retraining Dataset)
+app.get('/api/admin/moderation/export-uncertain-excel', requireRole('moderator'), async (req, res) => {
+  try {
+    let items = [];
+    if (pool) {
+      const q = `
+        SELECT p.id, 'post' AS content_type, p.content, p.image_url, p.image_moderation_status,
+               p.image_moderation_safe, p.image_moderation_nsfw, p.image_moderation_violence,
+               p.created_at, u.full_name AS author_name
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.image_moderation_status = 'pending_review' AND p.image_url IS NOT NULL
+        UNION ALL
+        SELECT c.id, 'comment' AS content_type, c.content, c.image_url, c.image_moderation_status,
+               c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
+               c.created_at, u.full_name AS author_name
+        FROM comments c
+        JOIN users u ON u.id = c.author_id
+        WHERE c.image_moderation_status = 'pending_review' AND c.image_url IS NOT NULL
+        ORDER BY created_at DESC
+      `;
+      const result = await pool.query(q);
+      items = result.rows;
+    }
+
+    const columns = [
+      'STT',
+      'Loại nội dung',
+      'Tác giả',
+      'Nội dung văn bản',
+      'URL Hình ảnh phân vân',
+      'Điểm An toàn (Safe)',
+      'Điểm Nhạy cảm (NSFW)',
+      'Điểm Bạo lực (Violence)',
+      'Trạng thái',
+      'Thời gian đăng'
+    ];
+
+    const dataRows = items.map((item, index) => ({
+      'STT': index + 1,
+      'Loại nội dung': item.content_type === 'post' ? 'Bài viết' : 'Bình luận',
+      'Tác giả': item.author_name || 'Người dùng',
+      'Nội dung văn bản': item.content || '(Không có)',
+      'URL Hình ảnh phân vân': item.image_url || '',
+      'Điểm An toàn (Safe)': Number(item.image_moderation_safe ?? 0).toFixed(4),
+      'Điểm Nhạy cảm (NSFW)': Number(item.image_moderation_nsfw ?? 0).toFixed(4),
+      'Điểm Bạo lực (Violence)': Number(item.image_moderation_violence ?? 0).toFixed(4),
+      'Trạng thái': 'Phân vân (Pending Review)',
+      'Thời gian đăng': new Date(item.created_at).toLocaleString('vi-VN')
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataRows, { header: columns });
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 16 },
+      { wch: 22 },
+      { wch: 35 },
+      { wch: 50 },
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 25 },
+      { wch: 22 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Anh_Phan_Van_De_Train');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Danh_sach_anh_phan_van_retrain_${dateStr}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi xuất file Excel phân vân: ' + err.message });
+  }
+});
+
 // 5.11 Xuất file Excel (.xlsx) danh sách gắn nhãn sai chuẩn các cột A -> H
 app.get('/api/admin/ai-overrides/export-excel', requireRole('moderator'), async (req, res) => {
   try {

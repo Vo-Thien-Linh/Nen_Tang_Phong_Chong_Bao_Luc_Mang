@@ -51,6 +51,7 @@ import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import {
   clearPostNotice,
   countVisiblePosts,
+  isHardHiddenPost,
   markDeletedPostNotice,
   markEditPostNotice,
   removeDeletedNotice,
@@ -777,7 +778,13 @@ export default function App() {
         postId,
         content: changes.content,
         imageUrl: changes.imageUrl,
+        forcePost: changes.forcePost,
       });
+
+      if (result?.nudge) {
+        return result;
+      }
+
       const updatedPost = result.data;
       setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
       return updatedPost;
@@ -1488,7 +1495,7 @@ export default function App() {
         {activeTab === 'home' && (
           <HomeView 
             currentUser={currentUser}
-            posts={posts.filter(p => !p.isHidden)}
+            posts={posts.filter(p => !isHardHiddenPost(p))}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}

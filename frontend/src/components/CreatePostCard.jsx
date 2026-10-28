@@ -179,6 +179,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         setNudgeData({
           message: result.message,
           contentSnippet: content.trim(),
+          warningType: result.warningType,
+          predictedLabel: result.predictedLabel,
         });
         return;
       }
@@ -383,6 +385,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         isOpen={Boolean(nudgeData)}
         message={nudgeData?.message}
         targetType="bài viết"
+        warningType={nudgeData?.warningType}
         contentSnippet={nudgeData?.contentSnippet}
         isSubmitting={isSubmitting}
         onEdit={() => {

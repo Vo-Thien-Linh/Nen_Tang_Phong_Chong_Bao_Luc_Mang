@@ -260,7 +260,7 @@ export function createPostRepository({ pool }) {
       return result.rows[0] || null;
     },
 
-    async updatePost({ postId, authorId, content, imageUrl, imageModeration }) {
+    async updatePost({ postId, authorId, content, imageUrl, imageModeration, aiStatus, aiLabel, aiConfidence }) {
       const moderationFields = imageModeration ? `,
          image_moderation_status = $5,
          image_moderation_label = $6,
@@ -268,19 +268,46 @@ export function createPostRepository({ pool }) {
          image_moderation_nsfw = $8,
          image_moderation_violence = $9,
          image_moderation_thresholds = $10` : '';
-      const result = await pool.query(
-        `UPDATE posts
-         SET content = $3, image_url = $4${moderationFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1 AND author_id = $2
-           AND COALESCE(image_moderation_status, '') NOT IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final')
-         RETURNING id`,
-        [postId, authorId, content, imageUrl,
+
+      const values = [
+        postId,
+        authorId,
+        content,
+        imageUrl,
+      ];
+
+      if (imageModeration) {
+        values.push(
           imageModeration?.decision || null,
           imageModeration?.label || null,
           imageModeration?.images?.[0]?.scores?.safe ?? null,
           imageModeration?.images?.[0]?.scores?.nsfw ?? null,
           imageModeration?.images?.[0]?.scores?.violence ?? null,
-          imageModeration?.thresholds || null].slice(0, imageModeration ? 10 : 4)
+          imageModeration?.thresholds || null
+        );
+      }
+
+      let aiFields = '';
+      if (aiStatus !== undefined || aiLabel !== undefined) {
+        const nextIdx = values.length + 1;
+        aiFields = `,
+         ai_status = ${nextIdx},
+         ai_label = ${nextIdx + 1},
+         ai_confidence = ${nextIdx + 2}`;
+        values.push(
+          aiStatus || 'approved',
+          aiLabel || 'Normal',
+          aiConfidence !== undefined && aiConfidence !== null ? aiConfidence : 0.99
+        );
+      }
+
+      const result = await pool.query(
+        `UPDATE posts
+         SET content = $3, image_url = $4${moderationFields}${aiFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND author_id = $2
+           AND COALESCE(image_moderation_status, '') NOT IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final')
+         RETURNING id`,
+        values
       );
 
       if (!result.rows[0]) {
