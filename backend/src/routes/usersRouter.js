@@ -1,3 +1,4 @@
+﻿import { checkAndRecoverTrustScore, getUserTrustHistory, getTrustTier } from '../services/trustScoreService.js';
 import express from 'express';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
@@ -40,6 +41,8 @@ function formatUserProfile(row) {
     joinedDate: row.created_at
       ? new Date(row.created_at).toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })
       : '',
+    trustScore: row.trust_score != null ? Number(row.trust_score) : 100,
+    trustTier: getTrustTier(row.trust_score != null ? Number(row.trust_score) : 100),
   };
 }
 
@@ -89,6 +92,8 @@ export function createUsersRouter({ pool }) {
           cooldownUntil: u.cooldown_until,
           cooldownReason: u.cooldown_reason,
           createdAt: u.created_at,
+          trustScore: u.trust_score != null ? Number(u.trust_score) : 100,
+          trustTier: getTrustTier(u.trust_score != null ? Number(u.trust_score) : 100),
         })),
         pagination: {
           total: result.total,
@@ -384,5 +389,28 @@ export function createUsersRouter({ pool }) {
     }
   });
 
+
+  /**
+   * GET /api/users/:userId/trust-history
+   * Lấy lịch sử điểm uy tín của người dùng
+   * Yêu cầu đăng nhập; chỉ xem được của chính mình hoặc admin
+   */
+  router.get('/:userId/trust-history', requireAuth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const requesterId = req.user?.id;
+      const requesterRole = req.user?.role;
+
+      // Chỉ cho phép xem của chính mình hoặc admin
+      if (userId !== requesterId && requesterRole !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Bạn không có quyền xem lịch sử điểm uy tín này.' });
+      }
+
+      const history = await getUserTrustHistory({ pool, userId, limit: 30 });
+      res.json({ success: true, data: history });
+    } catch (err) {
+      next(err);
+    }
+  });
   return router;
 }

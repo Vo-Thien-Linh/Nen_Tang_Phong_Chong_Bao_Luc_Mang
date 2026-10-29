@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS users (
     cooldown_violation_text TEXT, -- Trích dẫn câu nói / bài viết khiến tài khoản bị phạt
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    edited_at TIMESTAMPTZ
+    edited_at TIMESTAMPTZ,
+    trust_score INT NOT NULL DEFAULT 100 CHECK (trust_score BETWEEN 0 AND 100),
+    last_trust_recovery_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -399,3 +401,17 @@ CREATE INDEX IF NOT EXISTS idx_verification_codes_email ON verification_codes(em
 CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON verification_codes(code);
 
 
+
+-- 15. BẢNG USER_TRUST_LOGS (Nhật ký Điểm uy tín người dùng)
+CREATE TABLE IF NOT EXISTS user_trust_logs (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    change_amount INT NOT NULL,
+    new_score INT NOT NULL,
+    reason TEXT NOT NULL,
+    action_type VARCHAR(50) NOT NULL,
+    content_id INT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_trust_logs_user_id ON user_trust_logs(user_id, created_at DESC);

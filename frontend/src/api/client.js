@@ -323,4 +323,8 @@ export async function createAiOverrideApi({ data, userId }) {
   });
 }
 
-
+export async function fetchUserTrustHistory(userId) {
+  return request(`/api/users/${userId}/trust-history`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
