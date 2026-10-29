@@ -1,3 +1,4 @@
+import { calculateTrustDeduction, applyTrustPenalty } from './trustScoreService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 
@@ -119,6 +120,26 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           }
         }
 
+        // Trừ điểm uy tín khi vi phạm bạo lực
+        const cpDeduction = calculateTrustDeduction(
+          harmonized.finalLabel || textMod?.label || 'Violence',
+          heldModeration?.decision || (harmonized.isImageViolence ? 'rejected_hold' : 'safe')
+        );
+        if (cpDeduction > 0 && postRepository.pool) {
+          try {
+            await applyTrustPenalty({
+              pool: postRepository.pool,
+              userId: user.id,
+              amount: cpDeduction,
+              reason: `Đăng bài viết vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+              actionType: 'post_violation',
+              contentId: hiddenPost?.id,
+            });
+          } catch (trustErr) {
+            console.error('Lỗi trừ điểm uy tín:', trustErr.message);
+          }
+        }
+
         const error = new Error('Nội dung vi phạm tiêu chuẩn bạo lực. Bài viết đã bị ẩn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.');
         error.statusCode = 403;
         error.cooldown = {
@@ -148,6 +169,26 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       const post = await postRepository.createPost(postInput);
+
+      // Trừ điểm uy tín nếu nội dung hoặc hình ảnh vi phạm (Toxic, Hate Speech, NSFW...)
+      const normalPostDeduction = calculateTrustDeduction(
+        harmonized.finalLabel || textMod?.label || 'Normal',
+        heldModeration?.decision || (harmonized.isImageNsfw ? 'sensitive' : 'safe')
+      );
+      if (normalPostDeduction > 0 && postRepository.pool) {
+        try {
+          await applyTrustPenalty({
+            pool: postRepository.pool,
+            userId: user.id,
+            amount: normalPostDeduction,
+            reason: `Đăng bài viết vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+            actionType: 'post_violation',
+            contentId: post?.id,
+          });
+        } catch (trustErr) {
+          console.error('Lỗi trừ điểm uy tín:', trustErr.message);
+        }
+      }
 
       // Tự động gửi thông báo kiểm duyệt về tài khoản khi bài viết bị ẩn do vi phạm
       if (postRepository.pool && harmonized.notificationMessage) {
@@ -300,6 +341,26 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           }
         }
 
+        // Trừ điểm uy tín khi chỉnh sửa thành bạo lực
+        const epDeduction = calculateTrustDeduction(
+          harmonized.finalLabel || textMod?.label || 'Violence',
+          heldModeration?.decision || (harmonized.isImageViolence ? 'rejected_hold' : 'safe')
+        );
+        if (epDeduction > 0 && postRepository.pool) {
+          try {
+            await applyTrustPenalty({
+              pool: postRepository.pool,
+              userId: user.id,
+              amount: epDeduction,
+              reason: `Chỉnh sửa bài viết vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+              actionType: 'post_edit_violation',
+              contentId: hiddenPost?.id || postId,
+            });
+          } catch (trustErr) {
+            console.error('Lỗi trừ điểm uy tín khi chỉnh sửa:', trustErr.message);
+          }
+        }
+
         const error = new Error('Nội dung chỉnh sửa vi phạm tiêu chuẩn bạo lực. Bài viết đã bị ẩn và bạn bị hạn chế đăng bài, bình luận trong 10 phút.');
         error.statusCode = 403;
         error.cooldown = {
@@ -325,6 +386,26 @@ export function createPostService({ postRepository, moderationHook, imageModerat
             ? { imageModeration: { decision: null, label: null, images: [], thresholds: null } }
             : {}),
       });
+
+      // Trừ điểm uy tín khi chỉnh sửa vi phạm (Toxic, Hate Speech, NSFW...)
+      const normalEditDeduction = calculateTrustDeduction(
+        harmonized.finalLabel || textMod?.label || 'Normal',
+        heldModeration?.decision || (harmonized.isImageNsfw ? 'sensitive' : 'safe')
+      );
+      if (normalEditDeduction > 0 && postRepository.pool) {
+        try {
+          await applyTrustPenalty({
+            pool: postRepository.pool,
+            userId: user.id,
+            amount: normalEditDeduction,
+            reason: `Chỉnh sửa bài viết vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+            actionType: 'post_edit_violation',
+            contentId: post?.id || postId,
+          });
+        } catch (trustErr) {
+          console.error('Lỗi trừ điểm uy tín khi chỉnh sửa:', trustErr.message);
+        }
+      }
 
       await moderationHook.afterPostEdited(post);
       return post;
