@@ -5,7 +5,7 @@ export function createUserRepository({ pool }) {
         `SELECT id, username, full_name, avatar_url, cover_url, role, is_verified,
                 bio, location, hometown, education, high_school, relationship_status,
                 phone, status, cooldown_until, cooldown_reason, cooldown_violation_text,
-                banned_until, ban_reason, created_at
+                banned_until, ban_reason, COALESCE(trust_score, 100) AS trust_score, last_trust_recovery_at, created_at
          FROM users
          WHERE id = $1`,
         [userId]
@@ -63,7 +63,7 @@ export function createUserRepository({ pool }) {
            u.education, u.high_school, u.relationship_status,
            u.phone, u.status, u.created_at,
            u.cooldown_until, u.cooldown_reason, u.cooldown_violation_text,
-           u.banned_until, u.ban_reason,
+           u.banned_until, u.ban_reason, COALESCE(u.trust_score, 100) AS trust_score, u.last_trust_recovery_at,
            (SELECT COUNT(*) FROM posts p
             WHERE p.author_id = u.id
               AND (
@@ -335,7 +335,7 @@ export function createUserRepository({ pool }) {
       const queryValues = [...values, limitNum, offset];
       const usersResult = await pool.query(
         `SELECT id, username, email, full_name, avatar_url, cover_url, role, status, is_verified, phone,
-                cooldown_until, cooldown_reason, banned_until, ban_reason, created_at
+                cooldown_until, cooldown_reason, banned_until, ban_reason, COALESCE(trust_score, 100) AS trust_score, last_trust_recovery_at, created_at
          FROM users
          ${whereClause}
          ORDER BY created_at DESC

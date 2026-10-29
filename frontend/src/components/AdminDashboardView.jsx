@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { 
   Users, LayoutDashboard, Shield, Search, RefreshCw, 
   ChevronLeft, ChevronRight, AlertCircle, CheckCircle, 
@@ -467,6 +467,7 @@ export default function AdminDashboardView({
                       <th className="py-3 px-4">Tích xanh</th>
                       <th className="py-3 px-4">Vai trò hiện tại</th>
                       <th className="py-3 px-4">Trạng thái</th>
+                                            <th className="py-3 px-4">&#272;i&#7875;m uy t&#237;n</th>
                       <th className="py-3 px-4 text-right">Phân vai trò</th>
                     </tr>
                   </thead>
@@ -581,7 +582,29 @@ export default function AdminDashboardView({
                           </td>
 
                           {/* Cột 6: Phân vai trò & Xử phạt */}
-                          <td className="py-3 px-4 text-right">
+                                                    {/* Cột ĐIểm uy tín */}
+                          <td className="py-3 px-4">
+                            {(() => {
+                              const score = user.trustScore ?? 100;
+                              const tier = user.trustTier ?? 'good';
+                              const styleMap = {
+                                good:       { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500', label: 'Xuất sắc' },
+                                fair:       { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    bar: 'bg-blue-500',    label: 'Tốt' },
+                                warning:    { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   bar: 'bg-amber-500',   label: 'Cảnh báo' },
+                                restricted: { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    bar: 'bg-rose-500',    label: 'Hạn chế' },
+                              };
+                              const s = styleMap[tier] || styleMap.good;
+                              return (
+                                <div className={`inline-flex flex-col gap-1 px-2 py-1 rounded-lg border ${s.bg} ${s.border}`}>
+                                  <div className={`text-[11px] font-bold ${s.text}`}>{score}/100 <span className="font-medium">({s.label})</span></div>
+                                  <div className="w-16 h-1 bg-white/70 rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full ${s.bar}`} style={{ width: `${score}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </td>
+<td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <select
                                 value={userRole}

@@ -1,3 +1,4 @@
+import { calculateTrustDeduction, applyTrustPenalty } from '../services/trustScoreService.js';
 import { realtimeService } from '../services/realtimeService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
@@ -374,6 +375,26 @@ export function createPostsController({ postService, postRepository, imageModera
             } catch (err) {}
           }
 
+          // Trừ điểm uy tín khi bình luận bạo lực
+          const commentViolentDeduction = calculateTrustDeduction(
+            harmonized.finalLabel || textMod?.label || 'Violence',
+            heldModeration?.decision || (harmonized.isImageViolence ? 'rejected_hold' : 'safe')
+          );
+          if (commentViolentDeduction > 0 && postRepository.pool) {
+            try {
+              await applyTrustPenalty({
+                pool: postRepository.pool,
+                userId: req.user.id,
+                amount: commentViolentDeduction,
+                reason: `Bình luận vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+                actionType: 'comment_violation',
+                contentId: hiddenComment?.id || postId,
+              });
+            } catch (trustErr) {
+              console.error('Lỗi trừ điểm uy tín khi bình luận:', trustErr.message);
+            }
+          }
+
           const commentCooldown = {
             status: 'cooldown',
             cooldown_until: d.toISOString(),
@@ -412,6 +433,26 @@ export function createPostsController({ postService, postRepository, imageModera
           isSoftHidden: harmonized.isSoftHidden,
           aiStatus: harmonized.aiStatus,
         });
+
+        // Trừ điểm uy tín nếu bình luận vi phạm (Toxic, Hate Speech, NSFW...)
+        const commentDeduction = calculateTrustDeduction(
+          harmonized.finalLabel || textMod?.label || 'Normal',
+          heldModeration?.decision || (harmonized.isImageNsfw ? 'sensitive' : 'safe')
+        );
+        if (commentDeduction > 0 && postRepository.pool) {
+          try {
+            await applyTrustPenalty({
+              pool: postRepository.pool,
+              userId: req.user.id,
+              amount: commentDeduction,
+              reason: `Bình luận vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+              actionType: 'comment_violation',
+              contentId: comment?.id || postId,
+            });
+          } catch (trustErr) {
+            console.error('Lỗi trừ điểm uy tín khi bình luận:', trustErr.message);
+          }
+        }
 
         const commentData = {
           id: String(comment.id),

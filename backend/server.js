@@ -1,3 +1,4 @@
+import { refundTrustPoints, applyTrustPenalty } from './src/services/trustScoreService.js';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -486,6 +487,19 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                    VALUES ($1, $2, 'system', 'Nội dung của bạn đã được thẩm định an toàn (Normal). Toàn bộ giới hạn và án phạt đã được gỡ bỏ.', FALSE)`,
                   [targetAuthorId, reviewerId]
                 );
+
+                // Hoàn lại điểm uy tín nếu trước đó bị phạt oan
+                try {
+                  await refundTrustPoints({
+                    pool,
+                    userId: targetAuthorId,
+                    amount: 20,
+                    reason: 'Báo cáo được thẩm định an toàn (Normal)',
+                    contentId: dbRep.target_id,
+                  });
+                } catch (trustErr) {
+                  console.error('Lỗi hoàn điểm uy tín khi gỡ phạt báo cáo:', trustErr.message);
+                }
               }
             } else {
               // Gán lại nhãn vi phạm (Violence, Hate Speech, Toxic):
@@ -542,6 +556,24 @@ app.patch('/api/reports/:id', requireRole('moderator'), async (req, res) => {
                    VALUES ($1, $2, 'system', $3, FALSE)`,
                   [targetAuthorId, reviewerId, notifMsg]
                 );
+              }
+
+              // Trừ điểm uy tín tác giả khi nội dung bị xác nhận vi phạm qua báo cáo
+              if (targetAuthorId) {
+                const deductionMap = { 'Toxic': 5, 'Hate Speech': 20, 'Violence': 35 };
+                const repDeduction = deductionMap[finalNewLabel] || 10;
+                try {
+                  await applyTrustPenalty({
+                    pool,
+                    userId: targetAuthorId,
+                    amount: repDeduction,
+                    reason: 'Bị báo cáo vi phạm tiêu chuẩn cộng đồng: ' + finalNewLabel,
+                    actionType: 'report_violation',
+                    contentId: dbRep.target_id,
+                  });
+                } catch (trustErr) {
+                  console.error('Lỗi trừ điểm uy tín khi xử lý báo cáo vi phạm:', trustErr.message);
+                }
               }
             }
 
@@ -871,6 +903,19 @@ app.patch('/api/appeals/:id', requireRole('moderator'), async (req, res) => {
                VALUES ($1, $2, 'system', 'Khiếu nại được chấp thuận! Nội dung của bạn đã được xác nhận an toàn (Normal). Toàn bộ án phạt (cooldown/hạn chế) đã được gỡ bỏ.', FALSE)`,
               [updatedRow.user_id, reviewerId]
             );
+
+            // Hoàn lại điểm uy tín cho người dùng khi kháng cáo thành công
+            try {
+              await refundTrustPoints({
+                pool: client,
+                userId: updatedRow.user_id,
+                amount: 20,
+                reason: 'Kháng cáo thành công, minh oan nội dung',
+                contentId: updatedRow.content_id,
+              });
+            } catch (trustErr) {
+              console.error('Lỗi hoàn điểm uy tín khi duyệt kháng cáo:', trustErr.message);
+            }
           }
         } else if (finalNewLabel === 'Violence') {
           // Gán sang Violence -> Ẩn nội dung & Phạt Cooldown 10 phút
