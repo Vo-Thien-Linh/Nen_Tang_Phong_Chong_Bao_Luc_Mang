@@ -13,6 +13,9 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL?.includes('localhost') 
     ? false 
     : { rejectUnauthorized: false }, // Cho phép kết nối SSL bảo mật tới Supabase
+  connectionTimeoutMillis: 5000,     // Timeout kết nối 5 giây tránh treo vĩnh viễn trên CI
+  idleTimeoutMillis: 10000,          // Giải phóng kết nối nhàn rỗi sau 10 giây
+  max: 10,                           // Giới hạn pool kết nối an toàn cho Supabase
 });
 
 // Hàm kiểm tra kết nối khi khởi động server
