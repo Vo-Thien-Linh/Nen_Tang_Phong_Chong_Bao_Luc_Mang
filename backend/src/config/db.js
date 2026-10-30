@@ -16,7 +16,38 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000,     // Timeout kết nối 5 giây tránh treo vĩnh viễn trên CI
   idleTimeoutMillis: 10000,          // Giải phóng kết nối nhàn rỗi sau 10 giây
   max: 10,                           // Giới hạn pool kết nối an toàn cho Supabase
+  keepAlive: true,                   // Gửi TCP keep-alive để chống Supavisor đóng kết nối ngầm
+  keepAliveInitialDelayMillis: 10000,
 });
+
+// Bắt lỗi trên idle client để không làm sập ứng dụng khi Supabase đóng kết nối nhàn rỗi
+pool.on('error', (err) => {
+  console.warn('⚠️ Cảnh báo kết nối CSDL Supabase (idle client):', err.message);
+});
+
+// Bọc pool.query với cơ chế tự động thử lại 1 lần nếu gặp lỗi rớt kết nối (ECONNRESET/closed socket)
+const originalQuery = pool.query.bind(pool);
+pool.query = async function (queryConfig, values) {
+  try {
+    return await originalQuery(queryConfig, values);
+  } catch (err) {
+    const isConnectionReset =
+      err.code === 'ECONNRESET' ||
+      err.code === 'EPIPE' ||
+      err.code === '57P01' ||
+      err.code === '08006' ||
+      err.code === '08003' ||
+      err.message?.includes('ECONNRESET') ||
+      err.message?.includes('Connection terminated') ||
+      err.message?.includes('Connection closed');
+
+    if (isConnectionReset) {
+      console.warn('⚠️ Phát hiện kết nối CSDL bị ngắt (ECONNRESET). Đang tự động kết nối lại và thử lại truy vấn...');
+      return await originalQuery(queryConfig, values);
+    }
+    throw err;
+  }
+};
 
 // Hàm kiểm tra kết nối khi khởi động server
 export const testDbConnection = async () => {
