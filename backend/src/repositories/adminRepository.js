@@ -208,22 +208,47 @@ export function createAdminRepository({ pool }) {
     },
 
     /**
-     * Lấy danh sách xuất file
+     * Lấy danh sách xuất file (Hỗ trợ lọc theo IDs, nhãn, loại nội dung và từ khóa)
      */
-    async findAiOverridesForExport() {
+    async findAiOverridesForExport({ ids = null, label = null, contentType = null, search = null } = {}) {
       if (pool) {
         try {
-          const q = `
+          let q = `
             SELECT o.id, o.content_type, o.content_id, o.raw_text, o.original_ai_label,
                    o.original_confidence, o.corrected_label, o.override_reason, o.created_at,
                    u.full_name AS admin_name
             FROM ai_override_logs o
             LEFT JOIN users u ON o.admin_id = u.id
-            ORDER BY o.created_at DESC
           `;
-          const result = await pool.query(q);
+          const conditions = [];
+          const params = [];
+
+          if (Array.isArray(ids) && ids.length > 0) {
+            params.push(ids);
+            conditions.push(`o.id = ANY($${params.length})`);
+          }
+          if (label && label !== 'all') {
+            params.push(label);
+            conditions.push(`o.corrected_label = $${params.length}`);
+          }
+          if (contentType && contentType !== 'all') {
+            params.push(contentType);
+            conditions.push(`o.content_type = $${params.length}`);
+          }
+          if (search && search.trim()) {
+            params.push(`%${search.trim().toLowerCase()}%`);
+            conditions.push(`(LOWER(o.raw_text) LIKE $${params.length} OR LOWER(o.override_reason) LIKE $${params.length})`);
+          }
+
+          if (conditions.length > 0) {
+            q += ' WHERE ' + conditions.join(' AND ');
+          }
+          q += ' ORDER BY o.created_at DESC';
+
+          const result = await pool.query(q, params);
           if (result.rows.length > 0) {
             return result.rows.map(row => ({
+              id: row.id,
               rawText: row.raw_text,
               originalAiLabel: row.original_ai_label,
               correctedLabel: row.corrected_label,
@@ -237,7 +262,20 @@ export function createAdminRepository({ pool }) {
           console.warn('Lỗi query DB khi xuất file, fallback sang in-memory:', dbErr.message);
         }
       }
-      return aiOverrideLogsStore;
+
+      // Fallback in-memory với lọc
+      let list = [...aiOverrideLogsStore];
+      if (label && label !== 'all') {
+        list = list.filter(l => (l.correctedLabel || l.newLabel) === label);
+      }
+      if (contentType && contentType !== 'all') {
+        list = list.filter(l => l.contentType === contentType);
+      }
+      if (search && search.trim()) {
+        const s = search.trim().toLowerCase();
+        list = list.filter(l => (l.rawText || '').toLowerCase().includes(s) || (l.overrideReason || '').toLowerCase().includes(s));
+      }
+      return list;
     },
 
     /**
@@ -272,4 +310,3 @@ export function createAdminRepository({ pool }) {
     }
   };
 }
-

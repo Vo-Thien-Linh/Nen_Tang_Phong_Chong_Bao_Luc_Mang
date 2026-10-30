@@ -236,11 +236,31 @@ export function createReportRepository({ pool }) {
                     );
 
                     try {
+                      const refundMap = { 'Toxic': 5, 'Hate Speech': 20, 'Violence': 35 };
+                      let refundAmount = refundMap[finalOldLabel] || 20;
+
+                      // Tra cứu log phạt gần nhất nếu có trong DB để hoàn đúng 100%
+                      if (dbRep.target_id) {
+                        try {
+                          const logCheck = await pool.query(
+                            `SELECT change_amount FROM user_trust_logs 
+                             WHERE user_id = $1 AND content_id = $2 AND change_amount < 0 
+                             ORDER BY created_at DESC LIMIT 1`,
+                            [targetAuthorId, String(dbRep.target_id)]
+                          );
+                          if (logCheck.rows.length > 0) {
+                            refundAmount = Math.abs(Number(logCheck.rows[0].change_amount));
+                          }
+                        } catch (lookupErr) {
+                          console.warn('Lỗi tra cứu log điểm phạt cũ:', lookupErr.message);
+                        }
+                      }
+
                       await refundTrustPoints({
                         pool,
                         userId: targetAuthorId,
-                        amount: 20,
-                        reason: 'Báo cáo được thẩm định an toàn (Normal)',
+                        amount: refundAmount,
+                        reason: `Báo cáo được thẩm định an toàn (Normal - hoàn lại điểm phạt ${finalOldLabel || 'cũ'})`,
                         contentId: dbRep.target_id,
                       });
                     } catch (trustErr) {

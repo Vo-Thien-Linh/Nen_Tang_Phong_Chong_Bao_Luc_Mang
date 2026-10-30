@@ -61,11 +61,13 @@ export function createAdminController({ adminRepository }) {
 
     /**
      * GET /api/admin/ai-overrides/export
-     * Xuất file CSV UTF-8 BOM chuẩn tiếng Việt
+     * Xuất file CSV UTF-8 BOM chuẩn tiếng Việt (Hỗ trợ lọc ids, label, contentType, search)
      */
     async exportAiOverridesCsv(req, res, next) {
       try {
-        const listToExport = await adminRepository.findAiOverridesForExport();
+        const { ids, label, contentType, search } = req.query;
+        const idList = ids ? ids.split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean) : null;
+        const listToExport = await adminRepository.findAiOverridesForExport({ ids: idList, label, contentType, search });
 
         let csvContent = '\uFEFF"A: STT","B: Nội dung câu / Hình ảnh gắn nhãn sai","C: Nhãn cũ","D: Nhãn mới","E: Loại nội dung","F: Lý do hiệu chỉnh / Ghi chú","G: Người thực hiện","H: Thời gian ghi nhận"\n';
         listToExport.forEach((log, index) => {
@@ -91,11 +93,13 @@ export function createAdminController({ adminRepository }) {
 
     /**
      * GET /api/admin/ai-overrides/export-excel
-     * Xuất file Excel (.xlsx) danh sách gắn nhãn sai chuẩn các cột A -> H
+     * Xuất file Excel (.xlsx) danh sách gắn nhãn sai chuẩn các cột A -> H (Hỗ trợ lọc ids, label, contentType, search)
      */
     async exportAiOverridesExcel(req, res, next) {
       try {
-        const listToExport = await adminRepository.findAiOverridesForExport();
+        const { ids, label, contentType, search } = req.query;
+        const idList = ids ? ids.split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean) : null;
+        const listToExport = await adminRepository.findAiOverridesForExport({ ids: idList, label, contentType, search });
 
         const columns = [
           'A: STT',
@@ -173,7 +177,7 @@ export function createAdminController({ adminRepository }) {
           'STT': index + 1,
           'Loại nội dung': item.content_type === 'post' ? 'Bài viết' : 'Bình luận',
           'Tác giả': item.author_name || 'Người dùng',
-          'Nội dung văn bản': item.content || '(Không có)',
+          'Nội dung văn bản': item.content || '(Không có nội dung)',
           'URL Hình ảnh phân vân': item.image_url || '',
           'Điểm An toàn (Safe)': Number(item.image_moderation_safe ?? 0).toFixed(4),
           'Điểm Nhạy cảm (NSFW)': Number(item.image_moderation_nsfw ?? 0).toFixed(4),
@@ -211,4 +215,3 @@ export function createAdminController({ adminRepository }) {
     },
   };
 }
-

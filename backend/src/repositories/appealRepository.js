@@ -232,11 +232,31 @@ export function createAppealRepository({ pool }) {
                 );
 
                 try {
+                  const refundMap = { 'Toxic': 5, 'Hate Speech': 20, 'Violence': 35 };
+                  let refundAmount = refundMap[updatedRow.ai_predicted_label] || 20;
+
+                  // Tra cứu trong user_trust_logs xem trước đó nội dung này bị trừ chính xác bao nhiêu điểm
+                  if (updatedRow.content_id) {
+                    try {
+                      const logCheck = await client.query(
+                        `SELECT change_amount FROM user_trust_logs 
+                         WHERE user_id = $1 AND content_id = $2 AND change_amount < 0 
+                         ORDER BY created_at DESC LIMIT 1`,
+                        [updatedRow.user_id, updatedRow.content_id]
+                      );
+                      if (logCheck.rows.length > 0) {
+                        refundAmount = Math.abs(Number(logCheck.rows[0].change_amount));
+                      }
+                    } catch (lookupErr) {
+                      console.warn('Lỗi tra cứu log điểm phạt cũ:', lookupErr.message);
+                    }
+                  }
+
                   await refundTrustPoints({
                     pool: client,
                     userId: updatedRow.user_id,
-                    amount: 20,
-                    reason: 'Kháng cáo thành công, minh oan nội dung',
+                    amount: refundAmount,
+                    reason: `Kháng cáo thành công, minh oan nội dung (${updatedRow.ai_predicted_label || 'Vi phạm'})`,
                     contentId: updatedRow.content_id,
                   });
                 } catch (trustErr) {
