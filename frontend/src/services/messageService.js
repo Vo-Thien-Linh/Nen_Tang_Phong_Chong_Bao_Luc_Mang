@@ -70,9 +70,9 @@ export const messageService = {
   },
 
   /**
-   * Gửi tin nhắn mới tới receiverId
+   * Gửi tin nhắn mới tới receiverId (hỗ trợ văn bản và đa phương tiện ảnh/link)
    */
-  async sendMessage(receiverId, content) {
+  async sendMessage(receiverId, content = '', mediaUrl = null, mediaType = 'text') {
     if (!hasValidToken()) {
       throw new Error('Bạn chưa đăng nhập');
     }
@@ -81,7 +81,9 @@ export const messageService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({
         receiver_id: receiverId,
-        content: content.trim()
+        content: (content || '').trim(),
+        media_url: mediaUrl,
+        media_type: mediaType
       })
     });
 
@@ -90,6 +92,58 @@ export const messageService = {
       throw new Error(errData.detail || 'Không thể gửi tin nhắn do lỗi hệ thống');
     }
     return await res.json();
+  },
+
+  /**
+   * Thu hồi tin nhắn đã gửi (chỉ người gửi mới có quyền thu hồi)
+   */
+  async recallMessage(messageId) {
+    if (!hasValidToken() || !messageId) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const res = await fetch(`${API_BASE_URL}/messages/${messageId}/recall`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể thu hồi tin nhắn');
+    }
+    return await res.json();
+  },
+
+  /**
+   * Chặn cuộc trò chuyện
+   */
+  async blockConversation(conversationId) {
+    if (!hasValidToken() || !conversationId) return false;
+    try {
+      const res = await fetch(`${API_BASE_URL}/conversations/${conversationId}/block`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('Lỗi blockConversation:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Bỏ chặn cuộc trò chuyện
+   */
+  async unblockConversation(conversationId) {
+    if (!hasValidToken() || !conversationId) return false;
+    try {
+      const res = await fetch(`${API_BASE_URL}/conversations/${conversationId}/unblock`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('Lỗi unblockConversation:', err.message);
+      return false;
+    }
   },
 
   /**
