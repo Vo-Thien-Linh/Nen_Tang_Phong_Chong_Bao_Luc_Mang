@@ -719,10 +719,47 @@ export default function App() {
     setCurrentUser(prev => incrementPostCountOnce(prev, newPost, alreadyAdded));
   };
 
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexussocial_theme');
+      if (saved) return saved;
+    } catch {}
+    return 'light';
+  });
+
+  useEffect(() => {
+    try {
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      localStorage.setItem('nexussocial_theme', theme);
+    } catch {}
+  }, [theme]);
+
+  const handleSetTheme = (newTheme) => {
+    setTheme(newTheme);
+  };
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   const handleUpdateUser = (updatedData) => {
+    if (!updatedData) return;
     setCurrentUser((prev) => {
-      const next = { ...prev, ...updatedData };
-      authService.updateCurrentUser(next);
+      const next = {
+        ...prev,
+        ...updatedData,
+        settings: {
+          ...(prev?.settings || {}),
+          ...(updatedData.settings || {}),
+        },
+      };
+      try {
+        authService.updateCurrentUser(next);
+      } catch {}
       return next;
     });
   };

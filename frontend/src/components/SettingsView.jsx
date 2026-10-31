@@ -3,9 +3,11 @@ import {
   ShieldCheck, ShieldAlert, User, Lock, Eye, EyeOff, Bell, Palette, 
   UserX, CheckCircle2, AlertTriangle, Save, Sparkles, KeyRound, 
   Smartphone, Mail, MapPin, GraduationCap, Heart, HelpCircle, 
-  Trash2, Plus, Sliders, Moon, Sun, Globe, RefreshCw, AlertCircle
+  Trash2, Plus, Sliders, Moon, Sun, Globe, RefreshCw, AlertCircle,
+  Volume2
 } from 'lucide-react';
 import { settingsService } from '../services/settingsService';
+import { playNotificationSound } from '../utils/soundUtil';
 
 export default function SettingsView({ 
   currentUser, 
@@ -141,14 +143,23 @@ export default function SettingsView({
   const handleSaveSafety = async () => {
     setLoading(true);
     try {
+      const kwString = keywordList.join(', ');
       await settingsService.updateSafety({
         ai_shield_enabled: settings.ai_shield_enabled,
         ai_sensitivity: settings.ai_sensitivity,
         auto_hide_toxic_comments: settings.auto_hide_toxic_comments,
-        filter_keywords: keywordList.join(', '),
+        filter_keywords: kwString,
         block_strangers_messages: settings.block_strangers_messages,
         take_a_break_mode: settings.take_a_break_mode
       });
+      if (onUpdateUser) {
+        onUpdateUser({
+          settings: {
+            ...settings,
+            filter_keywords: kwString
+          }
+        });
+      }
       showToast('success', 'Đã lưu danh sách từ khóa cấm thành công!');
     } catch (err) {
       showToast('error', err.message || 'Không thể lưu cài đặt an toàn');
@@ -314,6 +325,9 @@ export default function SettingsView({
     try {
       await settingsService.unblockUser(targetId);
       setBlockedUsers(prev => prev.filter(u => u.id !== targetId));
+      if (onUpdateUser) {
+        onUpdateUser({ blocked_users_updated: Date.now() });
+      }
       showToast('success', `Đã bỏ chặn ${name}`);
     } catch (err) {
       showToast('error', err.message || 'Bỏ chặn thất bại');
@@ -1006,12 +1020,31 @@ export default function SettingsView({
                         {item.desc}
                       </p>
                     </div>
-                    <input 
-                      type="checkbox" 
-                      checked={settings[item.key]} 
-                      onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: e.target.checked }))}
-                      className="w-5 h-5 text-blue-600 rounded-lg cursor-pointer"
-                    />
+                    <div className="flex items-center gap-3">
+                      {item.key === 'sound_enabled' && (
+                        <button
+                          type="button"
+                          onClick={() => playNotificationSound()}
+                          title="Nghe thử âm thanh thông báo"
+                          className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                        >
+                          <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Nghe thử</span>
+                        </button>
+                      )}
+                      <input 
+                        type="checkbox" 
+                        checked={settings[item.key]} 
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSettings(prev => ({ ...prev, [item.key]: checked }));
+                          if (item.key === 'sound_enabled' && checked) {
+                            playNotificationSound();
+                          }
+                        }}
+                        className="w-5 h-5 text-blue-600 rounded-lg cursor-pointer"
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1117,26 +1150,42 @@ export default function SettingsView({
                     type="button"
                     onClick={() => {
                       setSettings(prev => ({ ...prev, language: 'vi' }));
-                      showToast('success', 'Đã chọn Tiếng Việt');
+                      try { localStorage.setItem('nexussocial_language', 'vi'); } catch {}
+                      settingsService.updateAppearance({ theme: settings.theme, language: 'vi' });
+                      if (onUpdateUser) onUpdateUser({ settings: { ...settings, language: 'vi' } });
+                      showToast('success', 'Đã lưu và áp dụng Tiếng Việt');
                     }}
                     className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold border-2 transition cursor-pointer flex items-center gap-2 ${
-                      settings.language === 'vi' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'
+                      settings.language === 'vi' ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs' : 'border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
                     <span>🇻🇳 Tiếng Việt (Mặc định)</span>
+                    {settings.language === 'vi' && (
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
+                        Đang chọn
+                      </span>
+                    )}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
                       setSettings(prev => ({ ...prev, language: 'en' }));
-                      showToast('success', 'Switched to English');
+                      try { localStorage.setItem('nexussocial_language', 'en'); } catch {}
+                      settingsService.updateAppearance({ theme: settings.theme, language: 'en' });
+                      if (onUpdateUser) onUpdateUser({ settings: { ...settings, language: 'en' } });
+                      showToast('success', 'Saved and applied English');
                     }}
                     className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold border-2 transition cursor-pointer flex items-center gap-2 ${
-                      settings.language === 'en' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'
+                      settings.language === 'en' ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs' : 'border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
                     <span>🇺🇸 English</span>
+                    {settings.language === 'en' && (
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
+                        Selected
+                      </span>
+                    )}
                   </button>
                 </div>
               </div>

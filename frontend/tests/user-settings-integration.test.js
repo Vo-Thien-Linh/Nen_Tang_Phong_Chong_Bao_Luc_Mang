@@ -123,3 +123,23 @@ test('Profile contact privacy: filters email and phone for viewers', () => {
   const canOwnerSeeEmail = true || Boolean(ownerProfile.settings?.show_email);
   assert.equal(canOwnerSeeEmail, true, 'Chính chủ luôn nhìn thấy email của mình');
 });
+
+test('Settings: updateAppearance saves theme and language', async () => {
+  const result = await settingsService.updateAppearance({
+    theme: 'dark',
+    language: 'en'
+  });
+
+  assert.equal(result.success, true);
+  const saved = JSON.parse(localStorage.getItem('nexussocial_user_settings') || '{}');
+  assert.equal(saved.theme, 'dark');
+  assert.equal(saved.language, 'en');
+});
+
+test('Notification sound utility: executes safely in test environment', async () => {
+  const { playNotificationSound } = await import('../src/utils/soundUtil.js');
+  assert.doesNotThrow(() => {
+    playNotificationSound();
+  });
+});
+
