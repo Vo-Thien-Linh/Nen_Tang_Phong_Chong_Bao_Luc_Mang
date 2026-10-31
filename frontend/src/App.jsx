@@ -430,15 +430,33 @@ export default function App() {
 
   // Cập nhật thông tin người dùng đồng bộ
   const handleUpdateUser = (updatedFields) => {
-    authService.updateCurrentUser(updatedFields);
+    if (!updatedFields) return;
+    try {
+      authService.updateCurrentUser(updatedFields);
+    } catch {}
+
     setCurrentUser(prev => {
       if (!prev) return prev;
-      return { ...prev, ...updatedFields };
+      return {
+        ...prev,
+        ...updatedFields,
+        settings: {
+          ...(prev?.settings || {}),
+          ...(updatedFields.settings || {}),
+        },
+      };
     });
 
     setUsersList(prev => prev.map(u => {
       if (u.id === currentUser?.id) {
-        return { ...u, ...updatedFields };
+        return {
+          ...u,
+          ...updatedFields,
+          settings: {
+            ...(u?.settings || {}),
+            ...(updatedFields.settings || {}),
+          },
+        };
       }
       return u;
     }));
@@ -717,6 +735,27 @@ export default function App() {
     createdPostIdsRef.current.add(postId);
     setPosts(prev => prependCreatedPost(prev, newPost));
     setCurrentUser(prev => incrementPostCountOnce(prev, newPost, alreadyAdded));
+  };
+
+  const getVisibleFeedPosts = () => {
+    let blockedIds = new Set();
+    try {
+      const raw = localStorage.getItem('nexussocial_blocked_users');
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach((b) => blockedIds.add(String(b.id)));
+        }
+      }
+    } catch {}
+
+    return posts.filter((p) => {
+      if (isHardHiddenPost(p)) return false;
+      const authorId = String(p.author_id || p.author?.id || '');
+      if (authorId && blockedIds.has(authorId)) return false;
+      if (p.privacy === 'private' && authorId !== String(currentUser?.id)) return false;
+      return true;
+    });
   };
 
   const handleRequireLogin = () => {
@@ -1613,7 +1652,7 @@ export default function App() {
         {activeTab === 'home' && (
           <HomeView 
             currentUser={currentUser}
-            posts={posts.filter(p => !isHardHiddenPost(p))}
+            posts={getVisibleFeedPosts()}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}

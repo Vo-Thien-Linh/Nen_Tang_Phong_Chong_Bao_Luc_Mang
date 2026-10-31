@@ -7,11 +7,12 @@ import {
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
   UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert,
-  ShieldCheck, ExternalLink
+  ShieldCheck, ExternalLink, Mail, Phone
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
+import { settingsService } from '../services/settingsService';
 import { updatePostReaction, sharePost, fetchUserTrustHistory } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
@@ -83,6 +84,7 @@ export default function ProfileView({
   const [friendshipId, setFriendshipId] = useState(null);
   const [isFriendActionLoading, setIsFriendActionLoading] = useState(false);
   const [friendActionToast, setFriendActionToast] = useState('');
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
 
   // ── Quick Upload từ máy tính lên Cloudinary cho Header ────
   // -- Trust Score data (only for own profile) --
@@ -316,6 +318,18 @@ export default function ProfileView({
     return () => { isMounted = false; };
   }, [targetUserId, isOwnProfile, currentUser?.id]);
 
+  useEffect(() => {
+    if (!targetUserId || isOwnProfile) return;
+    let isMounted = true;
+    settingsService.getBlockedUsers().then((blocked) => {
+      if (!isMounted) return;
+      if (Array.isArray(blocked)) {
+        setIsBlockedByMe(blocked.some((b) => String(b.id) === String(targetUserId)));
+      }
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [targetUserId, isOwnProfile]);
+
   // Hành động Kết bạn / Hủy lời mời / Chấp nhận / Hủy kết bạn
   const handleSendFriendRequest = async () => {
     if (!currentUser) {
@@ -385,6 +399,40 @@ export default function ProfileView({
       alert(err.message || 'Lỗi khi hủy kết bạn');
     } finally {
       setIsFriendActionLoading(false);
+    }
+  };
+
+  const handleToggleBlockUser = async () => {
+    if (!currentUser) {
+      onRequireAuth ? onRequireAuth("Vui lòng đăng nhập để thực hiện tính năng này") : alert("Vui lòng đăng nhập");
+      return;
+    }
+    const targetName = activeUser.name || activeUser.full_name || 'người này';
+    if (isBlockedByMe) {
+      if (!window.confirm(`Bạn có chắc chắn muốn bỏ chặn ${targetName}?`)) return;
+      try {
+        await settingsService.unblockUser(targetUserId);
+        setIsBlockedByMe(false);
+        setFriendActionToast(`✓ Đã bỏ chặn ${targetName}`);
+        setTimeout(() => setFriendActionToast(''), 3000);
+      } catch (err) {
+        alert(err.message || 'Lỗi khi bỏ chặn');
+      }
+    } else {
+      if (!window.confirm(`Bạn có chắc chắn muốn chặn ${targetName}? Người dùng bị chặn sẽ không thể xem bài viết, bình luận hoặc gửi tin nhắn cho bạn.`)) return;
+      try {
+        await settingsService.blockUser(targetUserId, {
+          name: targetName,
+          username: activeUser.username,
+          avatar: activeUser.avatar || activeUser.avatar_url
+        });
+        setIsBlockedByMe(true);
+        setFriendshipStatus('none');
+        setFriendActionToast(`✓ Đã chặn ${targetName}`);
+        setTimeout(() => setFriendActionToast(''), 3000);
+      } catch (err) {
+        alert(err.message || 'Lỗi khi chặn người dùng');
+      }
     }
   };
 
@@ -875,6 +923,20 @@ export default function ProfileView({
                     <MessageCircle className="w-4 h-4" />
                     <span>Nhắn tin</span>
                   </button>
+
+                  {/* Nút Chặn / Bỏ chặn */}
+                  <button 
+                    onClick={handleToggleBlockUser}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border ${
+                      isBlockedByMe 
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        : 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 border-slate-200'
+                    }`}
+                    title={isBlockedByMe ? "Bỏ chặn người này" : "Chặn người này tương tác với bạn"}
+                  >
+                    <UserX className="w-4 h-4" />
+                    <span>{isBlockedByMe ? 'Bỏ chặn' : 'Chặn'}</span>
+                  </button>
                 </>
               )}
 
@@ -1031,6 +1093,44 @@ export default function ProfileView({
                     <Calendar className="w-5 h-5 text-slate-500 shrink-0" />
                     <span>Tham gia từ {activeUser.joinedDate || 'Tháng 10, 2026'}</span>
                   </div>
+
+                  {/* Hiển thị Email theo quyền riêng tư */}
+                  {((isOwnProfile && (activeUser.email || currentUser?.email)) || (!isOwnProfile && (activeUser.show_email || activeUser.settings?.show_email) && activeUser.email)) && (
+                    <div className="flex items-center justify-between gap-2 text-xs sm:text-sm text-slate-700">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Mail className="w-5 h-5 text-slate-500 shrink-0" />
+                        <span className="truncate">Email: <strong>{activeUser.email || currentUser?.email}</strong></span>
+                      </div>
+                      {isOwnProfile && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
+                          (currentUser?.settings?.show_email ?? activeUser.settings?.show_email) 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                          {(currentUser?.settings?.show_email ?? activeUser.settings?.show_email) ? 'Công khai' : 'Chỉ mình tôi'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Hiển thị SĐT theo quyền riêng tư */}
+                  {((isOwnProfile && (activeUser.phone || currentUser?.phone)) || (!isOwnProfile && (activeUser.show_phone || activeUser.settings?.show_phone) && activeUser.phone)) && (
+                    <div className="flex items-center justify-between gap-2 text-xs sm:text-sm text-slate-700">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Phone className="w-5 h-5 text-slate-500 shrink-0" />
+                        <span className="truncate">SĐT: <strong>{activeUser.phone || currentUser?.phone}</strong></span>
+                      </div>
+                      {isOwnProfile && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
+                          (currentUser?.settings?.show_phone ?? activeUser.settings?.show_phone) 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                          {(currentUser?.settings?.show_phone ?? activeUser.settings?.show_phone) ? 'Công khai' : 'Chỉ mình tôi'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Nút hành động */}

@@ -76,7 +76,28 @@ export default function NotificationsView({
   const isSystemType = (type) =>
     ['system', 'ai_moderation', 'moderation_alert', 'report', 'appeal', 'warning', 'report_receipt'].includes(type);
 
+  const userSettings = currentUser?.settings || (() => {
+    try {
+      const raw = localStorage.getItem('nexussocial_user_settings');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })();
+
+  const notifyLikes = userSettings.notify_likes !== false;
+  const notifyComments = userSettings.notify_comments !== false;
+  const notifyFriendRequests = userSettings.notify_friend_requests !== false;
+  const notifyAiWarnings = userSettings.notify_ai_warnings !== false;
+
   const filteredNotifications = notifications.filter((item) => {
+    // 1. Áp dụng cài đặt nhận thông báo của người dùng
+    if (!notifyLikes && (item.type === 'like' || item.type === 'reaction')) return false;
+    if (!notifyComments && item.type === 'comment') return false;
+    if (!notifyFriendRequests && (item.type === 'friend_request' || item.type === 'friend_accept')) return false;
+    if (!notifyAiWarnings && (item.type === 'ai_moderation' || item.type === 'warning' || item.type === 'cooldown')) return false;
+
+    // 2. Bộ lọc tab giao diện
     if (currentFilter === 'unread') return !item.isRead;
     if (currentFilter === 'interaction') return isInteractionType(item.type);
     if (currentFilter === 'system') return isSystemType(item.type);

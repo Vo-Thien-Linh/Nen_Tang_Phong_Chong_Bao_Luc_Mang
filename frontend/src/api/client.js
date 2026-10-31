@@ -44,11 +44,11 @@ export async function fetchPostById({ postId, userId } = {}) {
   });
 }
 
-export async function createPost({ userId, content, imageUrl, forcePost }) {
+export async function createPost({ userId, content, imageUrl, privacy = 'public', forcePost }) {
   return request('/api/posts', {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl, forcePost: Boolean(forcePost) }),
+    body: JSON.stringify({ content, imageUrl, privacy: privacy || 'public', forcePost: Boolean(forcePost) }),
   });
 }
 
