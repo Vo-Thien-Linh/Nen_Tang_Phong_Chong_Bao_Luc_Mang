@@ -429,15 +429,33 @@ export default function App() {
 
   // Cập nhật thông tin người dùng đồng bộ
   const handleUpdateUser = (updatedFields) => {
-    authService.updateCurrentUser(updatedFields);
+    if (!updatedFields) return;
+    try {
+      authService.updateCurrentUser(updatedFields);
+    } catch {}
+
     setCurrentUser(prev => {
       if (!prev) return prev;
-      return { ...prev, ...updatedFields };
+      return {
+        ...prev,
+        ...updatedFields,
+        settings: {
+          ...(prev?.settings || {}),
+          ...(updatedFields.settings || {}),
+        },
+      };
     });
 
     setUsersList(prev => prev.map(u => {
       if (u.id === currentUser?.id) {
-        return { ...u, ...updatedFields };
+        return {
+          ...u,
+          ...updatedFields,
+          settings: {
+            ...(u?.settings || {}),
+            ...(updatedFields.settings || {}),
+          },
+        };
       }
       return u;
     }));
@@ -716,51 +734,6 @@ export default function App() {
     createdPostIdsRef.current.add(postId);
     setPosts(prev => prependCreatedPost(prev, newPost));
     setCurrentUser(prev => incrementPostCountOnce(prev, newPost, alreadyAdded));
-  };
-
-  const [theme, setTheme] = useState(() => {
-    try {
-      const saved = localStorage.getItem('nexussocial_theme');
-      if (saved) return saved;
-    } catch {}
-    return 'light';
-  });
-
-  useEffect(() => {
-    try {
-      if (theme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-      localStorage.setItem('nexussocial_theme', theme);
-    } catch {}
-  }, [theme]);
-
-  const handleSetTheme = (newTheme) => {
-    setTheme(newTheme);
-  };
-
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
-
-  const handleUpdateUser = (updatedData) => {
-    if (!updatedData) return;
-    setCurrentUser((prev) => {
-      const next = {
-        ...prev,
-        ...updatedData,
-        settings: {
-          ...(prev?.settings || {}),
-          ...(updatedData.settings || {}),
-        },
-      };
-      try {
-        authService.updateCurrentUser(next);
-      } catch {}
-      return next;
-    });
   };
 
   const getVisibleFeedPosts = () => {
