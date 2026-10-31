@@ -1,17 +1,41 @@
 import { useState } from 'react';
-import { X, ShieldAlert, AlertTriangle, Send, CheckCircle2, MessageSquare, FileText } from 'lucide-react';
+import { X, ShieldAlert, AlertTriangle, Send, CheckCircle2, MessageSquare, FileText, Image as ImageIcon } from 'lucide-react';
 import { REPORT_REASONS } from '../data/mockData';
 
 export default function ReportModal({ isOpen, onClose, target, currentUser, onSubmitReport }) {
   const [selectedReason, setSelectedReason] = useState('toxic');
   const [details, setDetails] = useState('');
+  const [targetModality, setTargetModality] = useState('both'); // 'both' | 'text' | 'image'
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   if (!isOpen || !target) return null;
 
+  const hasImage = Boolean(target.imageUrl || target.image);
+
+  // Lọc lý do phù hợp theo phạm vi báo cáo người dùng chọn
+  const availableReasons = REPORT_REASONS.filter(reason => {
+    if (!hasImage) return reason.modality === 'text' || reason.modality === 'both';
+    if (targetModality === 'text') return reason.modality === 'text' || reason.modality === 'both';
+    if (targetModality === 'image') return reason.modality === 'image' || reason.modality === 'both';
+    return true; // 'both'
+  });
+
+  const handleSelectModality = (mod) => {
+    setTargetModality(mod);
+    if (mod === 'image') {
+      if (selectedReason === 'toxic' || selectedReason === 'hate_speech') {
+        setSelectedReason('nsfw');
+      }
+    } else if (mod === 'text') {
+      if (selectedReason === 'nsfw') {
+        setSelectedReason('toxic');
+      }
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    const reasonObj = REPORT_REASONS.find(r => r.id === selectedReason) || REPORT_REASONS[0];
+    const reasonObj = availableReasons.find(r => r.id === selectedReason) || availableReasons[0] || REPORT_REASONS[0];
 
     const reportData = {
       id: `rep-${Date.now()}`,
@@ -26,7 +50,9 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
       contentExcerpt: target.contentExcerpt || '',
       targetExcerpt: target.contentExcerpt || '',
       imageUrl: target.imageUrl || target.image || null,
-      reason: selectedReason,
+      targetModality: hasImage ? targetModality : 'text',
+      target_modality: hasImage ? targetModality : 'text',
+      reason: reasonObj.id,
       reasonLabel: reasonObj.label,
       details: details.trim(),
       status: 'pending',
@@ -41,6 +67,7 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
       setIsSubmitted(false);
       setDetails('');
       setSelectedReason('toxic');
+      setTargetModality('both');
       onClose();
     }, 1500);
   };
@@ -116,7 +143,7 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
                 <p className="text-xs sm:text-sm text-slate-700 italic bg-white p-2.5 rounded-xl border border-slate-200 line-clamp-3">
                   "{target.contentExcerpt || '[Không có nội dung văn bản]'}"
                 </p>
-                {(target.imageUrl || target.image) && (
+                {hasImage && (
                   <div className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-200 not-italic">
                     <img 
                       src={target.imageUrl || target.image} 
@@ -128,13 +155,57 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
                 )}
               </div>
 
-              {/* Lựa chọn lý do */}
+              {/* Lựa chọn phạm vi báo cáo (khi có ảnh) */}
+              {hasImage && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                    Báo cáo phần nào:
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectModality('both')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold text-center transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        targetModality === 'both'
+                          ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-200 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Cả hai phần</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectModality('text')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold text-center transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        targetModality === 'text'
+                          ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-200 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Chỉ văn bản</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectModality('image')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold text-center transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        targetModality === 'image'
+                          ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-200 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Chỉ hình ảnh</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Lựa chọn lý do (khớp 1:1 với nhãn kỹ thuật) */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Chọn lý do vi phạm:
                 </label>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {REPORT_REASONS.map((reason) => (
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {availableReasons.map((reason) => (
                     <label 
                       key={reason.id}
                       className={`flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer transition text-xs ${
