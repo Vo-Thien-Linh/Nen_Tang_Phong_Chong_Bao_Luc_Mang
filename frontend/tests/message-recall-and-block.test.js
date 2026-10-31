@@ -94,3 +94,4 @@ test('conversation block and unblock state transitions and send restrictions', (
   assert.equal(conv.blockedBy, null);
   assert.equal(canSendMessage(conv, currentUserId), true);
 });
+

@@ -77,3 +77,4 @@ test('insertEmojiAtCursor: appends or inserts emoji smoothly', () => {
   const t2 = insertEmojiAtCursor('Chào bạn nhé', '👋 ', 5);
   assert.equal(t2, 'Chào 👋 bạn nhé');
 });
+
