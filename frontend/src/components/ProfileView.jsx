@@ -788,69 +788,7 @@ export default function ProfileView({
                 >
                   {activeUser.friendsCount ?? profileFriends.length} người bạn
                 </p>
-                {/* Trust Score Badge - chỉ hiện với chính chủ */}
-                {isOwnProfile && currentUser && (() => {
-                  const score = profileData?.trustScore ?? activeUser?.trustScore ?? 100;
-                  const tier = profileData?.trustTier ?? activeUser?.trustTier ?? 'good';
-                  const badgeStyle = {
-                    good:       { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500', label: 'Xuất sắc' },
-                    fair:       { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    bar: 'bg-blue-500',    label: 'Tốt' },
-                    warning:    { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   bar: 'bg-amber-500',   label: 'Cảnh báo' },
-                    restricted: { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    bar: 'bg-rose-500',    label: 'Hạn chế' },
-                  }[tier] || { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500', label: 'Xuất sắc' };
-                  return (
-                    <div className={`inline-flex flex-col gap-1 px-3 py-2 rounded-xl border ${badgeStyle.bg} ${badgeStyle.border} text-xs mt-1`}>
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className={`w-3.5 h-3.5 ${badgeStyle.text}`} />
-                        <span className={`font-bold ${badgeStyle.text}`}>Điểm uy tín: {score}/100</span>
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${badgeStyle.bg} ${badgeStyle.text} border ${badgeStyle.border}`}>{badgeStyle.label}</span>
-                        {trustHistory.length > 0 && (
-                          <button
-                            onClick={() => setShowTrustHistory(prev => !prev)}
-                            className={`ml-1 text-[10px] underline underline-offset-2 cursor-pointer ${badgeStyle.text} hover:opacity-70 transition`}
-                          >
-                            {showTrustHistory ? 'Ẩn lịch sử' : 'Xem lịch sử'}
-                          </button>
-                        )}
-                      </div>
-                      <div className="w-full h-1.5 bg-white/60 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-700 ${badgeStyle.bar}`} style={{ width: `${score}%` }} />
-                      </div>
-                      {showTrustHistory && trustHistory.length > 0 && (
-                        <div className="mt-1 space-y-0.5 max-h-28 overflow-y-auto">
-                          {trustHistory.slice(0, 8).map((log, i) => (
-                            <div key={i} className={`flex items-center justify-between text-[10px] ${badgeStyle.text}`}>
-                              <span className="truncate max-w-[160px]" title={log.reason}>{log.reason || log.action_type}</span>
-                              <span className="font-bold shrink-0 ml-1">{log.delta > 0 ? '+' : ''}{log.delta} đ</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-
-                {/* Tóm tắt địa điểm & trường học */}
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 text-xs text-slate-600 pt-0.5">
-                  {activeUser.location && (
-                    <span className="flex items-center gap-1 font-medium bg-slate-100 px-2.5 py-1 rounded-lg">
-                      <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                      {activeUser.location}
-                    </span>
-                  )}
-                  {(activeUser.highSchool || activeUser.high_school) && (
-                    <>
-                      <span className="text-slate-300">•</span>
-                      <span className="flex items-center gap-1 font-medium bg-slate-100 px-2.5 py-1 rounded-lg">
-                        <GraduationCap className="w-3.5 h-3.5 text-slate-500" />
-                        {activeUser.highSchool || activeUser.high_school}
-                      </span>
-                    </>
-                  )}
-                </div>
               </div>
-
             </div>
 
             {/* Các nút hành động bên phải */}
@@ -1142,6 +1080,15 @@ export default function ProfileView({
                     <p className="text-xs text-slate-400">Đại học / Chuyên ngành</p>
                   </div>
                 </div>
+                {isOwnProfile && (
+                  <button
+                    onClick={() => setIsEditProfileOpen(true)}
+                    className="w-full mt-1 py-2 bg-slate-50 hover:bg-slate-100 text-blue-600 text-xs font-bold rounded-xl border border-slate-200/60 hover:border-blue-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Cập nhật thông tin giáo dục</span>
+                  </button>
+                )}
               </div>
 
               {/* Box 3: Ảnh (Lấy từ bài viết thực tế trong DB) */}
