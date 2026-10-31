@@ -4,11 +4,11 @@ import {
   Phone, Video, Check, CheckCheck, Clock, RotateCw, Loader2, MessageSquare, ArrowLeft,
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
-  User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon
+  User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
-import { extractSharedMediaAndLinks } from '../utils/messageMediaLogic';
+import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
 
 const EMOJI_CATEGORIES = [
   {
@@ -147,11 +147,13 @@ export default function MessagesView({
   // Trạng thái Biểu tượng cảm xúc & Đính kèm đa phương tiện
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+  const [selectedFileAttachment, setSelectedFileAttachment] = useState(null); // { name, size, dataUrl }
   const [selectedImageModal, setSelectedImageModal] = useState(null);
   const [showAllMediaModal, setShowAllMediaModal] = useState(false);
   const [sidebarActiveTab, setSidebarActiveTab] = useState('media'); // 'media' | 'links'
   const [allMediaTab, setAllMediaTab] = useState('media');
   const fileInputRef = useRef(null);
+  const docFileInputRef = useRef(null);
   const inputRef = useRef(null);
   const emojiPickerRef = useRef(null);
 
@@ -382,7 +384,11 @@ export default function MessagesView({
                 }
                 const displayMsg = msg.is_recalled 
                   ? 'Tin nhắn đã được thu hồi' 
-                  : (msg.media_url && msg.media_type === 'image' ? ('[Hình ảnh] ' + (msg.content || '')) : msg.content);
+                  : (msg.media_url && msg.media_type === 'image' 
+                      ? ('[Hình ảnh] ' + (msg.content || '')) 
+                      : (msg.media_url && msg.media_type === 'file' 
+                          ? ('[Tệp tin] ' + (msg.content || '')) 
+                          : msg.content));
                 return prev.map((c) => {
                   if (String(c.id) === convIdStr) {
                     const isCurrentChat = String(selectedConversationIdRef.current) === convIdStr;
@@ -733,17 +739,44 @@ export default function MessagesView({
     const reader = new FileReader();
     reader.onload = (event) => {
       setSelectedImagePreview(event.target.result);
+      setSelectedFileAttachment(null);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  // Xử lý gửi tin nhắn (Bằng nút Gửi hoặc phím Enter, hỗ trợ cả ảnh và văn bản)
+  // HÀNH ĐỘNG 7: Chọn tệp tin đính kèm
+  const handleDocumentSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validation = validateFileAttachment(file, 15 * 1024 * 1024);
+    if (!validation.valid) {
+      alert(validation.error);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setSelectedFileAttachment({
+        name: file.name,
+        size: file.size,
+        dataUrl: event.target.result
+      });
+      setSelectedImagePreview(null);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Xử lý gửi tin nhắn (Bằng nút Gửi hoặc phím Enter, hỗ trợ ảnh, tài liệu và văn bản)
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     const content = inputText.trim();
-    const mediaUrl = selectedImagePreview;
-    if ((!content && !mediaUrl) || !selectedConversationId) return;
+    const mediaUrl = selectedImagePreview || selectedFileAttachment?.dataUrl || null;
+    const mediaType = selectedFileAttachment ? 'file' : (selectedImagePreview ? 'image' : 'text');
+    const finalCaption = content || (selectedFileAttachment ? selectedFileAttachment.name : '');
+    if ((!finalCaption && !mediaUrl) || !selectedConversationId) return;
 
     const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const tempId = 'msg-' + Date.now();
@@ -752,23 +785,32 @@ export default function MessagesView({
     const optimisticMsg = {
       id: tempId,
       senderId: 'current',
-      text: content,
+      text: finalCaption,
+      fileName: selectedFileAttachment?.name || null,
+      fileSize: selectedFileAttachment?.size || null,
       mediaUrl: mediaUrl || null,
-      mediaType: mediaUrl ? 'image' : 'text',
+      mediaType: mediaType,
       isRecalled: false,
       time: timeNow,
       status: 'sending'
     };
 
+    const previewFileName = selectedFileAttachment?.name;
     setInputText('');
     setSelectedImagePreview(null);
+    setSelectedFileAttachment(null);
     setShowEmojiPicker(false);
     setActiveMessages(prev => [...prev, optimisticMsg]);
     setConversations(prev => prev.map(c => {
       if (String(c.id) === String(selectedConversationId)) {
+        let lastMsgLabel = finalCaption;
+        if (!finalCaption) {
+          if (mediaType === 'image') lastMsgLabel = '[Hình ảnh]';
+          else if (mediaType === 'file') lastMsgLabel = `[Tệp tin] ${previewFileName || ''}`;
+        }
         return {
           ...c,
-          lastMessage: content || (mediaUrl ? '[Hình ảnh]' : ''),
+          lastMessage: lastMsgLabel,
           lastTime: timeNow,
           messages: [...(c.messages || []), optimisticMsg]
         };
@@ -781,7 +823,7 @@ export default function MessagesView({
     try {
       let serverMsg = null;
       if (currentUser && targetUserId) {
-        serverMsg = await messageService.sendMessage(targetUserId, content, mediaUrl, mediaUrl ? 'image' : 'text');
+        serverMsg = await messageService.sendMessage(targetUserId, finalCaption, mediaUrl, mediaType);
       }
 
       // Trạng thái 2: Đã gửi (Server đã nhận và lưu thành công)
@@ -858,7 +900,7 @@ export default function MessagesView({
     try {
       let serverMsg = null;
       if (currentUser && targetUserId) {
-        serverMsg = await messageService.sendMessage(targetUserId, failedMsg.text);
+        serverMsg = await messageService.sendMessage(targetUserId, failedMsg.text, failedMsg.mediaUrl, failedMsg.mediaType || 'text');
       }
 
       // Đã gửi
@@ -1381,8 +1423,32 @@ export default function MessagesView({
                                     : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
                                 }
                               >
+                                {/* Tệp tin đính kèm (nếu có) */}
+                                {msg.mediaType === 'file' && msg.mediaUrl && (
+                                  <a
+                                    href={msg.mediaUrl}
+                                    download={msg.text || msg.fileName || 'tep-tin'}
+                                    className={
+                                      'p-3 mb-1.5 rounded-xl flex items-center gap-3 transition border ' +
+                                      (isMe
+                                        ? 'bg-white/15 hover:bg-white/25 border-white/25 text-white'
+                                        : 'bg-slate-50 hover:bg-blue-50/60 border-slate-200 text-slate-800')
+                                    }
+                                    title="Bấm để tải về"
+                                  >
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-600'}`}>
+                                      <FileText className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex-1 min-w-0 pr-2">
+                                      <span className="font-semibold text-xs truncate block">{msg.text || msg.fileName || 'Tệp đính kèm'}</span>
+                                      <span className={`text-[10px] block ${isMe ? 'text-white/80' : 'text-slate-400'}`}>Bấm để tải về</span>
+                                    </div>
+                                    <Download className="w-4 h-4 shrink-0 opacity-80" />
+                                  </a>
+                                )}
+
                                 {/* Ảnh đính kèm (nếu có) */}
-                                {msg.mediaUrl && (
+                                {msg.mediaType !== 'file' && msg.mediaUrl && (
                                   <div className="mb-2 rounded-xl overflow-hidden cursor-pointer group/img max-w-xs">
                                     <img
                                       src={msg.mediaUrl}
@@ -1393,8 +1459,8 @@ export default function MessagesView({
                                   </div>
                                 )}
 
-                                {/* Văn bản tin nhắn có nhận diện Link */}
-                                {msg.text && (
+                                {/* Văn bản tin nhắn có nhận diện Link (chỉ hiển thị nếu không phải tin file đơn thuần) */}
+                                {msg.text && msg.mediaType !== 'file' && (
                                   <FormattedMessageText
                                     text={msg.text}
                                     isMe={isMe}
@@ -1568,6 +1634,28 @@ export default function MessagesView({
                     </div>
                   )}
 
+                  {/* Xem trước tệp tin đính kèm trước khi gửi */}
+                  {selectedFileAttachment && (
+                    <div className="px-4 pt-3 flex items-center gap-2">
+                      <div className="flex items-center gap-2.5 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl shadow-2xs">
+                        <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                        <div className="max-w-[200px] sm:max-w-xs truncate">
+                          <p className="text-xs font-semibold text-slate-800 truncate">{selectedFileAttachment.name}</p>
+                          <p className="text-[10px] text-slate-500">{formatFileSize(selectedFileAttachment.size)}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFileAttachment(null)}
+                          className="p-1 hover:bg-blue-100 text-slate-400 hover:text-slate-600 rounded-full transition cursor-pointer ml-1"
+                          title="Hủy chọn tệp tin"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <span className="text-xs text-slate-400 font-medium">Tệp tin đã chọn sẵn sàng gửi</span>
+                    </div>
+                  )}
+
                   {/* Bảng chọn Emoji Picker */}
                   {showEmojiPicker && (
                     <div 
@@ -1620,6 +1708,14 @@ export default function MessagesView({
                     onChange={handleImageSelect}
                   />
 
+                  {/* Hidden File Input cho gửi tệp tin / tài liệu */}
+                  <input
+                    type="file"
+                    ref={docFileInputRef}
+                    className="hidden"
+                    onChange={handleDocumentSelect}
+                  />
+
                   <form 
                     onSubmit={handleSendMessage}
                     className="p-3 sm:p-4 flex items-center gap-2"
@@ -1631,6 +1727,14 @@ export default function MessagesView({
                       className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                     >
                       <ImageIcon className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => docFileInputRef.current?.click()}
+                      title="Đính kèm tệp tin"
+                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                    >
+                      <Paperclip className="w-5 h-5" />
                     </button>
                     <button
                       type="button"
@@ -1656,7 +1760,7 @@ export default function MessagesView({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          if (inputText.trim() || selectedImagePreview) {
+                          if (inputText.trim() || selectedImagePreview || selectedFileAttachment) {
                             handleSendMessage(e);
                           }
                         }
@@ -1666,11 +1770,11 @@ export default function MessagesView({
 
                     <button
                       type="submit"
-                      disabled={!inputText.trim() && !selectedImagePreview}
-                      title={inputText.trim() || selectedImagePreview ? "Gửi tin nhắn (Enter)" : "Nhập nội dung hoặc chọn ảnh để gửi"}
+                      disabled={!inputText.trim() && !selectedImagePreview && !selectedFileAttachment}
+                      title={inputText.trim() || selectedImagePreview || selectedFileAttachment ? "Gửi tin nhắn (Enter)" : "Nhập nội dung hoặc đính kèm ảnh/tệp tin để gửi"}
                       className={
                         'p-2.5 rounded-full text-white transition shadow-sm ' +
-                        (inputText.trim() || selectedImagePreview
+                        (inputText.trim() || selectedImagePreview || selectedFileAttachment
                           ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105 cursor-pointer'
                           : 'bg-slate-300 cursor-not-allowed opacity-60')
                       }
@@ -1846,20 +1950,34 @@ export default function MessagesView({
                 sharedMedia.length > 0 ? (
                   <div className="grid grid-cols-3 gap-2">
                     {sharedMedia.slice(0, 6).map((item) => (
-                      <div
-                        key={item.id}
-                        className="relative group rounded-lg overflow-hidden border border-slate-200/80 aspect-square cursor-pointer"
-                        onClick={() => setSelectedImageModal(item.url)}
-                      >
-                        <img
-                          src={item.url}
-                          alt="media"
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                        />
-                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                          <ZoomIn className="w-4 h-4" />
+                      item.type === 'file' ? (
+                        <a
+                          key={item.id}
+                          href={item.url}
+                          download={item.fileName || 'tep-tin'}
+                          className="relative group rounded-lg p-1.5 border border-slate-200/80 aspect-square flex flex-col items-center justify-center text-center bg-slate-50 hover:bg-blue-50/80 transition cursor-pointer"
+                          title={item.fileName || 'Tệp đính kèm'}
+                        >
+                          <FileText className="w-5 h-5 text-blue-600 mb-0.5" />
+                          <span className="text-[9px] text-slate-700 truncate max-w-full font-medium leading-tight px-0.5">{item.fileName || 'Tệp tin'}</span>
+                          <Download className="w-3 h-3 text-slate-400 group-hover:text-blue-600 mt-1" />
+                        </a>
+                      ) : (
+                        <div
+                          key={item.id}
+                          className="relative group rounded-lg overflow-hidden border border-slate-200/80 aspect-square cursor-pointer"
+                          onClick={() => setSelectedImageModal(item.url)}
+                        >
+                          <img
+                            src={item.url}
+                            alt="media"
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                            <ZoomIn className="w-4 h-4" />
+                          </div>
                         </div>
-                      </div>
+                      )
                     ))}
                   </div>
                 ) : (
@@ -2021,27 +2139,48 @@ export default function MessagesView({
                   sharedMedia.length > 0 ? (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                       {sharedMedia.map((item) => (
-                        <div
-                          key={item.id}
-                          className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-square cursor-pointer shadow-2xs hover:shadow-md transition"
-                          onClick={() => {
-                            setSelectedImageModal(item.url);
-                          }}
-                        >
-                          <img
-                            src={item.url}
-                            alt="media"
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                          />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                            <ZoomIn className="w-5 h-5" />
-                          </div>
-                          {item.time && (
-                            <span className="absolute bottom-1 right-1 text-[9px] bg-black/60 text-white px-1.5 py-0.5 rounded-md">
-                              {item.time}
+                        item.type === 'file' ? (
+                          <a
+                            key={item.id}
+                            href={item.url}
+                            download={item.fileName || 'tep-tin'}
+                            className="relative group rounded-xl p-3 border border-slate-200 aspect-square flex flex-col items-center justify-center text-center bg-slate-50 hover:bg-blue-50/80 transition cursor-pointer shadow-2xs hover:shadow-md"
+                            title={item.fileName || 'Tệp đính kèm'}
+                          >
+                            <FileText className="w-8 h-8 text-blue-600 mb-1.5" />
+                            <span className="text-xs text-slate-700 truncate max-w-full font-semibold">{item.fileName || 'Tệp tin'}</span>
+                            <span className="text-[10px] text-blue-600 flex items-center gap-1 mt-1 font-medium">
+                              <Download className="w-3 h-3" /> Tải về
                             </span>
-                          )}
-                        </div>
+                            {item.time && (
+                              <span className="absolute bottom-1 right-1 text-[9px] bg-slate-200/80 text-slate-600 px-1.5 py-0.5 rounded-md">
+                                {item.time}
+                              </span>
+                            )}
+                          </a>
+                        ) : (
+                          <div
+                            key={item.id}
+                            className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-square cursor-pointer shadow-2xs hover:shadow-md transition"
+                            onClick={() => {
+                              setSelectedImageModal(item.url);
+                            }}
+                          >
+                            <img
+                              src={item.url}
+                              alt="media"
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                              <ZoomIn className="w-5 h-5" />
+                            </div>
+                            {item.time && (
+                              <span className="absolute bottom-1 right-1 text-[9px] bg-black/60 text-white px-1.5 py-0.5 rounded-md">
+                                {item.time}
+                              </span>
+                            )}
+                          </div>
+                        )
                       ))}
                     </div>
                   ) : (

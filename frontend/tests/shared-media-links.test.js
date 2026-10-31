@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractSharedMediaAndLinks } from '../src/utils/messageMediaLogic.js';
+import { extractSharedMediaAndLinks, validateFileAttachment, formatFileSize } from '../src/utils/messageMediaLogic.js';
 
 test('extractSharedMediaAndLinks: extracts media urls from valid messages', () => {
   const messages = [
@@ -56,3 +56,17 @@ test('extractSharedMediaAndLinks: returns empty arrays when no media or links ex
   assert.deepEqual(result.media, []);
   assert.deepEqual(result.links, []);
 });
+
+test('validateFileAttachment: checks file size limit of 15MB', () => {
+  assert.deepEqual(validateFileAttachment({ name: 'doc.pdf', size: 2 * 1024 * 1024 }), { valid: true });
+  const bad = validateFileAttachment({ name: 'huge.zip', size: 16 * 1024 * 1024 });
+  assert.equal(bad.valid, false);
+  assert.match(bad.error, /15MB/);
+});
+
+test('formatFileSize: formats bytes into human-readable strings', () => {
+  assert.equal(formatFileSize(0), '0 B');
+  assert.equal(formatFileSize(1024), '1 KB');
+  assert.equal(formatFileSize(1.5 * 1024 * 1024), '1.5 MB');
+});
+
