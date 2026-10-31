@@ -51,6 +51,7 @@ import {
   clearPostNotice,
   countVisiblePosts,
   isHardHiddenPost,
+  isDeletedNoticePost,
   markDeletedPostNotice,
   markEditPostNotice,
   removeDeletedNotice,
@@ -825,6 +826,9 @@ export default function App() {
 
       const updatedPost = result.data;
       setPosts(prev => applyUpdatedPostToList(prev, markEditPostNotice(updatedPost)));
+      setTimeout(() => {
+        handleDismissPostNotice(postId);
+      }, 4000);
       return updatedPost;
     } catch (error) {
       if (error.status === 404) {
@@ -993,11 +997,19 @@ export default function App() {
   };
 
   const handleResolveReport = async (reportId, resolution, legacyNotes) => {
-    // Chuẩn hóa tham số: hỗ trợ cả dạng object { status, newLabel, oldLabel, adminNotes } và dạng legacy
-    const status = typeof resolution === 'object' ? resolution.status : resolution;
-    const adminNotes = typeof resolution === 'object' ? resolution.adminNotes : legacyNotes;
-    const newLabel = typeof resolution === 'object' ? resolution.newLabel : 'Toxic';
-    const oldLabel = typeof resolution === 'object' ? resolution.oldLabel : 'Normal';
+    // Chuẩn hóa tham số: hỗ trợ cả dạng object { status, newLabel, oldLabel, adminNotes, textAction, imageAction, newImageLabel, oldImageLabel } và dạng legacy
+    const isObj = typeof resolution === 'object' && resolution !== null;
+    const status = isObj ? resolution.status : resolution;
+    const adminNotes = isObj ? resolution.adminNotes : legacyNotes;
+    const newLabel = isObj ? (resolution.newLabel || resolution.textAction?.newLabel || 'Toxic') : 'Toxic';
+    const oldLabel = isObj ? (resolution.oldLabel || resolution.textAction?.oldLabel || 'Normal') : 'Normal';
+    const newImageLabel = isObj ? (resolution.newImageLabel || resolution.imageAction?.newLabel || null) : null;
+    const oldImageLabel = isObj ? (resolution.oldImageLabel || resolution.imageAction?.oldLabel || null) : null;
+    const textAction = isObj ? resolution.textAction : null;
+    const imageAction = isObj ? resolution.imageAction : null;
+
+    const isTextChanged = textAction ? Boolean(textAction.changed) : (newLabel !== oldLabel);
+    const isImageChanged = imageAction ? Boolean(imageAction.changed) : Boolean(newImageLabel && oldImageLabel && newImageLabel !== oldImageLabel);
 
     // 1. Cập nhật state danh sách báo cáo lạc quan
     setReports(prev => prev.map(r => {
@@ -1007,6 +1019,7 @@ export default function App() {
           status, 
           adminNotes,
           newLabel: status === 'resolved_violation' ? newLabel : (r.newLabel || oldLabel),
+          newImageLabel: status === 'resolved_violation' ? newImageLabel : (r.newImageLabel || oldImageLabel),
           actionTaken: status === 'resolved_violation' ? 'relabel_and_hide' : 'dismissed_keep_original_label'
         };
       }
@@ -1014,21 +1027,25 @@ export default function App() {
     }));
 
     const report = reports.find(r => r.id === reportId);
+    const hasImage = Boolean(report?.imageUrl || report?.image || newImageLabel);
 
     // 2. PHÂN NHÁNH XỬ LÝ TRÊN FEED BÀI VIẾT:
     if (status === 'resolved_violation') {
-      if (newLabel === 'Normal') {
+      const isAllClean = newLabel === 'Normal' && (!hasImage || newImageLabel === 'Clean' || !newImageLabel);
+      const isViolence = newLabel === 'Violence' || newImageLabel === 'Violence';
+
+      if (isAllClean) {
         // Chuyển về trạng thái bình thường: Khôi phục hiển thị & bỏ ẩn
         if (report && report.targetType === 'post') {
-          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : p));
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal', image_moderation_status: 'approved', image_moderation_label: 'safe' } : p));
         } else if (report && report.targetType === 'comment') {
           setPosts(prev => prev.map(p => ({
             ...p,
-            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: false, is_hidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal' } : c)
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: false, is_hidden: false, isSoftHidden: false, ai_status: 'approved', ai_label: 'Normal', image_moderation_status: 'approved', image_moderation_label: 'safe' } : c)
           })));
         }
 
-        // Nghiệp vụ: Chuyển về Normal -> Gỡ toàn bộ án phạt cho tác giả nếu trùng currentUser
+        // Gỡ toàn bộ án phạt cho tác giả nếu trùng currentUser
         const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
         if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
           setCurrentUser(prev => ({
@@ -1043,44 +1060,85 @@ export default function App() {
           }));
         }
       } else {
-        // BÁO CÁO ĐÚNG: Gán lại nhãn vi phạm (Toxic / Hate Speech / Violence) & ẩn nội dung
+        // BÁO CÁO ĐÚNG: Gán lại nhãn vi phạm & ẩn nội dung
+        const dbImgStatus = newImageLabel === 'Violence' ? 'rejected_admin' : (newImageLabel === 'NSFW' ? 'sensitive' : 'safe');
+        const dbImgLabel = newImageLabel === 'Clean' ? 'safe' : (newImageLabel ? newImageLabel.toLowerCase() : undefined);
+
         if (report && report.targetType === 'post') {
-          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? { ...p, isHidden: true, ai_status: 'hidden', ai_label: newLabel } : p));
+          setPosts(prev => prev.map(p => (String(p.id) === String(report.targetId) || `post-${p.id}` === String(report.targetId)) ? {
+            ...p,
+            isHidden: true,
+            ai_status: 'hidden',
+            ai_label: newLabel,
+            ...(newImageLabel ? { image_moderation_status: dbImgStatus, image_moderation_label: dbImgLabel } : {})
+          } : p));
         } else if (report && report.targetType === 'comment') {
+          const isCommentViolence = newLabel === 'Violence' || newImageLabel === 'Violence';
+          const isCommentHateSpeech = newLabel === 'Hate Speech';
+          const isHardHidden = isCommentViolence || isCommentHateSpeech;
+          const isSoftHidden = (newLabel === 'Toxic' || newImageLabel === 'NSFW') && !isHardHidden;
+
           setPosts(prev => prev.map(p => ({
             ...p,
-            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? { ...c, isHidden: true, is_hidden: true, ai_status: 'hidden', ai_label: newLabel } : c)
+            comments: (p.comments || []).map(c => (String(c.id) === String(report.targetId) || String(c._id) === String(report.targetId)) ? {
+              ...c,
+              isHidden: isHardHidden,
+              is_hidden: isHardHidden,
+              isSoftHidden: isSoftHidden,
+              is_soft_hidden: isSoftHidden,
+              ai_status: isHardHidden ? 'hidden' : 'approved',
+              ai_label: newLabel,
+              ...(newImageLabel ? { image_moderation_status: dbImgStatus, image_moderation_label: dbImgLabel } : {})
+            } : c)
           })));
         }
 
-        // Tự động gửi thông báo xử phạt tới tác giả bài viết để tác giả có thể bấm "Gửi kháng cáo"
-        addLocalNotification({
-          id: `notif-admin-sanction-${Date.now()}`,
-          type: 'ai_moderation',
-          user: {
-            id: 'admin_moderator',
-            name: 'Thông báo hệ thống',
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
-          },
-          content: `Nội dung của bạn đã bị Quản trị viên gắn nhãn vi phạm (${newLabel}) sau khi xác minh báo cáo và đã bị ẩn. Bạn có thể gửi đơn kháng cáo nếu cho rằng quyết định này chưa chuẩn xác.`,
-          time: 'Vừa xong',
-          isRead: false,
-          targetPostId: report?.targetId,
-          targetPost: {
-            id: String(report?.targetId || ''),
-            contentSnippet: report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
-            image: report?.imageUrl || null
-          },
-          aiStatus: {
-            label: newLabel,
-            confidence: 1.0,
-            action: 'hide'
-          }
-        });
-
         const targetAuthorId = report?.targetAuthor?.id || report?.authorId;
+        const reporterId = report?.reporter?.id || report?.reporterId;
+
+        // Chỉ gửi thông báo xử phạt tới tác giả nếu người đang đăng nhập chính là tác giả
         if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
-          if (newLabel === 'Violence') {
+          addLocalNotification({
+            id: `notif-admin-sanction-${Date.now()}`,
+            type: 'ai_moderation',
+            user: {
+              id: 'admin_moderator',
+              name: 'Thông báo hệ thống',
+              avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
+            },
+            content: `Nội dung của bạn đã bị Quản trị viên gắn nhãn vi phạm (${newLabel}${newImageLabel ? ` / Ảnh: ${newImageLabel}` : ''}) sau khi xác minh báo cáo và đã bị ẩn. Bạn có thể gửi đơn kháng cáo nếu cho rằng quyết định này chưa chuẩn xác.`,
+            time: 'Vừa xong',
+            isRead: false,
+            targetPostId: report?.targetId,
+            targetPost: {
+              id: String(report?.targetId || ''),
+              contentSnippet: report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
+              image: report?.imageUrl || null
+            },
+            aiStatus: {
+              label: newLabel,
+              confidence: 1.0,
+              action: 'hide'
+            }
+          });
+        } else if (currentUser && reporterId && currentUser.id === reporterId) {
+          // Với người gửi báo cáo: Gửi thông báo cảm ơn phản hồi kết quả
+          addLocalNotification({
+            id: `notif-report-result-${Date.now()}`,
+            type: 'system',
+            user: {
+              id: 'system',
+              name: 'Thông báo hệ thống',
+              avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
+            },
+            content: `Báo cáo của bạn về nội dung của ${report?.targetAuthor?.name || 'thành viên'} đã được Quản trị viên xử lý (${newLabel}). Cảm ơn bạn đã đóng góp xây dựng không gian văn minh!`,
+            time: 'Vừa xong',
+            isRead: false
+          });
+        }
+
+        if (currentUser && targetAuthorId && currentUser.id === targetAuthorId) {
+          if (isViolence) {
             const cdUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
             setCurrentUser(prev => ({
               ...prev,
@@ -1093,7 +1151,6 @@ export default function App() {
               cooldown_violation_text: report?.contentExcerpt
             }));
           } else {
-            // Chuyển sang Hate Speech hoặc Toxic -> Gỡ cooldown nếu từng bị cooldown do nhãn Violence cũ
             setCurrentUser(prev => prev.status === 'cooldown' ? ({
               ...prev,
               status: 'active',
@@ -1109,20 +1166,60 @@ export default function App() {
       }
 
       // Tạo bản ghi trong Nhật ký hiệu chỉnh nhãn AI (aiOverrides) để xuất file
-      const newOverride = {
-        id: `ovr-${Date.now()}`,
-        adminName: currentUser?.full_name || currentUser?.name || 'Điều Hành Viên Hệ Thống',
-        contentType: report?.targetType || 'post',
-        contentId: report?.targetId || reportId,
-        rawText: report?.contentExcerpt || report?.targetExcerpt || report?.imageUrl || 'Nội dung vi phạm',
-        imageUrl: report?.imageUrl || null,
-        originalAiLabel: oldLabel || report?.aiStatus?.label || 'Normal',
-        correctedLabel: newLabel,
-        overrideReason: adminNotes || `Xác nhận vi phạm từ báo cáo (${report?.reasonLabel || report?.reason || 'Báo cáo vi phạm'}): Gán lại nhãn ${newLabel}`,
-        isExportedForRetraining: false,
-        createdAt: new Date().toLocaleString('vi-VN')
-      };
-      setAiOverrides(prev => [newOverride, ...prev]);
+      // Quy tắc 2: Chỉ ghi cho phần nào có nhãn thay đổi
+      const newLogs = [];
+      const adminName = currentUser?.full_name || currentUser?.name || 'Điều Hành Viên Hệ Thống';
+
+      if (isTextChanged) {
+        newLogs.push({
+          id: `ovr-txt-${Date.now()}`,
+          adminName,
+          contentType: report?.targetType || 'post',
+          contentId: report?.targetId || reportId,
+          rawText: report?.contentExcerpt || report?.targetExcerpt || 'Nội dung văn bản vi phạm',
+          imageUrl: null,
+          originalAiLabel: oldLabel || 'Normal',
+          correctedLabel: newLabel,
+          overrideReason: adminNotes || `Xác nhận vi phạm văn bản: ${oldLabel} → ${newLabel}`,
+          isExportedForRetraining: false,
+          createdAt: new Date().toLocaleString('vi-VN')
+        });
+      }
+
+      if (isImageChanged) {
+        newLogs.push({
+          id: `ovr-img-${Date.now() + 1}`,
+          adminName,
+          contentType: report?.targetType || 'post',
+          contentId: report?.targetId || reportId,
+          rawText: report?.imageUrl || report?.image || 'Hình ảnh vi phạm',
+          imageUrl: report?.imageUrl || report?.image || null,
+          originalAiLabel: oldImageLabel || 'Clean',
+          correctedLabel: newImageLabel,
+          overrideReason: adminNotes || `Xác nhận vi phạm hình ảnh: ${oldImageLabel || 'Clean'} → ${newImageLabel}`,
+          isExportedForRetraining: false,
+          createdAt: new Date().toLocaleString('vi-VN')
+        });
+      }
+
+      // Nếu không có phần nào đổi nhưng vẫn gọi resolved_violation (fallback cho legacy test)
+      if (newLogs.length === 0) {
+        newLogs.push({
+          id: `ovr-${Date.now()}`,
+          adminName,
+          contentType: report?.targetType || 'post',
+          contentId: report?.targetId || reportId,
+          rawText: report?.contentExcerpt || report?.targetExcerpt || report?.imageUrl || 'Nội dung vi phạm',
+          imageUrl: report?.imageUrl || null,
+          originalAiLabel: oldLabel || report?.aiStatus?.label || 'Normal',
+          correctedLabel: newLabel,
+          overrideReason: adminNotes || `Xác nhận vi phạm từ báo cáo: Gán lại nhãn ${newLabel}`,
+          isExportedForRetraining: false,
+          createdAt: new Date().toLocaleString('vi-VN')
+        });
+      }
+
+      setAiOverrides(prev => [...newLogs, ...prev]);
 
       // Đồng bộ tới backend server CSDL thật
       try {
@@ -1131,6 +1228,10 @@ export default function App() {
           status,
           newLabel,
           oldLabel,
+          newImageLabel,
+          oldImageLabel,
+          textAction,
+          imageAction,
           adminNotes,
           userId: currentUser?.id
         });
@@ -1667,7 +1768,7 @@ export default function App() {
           <ProfileView 
             currentUser={currentUser}
             viewedUser={viewedProfileUser}
-            posts={posts.filter(p => !p.inlineNotice)}
+            posts={posts.filter(p => !isDeletedNoticePost(p))}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}

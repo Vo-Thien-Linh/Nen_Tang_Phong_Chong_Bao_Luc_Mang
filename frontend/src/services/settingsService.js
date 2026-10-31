@@ -129,6 +129,7 @@ export const settingsService = {
       location: currentUser?.location || '',
       hometown: currentUser?.hometown || '',
       education: currentUser?.education || '',
+      high_school: currentUser?.high_school || currentUser?.highSchool || '',
       relationship_status: currentUser?.relationship_status || '',
       avatar_url: currentUser?.avatar || currentUser?.avatar_url || '',
       cover_url: currentUser?.cover_url || '',

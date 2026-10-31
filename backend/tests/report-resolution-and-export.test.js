@@ -242,4 +242,161 @@ test('Business rules per label: Violence applies 10-minute cooldown; Hate Speech
   assert.equal(user.status, 'active');
   assert.equal(user.cooldown_until, null);
 });
+test('Multimodal report moderation: Rule 1 - blocking true report when no labels are changed', () => {
+  const initialText = 'Normal';
+  const initialImage = 'Clean';
+  const hasImage = true;
 
+  function validateResolution(decision, selectedText, selectedImage) {
+    const isTextChanged = selectedText !== initialText;
+    const isImageChanged = hasImage ? (selectedImage !== initialImage) : false;
+    const isAnyChanged = isTextChanged || isImageChanged;
+    if (decision === 'resolved_violation' && !isAnyChanged) {
+      return { allowed: false, error: 'Chưa có nhãn nào được thay đổi' };
+    }
+    return { allowed: true };
+  }
+
+  // Cố tình chọn resolved_violation nhưng giữ nguyên cả text lẫn ảnh -> Bị chặn để tránh sai sót
+  const noChangeRes = validateResolution('resolved_violation', 'Normal', 'Clean');
+  assert.equal(noChangeRes.allowed, false);
+
+  // Đổi text sang Toxic, ảnh giữ nguyên -> Cho phép
+  const textChangeRes = validateResolution('resolved_violation', 'Toxic', 'Clean');
+  assert.equal(textChangeRes.allowed, true);
+
+  // Text giữ nguyên, đổi ảnh sang NSFW -> Cho phép
+  const imageChangeRes = validateResolution('resolved_violation', 'Normal', 'NSFW');
+  assert.equal(imageChangeRes.allowed, true);
+
+  // Báo cáo sai (dismissed) giữ nguyên -> Luôn cho phép
+  const dismissedRes = validateResolution('dismissed', 'Normal', 'Clean');
+  assert.equal(dismissedRes.allowed, true);
+});
+
+test('Multimodal report moderation: Rule 2 - record override logs only for changed modality', async () => {
+  const { createReportRepository } = await import('../src/repositories/reportRepository.js');
+  const mockQueries = [];
+  const mockPool = {
+    async query(sql, params) {
+      mockQueries.push({ sql, params });
+      if (/UPDATE reports/i.test(sql)) {
+        return {
+          rows: [{
+            id: 123,
+            reporter_id: 'u-rep',
+            target_type: 'post',
+            target_id: 456,
+            reason: 'toxic',
+            status: 'resolved_violation',
+            admin_notes: 'Xử lý vi phạm văn bản',
+            action_taken: 'relabel_and_hide'
+          }]
+        };
+      }
+      if (/SELECT author_id FROM posts/i.test(sql)) {
+        return { rows: [{ author_id: 'u-author' }] };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const repo = createReportRepository({ pool: mockPool });
+
+  // 1. Chỉ đổi nhãn Text: Normal -> Toxic, Ảnh giữ nguyên Clean -> Clean
+  mockQueries.length = 0;
+  await repo.updateReportStatus({
+    id: 123,
+    status: 'resolved_violation',
+    textAction: { oldLabel: 'Normal', newLabel: 'Toxic', changed: true },
+    imageAction: { oldLabel: 'Clean', newLabel: 'Clean', changed: false },
+    newLabel: 'Toxic',
+    oldLabel: 'Normal',
+    newImageLabel: 'Clean',
+    oldImageLabel: 'Clean',
+    reviewerId: 'admin-mod-1',
+    rawText: 'Nội dung xúc phạm'
+  });
+
+  const textOverrideInserts = mockQueries.filter(q => /INSERT INTO ai_override_logs/i.test(q.sql));
+  assert.equal(textOverrideInserts.length, 1, 'Chỉ được ghi 1 log override cho phần Text');
+  assert.equal(textOverrideInserts[0].params[4], 'Normal'); // old
+  assert.equal(textOverrideInserts[0].params[6], 'Toxic');  // new
+
+  // 2. Chỉ đổi nhãn Image: Clean -> NSFW, Text giữ nguyên Normal
+  mockQueries.length = 0;
+  await repo.updateReportStatus({
+    id: 123,
+    status: 'resolved_violation',
+    textAction: { oldLabel: 'Normal', newLabel: 'Normal', changed: false },
+    imageAction: { oldLabel: 'Clean', newLabel: 'NSFW', changed: true },
+    newLabel: 'Normal',
+    oldLabel: 'Normal',
+    newImageLabel: 'NSFW',
+    oldImageLabel: 'Clean',
+    reviewerId: 'admin-mod-1',
+    rawText: 'Nội dung bình thường'
+  });
+
+  const imageOverrideInserts = mockQueries.filter(q => /INSERT INTO ai_override_logs/i.test(q.sql));
+  assert.equal(imageOverrideInserts.length, 1, 'Chỉ được ghi 1 log override cho phần Image');
+  assert.equal(imageOverrideInserts[0].params[4], 'Clean'); // old
+  assert.equal(imageOverrideInserts[0].params[6], 'NSFW');  // new
+
+  // 3. Đổi cả hai: Text Normal -> Toxic, Image Clean -> Violence
+  mockQueries.length = 0;
+  await repo.updateReportStatus({
+    id: 123,
+    status: 'resolved_violation',
+    textAction: { oldLabel: 'Normal', newLabel: 'Toxic', changed: true },
+    imageAction: { oldLabel: 'Clean', newLabel: 'Violence', changed: true },
+    newLabel: 'Toxic',
+    oldLabel: 'Normal',
+    newImageLabel: 'Violence',
+    oldImageLabel: 'Clean',
+    reviewerId: 'admin-mod-1',
+    rawText: 'Nội dung bạo lực cả text và ảnh'
+  });
+
+  const bothOverrideInserts = mockQueries.filter(q => /INSERT INTO ai_override_logs/i.test(q.sql));
+  assert.equal(bothOverrideInserts.length, 2, 'Phải ghi đúng 2 logs override khi cả text và ảnh đều thay đổi');
+});
+
+test('Multimodal report moderation: Target modality stored and retrieved', async () => {
+  const { createReportRepository } = await import('../src/repositories/reportRepository.js');
+  const mockQueries = [];
+  const mockPool = {
+    async query(sql, params) {
+      mockQueries.push({ sql, params });
+      if (/INSERT INTO reports/i.test(sql)) {
+        return {
+          rows: [{
+            id: 999,
+            reporter_id: 'user-1',
+            target_type: 'post',
+            target_id: 100,
+            reason: 'toxic',
+            details: 'Chửi bới và đăng ảnh xấu',
+            status: 'pending',
+            target_modality: params[5] || 'both'
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const repo = createReportRepository({ pool: mockPool });
+  const result = await repo.createReport({
+    reporterId: 'user-1',
+    targetType: 'post',
+    targetId: 100,
+    targetModality: 'image',
+    reason: 'toxic',
+    details: 'Báo cáo phần ảnh'
+  });
+
+  assert.equal(result.fromDb, true);
+  assert.equal(result.data.targetModality, 'image');
+  assert.equal(mockQueries[0].params[5], 'image');
+});

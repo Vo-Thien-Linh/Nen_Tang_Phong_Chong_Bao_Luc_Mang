@@ -291,9 +291,9 @@ export function createPostRepository({ pool }) {
       if (aiStatus !== undefined || aiLabel !== undefined) {
         const nextIdx = values.length + 1;
         aiFields = `,
-         ai_status = ${nextIdx},
-         ai_label = ${nextIdx + 1},
-         ai_confidence = ${nextIdx + 2}`;
+         ai_status = $${nextIdx},
+         ai_label = $${nextIdx + 1},
+         ai_confidence = $${nextIdx + 2}`;
         values.push(
           aiStatus || 'approved',
           aiLabel || 'Normal',

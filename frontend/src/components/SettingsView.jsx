@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { settingsService } from '../services/settingsService';
 import { playNotificationSound } from '../utils/soundUtil';
+import { profileService } from '../services/profileService';
+import { fetchUserTrustHistory } from '../api/client';
 
 export default function SettingsView({ 
   currentUser, 
@@ -16,7 +18,19 @@ export default function SettingsView({
   onSetTheme, 
   onToggleTheme 
 }) {
-  const [activeSubTab, setActiveSubTab] = useState('safety'); // 'safety' | 'profile' | 'security' | 'privacy' | 'blocked' | 'notifications' | 'appearance'
+  const [activeSubTab, setActiveSubTab] = useState('safety');
+  const [trustScore, setTrustScore] = useState(currentUser?.trustScore ?? currentUser?.trust_score ?? 100);
+  const [trustTier, setTrustTier] = useState('good');
+  const [trustLogs, setTrustLogs] = useState([]);
+  const [showTrustLogs, setShowTrustLogs] = useState(false);
+  const [isLoadingTrust, setIsLoadingTrust] = useState(false);
+
+  const getTrustBadgeInfo = (score) => {
+    if (score >= 80) return { name: 'Xuất sắc', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500', desc: 'Tài khoản hoạt động rất tích cực, tuân thủ xuất sắc tiêu chuẩn cộng đồng.' };
+    if (score >= 50) return { name: 'Tốt', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', bar: 'bg-blue-500', desc: 'Tài khoản có độ uy tín tiêu chuẩn, không bị hạn chế tương tác.' };
+    if (score >= 30) return { name: 'Cảnh báo', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', bar: 'bg-amber-500', desc: 'Tài khoản đã có một số vi phạm. Hãy cẩn trọng để tránh bị giới hạn tính năng.' };
+    return { name: 'Nguy cơ / Hạn chế', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', bar: 'bg-rose-500', desc: 'Điểm uy tín dưới 30. Tài khoản có thể bị đưa vào chế độ hạn chế (Cooldown) tạm thời.' };
+  }; // 'safety' | 'profile' | 'security' | 'privacy' | 'blocked' | 'notifications' | 'appearance'
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: string }
 
@@ -31,6 +45,7 @@ export default function SettingsView({
     location: currentUser?.location || '',
     hometown: currentUser?.hometown || '',
     education: currentUser?.education || '',
+    high_school: currentUser?.high_school || currentUser?.highSchool || '',
     relationship_status: currentUser?.relationship_status || '',
     avatar_url: currentUser?.avatar || currentUser?.avatar_url || '',
     cover_url: currentUser?.cover_url || '',
