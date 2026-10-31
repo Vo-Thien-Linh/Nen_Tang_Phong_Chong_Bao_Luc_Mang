@@ -4,10 +4,89 @@ import {
   Phone, Video, Check, CheckCheck, Clock, RotateCw, Loader2, MessageSquare, ArrowLeft,
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
-  User, FileText, ChevronRight, Ban
+  User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+
+const EMOJI_CATEGORIES = [
+  {
+    name: 'Mặt cười & Cảm xúc',
+    emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😋', '😛', '😜', '🤪', '😎', '🥳', '😴', '🤯']
+  },
+  {
+    name: 'Cử chỉ & Trái tim',
+    emojis: ['👍', '👎', '👏', '🙌', '🤝', '✌️', '🤞', '🤟', '👌', '👋', '💪', '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💖', '💯', '🔥']
+  },
+  {
+    name: 'Đồ vật & Biểu tượng',
+    emojis: ['🎉', '🎊', '🎈', '🎁', '🏆', '🌟', '⭐', '✨', '🚀', '💡', '📌', '☕', '🍕', '🍔', '🍦', '🐱', '🐶', '🌸', '🌈', '☀️', '🎵', '💬']
+  }
+];
+
+function FormattedMessageText({ text, isMe }) {
+  if (!text) return null;
+
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  const firstUrlMatch = text.match(urlRegex);
+  const firstUrl = firstUrlMatch ? firstUrlMatch[0] : null;
+
+  let domain = '';
+  if (firstUrl) {
+    try {
+      domain = new URL(firstUrl).hostname;
+    } catch {
+      domain = firstUrl;
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="break-words leading-relaxed">
+        {parts.map((part, i) => {
+          if (part.match(urlRegex)) {
+            return (
+              <a
+                key={i}
+                href={part}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className={`underline underline-offset-2 font-medium hover:opacity-80 transition cursor-pointer break-all ${
+                  isMe ? 'text-blue-100 hover:text-white' : 'text-blue-600 hover:text-blue-800'
+                }`}
+              >
+                {part}
+              </a>
+            );
+          }
+          return <span key={i}>{part}</span>;
+        })}
+      </div>
+
+      {firstUrl && (
+        <a
+          href={firstUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={`block p-2 rounded-xl text-xs transition border cursor-pointer ${
+            isMe 
+              ? 'bg-blue-700/40 hover:bg-blue-700/60 border-blue-400/40 text-blue-50' 
+              : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 font-bold truncate">
+            <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{domain}</span>
+          </div>
+          <span className="text-[11px] opacity-75 truncate block mt-0.5">{firstUrl}</span>
+        </a>
+      )}
+    </div>
+  );
+}
 
 export default function MessagesView({ 
   currentUser, 
@@ -64,12 +143,38 @@ export default function MessagesView({
   // Cuộc trò chuyện nháp khi bấm 'Nhắn tin' từ profile mà chưa gửi gì (không kẹt trong list chat)
   const [draftConversation, setDraftConversation] = useState(null);
 
+  // Trạng thái Biểu tượng cảm xúc & Đính kèm đa phương tiện
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+  const [selectedImageModal, setSelectedImageModal] = useState(null);
+  const fileInputRef = useRef(null);
+  const inputRef = useRef(null);
+  const emojiPickerRef = useRef(null);
+
+  // Đóng emoji picker khi click ra ngoài
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    if (showEmojiPicker) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showEmojiPicker]);
+
   // Đếm số lượng tin nhắn chờ từ người lạ (chỉ tính nếu mình là người nhận)
   const pendingRequestsCount = conversations.filter(c => c.status === 'pending' && c.initiatedBy !== currentUser?.id).length;
 
   // Lấy hội thoại hiện tại (ưu tiên tìm trong danh sách chính thức, nếu không có lấy draftConversation)
   const currentConversation = conversations.find(c => String(c.id) === String(selectedConversationId)) ||
     (draftConversation && String(draftConversation.id) === String(selectedConversationId) ? draftConversation : null);
+
+  const isBlocked = currentConversation?.status === 'blocked';
+  const isBlockedByMe = isBlocked && String(currentConversation?.blockedBy) === String(currentUser?.id);
 
   const targetInitialUserId = initialChatUser?.id || initialChatUserId;
   const targetInitialUserTs = initialChatUser?._ts || 0;
@@ -87,6 +192,7 @@ export default function MessagesView({
               id: String(c.id),
               status: c.status,
               initiatedBy: c.initiated_by || '',
+              blockedBy: c.blocked_by || null,
               isRequester: Boolean(c.is_requester ?? (c.initiated_by === currentUser?.id)),
               user: {
                 id: c.user?.id || '',
@@ -148,6 +254,9 @@ export default function MessagesView({
           id: m.id,
           senderId: m.sender_id === currentUser.id ? 'current' : m.sender_id,
           text: m.content,
+          mediaUrl: m.media_url || null,
+          mediaType: m.media_type || 'text',
+          isRecalled: Boolean(m.is_recalled),
           time: new Date(m.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
           status: m.status || 'sent'
         }));
@@ -220,14 +329,17 @@ export default function MessagesView({
                   const exists = prev.some((m) => String(m.id) === String(msg.id));
                   if (exists) return prev;
                   // Thay thế tin nhắn optimistic sending (nếu có)
-                  const hasSending = prev.some((m) => m.status === 'sending' && m.text === msg.content);
+                  const hasSending = prev.some((m) => m.status === 'sending' && (m.text === msg.content || (m.mediaUrl && m.mediaUrl === msg.media_url)));
                   if (hasSending) {
                     return prev.map((m) =>
-                      m.status === 'sending' && m.text === msg.content
+                      m.status === 'sending' && (m.text === msg.content || (m.mediaUrl && m.mediaUrl === msg.media_url))
                         ? {
                             id: msg.id,
                             senderId: msg.sender_id === currentUser.id ? 'current' : msg.sender_id,
                             text: msg.content,
+                            mediaUrl: msg.media_url || null,
+                            mediaType: msg.media_type || 'text',
+                            isRecalled: Boolean(msg.is_recalled),
                             time: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                             status: msg.status || 'sent',
                           }
@@ -240,6 +352,9 @@ export default function MessagesView({
                       id: msg.id,
                       senderId: msg.sender_id === currentUser.id ? 'current' : msg.sender_id,
                       text: msg.content,
+                      mediaUrl: msg.media_url || null,
+                      mediaType: msg.media_type || 'text',
+                      isRecalled: Boolean(msg.is_recalled),
                       time: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                       status: msg.status || 'sent',
                     },
@@ -258,12 +373,15 @@ export default function MessagesView({
                   loadServerConversations(false);
                   return prev;
                 }
+                const displayMsg = msg.is_recalled 
+                  ? 'Tin nhắn đã được thu hồi' 
+                  : (msg.media_url && msg.media_type === 'image' ? ('[Hình ảnh] ' + (msg.content || '')) : msg.content);
                 return prev.map((c) => {
                   if (String(c.id) === convIdStr) {
                     const isCurrentChat = String(selectedConversationIdRef.current) === convIdStr;
                     return {
                       ...c,
-                      lastMessage: msg.content,
+                      lastMessage: displayMsg,
                       lastTime: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                       unreadCount: isCurrentChat ? 0 : (c.unreadCount || 0) + 1,
                     };
@@ -271,6 +389,39 @@ export default function MessagesView({
                   return c;
                 });
               });
+            } else if (data.type === 'MESSAGE_RECALLED') {
+              const msgId = data.message_id;
+              const convIdStr = String(data.conversation_id);
+              if (String(selectedConversationIdRef.current) === convIdStr) {
+                setActiveMessages((prev) => prev.map((m) =>
+                  String(m.id) === String(msgId)
+                    ? { ...m, text: 'Tin nhắn đã được thu hồi', isRecalled: true, mediaUrl: null, status: 'recalled' }
+                    : m
+                ));
+              }
+              setConversations((prev) => prev.map((c) => {
+                if (String(c.id) === convIdStr) {
+                  return {
+                    ...c,
+                    lastMessage: 'Tin nhắn đã được thu hồi'
+                  };
+                }
+                return c;
+              }));
+            } else if (data.type === 'CONVERSATION_BLOCKED') {
+              const convIdStr = String(data.conversation_id);
+              setConversations((prev) => prev.map((c) =>
+                String(c.id) === convIdStr
+                  ? { ...c, status: 'blocked', blockedBy: data.blocked_by }
+                  : c
+              ));
+            } else if (data.type === 'CONVERSATION_UNBLOCKED') {
+              const convIdStr = String(data.conversation_id);
+              setConversations((prev) => prev.map((c) =>
+                String(c.id) === convIdStr
+                  ? { ...c, status: 'accepted', blockedBy: null }
+                  : c
+              ));
             } else if (data.type === 'CONVERSATION_ACCEPTED') {
               setConversations((prev) =>
                 prev.map((c) =>
@@ -497,11 +648,95 @@ export default function MessagesView({
     }
   };
 
-  // Xử lý gửi tin nhắn (Bằng nút Gửi hoặc phím Enter)
+  // HÀNH ĐỘNG 3: Thu hồi tin nhắn đã gửi
+  const handleRecallMessage = async (msgId) => {
+    if (!window.confirm('Bạn có chắc chắn muốn thu hồi tin nhắn này không?')) return;
+    try {
+      await messageService.recallMessage(msgId);
+      setActiveMessages(prev => prev.map(m => 
+        String(m.id) === String(msgId)
+          ? { ...m, text: 'Tin nhắn đã được thu hồi', isRecalled: true, mediaUrl: null, status: 'recalled' }
+          : m
+      ));
+      setConversations(prev => prev.map(c => {
+        if (String(c.id) === String(selectedConversationId)) {
+          return {
+            ...c,
+            lastMessage: 'Tin nhắn đã được thu hồi'
+          };
+        }
+        return c;
+      }));
+    } catch (err) {
+      alert(err.message || 'Không thể thu hồi tin nhắn');
+    }
+  };
+
+  // HÀNH ĐỘNG 4: Chặn người dùng trong cuộc trò chuyện
+  const handleBlockConversation = async (convId) => {
+    if (!convId) return;
+    const partnerName = currentConversation?.user?.name || 'người dùng này';
+    if (!window.confirm(`Bạn có chắc muốn chặn ${partnerName}? Bạn và người này sẽ không thể gửi tin nhắn cho nhau nữa.`)) return;
+    try {
+      const ok = await messageService.blockConversation(convId);
+      if (ok) {
+        setConversations(prev => prev.map(c => 
+          String(c.id) === String(convId)
+            ? { ...c, status: 'blocked', blockedBy: currentUser?.id }
+            : c
+        ));
+      }
+    } catch (err) {
+      alert('Không thể chặn cuộc trò chuyện');
+    }
+  };
+
+  // HÀNH ĐỘNG 5: Bỏ chặn người dùng
+  const handleUnblockConversation = async (convId) => {
+    if (!convId) return;
+    try {
+      const ok = await messageService.unblockConversation(convId);
+      if (ok) {
+        setConversations(prev => prev.map(c => 
+          String(c.id) === String(convId)
+            ? { ...c, status: 'accepted', blockedBy: null }
+            : c
+        ));
+      }
+    } catch (err) {
+      alert('Không thể bỏ chặn cuộc trò chuyện');
+    }
+  };
+
+  // HÀNH ĐỘNG 6: Chọn ảnh đính kèm
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Vui lòng chọn tệp hình ảnh hợp lệ (PNG, JPG, WebP, GIF)');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Dung lượng ảnh tối đa là 5MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setSelectedImagePreview(event.target.result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Xử lý gửi tin nhắn (Bằng nút Gửi hoặc phím Enter, hỗ trợ cả ảnh và văn bản)
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     const content = inputText.trim();
-    if (!content || !selectedConversationId) return; // Nút gửi bị vô hiệu hóa khi ô trống
+    const mediaUrl = selectedImagePreview;
+    if ((!content && !mediaUrl) || !selectedConversationId) return;
 
     const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const tempId = 'msg-' + Date.now();
@@ -511,17 +746,22 @@ export default function MessagesView({
       id: tempId,
       senderId: 'current',
       text: content,
+      mediaUrl: mediaUrl || null,
+      mediaType: mediaUrl ? 'image' : 'text',
+      isRecalled: false,
       time: timeNow,
       status: 'sending'
     };
 
     setInputText('');
+    setSelectedImagePreview(null);
+    setShowEmojiPicker(false);
     setActiveMessages(prev => [...prev, optimisticMsg]);
     setConversations(prev => prev.map(c => {
       if (String(c.id) === String(selectedConversationId)) {
         return {
           ...c,
-          lastMessage: content,
+          lastMessage: content || (mediaUrl ? '[Hình ảnh]' : ''),
           lastTime: timeNow,
           messages: [...(c.messages || []), optimisticMsg]
         };
@@ -534,14 +774,17 @@ export default function MessagesView({
     try {
       let serverMsg = null;
       if (currentUser && targetUserId) {
-        serverMsg = await messageService.sendMessage(targetUserId, content);
+        serverMsg = await messageService.sendMessage(targetUserId, content, mediaUrl, mediaUrl ? 'image' : 'text');
       }
 
       // Trạng thái 2: Đã gửi (Server đã nhận và lưu thành công)
       setActiveMessages(prev => prev.map(m => m.id === tempId ? {
         ...m,
         id: serverMsg ? serverMsg.id : m.id,
-        status: serverMsg?.status || 'sent'
+        status: serverMsg?.status || 'sent',
+        mediaUrl: serverMsg?.media_url || m.mediaUrl,
+        mediaType: serverMsg?.media_type || m.mediaType,
+        isRecalled: Boolean(serverMsg?.is_recalled)
       } : m));
 
       if (serverMsg?.conversation_id) {
@@ -557,7 +800,9 @@ export default function MessagesView({
             messages: (c.messages || []).map(m => m.id === tempId ? {
               ...m,
               id: serverMsg ? serverMsg.id : m.id,
-              status: serverMsg?.status || 'sent'
+              status: serverMsg?.status || 'sent',
+              mediaUrl: serverMsg?.media_url || m.mediaUrl,
+              mediaType: serverMsg?.media_type || m.mediaType
             } : m)
           };
         }
@@ -1106,17 +1351,51 @@ export default function MessagesView({
                             />
                           )}
 
-                          <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative ' + (isMe ? 'items-end' : 'items-start')}>
-                            <div
-                              className={
-                                'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
-                                (isMe
-                                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
-                                  : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
-                              }
-                            >
-                              {msg.text}
-                            </div>
+                          <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative flex flex-col ' + (isMe ? 'items-end' : 'items-start')}>
+                            {/* Nội dung tin nhắn: Thu hồi hoặc Hiển thị thường (ảnh + chữ + link) */}
+                            {msg.isRecalled ? (
+                              <div
+                                className={
+                                  'px-4 py-2.5 rounded-2xl text-xs sm:text-sm italic leading-relaxed break-words shadow-2xs flex items-center gap-1.5 ' +
+                                  (isMe
+                                    ? 'bg-blue-100/70 text-blue-900 border border-blue-200/60 rounded-br-xs'
+                                    : 'bg-slate-100 text-slate-500 border border-slate-200 rounded-bl-xs')
+                                }
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 opacity-70 shrink-0" />
+                                <span>Tin nhắn đã được thu hồi</span>
+                              </div>
+                            ) : (
+                              <div
+                                className={
+                                  'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
+                                  (isMe
+                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
+                                    : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
+                                }
+                              >
+                                {/* Ảnh đính kèm (nếu có) */}
+                                {msg.mediaUrl && (
+                                  <div className="mb-2 rounded-xl overflow-hidden cursor-pointer group/img max-w-xs">
+                                    <img
+                                      src={msg.mediaUrl}
+                                      alt="Ảnh đính kèm"
+                                      onClick={() => setSelectedImageModal(msg.mediaUrl)}
+                                      className="max-h-60 w-auto rounded-lg object-cover hover:opacity-90 transition shadow-2xs"
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Văn bản tin nhắn có nhận diện Link */}
+                                {msg.text && (
+                                  <FormattedMessageText
+                                    text={msg.text}
+                                    isMe={isMe}
+                                  />
+                                )}
+                              </div>
+                            )}
+
                             <div
                               className={
                                 'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
@@ -1150,7 +1429,7 @@ export default function MessagesView({
                                     </span>
                                   )}
 
-                                  {/* Trạng thái 4: Đã xem (Chỉ hiển thị avatar ở tin nhắn đã xem mới nhất) */}
+                                  {/* Trạng thái 4: Đã xem */}
                                   {(msg.status === 'read' || !msg.status) && isLastRead && (
                                     <div 
                                       className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
@@ -1165,41 +1444,54 @@ export default function MessagesView({
                                     </div>
                                   )}
 
-                                {/* Trạng thái lỗi: Gửi thất bại kèm nút Gửi lại */}
-                                {msg.status === 'failed' && (
-                                  <div className="flex items-center gap-1.5 text-rose-500 font-medium">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                    <span className="text-[10px]">Gửi thất bại</span>
+                                  {/* Nút Thu hồi tin nhắn dành cho người gửi */}
+                                  {!msg.isRecalled && msg.status !== 'sending' && msg.status !== 'failed' && (
                                     <button
                                       type="button"
-                                      onClick={() => handleRetryMessage(msg)}
-                                      className="ml-0.5 px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
-                                      title="Nhấn để gửi lại tin nhắn này"
+                                      onClick={() => handleRecallMessage(msg.id)}
+                                      title="Thu hồi tin nhắn này"
+                                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition cursor-pointer p-0.5 text-[10px] flex items-center gap-0.5"
                                     >
-                                      <RotateCw className="w-2.5 h-2.5" /> Gửi lại
+                                      <RotateCcw className="w-3 h-3" />
+                                      <span>Thu hồi</span>
                                     </button>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  onOpenReportModal && onOpenReportModal({
-                                    targetType: 'message',
-                                    targetId: msg.id,
-                                    targetAuthor: currentConversation.user,
-                                    contentExcerpt: msg.text
-                                  });
-                                }}
-                                title="Báo cáo tin nhắn này"
-                                className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition cursor-pointer p-0.5"
-                              >
-                                <Flag className="w-3 h-3" />
-                              </button>
-                            )}
+                                  )}
+
+                                  {/* Trạng thái lỗi: Gửi thất bại kèm nút Gửi lại */}
+                                  {msg.status === 'failed' && (
+                                    <div className="flex items-center gap-1.5 text-rose-500 font-medium">
+                                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                      <span className="text-[10px]">Gửi thất bại</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRetryMessage(msg)}
+                                        className="ml-0.5 px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                        title="Nhấn để gửi lại tin nhắn này"
+                                      >
+                                        <RotateCw className="w-2.5 h-2.5" /> Gửi lại
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    onOpenReportModal && onOpenReportModal({
+                                      targetType: 'message',
+                                      targetId: msg.id,
+                                      targetAuthor: currentConversation.user,
+                                      contentExcerpt: msg.text
+                                    });
+                                  }}
+                                  title="Báo cáo tin nhắn này"
+                                  className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition cursor-pointer p-0.5"
+                                >
+                                  <Flag className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
                     );
                   })}
 
@@ -1224,60 +1516,163 @@ export default function MessagesView({
                 </div>
               </div>
 
-              {/* Thanh nhập tin nhắn (Gửi bằng nút gửi hoặc Enter) */}
-              <form 
-                onSubmit={handleSendMessage}
-                className="shrink-0 p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center gap-2"
-              >
-                <button
-                  type="button"
-                  title="Gửi ảnh"
-                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                >
-                  <ImageIcon className="w-5 h-5" />
-                </button>
-                <button
-                  type="button"
-                  title="Biểu tượng cảm xúc"
-                  className="p-2 text-slate-400 hover:text-amber-500 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                >
-                  <Smile className="w-5 h-5" />
-                </button>
+              {/* Thanh nhập tin nhắn (hoặc thông báo khi bị chặn) */}
+              {isBlocked ? (
+                <div className="shrink-0 p-4 bg-slate-100 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600">
+                    <Ban className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>
+                      {isBlockedByMe 
+                        ? 'Bạn đã chặn người dùng này. Bỏ chặn để tiếp tục gửi tin nhắn.' 
+                        : 'Bạn không thể gửi tin nhắn cho người dùng này do cuộc trò chuyện đã bị chặn.'}
+                    </span>
+                  </div>
+                  {isBlockedByMe && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnblockConversation(currentConversation.id)}
+                      className="px-4 py-1.5 bg-white hover:bg-slate-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer"
+                    >
+                      Bỏ chặn
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="shrink-0 bg-white border-t border-slate-200 relative">
+                  {/* Xem trước ảnh đính kèm trước khi gửi */}
+                  {selectedImagePreview && (
+                    <div className="px-4 pt-3 flex items-center gap-2">
+                      <div className="relative inline-block rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
+                        <img 
+                          src={selectedImagePreview} 
+                          alt="Xem trước ảnh" 
+                          className="w-16 h-16 object-cover" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSelectedImagePreview(null)}
+                          className="absolute top-1 right-1 p-0.5 bg-black/60 hover:bg-black text-white rounded-full transition cursor-pointer"
+                          title="Hủy chọn ảnh"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <span className="text-xs text-slate-400 font-medium">Ảnh đã chọn sẵn sàng gửi kèm</span>
+                    </div>
+                  )}
 
-                <input
-                  type="text"
-                  placeholder={
-                    currentConversation.status === 'pending'
-                      ? 'Chấp nhận cuộc trò chuyện để trả lời...'
-                      : ('Nhắn tin cho ' + currentConversation.user.name + '... (Nhấn Enter để gửi)')
-                  }
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      if (inputText.trim()) {
-                        handleSendMessage(e);
+                  {/* Bảng chọn Emoji Picker */}
+                  {showEmojiPicker && (
+                    <div 
+                      ref={emojiPickerRef}
+                      className="absolute bottom-full left-4 mb-2 w-72 sm:w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 p-3 max-h-72 overflow-y-auto animate-fadeIn"
+                    >
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                        <span className="text-xs font-bold text-slate-700">Biểu tượng cảm xúc</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowEmojiPicker(false)}
+                          className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        {EMOJI_CATEGORIES.map((cat, idx) => (
+                          <div key={idx}>
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                              {cat.name}
+                            </div>
+                            <div className="grid grid-cols-7 sm:grid-cols-8 gap-1">
+                              {cat.emojis.map((emoji, eIdx) => (
+                                <button
+                                  key={eIdx}
+                                  type="button"
+                                  onClick={() => {
+                                    setInputText(prev => prev + emoji);
+                                    inputRef.current?.focus();
+                                  }}
+                                  className="w-8 h-8 flex items-center justify-center text-lg hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Hidden File Input cho gửi ảnh */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageSelect}
+                  />
+
+                  <form 
+                    onSubmit={handleSendMessage}
+                    className="p-3 sm:p-4 flex items-center gap-2"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Gửi ảnh"
+                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                    >
+                      <ImageIcon className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      title="Biểu tượng cảm xúc"
+                      className={`p-2 rounded-xl transition cursor-pointer ${
+                        showEmojiPicker ? 'bg-amber-50 text-amber-500' : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Smile className="w-5 h-5" />
+                    </button>
+
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      placeholder={
+                        currentConversation.status === 'pending'
+                          ? 'Chấp nhận cuộc trò chuyện để trả lời...'
+                          : ('Nhắn tin cho ' + currentConversation.user.name + '... (Nhấn Enter để gửi)')
                       }
-                    }
-                  }}
-                  className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 focus:ring-4 focus:ring-blue-100 outline-none transition"
-                />
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (inputText.trim() || selectedImagePreview) {
+                            handleSendMessage(e);
+                          }
+                        }
+                      }}
+                      className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                    />
 
-                <button
-                  type="submit"
-                  disabled={!inputText.trim()}
-                  title={inputText.trim() ? "Gửi tin nhắn (Enter)" : "Nhập nội dung để gửi"}
-                  className={
-                    'p-2.5 rounded-full text-white transition shadow-sm ' +
-                    (inputText.trim()
-                      ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105 cursor-pointer'
-                      : 'bg-slate-300 cursor-not-allowed opacity-60')
-                  }
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
+                    <button
+                      type="submit"
+                      disabled={!inputText.trim() && !selectedImagePreview}
+                      title={inputText.trim() || selectedImagePreview ? "Gửi tin nhắn (Enter)" : "Nhập nội dung hoặc chọn ảnh để gửi"}
+                      className={
+                        'p-2.5 rounded-full text-white transition shadow-sm ' +
+                        (inputText.trim() || selectedImagePreview
+                          ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105 cursor-pointer'
+                          : 'bg-slate-300 cursor-not-allowed opacity-60')
+                      }
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
@@ -1417,13 +1812,49 @@ export default function MessagesView({
               </button>
 
               <button 
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                type="button"
+                onClick={() => {
+                  if (isBlockedByMe) {
+                    handleUnblockConversation(currentConversation.id);
+                  } else {
+                    handleBlockConversation(currentConversation.id);
+                  }
+                }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-xl transition cursor-pointer ${
+                  isBlockedByMe 
+                    ? 'text-blue-600 hover:bg-blue-50' 
+                    : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                }`}
               >
-                <Ban className="w-4 h-4 text-slate-400" />
-                <span>Chặn tin nhắn & cuộc gọi</span>
+                <Ban className={`w-4 h-4 ${isBlockedByMe ? 'text-blue-600' : 'text-slate-400'}`} />
+                <span>{isBlockedByMe ? 'Bỏ chặn người dùng này' : 'Chặn tin nhắn & cuộc gọi'}</span>
               </button>
             </div>
           </aside>
+        )}
+
+        {/* Modal Xem ảnh phóng to (Lightbox) */}
+        {selectedImageModal && (
+          <div 
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn"
+            onClick={() => setSelectedImageModal(null)}
+          >
+            <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={selectedImageModal}
+                alt="Chi tiết ảnh"
+                className="max-h-[85vh] max-w-full rounded-2xl object-contain shadow-2xl"
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedImageModal(null)}
+                className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black text-white rounded-full transition cursor-pointer"
+                title="Đóng xem ảnh"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
         )}
 
       </div>
