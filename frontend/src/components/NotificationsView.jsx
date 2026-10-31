@@ -8,6 +8,7 @@ import { getNotificationNavigationTarget, getNotificationSnapshotPreview } from 
 
 export default function NotificationsView({ 
   notifications = [], 
+  unreadCount: propUnreadCount,
   onMarkAllAsRead, 
   onMarkAsRead, 
   onDeleteNotification,
@@ -71,14 +72,21 @@ export default function NotificationsView({
     }
   };
 
+  const isInteractionType = (type) => ['like', 'comment', 'share', 'reaction'].includes(type);
+  const isSystemType = (type) =>
+    ['system', 'ai_moderation', 'moderation_alert', 'report', 'appeal', 'warning', 'report_receipt'].includes(type);
+
   const filteredNotifications = notifications.filter((item) => {
     if (currentFilter === 'unread') return !item.isRead;
-    if (currentFilter === 'interaction') return ['like', 'comment', 'share', 'reaction'].includes(item.type);
-    if (currentFilter === 'system') return ['system', 'ai_moderation', 'report', 'appeal', 'warning', 'report_receipt'].includes(item.type);
+    if (currentFilter === 'interaction') return isInteractionType(item.type);
+    if (currentFilter === 'system') return isSystemType(item.type);
     return true;
   });
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadItemsCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = typeof propUnreadCount === 'number' ? propUnreadCount : unreadItemsCount;
+  const interactionCount = notifications.filter((n) => isInteractionType(n.type)).length;
+  const systemCount = notifications.filter((n) => isSystemType(n.type)).length;
 
   const getNotifIconBadge = (type) => {
     switch (type) {
@@ -189,8 +197,8 @@ export default function NotificationsView({
           {[
             { key: 'all', label: 'Tất cả', count: notifications.length },
             { key: 'unread', label: 'Chưa đọc', count: unreadCount },
-            { key: 'interaction', label: 'Tương tác', count: notifications.filter((n) => ['like', 'comment', 'share', 'reaction'].includes(n.type)).length },
-            { key: 'system', label: 'Hệ thống & AI', count: notifications.filter((n) => ['system', 'ai_moderation', 'report', 'appeal', 'warning'].includes(n.type)).length },
+            { key: 'interaction', label: 'Tương tác', count: interactionCount },
+            { key: 'system', label: 'Hệ thống & AI', count: systemCount },
           ].map((tab) => {
             const isActive = currentFilter === tab.key;
             return (
