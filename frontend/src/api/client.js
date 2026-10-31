@@ -44,11 +44,11 @@ export async function fetchPostById({ postId, userId } = {}) {
   });
 }
 
-export async function createPost({ userId, content, imageUrl, forcePost }) {
+export async function createPost({ userId, content, imageUrl, privacy = 'public', forcePost }) {
   return request('/api/posts', {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl, forcePost: Boolean(forcePost) }),
+    body: JSON.stringify({ content, imageUrl, privacy: privacy || 'public', forcePost: Boolean(forcePost) }),
   });
 }
 
@@ -74,7 +74,7 @@ export async function deletePost({ userId, postId }) {
   });
 }
 
-export async function createComment({ userId, postId, content, imageUrl, forceComment }) {
+export async function createComment({ userId, postId, content, imageUrl, forceComment, authorFilterKeywords }) {
   return request(`/api/posts/${postId}/comments`, {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
@@ -82,6 +82,7 @@ export async function createComment({ userId, postId, content, imageUrl, forceCo
       content,
       imageUrl: imageUrl || null,
       forceComment: Boolean(forceComment),
+      authorFilterKeywords: authorFilterKeywords || undefined,
     }),
   });
 }

@@ -270,10 +270,15 @@ export function createPostsController({ postService, postRepository, imageModera
         const { postId } = req.params;
         const { content, imageUrl } = req.body || {};
 
+        let targetPost = null;
         if (postService.getVisiblePost) {
-          const targetPost = await postService.getVisiblePost({ user: req.user, postId });
-          if (['rejected_admin', 'appeal_pending', 'rejected_final'].includes(targetPost.image_moderation_status)) {
-            return res.status(409).json({ success: false, message: 'Không thể bình luận về nội dung đang trong quy trình duyệt' });
+          try {
+            targetPost = await postService.getVisiblePost({ user: req.user, postId });
+            if (['rejected_admin', 'appeal_pending', 'rejected_final'].includes(targetPost.image_moderation_status)) {
+              return res.status(409).json({ success: false, message: 'Không thể bình luận về nội dung đang trong quy trình duyệt' });
+            }
+          } catch (e) {
+            if (e.statusCode === 409) return res.status(409).json({ success: false, message: e.message });
           }
         }
 
@@ -295,6 +300,89 @@ export function createPostsController({ postService, postRepository, imageModera
         }
 
         const normalizedContent = (content || '').trim();
+        const forceComment = Boolean(req.body?.forceComment);
+
+        // 1. Kiểm tra danh sách từ khóa cấm của chủ bài viết (Author Keyword Blacklist)
+        let postAuthorId = targetPost?.author_id || targetPost?.author?.id;
+        if (!postAuthorId && typeof postRepository?.findById === 'function') {
+          try {
+            const p = await postRepository.findById(postId, req.user?.id);
+            postAuthorId = p?.author_id || p?.author?.id;
+          } catch {}
+        }
+
+        let authorKeywords = [];
+        if (req.body?.authorFilterKeywords) {
+          if (Array.isArray(req.body.authorFilterKeywords)) {
+            authorKeywords = req.body.authorFilterKeywords.map(s => String(s).trim().toLowerCase()).filter(Boolean);
+          } else if (typeof req.body.authorFilterKeywords === 'string') {
+            authorKeywords = req.body.authorFilterKeywords.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+          }
+        }
+
+        if (authorKeywords.length === 0 && postAuthorId && postRepository.pool) {
+          try {
+            const settingsRes = await postRepository.pool.query(
+              'SELECT filter_keywords FROM user_settings WHERE user_id = $1',
+              [postAuthorId]
+            );
+            const rawKeywords = settingsRes.rows[0]?.filter_keywords;
+            if (rawKeywords) {
+              authorKeywords = rawKeywords.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+            }
+          } catch (err) {
+            // DB fallback
+          }
+        }
+
+        const isPostAuthor = req.user && postAuthorId && String(req.user.id) === String(postAuthorId);
+        let matchedAuthorKeyword = null;
+
+        if (!isPostAuthor && normalizedContent && authorKeywords.length > 0) {
+          const lowerContent = normalizedContent.toLowerCase();
+          for (const kw of authorKeywords) {
+            if (!kw) continue;
+            if (lowerContent.includes(kw)) {
+              matchedAuthorKeyword = kw;
+              break;
+            }
+          }
+        }
+
+        // Nếu chứa từ khóa cấm của chủ bài viết:
+        // - Lần đầu gửi: Cảnh báo chặn bằng Friendly Nudge
+        // - Nếu cố tình gửi (forceComment): Tự động ẨN bình luận hoàn toàn
+        if (matchedAuthorKeyword && !forceComment) {
+          return res.status(200).json({
+            success: true,
+            nudge: true,
+            warningType: 'keyword_blacklist',
+            matchedKeyword: matchedAuthorKeyword,
+            predictedLabel: 'Từ khóa cấm của chủ bài viết',
+            message: `Bình luận của bạn chứa từ ngữ trong danh sách cấm của chủ bài viết ("${matchedAuthorKeyword}"). Bạn có muốn chỉnh sửa lại không? Nếu tiếp tục gửi, bình luận sẽ tự động bị ẩn.`,
+          });
+        }
+
+        if (matchedAuthorKeyword && forceComment) {
+          const hiddenComment = await postRepository.createComment({
+            postId,
+            authorId: req.user.id,
+            content: normalizedContent,
+            imageUrl: imageUrl || null,
+            aiLabel: 'Author Blacklist',
+            aiStatus: 'hidden',
+            isHidden: true,
+            isSoftHidden: false,
+          });
+
+          return res.status(200).json({
+            success: true,
+            message: `Bình luận đã tự động bị ẩn do chứa từ khóa trong danh sách cấm của chủ bài viết ("${matchedAuthorKeyword}").`,
+            data: hiddenComment,
+            isAuthorBlacklisted: true,
+          });
+        }
+
         const textMod = normalizedContent
           ? await moderateTextContent(normalizedContent)
           : { label: 'Normal', confidence: 1.0 };
@@ -312,8 +400,6 @@ export function createPostsController({ postService, postRepository, imageModera
           imageModeration: heldModeration,
           contentType: 'comment',
         });
-
-        const forceComment = Boolean(req.body?.forceComment);
 
         // Nhắc nhở nhẹ nhàng (Friendly Nudge) nếu bình luận chứa từ ngữ tiêu cực hoặc vi phạm (Toxic, Hate Speech, Violence)
         const isTextViolation = textMod && ['Violence', 'Hate Speech', 'Toxic'].includes(textMod.label);
