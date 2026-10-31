@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { 
   AlertTriangle, FileText, MessageSquare, 
   Search, EyeOff, ArrowLeft, CheckCircle2,
   XCircle, Clock, ShieldAlert, Check, X,
   User, RefreshCw, Eye, Scale, Sparkles,
   FileSpreadsheet, Download, AlertCircle,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, SlidersHorizontal
 } from 'lucide-react';
+import { ExportCustomizerModal } from './ExportCustomizerModal';
 import VerifiedBadge from './VerifiedBadge';
 import ReportResolutionModal from './ReportResolutionModal';
 import AppealResolutionModal from './AppealResolutionModal';
@@ -53,6 +54,38 @@ export default function ModeratorView({
   const [imageAppealItems, setImageAppealItems] = useState([]);
   const [pendingImageDecision, setPendingImageDecision] = useState(null);
   const appealsPerPage = 10;
+  const [isExportCustomizerOpen, setIsExportCustomizerOpen] = useState(false);
+  const [selectedOverrideIndices, setSelectedOverrideIndices] = useState(new Set());
+  const [overrideSearchText, setOverrideSearchText] = useState('');
+  const [overrideLabelFilter, setOverrideLabelFilter] = useState('all');
+
+  // Lọc danh sách nhật ký hiệu chỉnh theo nhãn và từ khóa
+  const filteredOverrides = useMemo(() => {
+    return aiOverrides.filter((log) => {
+      // 1. Lọc theo nhãn (so sánh không phân biệt hoa thường với cả nhãn mới và nhãn cũ)
+      if (overrideLabelFilter !== 'all') {
+        const target = overrideLabelFilter.trim().toLowerCase();
+        const curLabel = (log.correctedLabel || log.newLabel || '').trim().toLowerCase();
+        const oldLabel = (log.originalAiLabel || log.oldLabel || '').trim().toLowerCase();
+        if (curLabel !== target && oldLabel !== target) {
+          return false;
+        }
+      }
+
+      // 2. Lọc theo từ khóa tìm kiếm
+      if (overrideSearchText.trim()) {
+        const q = overrideSearchText.trim().toLowerCase();
+        const text = (log.rawText || log.content || log.contentExcerpt || '').toLowerCase();
+        const reason = (log.overrideReason || log.adminNotes || '').toLowerCase();
+        const admin = (log.adminName || '').toLowerCase();
+        if (!text.includes(q) && !reason.includes(q) && !admin.includes(q)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [aiOverrides, overrideLabelFilter, overrideSearchText]);
 
   const loadImageQueues = async () => {
     if (!currentUser?.id) return;
@@ -105,7 +138,10 @@ export default function ModeratorView({
   const filteredAppeals = appeals.filter(a => {
     if (appealFilter !== 'all' && a.status !== appealFilter) return false;
     if (appealTypeFilter !== 'all' && a.contentType !== appealTypeFilter) return false;
-    if (appealLabelFilter !== 'all' && a.aiPredictedLabel !== appealLabelFilter) return false;
+    if (appealLabelFilter !== 'all') {
+      const predLabel = (a.aiPredictedLabel || a.ai_predicted_label || a.newLabel || '').trim().toLowerCase();
+      if (predLabel !== appealLabelFilter.trim().toLowerCase()) return false;
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const userName = (a.user?.name || '').toLowerCase();
@@ -985,23 +1021,103 @@ export default function ModeratorView({
                   <Download className="w-3.5 h-3.5 text-slate-500" />
                   <span>Tải từ Máy chủ</span>
                 </a>
+
+                {/* Nút Tùy Chỉnh & Xuất File (Mở Modal chọn lọc, bỏ mục không cần và sửa trước khi xuất) */}
                 <button
                   type="button"
-                  onClick={() => exportOverrideLogsToCSV(aiOverrides)}
+                  onClick={() => setIsExportCustomizerOpen(true)}
+                  className="h-9 px-3.5 rounded-md border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Mở cửa sổ lọc bỏ các mục không cần thiết, chọn cột và tinh chỉnh trước khi xuất"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-700" />
+                  <span>Tùy chỉnh &amp; Xuất file</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const toExport = selectedOverrideIndices.size > 0
+                      ? aiOverrides.filter((_, idx) => selectedOverrideIndices.has(idx))
+                      : filteredOverrides;
+                    exportOverrideLogsToCSV(toExport);
+                  }}
                   className="h-9 px-3 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
                   title="Xuất file định dạng CSV UTF-8 BOM"
                 >
                   <FileText className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Xuất CSV</span>
+                  <span>Xuất CSV {selectedOverrideIndices.size > 0 ? `(${selectedOverrideIndices.size})` : `(${filteredOverrides.length})`}</span>
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => exportOverrideLogsToExcel(aiOverrides)}
+                  onClick={() => {
+                    const toExport = selectedOverrideIndices.size > 0
+                      ? aiOverrides.filter((_, idx) => selectedOverrideIndices.has(idx))
+                      : filteredOverrides;
+                    exportOverrideLogsToExcel(toExport);
+                  }}
                   className="h-9 px-4 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition cursor-pointer flex items-center gap-2"
                   title="Xuất trực tiếp file Excel (.xlsx) chuẩn cột A -> H"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
-                  <span>Xuất file (Excel .xlsx)</span>
+                  <span>Xuất Excel {selectedOverrideIndices.size > 0 ? `(${selectedOverrideIndices.size})` : `(${filteredOverrides.length})`}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Thanh tìm kiếm & lọc nhanh trước khi xuất */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Lọc nhanh câu văn, lý do, người sửa..."
+                    value={overrideSearchText}
+                    onChange={(e) => setOverrideSearchText(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-md text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+                <select
+                  value={overrideLabelFilter}
+                  onChange={(e) => setOverrideLabelFilter(e.target.value)}
+                  className="py-1.5 px-2.5 bg-white border border-slate-200 rounded-md text-xs text-slate-700 cursor-pointer"
+                >
+                  <option value="all">Tất cả nhãn mới</option>
+                  <option value="Normal">Normal</option>
+                  <option value="Toxic">Toxic</option>
+                  <option value="Hate Speech">Hate Speech</option>
+                  <option value="Violence">Violence</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500 font-medium">
+                  Hiển thị: <strong className="text-emerald-700">{filteredOverrides.length}</strong> / {aiOverrides.length} mục
+                  {selectedOverrideIndices.size > 0 && (
+                    <span className="ml-1 text-slate-700 font-bold">
+                      (Đã chọn {selectedOverrideIndices.size})
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const filteredIndices = filteredOverrides.map((log) => aiOverrides.indexOf(log)).filter(i => i >= 0);
+                    const allFilteredSelected = filteredIndices.length > 0 && filteredIndices.every(i => selectedOverrideIndices.has(i));
+                    if (allFilteredSelected) {
+                      const next = new Set(selectedOverrideIndices);
+                      filteredIndices.forEach(i => next.delete(i));
+                      setSelectedOverrideIndices(next);
+                    } else {
+                      const next = new Set(selectedOverrideIndices);
+                      filteredIndices.forEach(i => next.add(i));
+                      setSelectedOverrideIndices(next);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  {filteredOverrides.length > 0 && filteredOverrides.every((log) => selectedOverrideIndices.has(aiOverrides.indexOf(log))) ? 'Bỏ chọn đang lọc' : 'Chọn tất cả đang lọc'}
                 </button>
               </div>
             </div>
@@ -1021,6 +1137,24 @@ export default function ModeratorView({
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                      <th className="py-3 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={filteredOverrides.length > 0 && filteredOverrides.every((log) => selectedOverrideIndices.has(aiOverrides.indexOf(log)))}
+                          onChange={(e) => {
+                            const next = new Set(selectedOverrideIndices);
+                            filteredOverrides.forEach((log) => {
+                              const origIdx = aiOverrides.indexOf(log);
+                              if (origIdx >= 0) {
+                                if (e.target.checked) next.add(origIdx);
+                                else next.delete(origIdx);
+                              }
+                            });
+                            setSelectedOverrideIndices(next);
+                          }}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                        />
+                      </th>
                       <th className="py-3 px-3 w-16 text-center">A: STT</th>
                       <th className="py-3 px-4 min-w-[240px]">B: Nội dung câu / Hình ảnh gắn nhãn sai</th>
                       <th className="py-3 px-3 w-28">C: Nhãn cũ</th>
@@ -1032,8 +1166,35 @@ export default function ModeratorView({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {aiOverrides.map((log, index) => (
-                      <tr key={log.id || index} className="hover:bg-slate-50/70 transition">
+                    {filteredOverrides.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-10 text-center text-slate-400">
+                          <p className="text-sm font-semibold text-slate-600">Không tìm thấy bản ghi nào khớp với điều kiện lọc</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Thử chọn nhãn khác hoặc xóa từ khóa tìm kiếm "{overrideSearchText}".
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOverrides.map((log, index) => {
+                        const originalIndex = aiOverrides.indexOf(log);
+                        const isChecked = selectedOverrideIndices.has(originalIndex >= 0 ? originalIndex : index);
+                        return (
+                          <tr key={log.id || index} className={`transition ${isChecked ? 'bg-emerald-50/20 hover:bg-emerald-50/40' : 'hover:bg-slate-50/70'}`}>
+                            <td className="py-3 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  const targetIdx = originalIndex >= 0 ? originalIndex : index;
+                                  const next = new Set(selectedOverrideIndices);
+                                  if (next.has(targetIdx)) next.delete(targetIdx);
+                                  else next.add(targetIdx);
+                                  setSelectedOverrideIndices(next);
+                                }}
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              />
+                            </td>
                         <td className="py-3 px-3 text-center font-medium text-slate-500">
                           {index + 1}
                         </td>
@@ -1077,7 +1238,9 @@ export default function ModeratorView({
                           {log.createdAt || 'Gần đây'}
                         </td>
                       </tr>
-                    ))}
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1112,6 +1275,13 @@ export default function ModeratorView({
         onClose={() => setSelectedAppealForResolve(null)}
         isSubmitting={isResolvingAppeal}
         onConfirmResolve={handleConfirmResolveAppeal}
+      />
+
+      {/* MODAL TÙY CHỈNH DỮ LIỆU & XUẤT FILE */}
+      <ExportCustomizerModal
+        isOpen={isExportCustomizerOpen}
+        onClose={() => setIsExportCustomizerOpen(false)}
+        logs={aiOverrides}
       />
     </div>
   );

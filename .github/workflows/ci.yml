@@ -22,7 +22,7 @@ jobs:
   # JOB 1: KIỂM THỬ FRONTEND (Vite + React)
   # ========================================================
   frontend-check:
-    name: 🎨 Frontend Check (51 Unit Tests & Build)
+    name: 🎨 Frontend Check 
     runs-on: ubuntu-latest
 
     steps:
@@ -40,7 +40,7 @@ jobs:
         working-directory: frontend
         run: npm install
 
-      - name: 🧪 Chạy 51 bài Unit Test Frontend
+      - name: 🧪 Chạy Unit Test Frontend
         working-directory: frontend
         run: npm test
 
@@ -52,7 +52,7 @@ jobs:
   # JOB 2: KIỂM THỬ BACKEND (Node.js Express + AI Moderation)
   # ========================================================
   backend-check:
-    name: ⚙️ Backend Check (66 Unit & Integration Tests)
+    name: ⚙️ Backend Check 
     runs-on: ubuntu-latest
 
     steps:
@@ -70,9 +70,16 @@ jobs:
         working-directory: backend
         run: npm install
 
-      - name: 🧪 Chạy 66 bài Unit Test Backend
+      - name: 🧪 Chạy Kiểm thử Toàn diện Backend (Unit & Integration Tests)
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           NODE_ENV: test
         run: npm test
+
+      - name: 🔗 Chạy Integration Tests Chuyên sâu (Database & API Flow)
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: test
+        run: npm run test:integration

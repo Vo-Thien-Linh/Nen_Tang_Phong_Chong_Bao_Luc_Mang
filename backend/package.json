@@ -7,7 +7,8 @@
     "dev": "node --watch server.js",
     "test": "node --test",
     "migrate": "node src/scripts/migrate.js",
-    "seed:admin": "node src/scripts/seedAdmin.js"
+    "seed:admin": "node src/scripts/seedAdmin.js",
+    "test:integration": "node --test tests/api-*.integration.test.js tests/trust-penalty-integration.test.js tests/real-db*.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
