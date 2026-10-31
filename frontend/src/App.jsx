@@ -719,6 +719,35 @@ export default function App() {
     setCurrentUser(prev => incrementPostCountOnce(prev, newPost, alreadyAdded));
   };
 
+  const handleUpdateUser = (updatedData) => {
+    setCurrentUser((prev) => {
+      const next = { ...prev, ...updatedData };
+      authService.updateCurrentUser(next);
+      return next;
+    });
+  };
+
+  const getVisibleFeedPosts = () => {
+    let blockedIds = new Set();
+    try {
+      const raw = localStorage.getItem('nexussocial_blocked_users');
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach((b) => blockedIds.add(String(b.id)));
+        }
+      }
+    } catch {}
+
+    return posts.filter((p) => {
+      if (isHardHiddenPost(p)) return false;
+      const authorId = String(p.author_id || p.author?.id || '');
+      if (authorId && blockedIds.has(authorId)) return false;
+      if (p.privacy === 'private' && authorId !== String(currentUser?.id)) return false;
+      return true;
+    });
+  };
+
   const handleRequireLogin = () => {
     window.alert('Vui lòng đăng nhập để tiếp tục');
   };
@@ -1513,7 +1542,7 @@ export default function App() {
         {activeTab === 'home' && (
           <HomeView 
             currentUser={currentUser}
-            posts={posts.filter(p => !isHardHiddenPost(p))}
+            posts={getVisibleFeedPosts()}
             onAddPost={handleAddPost}
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, Reply, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
-  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock
+  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock, Globe, Users, UserX
 } from 'lucide-react';
 import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
@@ -767,7 +767,7 @@ export default function PostCard({
                 <VerifiedBadge size="sm" />
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-slate-400 flex-wrap">
               {post.author?.username && <span>@{post.author.username}</span>}
               {post.author?.username && <span>•</span>}
               <span>{formatRelativeTime(post.createdAt || post.created_at)}</span>
@@ -777,6 +777,23 @@ export default function PostCard({
                   <span>Đã chỉnh sửa</span>
                 </>
               )}
+              <span>•</span>
+              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
+                post.privacy === 'private' ? 'Chỉ mình tôi' :
+                post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
+              }>
+                {post.privacy === 'private' ? (
+                  <Lock className="w-3 h-3 text-rose-500" />
+                ) : post.privacy === 'friends' ? (
+                  <Users className="w-3.5 h-3.5 text-amber-500" />
+                ) : (
+                  <Globe className="w-3 h-3 text-blue-500" />
+                )}
+                <span>
+                  {post.privacy === 'private' ? 'Chỉ mình tôi' :
+                   post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'}
+                </span>
+              </span>
             </div>
           </div>
         </div>

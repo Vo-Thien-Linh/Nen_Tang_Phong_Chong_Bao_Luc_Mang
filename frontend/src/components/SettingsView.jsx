@@ -260,6 +260,16 @@ export default function SettingsView({
         show_email: settings.show_email,
         show_phone: settings.show_phone
       });
+      if (onUpdateUser) {
+        onUpdateUser({
+          settings: {
+            ...settings,
+            post_default_privacy: settings.post_default_privacy,
+            show_email: settings.show_email,
+            show_phone: settings.show_phone,
+          }
+        });
+      }
       showToast('success', 'Đã lưu cài đặt quyền riêng tư thành công!');
     } catch (err) {
       showToast('error', err.message || 'Lỗi khi lưu quyền riêng tư');
@@ -279,6 +289,18 @@ export default function SettingsView({
         notify_ai_warnings: settings.notify_ai_warnings,
         sound_enabled: settings.sound_enabled
       });
+      if (onUpdateUser) {
+        onUpdateUser({
+          settings: {
+            ...settings,
+            notify_likes: settings.notify_likes,
+            notify_comments: settings.notify_comments,
+            notify_friend_requests: settings.notify_friend_requests,
+            notify_ai_warnings: settings.notify_ai_warnings,
+            sound_enabled: settings.sound_enabled
+          }
+        });
+      }
       showToast('success', 'Đã lưu cấu hình thông báo!');
     } catch (err) {
       showToast('error', err.message || 'Lỗi lưu thông báo');
