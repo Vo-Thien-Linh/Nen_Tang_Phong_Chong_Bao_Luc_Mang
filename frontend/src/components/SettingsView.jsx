@@ -137,7 +137,7 @@ export default function SettingsView({
     setTimeout(() => setToast(null), 4000);
   };
 
-  // 1. Lưu Cài đặt An toàn AI
+  // 1. Lưu Cài đặt Từ khóa cấm & An toàn
   const handleSaveSafety = async () => {
     setLoading(true);
     try {
@@ -149,7 +149,7 @@ export default function SettingsView({
         block_strangers_messages: settings.block_strangers_messages,
         take_a_break_mode: settings.take_a_break_mode
       });
-      showToast('success', 'Đã lưu cấu hình Khiên AI phòng chống bạo lực mạng thành công!');
+      showToast('success', 'Đã lưu danh sách từ khóa cấm thành công!');
     } catch (err) {
       showToast('error', err.message || 'Không thể lưu cài đặt an toàn');
     } finally {
@@ -299,7 +299,7 @@ export default function SettingsView({
   };
 
   const navItems = [
-    { id: 'safety', label: 'An Toàn & Khiên AI', icon: ShieldCheck, badge: 'Đặc trưng' },
+    { id: 'safety', label: 'Từ Khóa & An Toàn', icon: ShieldCheck },
     { id: 'profile', label: 'Hồ Sơ & Tài Khoản', icon: User },
     { id: 'security', label: 'Mật Khẩu & Bảo Mật', icon: Lock },
     { id: 'privacy', label: 'Quyền Riêng Tư', icon: Eye },
@@ -319,18 +319,18 @@ export default function SettingsView({
             <Sparkles className="w-3.5 h-3.5 animate-spin" />
             <span>NexusSocial Security & Customization</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Trung Tâm Cài Đặt & An Toàn Mạng</h1>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Trung Tâm Cài Đặt & Quyền Riêng Tư</h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl">
-            Tùy biến tài khoản, khiên chắn AI phòng chống bạo lực mạng, kiểm soát quyền riêng tư và bảo mật tối ưu.
+            Tùy biến tài khoản, danh sách từ khóa cấm, kiểm soát quyền riêng tư và bảo mật tối ưu.
           </p>
         </div>
         <div className="relative z-10 flex items-center gap-3 shrink-0">
           <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/15 flex items-center gap-3">
-            <div className={`w-3.5 h-3.5 rounded-full ${settings.ai_shield_enabled ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <div className="w-3.5 h-3.5 rounded-full bg-emerald-400" />
             <div className="text-left">
-              <p className="text-[11px] text-slate-300 font-medium">Khiên Bảo Vệ AI</p>
+              <p className="text-[11px] text-slate-300 font-medium">Bộ Lọc Từ Khóa</p>
               <p className="text-xs font-bold text-white">
-                {settings.ai_shield_enabled ? 'Đang kích hoạt' : 'Tạm tắt'}
+                {keywordList.length} từ khóa
               </p>
             </div>
           </div>
@@ -403,127 +403,18 @@ export default function SettingsView({
         <div className="lg:col-span-8 xl:col-span-9 space-y-6">
           
           {/* ======================================================== */}
-          {/* TAB 1: KHIÊN AI & AN TOÀN PHÒNG CHỐNG BẠO LỰC MẠNG */}
+          {/* TAB 1: BỘ LỌC TỪ KHÓA & AN TOÀN NỘI DUNG */}
           {/* ======================================================== */}
           {activeSubTab === 'safety' && (
             <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-8 animate-fade-in">
               <div className="border-b border-slate-100 pb-5">
                 <div className="flex items-center gap-2.5 text-blue-600 mb-1">
                   <ShieldCheck className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Khiên AI Phòng Chống Bạo Lực Mạng</h2>
+                  <h2 className="text-xl font-black text-slate-900">Danh Sách Từ Khóa Cấm & An Toàn</h2>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-500">
-                  Hệ thống phân tích ngôn ngữ tự nhiên (NLP) thông minh bảo vệ bạn trước công kích cá nhân, xúc phạm và đe dọa trực tuyến.
+                  Thiết lập danh sách các từ ngữ cấm để tự động ngăn chặn công kích và bình luận độc hại hướng về bạn.
                 </p>
-              </div>
-
-              {/* Bật/Tắt Khiên AI */}
-              <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-white p-5 sm:p-6 rounded-2xl border border-blue-100 flex items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900 text-sm sm:text-base">Kích hoạt Khiên Chắn AI Bảo Vệ</span>
-                    <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700 rounded-md">
-                      Khuyên dùng
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-600 max-w-lg">
-                    Tự động nhận diện phát ngôn thù hận, từ ngữ thô tục, bạo lực mạng và đưa ra biện pháp xử lý tức thì khi có nội dung hướng về bạn.
-                  </p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input 
-                    type="checkbox" 
-                    checked={settings.ai_shield_enabled} 
-                    onChange={(e) => setSettings(prev => ({ ...prev, ai_shield_enabled: e.target.checked }))}
-                    className="sr-only peer"
-                  />
-                  <div className="w-13 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[3px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-
-              {/* Độ nhạy AI */}
-              <div className="space-y-3">
-                <label className="block text-xs sm:text-sm font-bold text-slate-800">
-                  Mức độ nhạy cảm của AI khi kiểm duyệt nội dung
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {[
-                    { id: 'high', label: 'Nghiêm ngặt (75%)', desc: 'Bảo vệ tối đa, quét cả các cụm từ ẩn ý châm chọc.' },
-                    { id: 'standard', label: 'Tiêu chuẩn (85%)', desc: 'Cân bằng, chỉ gắn cờ khi nội dung rõ ràng tiêu cực.' },
-                    { id: 'low', label: 'Cơ bản (95%)', desc: 'Chỉ chặn khi vi phạm bạo lực hoặc thù địch nghiêm trọng.' }
-                  ].map((level) => (
-                    <div 
-                      key={level.id}
-                      onClick={() => setSettings(prev => ({ ...prev, ai_sensitivity: level.id }))}
-                      className={`p-4 rounded-2xl border-2 cursor-pointer transition duration-150 ${
-                        settings.ai_sensitivity === level.id 
-                          ? 'border-blue-600 bg-blue-50/50 shadow-sm' 
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs sm:text-sm font-bold text-slate-900">{level.label}</span>
-                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          settings.ai_sensitivity === level.id ? 'border-blue-600 bg-blue-600' : 'border-slate-300'
-                        }`}>
-                          {settings.ai_sensitivity === level.id && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">{level.desc}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tùy chọn Tự động ẩn bình luận độc hại */}
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-800">Tự động ẩn bình luận vi phạm</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Bình luận bị AI xác định là Toxic/Violence trên bài viết của bạn sẽ tự động ẩn với cộng đồng.
-                  </p>
-                </div>
-                <input 
-                  type="checkbox" 
-                  checked={settings.auto_hide_toxic_comments} 
-                  onChange={(e) => setSettings(prev => ({ ...prev, auto_hide_toxic_comments: e.target.checked }))}
-                  className="w-5 h-5 text-blue-600 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Chặn tin nhắn từ người lạ */}
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-800">Lọc tin nhắn từ người chưa kết bạn</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Chuyển tin nhắn của người lạ vào Hòm thư chờ và quét AI trước khi cho phép đọc.
-                  </p>
-                </div>
-                <input 
-                  type="checkbox" 
-                  checked={settings.block_strangers_messages} 
-                  onChange={(e) => setSettings(prev => ({ ...prev, block_strangers_messages: e.target.checked }))}
-                  className="w-5 h-5 text-blue-600 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Chế độ Safe Space / Take a break */}
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200/70">
-                <div className="flex items-start gap-3">
-                  <Heart className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-indigo-900">Không Gian An Toàn (Safe Space Mode)</h4>
-                    <p className="text-xs text-indigo-700/80 mt-0.5">
-                      Tạm ngưng nhận thông báo từ người lạ và ẩn các tương tác có nguy cơ công kích khi bạn cảm thấy áp lực.
-                    </p>
-                  </div>
-                </div>
-                <input 
-                  type="checkbox" 
-                  checked={settings.take_a_break_mode} 
-                  onChange={(e) => setSettings(prev => ({ ...prev, take_a_break_mode: e.target.checked }))}
-                  className="w-5 h-5 text-indigo-600 rounded-lg cursor-pointer"
-                />
               </div>
 
               {/* Bộ lọc từ khóa cấm cá nhân */}
@@ -612,7 +503,7 @@ export default function SettingsView({
                   className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md shadow-blue-500/20 flex items-center gap-2 cursor-pointer transition disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  <span>{loading ? 'Đang lưu...' : 'Lưu Cài Đặt An Toàn'}</span>
+                  <span>{loading ? 'Đang lưu...' : 'Lưu Danh Sách Từ Khóa'}</span>
                 </button>
               </div>
             </div>

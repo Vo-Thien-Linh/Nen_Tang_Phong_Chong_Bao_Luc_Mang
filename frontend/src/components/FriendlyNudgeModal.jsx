@@ -35,14 +35,19 @@ export default function FriendlyNudgeModal({
 
   const isViolence = warningType === 'violence';
   const isHateSpeech = warningType === 'hate_speech';
+  const isBlacklist = warningType === 'keyword_blacklist';
 
-  const consequenceText = isViolence
+  const consequenceText = isBlacklist
+    ? 'Bình luận chứa từ ngữ trong danh sách cấm của chủ bài viết và sẽ tự động bị ẩn ngay lập tức đối với cộng đồng.'
+    : isViolence
     ? 'Nội dung vi phạm sẽ bị ẩn và tài khoản bị tạm khóa 10 phút theo Tiêu chuẩn Cộng đồng.'
     : isHateSpeech
     ? 'Nội dung vi phạm sẽ bị ẩn theo Tiêu chuẩn Cộng đồng.'
     : 'Nội dung sẽ được gắn nhãn cảnh báo Tiêu cực (Toxic) khi hiển thị trên hệ thống.';
 
-  const badgeText = isViolence
+  const badgeText = isBlacklist
+    ? 'Từ khóa cấm của chủ bài viết'
+    : isViolence
     ? 'Cảnh báo Bạo lực'
     : isHateSpeech
     ? 'Cảnh báo Thù ghét'

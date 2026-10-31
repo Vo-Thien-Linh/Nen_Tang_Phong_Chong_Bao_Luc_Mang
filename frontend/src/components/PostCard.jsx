@@ -28,6 +28,7 @@ import VerifiedBadge from './VerifiedBadge';
 import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
 import PostReactionsModal from './PostReactionsModal';
+import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
@@ -593,6 +594,8 @@ export default function PostCard({
     if (res?.nudge) {
       setCommentNudgeData({
         message: res.message,
+        warningType: res.warningType,
+        matchedKeyword: res.matchedKeyword,
         contentSnippet: commentText.trim(),
         payload: commentPayload
       });
@@ -1441,7 +1444,8 @@ export default function PostCard({
                 if (isHardHidden && !isCommentAuthor) {
                   if (!canViewHiddenComment) return null;
                   const isViolence = comment.ai_label === 'Violence' || comment.aiLabel === 'Violence' || comment.image_moderation_violence >= 0.8 || comment.image_moderation_status === 'rejected_hold';
-                  const labelText = isViolence ? 'Bạo lực' : (comment.ai_label || comment.aiLabel || 'Hate Speech / Bạo lực');
+                  const isAuthorBlacklist = comment.ai_label === 'Author Blacklist' || comment.aiLabel === 'Author Blacklist';
+                  const labelText = isAuthorBlacklist ? 'Chứa từ khóa cấm của chủ bài viết' : isViolence ? 'Bạo lực' : (comment.ai_label || comment.aiLabel || 'Hate Speech / Bạo lực');
 
                   return (
                     <div key={comment.id} id={`comment-${comment.id}`} className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
@@ -1697,6 +1701,23 @@ export default function PostCard({
           currentUser={currentUser}
           onOpenProfile={onOpenProfile}
           onRequireAuth={onRequireAuth}
+        />
+      )}
+      {commentNudgeData && (
+        <FriendlyNudgeModal
+          isOpen={Boolean(commentNudgeData)}
+          title={commentNudgeData.warningType === 'keyword_blacklist' ? "Từ khóa bị cấm bởi chủ bài viết" : "Nhắc nhở nhẹ nhàng từ AI"}
+          message={commentNudgeData.message}
+          targetType="bình luận"
+          warningType={commentNudgeData.warningType}
+          contentSnippet={commentNudgeData.contentSnippet}
+          onEdit={() => {
+            setCommentNudgeData(null);
+          }}
+          onConfirmForce={async () => {
+            setCommentNudgeData(null);
+            await doSubmitComment(true);
+          }}
         />
       )}
     </div>

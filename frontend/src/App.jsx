@@ -833,6 +833,17 @@ export default function App() {
     const commentKey = `${postId}:${newComment.id || `${newComment.content || ''}:${newComment.image || ''}`}`;
     if (pendingCommentKeysRef.current.has(commentKey)) return;
     pendingCommentKeysRef.current.add(commentKey);
+    const targetPost = posts.find(p => String(p.id) === String(postId));
+    let authorFilterKeywords = options?.authorFilterKeywords || targetPost?.author?.filter_keywords || targetPost?.filter_keywords;
+    if (!authorFilterKeywords && targetPost && String(targetPost.author?.id || targetPost.author_id) === String(currentUser?.id)) {
+      try {
+        const localSettings = JSON.parse(localStorage.getItem('nexussocial_user_settings') || '{}');
+        if (localSettings.filter_keywords) {
+          authorFilterKeywords = localSettings.filter_keywords;
+        }
+      } catch {}
+    }
+
     try {
       const res = await createComment({
         userId: currentUser.id,
@@ -840,11 +851,18 @@ export default function App() {
         content: newComment.content || '',
         imageUrl: newComment.image || null,
         forceComment: Boolean(options?.forceComment),
+        authorFilterKeywords,
       });
 
       // Nhận Friendly Nudge từ server cho bình luận
       if (res.nudge) {
-        return { nudge: true, message: res.message, content: newComment.content };
+        return {
+          nudge: true,
+          message: res.message,
+          warningType: res.warningType,
+          matchedKeyword: res.matchedKeyword,
+          content: newComment.content
+        };
       }
       if (res.cooldown) {
         const cooldownData = {
