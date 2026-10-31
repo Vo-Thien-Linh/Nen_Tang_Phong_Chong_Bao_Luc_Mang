@@ -4,7 +4,9 @@ from datetime import datetime
 
 class MessageSendRequest(BaseModel):
     receiver_id: str
-    content: str
+    content: Optional[str] = ""
+    media_url: Optional[str] = None
+    media_type: Optional[str] = "text"
 
 class MessageItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -14,8 +16,11 @@ class MessageItem(BaseModel):
     sender_id: str
     receiver_id: str
     content: str
-    status: str = "sent"  # 'sent', 'delivered', 'read'
+    media_url: Optional[str] = None
+    media_type: Optional[str] = "text"
+    status: str = "sent"  # 'sent', 'delivered', 'read', 'recalled'
     is_read: bool = False
+    is_recalled: bool = False
     created_at: datetime
 
 class ConversationPartner(BaseModel):
@@ -30,8 +35,9 @@ class ConversationPartner(BaseModel):
 class ConversationItem(BaseModel):
     id: int
     user: ConversationPartner
-    status: str = "accepted"  # 'accepted', 'pending'
+    status: str = "accepted"  # 'accepted', 'pending', 'blocked'
     initiated_by: Optional[str] = None
+    blocked_by: Optional[str] = None
     is_requester: bool = False
     last_message: Optional[str] = None
     last_message_at: Optional[datetime] = None

@@ -31,18 +31,19 @@ class MessageService:
         ).first()
 
         if conv:
-            # Nếu 2 người đã là bạn bè, đảm bảo trạng thái hội thoại luôn là 'accepted'
-            is_friend = db.query(Friendship).filter(
-                or_(
-                    and_(Friendship.requester_id == user1_id, Friendship.addressee_id == user2_id),
-                    and_(Friendship.requester_id == user2_id, Friendship.addressee_id == user1_id)
-                ),
-                Friendship.status == "accepted"
-            ).first() is not None
-            if is_friend and conv.status != "accepted":
-                conv.status = "accepted"
-                db.commit()
-                db.refresh(conv)
+            # Nếu 2 người đã là bạn bè và không bị chặn, đảm bảo trạng thái hội thoại là 'accepted'
+            if conv.status != "blocked":
+                is_friend = db.query(Friendship).filter(
+                    or_(
+                        and_(Friendship.requester_id == user1_id, Friendship.addressee_id == user2_id),
+                        and_(Friendship.requester_id == user2_id, Friendship.addressee_id == user1_id)
+                    ),
+                    Friendship.status == "accepted"
+                ).first() is not None
+                if is_friend and conv.status != "accepted":
+                    conv.status = "accepted"
+                    db.commit()
+                    db.refresh(conv)
             return conv
 
         # Kiểm tra xem 2 người đã là bạn bè chưa
@@ -107,7 +108,7 @@ class MessageService:
                     )
                     db.add(new_conv)
                     has_new_conv = True
-                elif existing_conv.status != "accepted":
+                elif existing_conv.status != "accepted" and existing_conv.status != "blocked":
                     existing_conv.status = "accepted"
                     has_new_conv = True
 
@@ -129,10 +130,11 @@ class MessageService:
                 and_(Conversation.status == "pending", Conversation.initiated_by != current_user_id)
             )
         elif tab == "accepted":
-            # Hộp thư chính gồm các hội thoại đã accepted HOẶC hội thoại pending do chính mình gửi đi
+            # Hộp thư chính gồm các hội thoại accepted HOẶC pending do chính mình gửi HOẶC bị blocked
             query = query.filter(
                 or_(
                     Conversation.status == "accepted",
+                    Conversation.status == "blocked",
                     and_(Conversation.status == "pending", Conversation.initiated_by == current_user_id)
                 )
             )
@@ -158,8 +160,8 @@ class MessageService:
                 Friendship.status == "accepted"
             ).first() is not None
 
-            # Nếu KHÔNG PHẢI BẠN BÈ và KHÔNG CÓ TIN NHẮN THỰC TẾ -> Bỏ qua, không kẹt trong list chat
-            if not is_friend and not last_msg:
+            # Nếu KHÔNG PHẢI BẠN BÈ và KHÔNG CÓ TIN NHẮN THỰC TẾ và KHÔNG BỊ CHẶN -> Bỏ qua
+            if not is_friend and not last_msg and c.status != "blocked":
                 continue
 
             unread_count = db.query(Message).filter(
@@ -180,13 +182,27 @@ class MessageService:
 
             is_requester = (str(c.initiated_by) == str(current_user_id))
 
+            last_msg_text = None
+            if last_msg:
+                if getattr(last_msg, "is_recalled", False):
+                    last_msg_text = "Tin nhắn đã được thu hồi"
+                elif getattr(last_msg, "media_url", None) and getattr(last_msg, "media_type", "") == "image":
+                    last_msg_text = "[Hình ảnh] " + (last_msg.content or "")
+                elif getattr(last_msg, "media_url", None) and getattr(last_msg, "media_type", "") == "file":
+                    last_msg_text = "[Tệp tin] " + (last_msg.content or "")
+                else:
+                    last_msg_text = last_msg.content
+            elif is_friend:
+                last_msg_text = "Bắt đầu cuộc trò chuyện"
+
             result.append(ConversationItem(
                 id=c.id,
                 user=partner_info,
                 status=c.status,
                 initiated_by=str(c.initiated_by) if c.initiated_by else None,
+                blocked_by=str(c.blocked_by) if getattr(c, "blocked_by", None) else None,
                 is_requester=is_requester,
-                last_message=last_msg.content if last_msg else ("Bắt đầu cuộc trò chuyện" if is_friend else None),
+                last_message=last_msg_text,
                 last_message_at=last_msg.created_at if last_msg else c.last_message_at,
                 unread_count=unread_count,
                 last_message_status=last_msg.status if last_msg else None,
@@ -228,22 +244,26 @@ class MessageService:
                 sender_id=str(m.sender_id),
                 receiver_id=str(m.receiver_id),
                 content=m.content,
+                media_url=getattr(m, "media_url", None),
+                media_type=getattr(m, "media_type", "text") or "text",
                 status=m.status or "sent",
                 is_read=m.is_read,
+                is_recalled=bool(getattr(m, "is_recalled", False)),
                 created_at=m.created_at
             )
             for m in messages
         ]
 
     @staticmethod
-    def send_message(sender_id: str, receiver_id: str, content: str, db: Session) -> MessageItem:
+    def send_message(sender_id: str, receiver_id: str, content: Optional[str] = "", db: Session = None, media_url: Optional[str] = None, media_type: Optional[str] = "text") -> MessageItem:
         if sender_id == receiver_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Không thể gửi tin nhắn cho chính mình"
             )
 
-        if not content or not content.strip():
+        has_text = content and content.strip()
+        if not has_text and not media_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Nội dung tin nhắn không được để trống"
@@ -258,13 +278,25 @@ class MessageService:
 
         conv = MessageService.get_or_create_conversation(sender_id, receiver_id, db)
 
+        if conv.status == "blocked":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cuộc trò chuyện này đang bị chặn"
+            )
+
+        default_media_caption = "Đã gửi một tệp đính kèm" if media_type == "file" else ("Đã gửi một hình ảnh" if media_type == "image" else "")
+        final_content = content.strip() if has_text else default_media_caption
+
         new_msg = Message(
             conversation_id=conv.id,
             sender_id=sender_id,
             receiver_id=receiver_id,
-            content=content.strip(),
-            status="sent",  # Đã gửi lên máy chủ
+            content=final_content,
+            media_url=media_url,
+            media_type=media_type or "text",
+            status="sent",
             is_read=False,
+            is_recalled=False,
             created_at=func.now()
         )
         db.add(new_msg)
@@ -279,10 +311,88 @@ class MessageService:
             sender_id=str(new_msg.sender_id),
             receiver_id=str(new_msg.receiver_id),
             content=new_msg.content,
+            media_url=new_msg.media_url,
+            media_type=new_msg.media_type or "text",
             status=new_msg.status,
             is_read=new_msg.is_read,
+            is_recalled=bool(new_msg.is_recalled),
             created_at=new_msg.created_at
         )
+
+    @staticmethod
+    def recall_message(message_id: int, current_user_id: str, db: Session) -> MessageItem:
+        """Thu hồi tin nhắn đã gửi (chỉ người gửi mới có quyền thu hồi)"""
+        msg = db.query(Message).filter(Message.id == message_id).first()
+        if not msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy tin nhắn"
+            )
+
+        if str(msg.sender_id) != str(current_user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn chỉ có thể thu hồi tin nhắn do chính mình gửi"
+            )
+
+        msg.is_recalled = True
+        msg.content = "Tin nhắn đã được thu hồi"
+        msg.status = "recalled"
+        msg.media_url = None
+        db.commit()
+        db.refresh(msg)
+
+        return MessageItem(
+            id=msg.id,
+            conversation_id=msg.conversation_id,
+            sender_id=str(msg.sender_id),
+            receiver_id=str(msg.receiver_id),
+            content=msg.content,
+            media_url=None,
+            media_type=getattr(msg, "media_type", "text") or "text",
+            status=msg.status,
+            is_read=msg.is_read,
+            is_recalled=True,
+            created_at=msg.created_at
+        )
+
+    @staticmethod
+    def block_conversation(conversation_id: int, current_user_id: str, db: Session) -> ConversationItem:
+        """Chặn người dùng trong cuộc trò chuyện"""
+        conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conv:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy cuộc trò chuyện")
+
+        if str(conv.user1_id) != str(current_user_id) and str(conv.user2_id) != str(current_user_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Không có quyền thao tác trên cuộc trò chuyện này")
+
+        conv.status = "blocked"
+        conv.blocked_by = current_user_id
+        db.commit()
+        db.refresh(conv)
+        return conv
+
+    @staticmethod
+    def unblock_conversation(conversation_id: int, current_user_id: str, db: Session) -> ConversationItem:
+        """Bỏ chặn người dùng trong cuộc trò chuyện"""
+        conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conv:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy cuộc trò chuyện")
+
+        if str(conv.user1_id) != str(current_user_id) and str(conv.user2_id) != str(current_user_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Không có quyền thao tác trên cuộc trò chuyện này")
+
+        if conv.blocked_by and str(conv.blocked_by) != str(current_user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ người thực hiện chặn mới có quyền bỏ chặn"
+            )
+
+        conv.status = "accepted"
+        conv.blocked_by = None
+        db.commit()
+        db.refresh(conv)
+        return conv
 
     @staticmethod
     def mark_delivered(conversation_id: int, current_user_id: str, db: Session):

@@ -1,5 +1,9 @@
 const LOCAL_NOTIFICATION_PREFIXES = ['notif-', 'local-'];
 
+export function isLegacyMockNotificationId(id) {
+  return /^notif-[1-5]$/.test(String(id));
+}
+
 export function isLocalNotificationId(id) {
   return LOCAL_NOTIFICATION_PREFIXES.some((prefix) => String(id).startsWith(prefix));
 }
@@ -20,10 +24,13 @@ function getNotificationTimestamp(item) {
 }
 
 export function mergeNotificationItems(serverItems = [], localItems = []) {
-  const serverById = new Map(serverItems.map((item) => [String(item.id), item]));
+  const filteredServerItems = serverItems.filter((item) => !isLegacyMockNotificationId(item.id));
+  const serverById = new Map(filteredServerItems.map((item) => [String(item.id), item]));
   const localById = new Map();
   for (const item of localItems) {
-    if (isLocalNotificationId(item.id)) localById.set(String(item.id), item);
+    if (isLocalNotificationId(item.id) && !isLegacyMockNotificationId(item.id)) {
+      localById.set(String(item.id), item);
+    }
   }
 
   const distinctLocals = [...localById.values()].filter((item) => !serverById.has(String(item.id)));
@@ -33,15 +40,22 @@ export function mergeNotificationItems(serverItems = [], localItems = []) {
 }
 
 export function countUnreadNotificationItems(items = []) {
-  const uniqueById = new Map(items.map((item) => [String(item.id), item]));
+  const uniqueById = new Map(
+    items
+      .filter((item) => !isLegacyMockNotificationId(item.id))
+      .map((item) => [String(item.id), item])
+  );
   return [...uniqueById.values()].filter((item) => !item.isRead).length;
 }
 
 export function countMergedUnreadNotifications(serverUnreadCount, serverItems = [], localItems = []) {
-  const serverIds = new Set(serverItems.map((item) => String(item.id)));
+  const validServerItems = serverItems.filter((item) => !isLegacyMockNotificationId(item.id));
+  const serverIds = new Set(validServerItems.map((item) => String(item.id)));
   const localById = new Map();
   for (const item of localItems) {
-    if (isLocalNotificationId(item.id)) localById.set(String(item.id), item);
+    if (isLocalNotificationId(item.id) && !isLegacyMockNotificationId(item.id)) {
+      localById.set(String(item.id), item);
+    }
   }
 
   const localUnreadCount = [...localById.values()].filter(

@@ -22,7 +22,6 @@ import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rba
 import { 
   currentUser as initialUser, 
   initialPosts, 
-  initialNotifications, 
   initialReports, 
   initialAppeals, 
   initialAiOverrides,
@@ -1676,11 +1675,12 @@ export default function App() {
             currentUser={currentUser}
             onOpenAppealModal={handleOpenAppealModal}
             notifications={notifications}
+            unreadCount={unreadCount}
             onMarkAllAsRead={handleMarkAllAsRead}
             onMarkAsRead={handleMarkAsRead}
             onDeleteNotification={handleDeleteNotification}
             onClearReadNotifications={handleClearReadNotifications}
-            onRefresh={() => refreshNotifications(notifFilter, true)}
+            onRefresh={() => refreshNotifications(true)}
             isLoading={notifLoading}
             onOpenProfile={handleOpenUserProfile}
             activeFilter={notifFilter}
