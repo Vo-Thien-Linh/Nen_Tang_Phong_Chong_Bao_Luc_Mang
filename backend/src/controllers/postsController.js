@@ -304,17 +304,10 @@ export function createPostsController({ postService, postRepository, imageModera
 
         // 1. Kiểm tra danh sách từ khóa cấm của chủ bài viết (Author Keyword Blacklist)
         let postAuthorId = targetPost?.author_id || targetPost?.author?.id;
-        if (!postAuthorId && postRepository.findById) {
+        if (!postAuthorId && typeof postRepository?.findById === 'function') {
           try {
             const p = await postRepository.findById(postId, req.user?.id);
             postAuthorId = p?.author_id || p?.author?.id;
-          } catch {}
-        }
-        if (!postAuthorId && postRepository.pool) {
-          try {
-            const cleanPostId = Number(String(postId).replace(/\D/g, '')) || postId;
-            const resAuthor = await postRepository.pool.query('SELECT author_id FROM posts WHERE id = $1', [cleanPostId]);
-            postAuthorId = resAuthor.rows[0]?.author_id;
           } catch {}
         }
 

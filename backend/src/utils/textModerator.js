@@ -11,7 +11,13 @@ export async function moderateTextContent(text) {
     return { label: 'Normal', confidence: 1.0, action: 'allow' };
   }
 
-  if (process.env.NODE_ENV !== 'test' || process.env.FASTAPI_URL) {
+  const isTestEnvironment =
+    process.env.NODE_ENV === 'test' ||
+    process.execArgv.includes('--test') ||
+    process.argv.includes('--test') ||
+    Boolean(process.env.NODE_TEST_CONTEXT);
+
+  if (!isTestEnvironment) {
     try {
       const fastApiBase = process.env.FASTAPI_URL || 'http://127.0.0.1:8000';
       const res = await fetch(`${fastApiBase}/api/v1/moderate`, {
