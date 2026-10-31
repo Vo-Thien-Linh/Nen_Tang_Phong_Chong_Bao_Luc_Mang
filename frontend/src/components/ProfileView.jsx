@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Camera, Edit2, MoreHorizontal, MapPin, Home as HomeIcon, 
   Heart, GraduationCap, Briefcase, Calendar, Image as ImageIcon, 
@@ -946,7 +946,7 @@ export default function ProfileView({
                   className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border border-slate-200"
                 >
                   <Settings className="w-4 h-4 text-blue-600" />
-                  <span>Cài đặt & An toàn</span>
+                  <span>Cài đặt & Quyền riêng tư</span>
                 </button>
               )}
 
