@@ -188,6 +188,8 @@ class MessageService:
                     last_msg_text = "Tin nhắn đã được thu hồi"
                 elif getattr(last_msg, "media_url", None) and getattr(last_msg, "media_type", "") == "image":
                     last_msg_text = "[Hình ảnh] " + (last_msg.content or "")
+                elif getattr(last_msg, "media_url", None) and getattr(last_msg, "media_type", "") == "file":
+                    last_msg_text = "[Tệp tin] " + (last_msg.content or "")
                 else:
                     last_msg_text = last_msg.content
             elif is_friend:
@@ -282,7 +284,8 @@ class MessageService:
                 detail="Cuộc trò chuyện này đang bị chặn"
             )
 
-        final_content = content.strip() if has_text else ("Đã gửi một hình ảnh" if media_type == "image" else "")
+        default_media_caption = "Đã gửi một tệp đính kèm" if media_type == "file" else ("Đã gửi một hình ảnh" if media_type == "image" else "")
+        final_content = content.strip() if has_text else default_media_caption
 
         new_msg = Message(
             conversation_id=conv.id,

@@ -149,3 +149,19 @@ def test_send_image_message(db_session):
     assert msg.media_url == "https://images.unsplash.com/photo-example.jpg"
     assert msg.media_type == "image"
     assert msg.content == "Xem anh nay nhe"
+
+def test_send_file_message(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+
+    msg = MessageService.send_message(
+        sender_id=u1_id,
+        receiver_id=u2_id,
+        content="Bao_cao_WINGS.pdf",
+        db=db_session,
+        media_url="data:application/pdf;base64,JVBERi0xLjQK...",
+        media_type="file"
+    )
+    assert msg.media_url.startswith("data:application/pdf")
+    assert msg.media_type == "file"
+    assert msg.content == "Bao_cao_WINGS.pdf"
