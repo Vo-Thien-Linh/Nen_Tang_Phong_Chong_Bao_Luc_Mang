@@ -36,8 +36,8 @@ test('createComment: returns friendly nudge when comment contains author blackli
       params: { postId: 'post-123' },
       user: { id: 'visitor-2', status: 'active' },
       body: {
-        content: 'Bài viết này nhìn rất rác rưởi luôn',
-        authorFilterKeywords: ['rác rưởi', 'đồ khốn', 'xúc phạm']
+        content: 'Bài viết này chứa nội dung spoiler rất nhiều',
+        authorFilterKeywords: ['spoiler', 'tiết lộ trước']
       }
     },
     mockRes,
@@ -47,7 +47,7 @@ test('createComment: returns friendly nudge when comment contains author blackli
   assert.equal(responseData.statusCode, 200);
   assert.equal(responseData.body.nudge, true);
   assert.equal(responseData.body.warningType, 'keyword_blacklist');
-  assert.equal(responseData.body.matchedKeyword, 'rác rưởi');
+  assert.equal(responseData.body.matchedKeyword, 'spoiler');
   assert.match(responseData.body.message, /danh sách cấm của chủ bài viết/);
   assert.equal(createdComment, null); // Chưa được lưu vào DB khi bị chặn/nudge
 });
@@ -86,9 +86,9 @@ test('createComment: automatically hides comment when forced with blacklisted ke
       params: { postId: 'post-123' },
       user: { id: 'visitor-2', status: 'active' },
       body: {
-        content: 'Cố tình gửi nội dung rác rưởi',
+        content: 'Cố tình gửi nội dung spoiler',
         forceComment: true,
-        authorFilterKeywords: ['rác rưởi']
+        authorFilterKeywords: ['spoiler']
       }
     },
     mockRes,
@@ -138,8 +138,8 @@ test('createComment: allows post author to comment without being blocked by own 
       params: { postId: 'post-123' },
       user: { id: 'author-1', status: 'active' }, // Chính chủ bài viết
       body: {
-        content: 'Chủ bài viết tự nói về rác rưởi',
-        authorFilterKeywords: ['rác rưởi']
+        content: 'Chủ bài viết tự thảo luận về nội dung spoiler',
+        authorFilterKeywords: ['spoiler']
       }
     },
     mockRes,
