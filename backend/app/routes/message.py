@@ -5,6 +5,7 @@ from typing import Optional, List
 from ..database import get_db
 from ..models.user import User
 from ..models.friendship import Friendship
+from ..models.message import Conversation, Message
 from sqlalchemy import or_, and_
 from ..utils.security import decode_access_token
 from ..services.message_service import MessageService
@@ -145,16 +146,17 @@ def get_or_create_conversation(
     has_msg = False
     if conv:
         has_msg = db.query(Message).filter(Message.conversation_id == conv.id).first() is not None
-        if is_friend and conv.status != "accepted":
+        if is_friend and conv.status != "accepted" and conv.status != "blocked":
             conv.status = "accepted"
             db.commit()
 
     return {
-        "conversation_id": conv.id if (conv and (has_msg or is_friend)) else None,
+        "conversation_id": conv.id if (conv and (has_msg or is_friend or conv.status == "blocked")) else None,
         "status": conv.status if conv else ("accepted" if is_friend else "pending"),
         "initiated_by": str(conv.initiated_by) if conv else str(current_user_id),
+        "blocked_by": str(conv.blocked_by) if (conv and getattr(conv, "blocked_by", None)) else None,
         "is_requester": (str(conv.initiated_by) == str(current_user_id)) if conv else True,
-        "is_draft": not (has_msg or is_friend),
+        "is_draft": not (has_msg or is_friend or (conv and conv.status == "blocked")),
         "user": {
             "id": str(partner.id),
             "name": partner.full_name,
@@ -177,15 +179,25 @@ async def send_message(
     current_user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
-    msg = MessageService.send_message(current_user_id, payload.receiver_id, payload.content, db)
+    msg = MessageService.send_message(
+        sender_id=current_user_id,
+        receiver_id=payload.receiver_id,
+        content=payload.content,
+        db=db,
+        media_url=payload.media_url,
+        media_type=payload.media_type
+    )
     msg_dict = {
         "id": msg.id,
         "conversation_id": msg.conversation_id,
         "sender_id": str(msg.sender_id),
         "receiver_id": str(msg.receiver_id),
         "content": msg.content,
+        "media_url": msg.media_url,
+        "media_type": msg.media_type,
         "status": msg.status,
         "is_read": msg.is_read,
+        "is_recalled": msg.is_recalled,
         "created_at": msg.created_at.isoformat() if msg.created_at else None
     }
     await manager.send_to_user(str(payload.receiver_id), {
@@ -199,6 +211,80 @@ async def send_message(
         "message": msg_dict
     })
     return msg
+
+@router.post(
+    "/messages/{message_id}/recall",
+    response_model=MessageItem,
+    summary="Thu hồi tin nhắn đã gửi",
+    description="Chỉ cho phép người gửi thu hồi tin nhắn của chính mình"
+)
+async def recall_message(
+    message_id: int,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    msg = MessageService.recall_message(message_id, current_user_id, db)
+    recall_payload = {
+        "type": "MESSAGE_RECALLED",
+        "conversation_id": msg.conversation_id,
+        "message_id": msg.id,
+        "content": msg.content,
+        "status": msg.status,
+        "is_recalled": True
+    }
+    await manager.send_to_user(str(msg.receiver_id), recall_payload)
+    await manager.send_to_user(str(current_user_id), recall_payload)
+    return msg
+
+@router.post(
+    "/conversations/{conversation_id}/block",
+    summary="Chặn người dùng trong cuộc trò chuyện",
+    description="Chặn người dùng đối phương, ngăn chặn việc gửi tin nhắn tiếp theo"
+)
+async def block_conversation(
+    conversation_id: int,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    MessageService.block_conversation(conversation_id, current_user_id, db)
+    db_conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if db_conv:
+        partner_id = str(db_conv.user2_id) if str(db_conv.user1_id) == str(current_user_id) else str(db_conv.user1_id)
+        await manager.send_to_user(partner_id, {
+            "type": "CONVERSATION_BLOCKED",
+            "conversation_id": conversation_id,
+            "blocked_by": str(current_user_id)
+        })
+        await manager.send_to_user(str(current_user_id), {
+            "type": "CONVERSATION_BLOCKED",
+            "conversation_id": conversation_id,
+            "blocked_by": str(current_user_id)
+        })
+    return {"success": True, "message": "Đã chặn cuộc trò chuyện"}
+
+@router.post(
+    "/conversations/{conversation_id}/unblock",
+    summary="Bỏ chặn cuộc trò chuyện",
+    description="Gỡ chặn cuộc trò chuyện cho phép tiếp tục nhắn tin"
+)
+async def unblock_conversation(
+    conversation_id: int,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    MessageService.unblock_conversation(conversation_id, current_user_id, db)
+    db_conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if db_conv:
+        partner_id = str(db_conv.user2_id) if str(db_conv.user1_id) == str(current_user_id) else str(db_conv.user1_id)
+        await manager.send_to_user(partner_id, {
+            "type": "CONVERSATION_UNBLOCKED",
+            "conversation_id": conversation_id
+        })
+        await manager.send_to_user(str(current_user_id), {
+            "type": "CONVERSATION_UNBLOCKED",
+            "conversation_id": conversation_id
+        })
+    return {"success": True, "message": "Đã bỏ chặn cuộc trò chuyện"}
 
 @router.put(
     "/conversations/{conversation_id}/read",
@@ -223,7 +309,6 @@ async def accept_conversation(
     current_user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
-    from ..models.message import Conversation
     MessageService.accept_conversation(conversation_id, current_user_id, db)
     db_conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if db_conv:

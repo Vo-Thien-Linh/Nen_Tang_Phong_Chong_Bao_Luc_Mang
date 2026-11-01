@@ -1,5 +1,19 @@
 // API Service kết nối Backend FastAPI (http://localhost:8000)
-const API_BASE_URL = `${import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000'}/api/v1/settings`;
+const getFastApiBaseUrl = () => {
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_FASTAPI_URL) {
+      return import.meta.env.VITE_FASTAPI_URL;
+    }
+  } catch {}
+  try {
+    if (typeof process !== 'undefined' && process?.env?.VITE_FASTAPI_URL) {
+      return process.env.VITE_FASTAPI_URL;
+    }
+  } catch {}
+  return 'http://localhost:8000';
+};
+
+const API_BASE_URL = `${getFastApiBaseUrl()}/api/v1/settings`;
 
 const STORAGE_KEYS = {
   TOKEN: 'nexussocial_token',
@@ -8,9 +22,41 @@ const STORAGE_KEYS = {
   BLOCKED: 'nexussocial_blocked_users'
 };
 
+const memoryStore = new Map();
+export const safeStorage = {
+  getItem(key) {
+    if (typeof localStorage !== 'undefined' && localStorage !== this) {
+      try { return localStorage.getItem(key); } catch {}
+    }
+    return memoryStore.get(key) || null;
+  },
+  setItem(key, value) {
+    if (typeof localStorage !== 'undefined' && localStorage !== this) {
+      try { localStorage.setItem(key, value); } catch {}
+    }
+    memoryStore.set(key, String(value));
+  },
+  removeItem(key) {
+    if (typeof localStorage !== 'undefined' && localStorage !== this) {
+      try { localStorage.removeItem(key); } catch {}
+    }
+    memoryStore.delete(key);
+  },
+  clear() {
+    if (typeof localStorage !== 'undefined' && localStorage !== this) {
+      try { localStorage.clear(); } catch {}
+    }
+    memoryStore.clear();
+  }
+};
+
+if (typeof globalThis.localStorage === 'undefined') {
+  globalThis.localStorage = safeStorage;
+}
+
 const getAuthHeaders = () => {
-  const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-  const user = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER) || '{}');
+  const token = safeStorage.getItem(STORAGE_KEYS.TOKEN);
+  const user = JSON.parse(safeStorage.getItem(STORAGE_KEYS.USER) || '{}');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -62,7 +108,7 @@ export const settingsService = {
       });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data));
+        safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data));
         return data;
       }
     } catch (err) {
@@ -70,7 +116,7 @@ export const settingsService = {
     }
 
     // Fallback cục bộ
-    const local = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    const local = safeStorage.getItem(STORAGE_KEYS.SETTINGS);
     const parsed = local ? JSON.parse(local) : DEFAULT_SETTINGS;
     return {
       ...parsed,
@@ -83,6 +129,7 @@ export const settingsService = {
       location: currentUser?.location || '',
       hometown: currentUser?.hometown || '',
       education: currentUser?.education || '',
+      high_school: currentUser?.high_school || currentUser?.highSchool || '',
       relationship_status: currentUser?.relationship_status || '',
       avatar_url: currentUser?.avatar || currentUser?.avatar_url || '',
       cover_url: currentUser?.cover_url || '',
@@ -146,9 +193,9 @@ export const settingsService = {
       return data;
     } catch (err) {
       // Local fallback
-      const prev = JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
+      const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
       const updated = { ...prev, ...safetyData };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       return { success: true, message: 'Đã lưu cấu hình an toàn AI', data: updated };
     }
   },
@@ -167,9 +214,9 @@ export const settingsService = {
       if (!res.ok) throw new Error(data.detail || data.message || 'Cập nhật thất bại');
       return data;
     } catch (err) {
-      const prev = JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
+      const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
       const updated = { ...prev, ...privacyData };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       return { success: true, message: 'Đã lưu cấu hình quyền riêng tư', data: updated };
     }
   },
@@ -188,9 +235,9 @@ export const settingsService = {
       if (!res.ok) throw new Error(data.detail || data.message || 'Cập nhật thất bại');
       return data;
     } catch (err) {
-      const prev = JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
+      const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
       const updated = { ...prev, ...notifData };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       return { success: true, message: 'Đã lưu cài đặt thông báo' };
     }
   },
@@ -209,9 +256,9 @@ export const settingsService = {
       if (!res.ok) throw new Error(data.detail || data.message || 'Cập nhật thất bại');
       return data;
     } catch (err) {
-      const prev = JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
+      const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
       const updated = { ...prev, ...appearanceData };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       return { success: true, message: 'Đã lưu giao diện' };
     }
   },
@@ -229,9 +276,9 @@ export const settingsService = {
       if (!res.ok) throw new Error(data.detail || data.message || 'Thao tác thất bại');
       return data;
     } catch (err) {
-      const prev = JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
+      const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
       const updated = { ...prev, two_factor_enabled: !prev.two_factor_enabled };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
       return { success: true, message: 'Đã thay đổi trạng thái 2FA', data: { two_factor_enabled: updated.two_factor_enabled } };
     }
   },
@@ -249,7 +296,7 @@ export const settingsService = {
       console.warn('Lỗi gọi getBlockedUsers:', err.message);
     }
     // Fallback local
-    const local = localStorage.getItem(STORAGE_KEYS.BLOCKED);
+    const local = safeStorage.getItem(STORAGE_KEYS.BLOCKED);
     if (local) return JSON.parse(local);
     return [
       {
@@ -284,7 +331,7 @@ export const settingsService = {
         avatar: targetUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
         blocked_at: 'Vừa xong'
       });
-      localStorage.setItem(STORAGE_KEYS.BLOCKED, JSON.stringify(blocked));
+      safeStorage.setItem(STORAGE_KEYS.BLOCKED, JSON.stringify(blocked));
     }
     return { success: true, message: 'Đã chặn người dùng thành công' };
   },
@@ -304,7 +351,7 @@ export const settingsService = {
     }
     let blocked = await this.getBlockedUsers();
     blocked = blocked.filter(b => b.id !== targetId);
-    localStorage.setItem(STORAGE_KEYS.BLOCKED, JSON.stringify(blocked));
+    safeStorage.setItem(STORAGE_KEYS.BLOCKED, JSON.stringify(blocked));
     return { success: true, message: 'Đã bỏ chặn người dùng' };
   }
 };

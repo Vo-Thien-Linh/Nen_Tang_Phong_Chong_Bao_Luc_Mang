@@ -19,7 +19,18 @@ export function createReportsController({ reportRepository }) {
      */
     async createReport(req, res, next) {
       try {
-        const { reporter, targetType, targetId, targetAuthor, contentExcerpt, reason, reasonLabel, details } = req.body;
+        const {
+          reporter,
+          targetType,
+          targetId,
+          targetAuthor,
+          contentExcerpt,
+          reason,
+          reasonLabel,
+          details,
+          targetModality,
+          target_modality,
+        } = req.body;
         const reporterId = req.user?.id || reporter?.id;
 
         const result = await reportRepository.createReport({
@@ -32,6 +43,7 @@ export function createReportsController({ reportRepository }) {
           reason,
           reasonLabel,
           details,
+          targetModality: targetModality || target_modality || 'both',
         });
 
         const message = result.fromDb
@@ -55,28 +67,46 @@ export function createReportsController({ reportRepository }) {
     async resolveReport(req, res, next) {
       try {
         const { id } = req.params;
-        const { status, adminNotes, newLabel, oldLabel, rawText } = req.body;
+        const {
+          status,
+          adminNotes,
+          newLabel,
+          oldLabel,
+          newImageLabel,
+          oldImageLabel,
+          textAction,
+          imageAction,
+          rawText,
+        } = req.body;
         const reviewerId = req.user?.id || null;
 
-        const { report, overrideLog, finalNewLabel } = await reportRepository.updateReportStatus({
+        const { report, overrideLog, overrideLogs, finalNewLabel } = await reportRepository.updateReportStatus({
           id,
           status,
           adminNotes,
           newLabel,
           oldLabel,
+          newImageLabel,
+          oldImageLabel,
+          textAction,
+          imageAction,
           reviewerId,
           rawText,
         });
 
         if (status === 'resolved_violation') {
-          if (overrideLog && req.user?.full_name) {
-            overrideLog.adminName = req.user.full_name;
+          if (req.user?.full_name) {
+            if (overrideLog) overrideLog.adminName = req.user.full_name;
+            if (Array.isArray(overrideLogs)) {
+              overrideLogs.forEach(l => { l.adminName = req.user.full_name; });
+            }
           }
           return res.json({
             success: true,
-            message: `Xác nhận vi phạm: Đã gán lại nhãn "${finalNewLabel}" và lưu nhật ký vào CSDL PostgreSQL thành công!`,
+            message: `Xác nhận vi phạm: Đã cập nhật nhãn vi phạm và lưu nhật ký vào CSDL PostgreSQL thành công!`,
             data: report,
             overrideLog,
+            overrideLogs,
           });
         } else {
           return res.json({
@@ -91,4 +121,3 @@ export function createReportsController({ reportRepository }) {
     },
   };
 }
-

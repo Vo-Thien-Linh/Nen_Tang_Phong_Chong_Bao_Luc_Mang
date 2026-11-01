@@ -275,7 +275,8 @@ export function createUsersController({ userRepository, pool }) {
           return res.status(403).json({ success: false, message: 'Không có quyền chỉnh sửa trang cá nhân của người khác' });
         }
 
-        const { bio, location, hometown, education, high_school, relationship_status, avatar_url, cover_url } = req.body;
+        const { bio, location, hometown, education, relationship_status, avatar_url, cover_url } = req.body;
+        const high_school = req.body.high_school !== undefined ? req.body.high_school : req.body.highSchool;
         const updated = await userRepository.updateProfile(userId, {
           bio, location, hometown, education, high_school, relationship_status, avatar_url, cover_url,
         });

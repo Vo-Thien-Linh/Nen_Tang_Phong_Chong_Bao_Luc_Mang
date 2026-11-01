@@ -57,7 +57,12 @@ def _runtime():
         raise ImageModerationFailure("unexpected model labels")
     model = models.efficientnet_b1(weights=None)
     model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, len(labels))
-    checkpoint = torch.load(MODEL_DIR / config["weights_file"], map_location="cpu", weights_only=True)
+    weights_path = MODEL_DIR / config["weights_file"]
+    if not weights_path.exists():
+        fallback_path = Path(__file__).resolve().parent / config["weights_file"]
+        if fallback_path.exists():
+            weights_path = fallback_path
+    checkpoint = torch.load(weights_path, map_location="cpu", weights_only=True)
     state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
     model.load_state_dict(state_dict)
     model.eval()

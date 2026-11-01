@@ -288,7 +288,7 @@ export default function Navbar({
                       className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
                     >
                       <Settings className="w-4 h-4 text-blue-500" />
-                      <span>Cài đặt & Khiên an toàn</span>
+                      <span>Cài đặt & Quyền riêng tư</span>
                     </button>
 
 

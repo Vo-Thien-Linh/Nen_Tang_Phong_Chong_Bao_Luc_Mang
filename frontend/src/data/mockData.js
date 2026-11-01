@@ -395,13 +395,10 @@ export const onlineUsers = [
 
 // Danh mục lý do báo cáo vi phạm
 export const REPORT_REASONS = [
-  { id: 'toxic', label: 'Nội dung độc hại / Xúc phạm', description: 'Chửi bới, lăng mạ, hạ nhục người khác hoặc ngôn từ thiếu văn hóa' },
-  { id: 'hate_speech', label: 'Ngôn từ thù ghét', description: 'Kích động thù địch, phân biệt chủng tộc, tôn giáo, giới tính' },
-  { id: 'violence', label: 'Bạo lực / Đe dọa', description: 'Đe dọa gây thương tích, bạo lực thể xác hoặc cổ súy hành vi nguy hiểm' },
-  { id: 'harassment', label: 'Quấy rối / Đeo bám', description: 'Gửi tin nhắn hoặc bình luận làm phiền có chủ đích' },
-  { id: 'spam', label: 'Spam / Lừa đảo', description: 'Quảng cáo sai sự thật, lừa đảo tài chính hoặc phát tán mã độc' },
-  { id: 'misinformation', label: 'Tin giả / Sai sự thật', description: 'Bóp méo thông tin gây hoang mang dư luận' },
-  { id: 'other', label: 'Lý do khác', description: 'Hành vi vi phạm quy chuẩn cộng đồng khác' }
+  { id: 'toxic', label: 'Nội dung độc hại / Xúc phạm (Toxic)', description: 'Chửi bới, lăng mạ, hạ nhục người khác hoặc ngôn từ thô tục', modality: 'text' },
+  { id: 'hate_speech', label: 'Ngôn từ thù ghét (Hate Speech)', description: 'Kích động thù địch, phân biệt chủng tộc, tôn giáo, giới tính', modality: 'text' },
+  { id: 'violence', label: 'Bạo lực / Đe dọa (Violence)', description: 'Đe dọa gây thương tích, bạo lực thể xác hoặc hình ảnh máu me, kinh dị', modality: 'both' },
+  { id: 'nsfw', label: 'Hình ảnh nhạy cảm / 18+ (NSFW)', description: 'Hình ảnh khêu gợi, hở hang hoặc nội dung người lớn', modality: 'image' },
 ];
 
 // Dữ liệu mẫu Báo cáo người dùng gửi lên
@@ -421,8 +418,8 @@ export const initialReports = [
       avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80"
     },
     contentExcerpt: "Hoàng hôn ở Đà Lạt chiều nay bình yên lạ thường. Thỉnh thoảng dành cho mình một khoảng lặng...",
-    reason: "spam",
-    reasonLabel: "Spam / Lừa đảo",
+    reason: "hate_speech",
+    reasonLabel: "Ngôn từ thù ghét (Hate Speech)",
     details: "Nghi ngờ bài viết chứa liên kết rút gọn quảng cáo spam chưa được kiểm duyệt trong phần bình luận.",
     status: "pending", // 'pending' | 'resolved_violation' | 'dismissed'
     adminNotes: "",
@@ -467,8 +464,8 @@ export const initialReports = [
       avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"
     },
     contentExcerpt: "Đưa ngay mã nguồn AI kiểm duyệt đây không tao báo cáo sập tài khoản mày bây giờ!",
-    reason: "harassment",
-    reasonLabel: "Quấy rối / Đeo bám",
+    reason: "violence",
+    reasonLabel: "Bạo lực / Đe dọa (Violence)",
     details: "Người lạ gửi tin nhắn đe dọa, đòi chia sẻ tài nguyên cá nhân trái phép trong hòm thư chờ.",
     status: "resolved_violation",
     adminNotes: "Đã xác minh nội dung có hành vi quấy rối và đe dọa, áp dụng tạm khóa tin nhắn 24h đối với tài khoản vi phạm.",

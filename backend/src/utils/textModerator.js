@@ -11,24 +11,32 @@ export async function moderateTextContent(text) {
     return { label: 'Normal', confidence: 1.0, action: 'allow' };
   }
 
-  try {
-    const fastApiBase = process.env.FASTAPI_URL || 'http://127.0.0.1:8000';
-    const res = await fetch(`${fastApiBase}/api/v1/moderate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.trim() }),
-      signal: AbortSignal.timeout(2000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        label: data.label || 'Normal',
-        confidence: data.confidence || 0.98,
-        action: data.action || 'allow',
-      };
+  const isTestEnvironment =
+    process.env.NODE_ENV === 'test' ||
+    process.execArgv.includes('--test') ||
+    process.argv.includes('--test') ||
+    Boolean(process.env.NODE_TEST_CONTEXT);
+
+  if (!isTestEnvironment) {
+    try {
+      const fastApiBase = process.env.FASTAPI_URL || 'http://127.0.0.1:8000';
+      const res = await fetch(`${fastApiBase}/api/v1/moderate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.trim() }),
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          label: data.label || 'Normal',
+          confidence: data.confidence || 0.98,
+          action: data.action || 'allow',
+        };
+      }
+    } catch {
+      // Fallback nếu FastAPI PhoBERT chưa bật hoặc timeout
     }
-  } catch {
-    // Fallback nếu FastAPI PhoBERT chưa bật hoặc timeout
   }
 
   const lower = text.toLowerCase();

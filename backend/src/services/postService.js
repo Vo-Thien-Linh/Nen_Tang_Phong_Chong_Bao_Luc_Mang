@@ -270,10 +270,32 @@ export function createPostService({ postRepository, moderationHook, imageModerat
 
       const textMod = await moderateTextContent(normalizedContent);
 
-      const imageModeration = imageUrl && imageModerationClient
-        ? await imageModerationClient(imageUrl)
-        : null;
-      const heldModeration = holdViolent(imageModeration);
+      const isImageUnchanged = Boolean(
+        imageUrl &&
+        existingPost.image_url &&
+        normalizeImageUrl(imageUrl) === normalizeImageUrl(existingPost.image_url)
+      );
+
+      const imageModeration = isImageUnchanged
+        ? (existingPost.image_moderation_status ? {
+            decision: existingPost.image_moderation_status,
+            label: existingPost.image_moderation_label || null,
+            scores: {
+              safe: existingPost.image_moderation_safe,
+              nsfw: existingPost.image_moderation_nsfw,
+              violence: existingPost.image_moderation_violence,
+            },
+            thresholds: existingPost.image_moderation_thresholds || {},
+            images: [{
+              scores: {
+                safe: existingPost.image_moderation_safe,
+                nsfw: existingPost.image_moderation_nsfw,
+                violence: existingPost.image_moderation_violence,
+              },
+            }],
+          } : null)
+        : (imageUrl && imageModerationClient ? await imageModerationClient(imageUrl) : null);
+      const heldModeration = isImageUnchanged ? imageModeration : holdViolent(imageModeration);
 
       const harmonized = harmonizeModeration({
         textMod,
@@ -341,18 +363,23 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           }
         }
 
-        // Trừ điểm uy tín khi chỉnh sửa thành bạo lực
-        const epDeduction = calculateTrustDeduction(
+        // Trừ điểm uy tín khi chỉnh sửa thành bạo lực (chỉ trừ phần chênh lệch tăng nặng)
+        const prevViolenceDeduction = calculateTrustDeduction(
+          existingPost?.ai_label || 'Normal',
+          existingPost?.image_moderation_status || 'safe'
+        );
+        const targetViolenceDeduction = calculateTrustDeduction(
           harmonized.finalLabel || textMod?.label || 'Violence',
           heldModeration?.decision || (harmonized.isImageViolence ? 'rejected_hold' : 'safe')
         );
+        const epDeduction = Math.max(0, targetViolenceDeduction - prevViolenceDeduction);
         if (epDeduction > 0 && postRepository.pool) {
           try {
             await applyTrustPenalty({
               pool: postRepository.pool,
               userId: user.id,
               amount: epDeduction,
-              reason: `Chỉnh sửa bài viết vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+              reason: `Chỉnh sửa bài viết tăng mức độ vi phạm (${existingPost?.ai_label || 'Normal'} -> ${harmonized.finalLabel})`,
               actionType: 'post_edit_violation',
               contentId: hiddenPost?.id || postId,
             });
@@ -387,18 +414,24 @@ export function createPostService({ postRepository, moderationHook, imageModerat
             : {}),
       });
 
-      // Trừ điểm uy tín khi chỉnh sửa vi phạm (Toxic, Hate Speech, NSFW...)
-      const normalEditDeduction = calculateTrustDeduction(
+      // Trừ điểm uy tín khi chỉnh sửa vi phạm (chỉ trừ phần chênh lệch nếu nhãn mới nặng hơn)
+      const prevDeduction = calculateTrustDeduction(
+        existingPost?.ai_label || 'Normal',
+        existingPost?.image_moderation_status || 'safe'
+      );
+      const targetDeduction = calculateTrustDeduction(
         harmonized.finalLabel || textMod?.label || 'Normal',
         heldModeration?.decision || (harmonized.isImageNsfw ? 'sensitive' : 'safe')
       );
+      const normalEditDeduction = Math.max(0, targetDeduction - prevDeduction);
+
       if (normalEditDeduction > 0 && postRepository.pool) {
         try {
           await applyTrustPenalty({
             pool: postRepository.pool,
             userId: user.id,
             amount: normalEditDeduction,
-            reason: `Chỉnh sửa bài viết vi phạm: ${harmonized.reason || harmonized.finalLabel}`,
+            reason: `Chỉnh sửa bài viết tăng mức độ vi phạm (${existingPost?.ai_label || 'Normal'} -> ${harmonized.finalLabel})`,
             actionType: 'post_edit_violation',
             contentId: post?.id || postId,
           });

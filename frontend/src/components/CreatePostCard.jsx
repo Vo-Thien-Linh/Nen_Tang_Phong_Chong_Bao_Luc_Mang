@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer } from 'lucide-react';
+import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users } from 'lucide-react';
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
@@ -7,11 +7,23 @@ import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 
+const getInitialDefaultPrivacy = () => {
+  try {
+    const raw = localStorage.getItem('nexussocial_user_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.post_default_privacy) return parsed.post_default_privacy;
+    }
+  } catch {}
+  return 'public';
+};
+
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
+  const [privacy, setPrivacy] = useState(() => currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy());
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -22,6 +34,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [errorMessage, setErrorMessage] = useState('');
   const [nudgeData, setNudgeData] = useState(null);
   const submitLockRef = useRef(false);
+
+  useEffect(() => {
+    const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
+    setPrivacy(defaultPriv);
+  }, [currentUser?.settings?.post_default_privacy]);
 
   // Trạng thái xử phạt / cấm đăng bài
   const isBanned = currentUser?.status === 'banned';
@@ -171,6 +188,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
         userId: currentUser.id,
         content: content.trim(),
         imageUrl: finalImageUrl || null,
+        privacy,
         forcePost,
       });
 
@@ -367,6 +385,25 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 <Sparkles className="w-4 h-4 text-blue-500" />
                 <span>{isAiChecking ? 'AI đang duyệt...' : 'Duyệt thử AI'}</span>
               </button>
+
+              <div className="relative">
+                <select
+                  value={privacy}
+                  onChange={(e) => setPrivacy(e.target.value)}
+                  disabled={isBanned || isCooldown}
+                  className="appearance-none pl-7 pr-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 transition cursor-pointer outline-none focus:ring-2 focus:ring-blue-400"
+                  title="Quyền riêng tư bài viết"
+                >
+                  <option value="public">Công khai</option>
+                  <option value="friends">Bạn bè</option>
+                  <option value="private">Chỉ mình tôi</option>
+                </select>
+                <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">
+                  {privacy === 'private' ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
+                   privacy === 'friends' ? <Users className="w-3.5 h-3.5 text-amber-500" /> :
+                   <Globe className="w-3.5 h-3.5 text-blue-500" />}
+                </div>
+              </div>
             </div>
 
             <button

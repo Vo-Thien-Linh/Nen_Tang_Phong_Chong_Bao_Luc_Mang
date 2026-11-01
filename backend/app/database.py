@@ -39,6 +39,39 @@ except Exception as e:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+def ensure_schema_migrations(eng):
+    try:
+        from sqlalchemy import text
+        with eng.connect() as conn:
+            if "sqlite" in str(eng.url):
+                existing_msg_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(messages)")).fetchall()]
+                if existing_msg_cols:
+                    if "is_recalled" not in existing_msg_cols:
+                        conn.execute(text("ALTER TABLE messages ADD COLUMN is_recalled BOOLEAN DEFAULT 0"))
+                    if "media_url" not in existing_msg_cols:
+                        conn.execute(text("ALTER TABLE messages ADD COLUMN media_url TEXT"))
+                    if "media_type" not in existing_msg_cols:
+                        conn.execute(text("ALTER TABLE messages ADD COLUMN media_type VARCHAR(20) DEFAULT 'text'"))
+
+                existing_conv_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(conversations)")).fetchall()]
+                if existing_conv_cols:
+                    if "blocked_by" not in existing_conv_cols:
+                        conn.execute(text("ALTER TABLE conversations ADD COLUMN blocked_by TEXT"))
+                conn.commit()
+            else:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_recalled BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT"))
+                conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(20) DEFAULT 'text'"))
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS blocked_by UUID"))
+                conn.commit()
+    except Exception as e:
+        logger.warning(f"[Database] Migration check: {e}")
+
+try:
+    ensure_schema_migrations(engine)
+except Exception:
+    pass
+
 def get_db():
     db = SessionLocal()
     try:

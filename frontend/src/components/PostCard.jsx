@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   MessageCircle, Share2, Bookmark, MoreHorizontal, ShieldCheck, Reply, 
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
-  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock
+  Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock, Globe, Users, UserX
 } from 'lucide-react';
 import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
 import {
@@ -28,6 +28,7 @@ import VerifiedBadge from './VerifiedBadge';
 import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
 import PostReactionsModal from './PostReactionsModal';
+import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
@@ -593,6 +594,8 @@ export default function PostCard({
     if (res?.nudge) {
       setCommentNudgeData({
         message: res.message,
+        warningType: res.warningType,
+        matchedKeyword: res.matchedKeyword,
         contentSnippet: commentText.trim(),
         payload: commentPayload
       });
@@ -636,10 +639,12 @@ export default function PostCard({
     onSharePost?.(result?.data);
   };
 
-  const handleSaveEdit = async ({ content, imageUrl }) => {
+  const handleSaveEdit = async ({ content, imageUrl, forcePost }) => {
     setPostError('');
-    const updatedPost = await onEditPost(post.id, { content, imageUrl });
-    setShowEditModal(false);
+    const updatedPost = await onEditPost(post.id, { content, imageUrl, forcePost });
+    if (!updatedPost?.nudge) {
+      setShowEditModal(false);
+    }
     return updatedPost;
   };
 
@@ -764,7 +769,7 @@ export default function PostCard({
                 <VerifiedBadge size="sm" />
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-slate-400 flex-wrap">
               {post.author?.username && <span>@{post.author.username}</span>}
               {post.author?.username && <span>•</span>}
               <span>{formatRelativeTime(post.createdAt || post.created_at)}</span>
@@ -774,6 +779,23 @@ export default function PostCard({
                   <span>Đã chỉnh sửa</span>
                 </>
               )}
+              <span>•</span>
+              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
+                post.privacy === 'private' ? 'Chỉ mình tôi' :
+                post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
+              }>
+                {post.privacy === 'private' ? (
+                  <Lock className="w-3 h-3 text-rose-500" />
+                ) : post.privacy === 'friends' ? (
+                  <Users className="w-3.5 h-3.5 text-amber-500" />
+                ) : (
+                  <Globe className="w-3 h-3 text-blue-500" />
+                )}
+                <span>
+                  {post.privacy === 'private' ? 'Chỉ mình tôi' :
+                   post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'}
+                </span>
+              </span>
             </div>
           </div>
         </div>
@@ -1425,7 +1447,7 @@ export default function PostCard({
               }).map((comment) => {
                 if ((comment.imageModeration?.status || comment.image_moderation_status) === 'rejected_final') return null;
                 const isCommentAuthor = currentUser && (currentUser.id === comment.author?.id);
-                const canViewHiddenComment = isCommentAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+                const canViewHiddenComment = isCommentAuthor || currentUser?.role?.toLowerCase() === 'admin' || currentUser?.role?.toLowerCase() === 'moderator' || Boolean(currentUser?.isAdmin);
                 const commentImageStatus = comment.imageModeration?.status || comment.image_moderation_status;
                 const isAdminImageReview = ['rejected_admin', 'appeal_pending', 'pending_review', 'rejected_hold'].includes(commentImageStatus);
                 const isHardHidden = Boolean(comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' || commentImageStatus === 'rejected_hold');
@@ -1439,9 +1461,18 @@ export default function PostCard({
 
                 // 1. Trường hợp bình luận bị ẩn cứng (Bạo lực hoặc Thù ghét - Text hoặc Ảnh)
                 if (isHardHidden && !isCommentAuthor) {
-                  if (!canViewHiddenComment) return null;
                   const isViolence = comment.ai_label === 'Violence' || comment.aiLabel === 'Violence' || comment.image_moderation_violence >= 0.8 || comment.image_moderation_status === 'rejected_hold';
-                  const labelText = isViolence ? 'Bạo lực' : (comment.ai_label || comment.aiLabel || 'Hate Speech / Bạo lực');
+                  const isAuthorBlacklist = comment.ai_label === 'Author Blacklist' || comment.aiLabel === 'Author Blacklist';
+                  const labelText = isAuthorBlacklist ? 'Chứa từ khóa cấm của chủ bài viết' : isViolence ? 'Bạo lực' : (comment.ai_label || comment.aiLabel || 'Hate Speech / Bạo lực');
+
+                  if (!canViewHiddenComment) {
+                    return (
+                      <div key={comment.id} id={`comment-${comment.id}`} className="p-2.5 bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/80 dark:border-rose-900/40 rounded-xl text-xs flex items-center gap-2 text-rose-800 dark:text-rose-300">
+                        <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Bình luận này đã bị ẩn do vi phạm tiêu chuẩn cộng đồng ({labelText}).</span>
+                      </div>
+                    );
+                  }
 
                   return (
                     <div key={comment.id} id={`comment-${comment.id}`} className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
@@ -1697,6 +1728,23 @@ export default function PostCard({
           currentUser={currentUser}
           onOpenProfile={onOpenProfile}
           onRequireAuth={onRequireAuth}
+        />
+      )}
+      {commentNudgeData && (
+        <FriendlyNudgeModal
+          isOpen={Boolean(commentNudgeData)}
+          title={commentNudgeData.warningType === 'keyword_blacklist' ? "Từ khóa bị cấm bởi chủ bài viết" : "Nhắc nhở nhẹ nhàng từ AI"}
+          message={commentNudgeData.message}
+          targetType="bình luận"
+          warningType={commentNudgeData.warningType}
+          contentSnippet={commentNudgeData.contentSnippet}
+          onEdit={() => {
+            setCommentNudgeData(null);
+          }}
+          onConfirmForce={async () => {
+            setCommentNudgeData(null);
+            await doSubmitComment(true);
+          }}
         />
       )}
     </div>

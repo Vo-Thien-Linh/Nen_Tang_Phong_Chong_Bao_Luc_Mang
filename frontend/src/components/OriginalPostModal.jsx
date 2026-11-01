@@ -259,12 +259,27 @@ export default function OriginalPostModal({
     }
 
     try {
+      let authorFilterKeywords = post?.author?.filter_keywords || post?.filter_keywords;
+      if (!authorFilterKeywords && String(post?.author?.id || post?.author_id) === String(currentUser?.id)) {
+        try {
+          const localSettings = JSON.parse(localStorage.getItem('nexussocial_user_settings') || '{}');
+          if (localSettings.filter_keywords) authorFilterKeywords = localSettings.filter_keywords;
+        } catch {}
+      }
+
       const res = await createComment({
         userId: currentUser.id,
         postId: post.id,
         content: trimmed,
-        imageUrl: uploadedUrl
+        imageUrl: uploadedUrl,
+        authorFilterKeywords,
       });
+
+      if (res.nudge) {
+        alert(res.message);
+        setIsSubmittingComment(false);
+        return;
+      }
 
       const newComment = res.data || {
         id: `temp-${Date.now()}`,
