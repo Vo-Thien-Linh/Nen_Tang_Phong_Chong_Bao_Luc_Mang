@@ -27,3 +27,10 @@ test('ignore hashtag inside a word or url', () => {
     { tag: 'real', displayTag: 'real' },
   ]);
 });
+
+test('ignore numeric only hashtags', () => {
+  assert.deepEqual(extractHashtags('#123 #2026abc #abc123'), [
+    { tag: '2026abc', displayTag: '2026abc' },
+    { tag: 'abc123', displayTag: 'abc123' },
+  ]);
+});
