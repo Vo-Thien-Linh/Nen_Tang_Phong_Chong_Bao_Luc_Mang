@@ -46,3 +46,11 @@ test('limit hashtags per post to ten', () => {
   assert.equal(extractHashtags(text).length, 10);
   assert.equal(extractHashtags(text).at(-1).tag, 'tag10');
 });
+
+test('stop hashtag at punctuation', () => {
+  assert.deepEqual(extractHashtags('Use #One, #Two. Then #Three!'), [
+    { tag: 'one', displayTag: 'One' },
+    { tag: 'two', displayTag: 'Two' },
+    { tag: 'three', displayTag: 'Three' },
+  ]);
+});
