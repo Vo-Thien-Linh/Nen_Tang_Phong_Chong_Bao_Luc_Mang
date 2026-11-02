@@ -15,3 +15,9 @@ test('extract vietnamese hashtags with diacritics', () => {
     { tag: 'đờisống', displayTag: 'ĐờiSống' },
   ]);
 });
+
+test('normalize hashtags to lower case NFC', () => {
+  const decomposed = `#Caf${'e\u0301'}`;
+  assert.equal(normalizeHashtag(decomposed), 'café');
+  assert.equal(normalizeHashtag('#WINGS'), 'wings');
+});
