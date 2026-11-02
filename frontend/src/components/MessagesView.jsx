@@ -181,6 +181,7 @@ export default function MessagesView({
   const remoteStreamRef = useRef(null);
   const callTimerRef = useRef(null);
   const activeCallPartnerIdRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
 
   // Đóng emoji picker khi click ra ngoài
   useEffect(() => {
@@ -502,7 +503,7 @@ export default function MessagesView({
                 }, 1000);
 
                 // Bên gọi (caller) tạo WebRTC Offer
-                const partnerId = data.receiver_id || activeCallPartnerIdRef.current;
+                const partnerId = activeCallPartnerIdRef.current || data.from_user_id;
                 const pc = createPeerConn(partnerId);
                 peerConnectionRef.current = pc;
                 if (pc) {
@@ -513,6 +514,8 @@ export default function MessagesView({
                       ws.send(JSON.stringify({
                         type: 'WEBRTC_SIGNAL',
                         receiver_id: partnerId,
+                        caller_id: currentUser.id,
+                        from_user_id: currentUser.id,
                         signal_type: 'offer',
                         sdp: offer
                       }));
@@ -532,7 +535,7 @@ export default function MessagesView({
                 cleanupCall();
               }
             } else if (data.type === 'WEBRTC_SIGNAL') {
-              const partnerId = data.caller_id || data.from_user_id || activeCallPartnerIdRef.current;
+              const partnerId = activeCallPartnerIdRef.current || data.from_user_id || data.caller_id;
               if (data.signal_type === 'offer') {
                 let pc = peerConnectionRef.current;
                 if (!pc) {
@@ -542,12 +545,26 @@ export default function MessagesView({
                 if (pc && typeof RTCSessionDescription !== 'undefined') {
                   try {
                     await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                    // Xử lý các ICE candidate đến sớm trước remoteDescription
+                    if (pendingCandidatesRef.current?.length) {
+                      for (const cand of pendingCandidatesRef.current) {
+                        try {
+                          await pc.addIceCandidate(new RTCIceCandidate(cand));
+                        } catch (ce) {
+                          console.warn('Lỗi add pending candidate:', ce);
+                        }
+                      }
+                      pendingCandidatesRef.current = [];
+                    }
+
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
                     if (ws && ws.readyState === WebSocket.OPEN) {
                       ws.send(JSON.stringify({
                         type: 'WEBRTC_SIGNAL',
                         receiver_id: partnerId,
+                        caller_id: currentUser.id,
+                        from_user_id: currentUser.id,
                         signal_type: 'answer',
                         sdp: answer
                       }));
@@ -557,20 +574,36 @@ export default function MessagesView({
                   }
                 }
               } else if (data.signal_type === 'answer') {
-                if (peerConnectionRef.current && typeof RTCSessionDescription !== 'undefined') {
+                const pc = peerConnectionRef.current;
+                if (pc && typeof RTCSessionDescription !== 'undefined') {
                   try {
-                    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                    if (pendingCandidatesRef.current?.length) {
+                      for (const cand of pendingCandidatesRef.current) {
+                        try {
+                          await pc.addIceCandidate(new RTCIceCandidate(cand));
+                        } catch (ce) {
+                          console.warn('Lỗi add pending candidate:', ce);
+                        }
+                      }
+                      pendingCandidatesRef.current = [];
+                    }
                   } catch (err) {
                     console.warn('Lỗi xử lý WebRTC answer:', err);
                   }
                 }
               }
             } else if (data.type === 'CALL_CANDIDATE') {
-              if (peerConnectionRef.current && data.candidate && typeof RTCIceCandidate !== 'undefined') {
-                try {
-                  await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-                } catch (candErr) {
-                  console.warn('Lỗi thêm ICE candidate:', candErr);
+              const pc = peerConnectionRef.current;
+              if (pc && data.candidate && typeof RTCIceCandidate !== 'undefined') {
+                if (!pc.remoteDescription) {
+                  pendingCandidatesRef.current.push(data.candidate);
+                } else {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                  } catch (candErr) {
+                    console.warn('Lỗi thêm ICE candidate:', candErr);
+                  }
                 }
               }
             } else if (data.type === 'CALL_ENDED') {
@@ -633,6 +666,7 @@ export default function MessagesView({
       peerConnectionRef.current = null;
     }
 
+    pendingCandidatesRef.current = [];
     setCallStatus(CALL_STATUS.IDLE);
     setCallDuration(0);
     setIsMuted(false);
@@ -660,6 +694,14 @@ export default function MessagesView({
         if (event.streams && event.streams[0]) {
           remoteStreamRef.current = event.streams[0];
           setRemoteStream(event.streams[0]);
+        } else if (event.track) {
+          let stream = remoteStreamRef.current;
+          if (!stream) {
+            stream = new MediaStream();
+            remoteStreamRef.current = stream;
+            setRemoteStream(stream);
+          }
+          stream.addTrack(event.track);
         }
       };
 
@@ -774,6 +816,8 @@ export default function MessagesView({
       wsRef.current.send(JSON.stringify({
         type: 'CALL_RESPONSE',
         receiver_id: partnerId,
+        from_user_id: currentUser.id,
+        caller_id: partnerId,
         accepted: true
       }));
     }

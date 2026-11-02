@@ -34,12 +34,14 @@ export default function VideoCallModal({
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {});
     }
   }, [localStream, callStatus]);
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch(() => {});
     }
   }, [remoteStream, callStatus]);
 
@@ -156,14 +158,13 @@ export default function VideoCallModal({
 
       {/* Vùng hiển thị Video chính (Remote Video) */}
       <div className="flex-1 relative flex items-center justify-center bg-slate-900 overflow-hidden">
-        {remoteStream ? (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full h-full object-contain bg-black"
-          />
-        ) : (
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className={`w-full h-full object-contain bg-black ${remoteStream ? 'block' : 'hidden'}`}
+        />
+        {!remoteStream && (
           <div className="flex flex-col items-center justify-center text-center p-6">
             <img
               src={partnerAvatar}
