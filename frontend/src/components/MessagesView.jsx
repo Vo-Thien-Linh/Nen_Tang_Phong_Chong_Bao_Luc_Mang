@@ -681,6 +681,32 @@ export default function MessagesView({
     const targetUser = currentConversation?.user;
     if (!targetUser?.id || !currentUser?.id || isBlocked) return;
 
+    // Tự động thử kết nối lại nếu WebSocket chưa sẵn sàng
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        try {
+          const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+          const wsUrl = fastApiUrl.replace(/^http/, 'ws');
+          const newWs = new WebSocket(`${wsUrl}/api/v1/messages/ws/${currentUser.id}`);
+          wsRef.current = newWs;
+          await new Promise((resolve) => {
+            newWs.onopen = () => {
+              setIsWsConnected(true);
+              resolve(true);
+            };
+            newWs.onerror = () => resolve(false);
+            newWs.onclose = () => resolve(false);
+            setTimeout(() => resolve(false), 2000);
+          });
+        } catch (e) {
+          console.warn('Lỗi kết nối lại WebSocket:', e);
+        }
+      }
+    }
+
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       alert('Không thể thực hiện cuộc gọi: Chưa kết nối máy chủ thời gian thực (FastAPI Port 8000). Vui lòng đảm bảo Backend đang chạy và thử lại.');
       return;
@@ -708,6 +734,7 @@ export default function MessagesView({
 
     wsRef.current.send(JSON.stringify({
       type: 'CALL_REQUEST',
+      caller_id: currentUser.id,
       receiver_id: targetUser.id,
       call_type: type,
       caller_name: currentUser.name || 'Người dùng',

@@ -94,6 +94,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                         })
                     else:
                         msg_payload["from_user_id"] = user_id
+                        if not msg_payload.get("caller_id"):
+                            msg_payload["caller_id"] = user_id
                         await manager.send_to_user(str(target_user_id), msg_payload)
     except WebSocketDisconnect:
         manager.disconnect(user_id, websocket)
