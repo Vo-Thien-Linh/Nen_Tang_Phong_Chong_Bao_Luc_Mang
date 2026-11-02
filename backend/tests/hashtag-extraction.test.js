@@ -40,3 +40,9 @@ test('deduplicate repeated hashtags', () => {
     { tag: 'topic', displayTag: 'Topic' },
   ]);
 });
+
+test('limit hashtags per post to ten', () => {
+  const text = Array.from({ length: 12 }, (_, index) => `#Tag${index + 1}`).join(' ');
+  assert.equal(extractHashtags(text).length, 10);
+  assert.equal(extractHashtags(text).at(-1).tag, 'tag10');
+});
