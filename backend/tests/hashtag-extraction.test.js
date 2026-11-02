@@ -8,3 +8,10 @@ test('extract simple hashtags from text', () => {
     { tag: 'wings', displayTag: 'Wings' },
   ]);
 });
+
+test('extract vietnamese hashtags with diacritics', () => {
+  assert.deepEqual(extractHashtags('#SinhViênKhoaHọc #ĐờiSống'), [
+    { tag: 'sinhviênkhoahọc', displayTag: 'SinhViênKhoaHọc' },
+    { tag: 'đờisống', displayTag: 'ĐờiSống' },
+  ]);
+});
