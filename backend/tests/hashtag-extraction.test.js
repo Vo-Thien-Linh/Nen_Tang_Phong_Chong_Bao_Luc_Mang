@@ -21,3 +21,9 @@ test('normalize hashtags to lower case NFC', () => {
   assert.equal(normalizeHashtag(decomposed), 'café');
   assert.equal(normalizeHashtag('#WINGS'), 'wings');
 });
+
+test('ignore hashtag inside a word or url', () => {
+  assert.deepEqual(extractHashtags('abc#def http://x.com/#top #real'), [
+    { tag: 'real', displayTag: 'real' },
+  ]);
+});
