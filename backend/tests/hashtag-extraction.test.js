@@ -34,3 +34,9 @@ test('ignore numeric only hashtags', () => {
     { tag: 'abc123', displayTag: 'abc123' },
   ]);
 });
+
+test('deduplicate repeated hashtags', () => {
+  assert.deepEqual(extractHashtags('#Topic #topic #TOPIC'), [
+    { tag: 'topic', displayTag: 'Topic' },
+  ]);
+});
