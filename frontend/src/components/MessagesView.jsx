@@ -173,6 +173,7 @@ export default function MessagesView({
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [isWsConnected, setIsWsConnected] = useState(false);
 
   const wsRef = useRef(null);
   const peerConnectionRef = useRef(null);
@@ -342,6 +343,7 @@ export default function MessagesView({
         wsRef.current = ws;
 
         ws.onopen = () => {
+          setIsWsConnected(true);
           pingInterval = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send('ping');
@@ -580,6 +582,7 @@ export default function MessagesView({
         };
 
         ws.onclose = () => {
+          setIsWsConnected(false);
           clearInterval(pingInterval);
           wsRef.current = null;
           if (isMounted) {
@@ -588,6 +591,7 @@ export default function MessagesView({
         };
 
         ws.onerror = () => {
+          setIsWsConnected(false);
           ws?.close();
         };
       } catch (err) {
@@ -678,7 +682,7 @@ export default function MessagesView({
     if (!targetUser?.id || !currentUser?.id || isBlocked) return;
 
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      alert('Không thể thực hiện cuộc gọi: Chưa kết nối máy chủ thời gian thực');
+      alert('Không thể thực hiện cuộc gọi: Chưa kết nối máy chủ thời gian thực (FastAPI Port 8000). Vui lòng đảm bảo Backend đang chạy và thử lại.');
       return;
     }
 
@@ -1314,7 +1318,12 @@ export default function MessagesView({
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-slate-800 leading-tight">Đoạn chat</h2>
-                  <p className="text-[11px] text-slate-400">Kết nối & trao đổi thời gian thực</p>
+                  <div className="flex items-center gap-1.5 text-[11px] mt-0.5">
+                    <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
+                    <span className={isWsConnected ? 'text-slate-400 font-medium' : 'text-amber-500 font-medium'}>
+                      {isWsConnected ? 'Kết nối thời gian thực' : 'Đang kết nối máy chủ...'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
