@@ -54,3 +54,10 @@ test('stop hashtag at punctuation', () => {
     { tag: 'three', displayTag: 'Three' },
   ]);
 });
+
+test('accept any user typed hashtag', () => {
+  assert.deepEqual(extractHashtags('A #BanTuDatTen #NoCategoryNeeded'), [
+    { tag: 'bantudatten', displayTag: 'BanTuDatTen' },
+    { tag: 'nocategoryneeded', displayTag: 'NoCategoryNeeded' },
+  ]);
+});
