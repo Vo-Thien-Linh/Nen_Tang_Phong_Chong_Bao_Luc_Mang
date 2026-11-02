@@ -89,6 +89,17 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_feed ON posts(created_at DESC);
 
+-- Hashtags are free-form tags extracted from post content.
+CREATE TABLE IF NOT EXISTS post_hashtags (
+    post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    tag VARCHAR(50) NOT NULL,
+    display_tag VARCHAR(50) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (post_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
+
 
 -- ========================================================
 -- 3. BẢNG COMMENTS (Bình luận bài viết)
