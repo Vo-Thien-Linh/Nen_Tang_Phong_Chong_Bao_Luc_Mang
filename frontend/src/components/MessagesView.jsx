@@ -9,6 +9,13 @@ import {
 import { messageService } from '../services/messageService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
+import VideoCallModal from './VideoCallModal';
+import {
+  CALL_STATUS,
+  DEFAULT_ICE_SERVERS,
+  toggleMediaTrack,
+  stopMediaStream
+} from '../utils/callMediaLogic';
 
 const EMOJI_CATEGORIES = [
   {
@@ -156,6 +163,25 @@ export default function MessagesView({
   const docFileInputRef = useRef(null);
   const inputRef = useRef(null);
   const emojiPickerRef = useRef(null);
+
+  // Trạng thái Cuộc gọi thoại & Video Call WebRTC
+  const [callStatus, setCallStatus] = useState(CALL_STATUS.IDLE);
+  const [callType, setCallType] = useState('video');
+  const [callPartnerUser, setCallPartnerUser] = useState(null);
+  const [callDuration, setCallDuration] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
+  const [isWsConnected, setIsWsConnected] = useState(false);
+
+  const wsRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
+  const callTimerRef = useRef(null);
+  const activeCallPartnerIdRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
 
   // Đóng emoji picker khi click ra ngoài
   useEffect(() => {
@@ -315,8 +341,10 @@ export default function MessagesView({
         const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
         const wsUrl = fastApiUrl.replace(/^http/, 'ws');
         ws = new WebSocket(`${wsUrl}/api/v1/messages/ws/${currentUser.id}`);
+        wsRef.current = ws;
 
         ws.onopen = () => {
+          setIsWsConnected(true);
           pingInterval = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send('ping');
@@ -324,7 +352,7 @@ export default function MessagesView({
           }, 20000);
         };
 
-        ws.onmessage = (event) => {
+        ws.onmessage = async (event) => {
           if (event.data === 'pong') return;
           try {
             const data = JSON.parse(event.data);
@@ -443,6 +471,143 @@ export default function MessagesView({
                     : c
                 )
               );
+            } else if (data.type === 'CALL_REQUEST') {
+              // Nhận lời mời gọi từ người dùng khác
+              if (callStatus !== CALL_STATUS.IDLE) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    type: 'CALL_RESPONSE',
+                    receiver_id: data.caller_id,
+                    accepted: false,
+                    reason: 'busy'
+                  }));
+                }
+              } else {
+                setCallPartnerUser({
+                  id: data.caller_id,
+                  name: data.caller_name || 'Người dùng',
+                  avatar: data.caller_avatar || DEFAULT_AVATAR
+                });
+                setCallType(data.call_type || 'video');
+                setCallStatus(CALL_STATUS.INCOMING);
+                activeCallPartnerIdRef.current = String(data.caller_id);
+              }
+            } else if (data.type === 'CALL_RESPONSE') {
+              // Phản hồi từ phía người nhận cuộc gọi
+              if (data.accepted) {
+                setCallStatus(CALL_STATUS.CONNECTED);
+                setCallDuration(0);
+                if (callTimerRef.current) clearInterval(callTimerRef.current);
+                callTimerRef.current = setInterval(() => {
+                  setCallDuration(prev => prev + 1);
+                }, 1000);
+
+                // Bên gọi (caller) tạo WebRTC Offer
+                const partnerId = activeCallPartnerIdRef.current || data.from_user_id;
+                const pc = createPeerConn(partnerId);
+                peerConnectionRef.current = pc;
+                if (pc) {
+                  try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({
+                        type: 'WEBRTC_SIGNAL',
+                        receiver_id: partnerId,
+                        caller_id: currentUser.id,
+                        from_user_id: currentUser.id,
+                        signal_type: 'offer',
+                        sdp: offer
+                      }));
+                    }
+                  } catch (offerErr) {
+                    console.warn('Lỗi tạo WebRTC offer:', offerErr);
+                  }
+                }
+              } else {
+                alert(
+                  data.reason === 'offline'
+                    ? 'Người dùng hiện không trực tuyến'
+                    : (data.reason === 'busy'
+                        ? 'Người dùng đang bận trong cuộc gọi khác'
+                        : 'Cuộc gọi đã bị từ chối')
+                );
+                cleanupCall();
+              }
+            } else if (data.type === 'WEBRTC_SIGNAL') {
+              const partnerId = activeCallPartnerIdRef.current || data.from_user_id || data.caller_id;
+              if (data.signal_type === 'offer') {
+                let pc = peerConnectionRef.current;
+                if (!pc) {
+                  pc = createPeerConn(partnerId);
+                  peerConnectionRef.current = pc;
+                }
+                if (pc && typeof RTCSessionDescription !== 'undefined') {
+                  try {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                    // Xử lý các ICE candidate đến sớm trước remoteDescription
+                    if (pendingCandidatesRef.current?.length) {
+                      for (const cand of pendingCandidatesRef.current) {
+                        try {
+                          await pc.addIceCandidate(new RTCIceCandidate(cand));
+                        } catch (ce) {
+                          console.warn('Lỗi add pending candidate:', ce);
+                        }
+                      }
+                      pendingCandidatesRef.current = [];
+                    }
+
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({
+                        type: 'WEBRTC_SIGNAL',
+                        receiver_id: partnerId,
+                        caller_id: currentUser.id,
+                        from_user_id: currentUser.id,
+                        signal_type: 'answer',
+                        sdp: answer
+                      }));
+                    }
+                  } catch (err) {
+                    console.warn('Lỗi xử lý WebRTC offer:', err);
+                  }
+                }
+              } else if (data.signal_type === 'answer') {
+                const pc = peerConnectionRef.current;
+                if (pc && typeof RTCSessionDescription !== 'undefined') {
+                  try {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                    if (pendingCandidatesRef.current?.length) {
+                      for (const cand of pendingCandidatesRef.current) {
+                        try {
+                          await pc.addIceCandidate(new RTCIceCandidate(cand));
+                        } catch (ce) {
+                          console.warn('Lỗi add pending candidate:', ce);
+                        }
+                      }
+                      pendingCandidatesRef.current = [];
+                    }
+                  } catch (err) {
+                    console.warn('Lỗi xử lý WebRTC answer:', err);
+                  }
+                }
+              }
+            } else if (data.type === 'CALL_CANDIDATE') {
+              const pc = peerConnectionRef.current;
+              if (pc && data.candidate && typeof RTCIceCandidate !== 'undefined') {
+                if (!pc.remoteDescription) {
+                  pendingCandidatesRef.current.push(data.candidate);
+                } else {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                  } catch (candErr) {
+                    console.warn('Lỗi thêm ICE candidate:', candErr);
+                  }
+                }
+              }
+            } else if (data.type === 'CALL_ENDED') {
+              cleanupCall();
             }
           } catch (e) {
             console.warn('Lỗi xử lý WebSocket message:', e);
@@ -450,13 +615,16 @@ export default function MessagesView({
         };
 
         ws.onclose = () => {
+          setIsWsConnected(false);
           clearInterval(pingInterval);
+          wsRef.current = null;
           if (isMounted) {
             setTimeout(connectWs, 3000);
           }
         };
 
         ws.onerror = () => {
+          setIsWsConnected(false);
           ws?.close();
         };
       } catch (err) {
@@ -474,6 +642,227 @@ export default function MessagesView({
       }
     };
   }, [currentUser?.id]);
+
+  // Dọn dẹp tài nguyên cuộc gọi
+  const cleanupCall = () => {
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+    stopMediaStream(localStreamRef.current);
+    localStreamRef.current = null;
+    setLocalStream(null);
+
+    stopMediaStream(remoteStreamRef.current);
+    remoteStreamRef.current = null;
+    setRemoteStream(null);
+
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch (err) {
+        console.warn('Lỗi đóng PeerConnection:', err);
+      }
+      peerConnectionRef.current = null;
+    }
+
+    pendingCandidatesRef.current = [];
+    setCallStatus(CALL_STATUS.IDLE);
+    setCallDuration(0);
+    setIsMuted(false);
+    setIsVideoOff(false);
+    activeCallPartnerIdRef.current = null;
+  };
+
+  // Khởi tạo RTCPeerConnection WebRTC
+  const createPeerConn = (targetUserId) => {
+    if (typeof RTCPeerConnection === 'undefined') return null;
+    try {
+      const pc = new RTCPeerConnection({ iceServers: DEFAULT_ICE_SERVERS });
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'CALL_CANDIDATE',
+            receiver_id: targetUserId,
+            candidate: event.candidate
+          }));
+        }
+      };
+
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          remoteStreamRef.current = event.streams[0];
+          setRemoteStream(event.streams[0]);
+        } else if (event.track) {
+          let stream = remoteStreamRef.current;
+          if (!stream) {
+            stream = new MediaStream();
+            remoteStreamRef.current = stream;
+            setRemoteStream(stream);
+          }
+          stream.addTrack(event.track);
+        }
+      };
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current);
+        });
+      }
+
+      return pc;
+    } catch (err) {
+      console.warn('Không thể khởi tạo RTCPeerConnection:', err);
+      return null;
+    }
+  };
+
+  // Bắt đầu cuộc gọi (Audio hoặc Video)
+  const startCall = async (type = 'video') => {
+    const targetUser = currentConversation?.user;
+    if (!targetUser?.id || !currentUser?.id || isBlocked) return;
+
+    // Tự động thử kết nối lại nếu WebSocket chưa sẵn sàng
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        try {
+          const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+          const wsUrl = fastApiUrl.replace(/^http/, 'ws');
+          const newWs = new WebSocket(`${wsUrl}/api/v1/messages/ws/${currentUser.id}`);
+          wsRef.current = newWs;
+          await new Promise((resolve) => {
+            newWs.onopen = () => {
+              setIsWsConnected(true);
+              resolve(true);
+            };
+            newWs.onerror = () => resolve(false);
+            newWs.onclose = () => resolve(false);
+            setTimeout(() => resolve(false), 2000);
+          });
+        } catch (e) {
+          console.warn('Lỗi kết nối lại WebSocket:', e);
+        }
+      }
+    }
+
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      alert('Không thể thực hiện cuộc gọi: Chưa kết nối máy chủ thời gian thực (FastAPI Port 8000). Vui lòng đảm bảo Backend đang chạy và thử lại.');
+      return;
+    }
+
+    try {
+      let stream = null;
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: type === 'video',
+          audio: true
+        });
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+      }
+    } catch (err) {
+      alert('Không thể truy cập Camera/Microphone. Vui lòng cấp quyền trong trình duyệt để gọi.');
+      return;
+    }
+
+    setCallType(type);
+    setCallPartnerUser(targetUser);
+    setCallStatus(CALL_STATUS.OUTGOING);
+    activeCallPartnerIdRef.current = String(targetUser.id);
+
+    wsRef.current.send(JSON.stringify({
+      type: 'CALL_REQUEST',
+      caller_id: currentUser.id,
+      receiver_id: targetUser.id,
+      call_type: type,
+      caller_name: currentUser.name || 'Người dùng',
+      caller_avatar: currentUser.avatar || DEFAULT_AVATAR
+    }));
+  };
+
+  // Trả lời cuộc gọi đến
+  const handleAcceptCall = async () => {
+    const partnerId = activeCallPartnerIdRef.current || callPartnerUser?.id;
+    if (!partnerId) return;
+
+    try {
+      let stream = null;
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: callType === 'video',
+          audio: true
+        });
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+      }
+    } catch (err) {
+      console.warn('Không thể truy cập camera/mic khi nhận cuộc gọi:', err);
+    }
+
+    setCallStatus(CALL_STATUS.CONNECTED);
+    setCallDuration(0);
+    callTimerRef.current = setInterval(() => {
+      setCallDuration((prev) => prev + 1);
+    }, 1000);
+
+    const pc = createPeerConn(partnerId);
+    peerConnectionRef.current = pc;
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'CALL_RESPONSE',
+        receiver_id: partnerId,
+        from_user_id: currentUser.id,
+        caller_id: partnerId,
+        accepted: true
+      }));
+    }
+  };
+
+  // Từ chối cuộc gọi đến
+  const handleDeclineCall = () => {
+    const partnerId = activeCallPartnerIdRef.current || callPartnerUser?.id;
+    if (partnerId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'CALL_RESPONSE',
+        receiver_id: partnerId,
+        accepted: false,
+        reason: 'declined'
+      }));
+    }
+    cleanupCall();
+  };
+
+  // Kết thúc cuộc gọi
+  const handleEndCall = () => {
+    const partnerId = activeCallPartnerIdRef.current || callPartnerUser?.id;
+    if (partnerId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'CALL_ENDED',
+        receiver_id: partnerId,
+        duration: callDuration
+      }));
+    }
+    cleanupCall();
+  };
+
+  // Bật/Tắt Micro
+  const handleToggleMic = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    toggleMediaTrack(localStreamRef.current, 'audio', !nextMuted);
+  };
+
+  // Bật/Tắt Camera
+  const handleToggleCamera = () => {
+    const nextOff = !isVideoOff;
+    setIsVideoOff(nextOff);
+    toggleMediaTrack(localStreamRef.current, 'video', !nextOff);
+  };
 
   // 2. Polling dự phòng (fallback) để đồng bộ dữ liệu
   useEffect(() => {
@@ -1000,7 +1389,12 @@ export default function MessagesView({
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-slate-800 leading-tight">Đoạn chat</h2>
-                  <p className="text-[11px] text-slate-400">Kết nối & trao đổi thời gian thực</p>
+                  <div className="flex items-center gap-1.5 text-[11px] mt-0.5">
+                    <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
+                    <span className={isWsConnected ? 'text-slate-400 font-medium' : 'text-amber-500 font-medium'}>
+                      {isWsConnected ? 'Kết nối thời gian thực' : 'Đang kết nối máy chủ...'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -1222,14 +1616,20 @@ export default function MessagesView({
                 {/* Actions ở Header Chat */}
                 <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500">
                   <button 
-                    title="Gọi thoại thoại"
-                    className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer"
+                    type="button"
+                    onClick={() => startCall('audio')}
+                    disabled={isBlocked}
+                    title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi thoại"}
+                    className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                   <button 
-                    title="Gọi video"
-                    className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer"
+                    type="button"
+                    onClick={() => startCall('video')}
+                    disabled={isBlocked}
+                    title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi video"}
+                    className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Video className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
@@ -2228,6 +2628,23 @@ export default function MessagesView({
             </div>
           </div>
         )}
+
+        {/* Modal Cuộc gọi thoại & Video Call WebRTC */}
+        <VideoCallModal
+          callStatus={callStatus}
+          callType={callType}
+          partnerUser={callPartnerUser}
+          localStream={localStream}
+          remoteStream={remoteStream}
+          callDuration={callDuration}
+          isMuted={isMuted}
+          isVideoOff={isVideoOff}
+          onAccept={handleAcceptCall}
+          onDecline={handleDeclineCall}
+          onEndCall={handleEndCall}
+          onToggleMic={handleToggleMic}
+          onToggleCamera={handleToggleCamera}
+        />
 
       </div>
     </main>
