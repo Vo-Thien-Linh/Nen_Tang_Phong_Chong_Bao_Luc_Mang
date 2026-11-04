@@ -72,9 +72,6 @@ jobs:
 
       - name: 🧪 Chạy Kiểm thử Toàn diện Backend (Unit & Integration Tests)
         working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NODE_ENV: test
         run: npm test
 
       - name: 🔗 Chạy Integration Tests Chuyên sâu (Database & API Flow)
