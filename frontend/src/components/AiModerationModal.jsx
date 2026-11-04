@@ -29,7 +29,7 @@ export default function AiModerationModal({ isOpen, onClose }) {
 
     try {
       // Gọi sang API FastAPI (Python)
-      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
       const res = await fetch(`${fastApiUrl}/api/v1/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,7 +103,7 @@ export default function AiModerationModal({ isOpen, onClose }) {
             </div>
             <div>
               <h2 className="text-base font-bold">Hệ thống Kiểm duyệt AI (AI Shield Lab)</h2>
-              <p className="text-[11px] text-slate-300">FastAPI Backend (http://localhost:8000) & AI Moderation Model</p>
+              <p className="text-[11px] text-slate-300">AI Inference Service via API Gateway</p>
             </div>
           </div>
           <button 

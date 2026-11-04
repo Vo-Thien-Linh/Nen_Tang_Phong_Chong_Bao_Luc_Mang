@@ -57,7 +57,7 @@ app.get('/api/db-test', async (req, res) => {
 });
 
 // Gắn các Routers theo từng phân hệ chức năng
-app.use('/api/upload', createUploadRouter());
+app.use('/api/upload', createUploadRouter({ pool }));
 app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
 app.use('/api/users', createUsersRouter({ pool }));

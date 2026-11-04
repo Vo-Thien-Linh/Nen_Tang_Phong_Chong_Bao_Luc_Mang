@@ -118,10 +118,11 @@ export function createAdminRepository({ pool }) {
                   [authorId]
                 );
 
+                const ovrPostId = contentType === 'post' ? contentId : null;
                 await pool.query(
-                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                   VALUES ($1, $2, 'system', 'Nội dung của bạn đã được Quản trị viên thẩm định an toàn (Normal). Toàn bộ án phạt đã được gỡ bỏ.', FALSE)`,
-                  [authorId, adminId]
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                   VALUES ($1, $2, 'system', 'Nội dung của bạn đã được Quản trị viên thẩm định an toàn (Normal). Toàn bộ án phạt đã được gỡ bỏ.', FALSE, $3)`,
+                  [authorId, adminId, ovrPostId]
                 );
               } else if (correctedLabel === 'Violence') {
                 await pool.query(
@@ -131,10 +132,11 @@ export function createAdminRepository({ pool }) {
                   [authorId]
                 );
 
+                const ovrPostId = contentType === 'post' ? contentId : null;
                 await pool.query(
-                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                   VALUES ($1, $2, 'system', 'Nội dung của bạn đã bị Quản trị viên phân loại là Bạo lực (Violence). Bạn bị tạm khóa 10 phút.', FALSE)`,
-                  [authorId, adminId]
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                   VALUES ($1, $2, 'system', 'Nội dung của bạn đã bị Quản trị viên phân loại là Bạo lực (Violence). Bạn bị tạm khóa 10 phút.', FALSE, $3)`,
+                  [authorId, adminId, ovrPostId]
                 );
               } else {
                 await pool.query(
@@ -285,19 +287,11 @@ export function createAdminRepository({ pool }) {
       if (pool) {
         try {
           const q = `
-            SELECT p.id, 'post' AS content_type, p.content, p.image_url, p.image_moderation_status,
-                   p.image_moderation_safe, p.image_moderation_nsfw, p.image_moderation_violence,
-                   p.created_at, u.full_name AS author_name
-            FROM posts p
-            JOIN users u ON u.id = p.author_id
-            WHERE p.image_moderation_status = 'pending_review' AND p.image_url IS NOT NULL
-            UNION ALL
-            SELECT c.id, 'comment' AS content_type, c.content, c.image_url, c.image_moderation_status,
-                   c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
-                   c.created_at, u.full_name AS author_name
-            FROM comments c
-            JOIN users u ON u.id = c.author_id
-            WHERE c.image_moderation_status = 'pending_review' AND c.image_url IS NOT NULL
+            SELECT content_id AS id, content_type, content, image_url, image_moderation_status,
+                   image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
+                   created_at, author_name
+            FROM moderation_content_read_model
+            WHERE image_moderation_status = 'pending_review' AND image_url IS NOT NULL
             ORDER BY created_at DESC
           `;
           const result = await pool.query(q);

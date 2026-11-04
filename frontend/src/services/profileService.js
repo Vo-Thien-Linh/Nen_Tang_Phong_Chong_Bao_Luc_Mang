@@ -6,10 +6,12 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 async function request(path, options = {}) {
+  const token = localStorage.getItem('nexussocial_token');
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   });
@@ -81,6 +83,9 @@ export const profileService = {
 
     const response = await fetch(`${API_URL}/api/upload`, {
       method: 'POST',
+      headers: localStorage.getItem('nexussocial_token')
+        ? { Authorization: `Bearer ${localStorage.getItem('nexussocial_token')}` }
+        : {},
       body: formData,
     });
 

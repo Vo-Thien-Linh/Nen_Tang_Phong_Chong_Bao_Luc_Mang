@@ -1,0 +1,11 @@
+{
+  "name": "moderation-service",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Moderation & Trust Score Microservice",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+

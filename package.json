@@ -1,0 +1,20 @@
+{
+  "name": "btl-project-microservices",
+  "version": "2.0.0",
+  "description": "Nen Tang Phong Chong Bao Luc Mang - Kien truc Microservices",
+  "type": "module",
+  "scripts": {
+    "start:gateway": "node gateway/server.js",
+    "start:user-service": "node services/user-service/server.js",
+    "start:post-service": "node services/post-service/server.js",
+    "start:moderation-service": "node services/moderation-service/server.js",
+    "start:notification-service": "node services/notification-service/server.js",
+    "start:frontend": "npm run dev --prefix frontend",
+    "start:monolith": "npm run dev --prefix backend",
+    "test:backend": "npm test --prefix backend",
+    "test:frontend": "npm test --prefix frontend",
+    "test": "npm test --prefix backend && npm test --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend"
+  }
+}
+

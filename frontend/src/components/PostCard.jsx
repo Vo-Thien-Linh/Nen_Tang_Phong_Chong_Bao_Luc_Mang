@@ -686,7 +686,22 @@ export default function PostCard({
   const isPostAuthor = isAuthor;
   const canViewHiddenPost = isAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   if (post.ai_status === 'hidden' && !canViewHiddenPost) {
-    return null;
+    return (
+      <div 
+        id={`post-${post.id}`} 
+        className="bg-white dark:bg-slate-900 rounded-2xl border border-rose-200 dark:border-rose-900/40 p-6 mb-5 text-center shadow-xs"
+      >
+        <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mx-auto mb-3">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+          Nội dung này hiện không khả dụng
+        </h4>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
+          Bài viết đã bị Quản trị viên hoặc hệ thống kiểm duyệt AI xử lý ẩn do vi phạm Tiêu chuẩn cộng đồng ({post.ai_label || 'Ngôn từ không phù hợp / Bạo lực'}).
+        </p>
+      </div>
+    );
   }
   const isToxicText = (post.ai_label === 'Toxic' || post.aiLabel === 'Toxic' || post.aiStatus?.label === 'Toxic') && post.ai_status !== 'hidden';
   const postImageStatus = post.imageModeration?.status || post.image_moderation_status;
@@ -1505,6 +1520,7 @@ export default function PostCard({
                           onClick={() => onOpenAppealModal && onOpenAppealModal({
                             targetType: 'comment',
                             targetId: comment.id,
+                            parentPostId: post.id,
                             targetAuthor: comment.author,
                             contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
                             imageUrl: comment.image || null,
@@ -1661,6 +1677,7 @@ export default function PostCard({
                           onClick={() => onOpenReportModal && onOpenReportModal({
                             targetType: 'comment',
                             targetId: comment.id,
+                            parentPostId: post.id,
                             targetAuthor: comment.author,
                             contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
                             imageUrl: comment.image || null,

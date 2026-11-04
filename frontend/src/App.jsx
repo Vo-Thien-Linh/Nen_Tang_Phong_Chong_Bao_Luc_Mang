@@ -34,7 +34,6 @@ import {
   updatePost, 
   deletePost, 
   sharePost, 
-  updateUserSanctionApi, 
   resolveReportApi,
   createReportApi,
   fetchReportsList,
@@ -183,7 +182,9 @@ export default function App() {
     }
 
     // Xác thực token tươi mới với Backend FastAPI
-    authService.verifySession().then((verifiedUser) => {
+    authService.verifySession(token).then((verifiedUser) => {
+      // Bỏ qua phản hồi phiên cũ nếu người dùng đã đăng xuất hoặc đăng nhập tài khoản khác.
+      if (authService.getToken() !== token) return;
       if (verifiedUser) {
         setCurrentUser(verifiedUser);
       } else {
@@ -346,8 +347,12 @@ export default function App() {
   useEffect(() => {
     if (!currentUser?.id) return;
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const token = authService.getToken();
     fetch(`${API_URL}/api/users/${currentUser.id}/profile`, {
-      headers: { 'x-user-id': currentUser.id }
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'x-user-id': currentUser.id,
+      }
     })
       .then(res => res.json())
       .then(data => {
@@ -979,11 +984,12 @@ export default function App() {
       console.warn('Lỗi gửi báo cáo lên API CSDL:', err.message);
     }
 
-    // Gửi thông báo hệ thống xác nhận cho người báo cáo
+    // Gửi thông báo hệ thống xác nhận cho người báo cáo (kèm trích đoạn bài viết để theo dõi)
     const notif = {
       id: `notif-${Date.now()}`,
       type: 'report_receipt',
       isReceipt: true,
+      recipientId: currentUser?.id,
       user: {
         name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
@@ -991,7 +997,13 @@ export default function App() {
       content: `Báo cáo của bạn về nội dung của ${reportData.targetAuthor?.name || 'thành viên'} đã được tiếp nhận và chuyển đến Quản trị viên.`,
       createdAt: new Date().toISOString(),
       time: 'Vừa xong',
-      isRead: false
+      isRead: false,
+      targetPostId: reportData.targetType === 'post' ? reportData.targetId : reportData.parentPostId,
+      targetPost: {
+        id: String((reportData.targetType === 'post' ? reportData.targetId : reportData.parentPostId) || ''),
+        contentSnippet: reportData.contentExcerpt || reportData.targetExcerpt || 'Nội dung được báo cáo',
+        image: reportData.imageUrl || reportData.image || null
+      }
     };
     addLocalNotification(notif);
   };
@@ -1101,6 +1113,7 @@ export default function App() {
           addLocalNotification({
             id: `notif-admin-sanction-${Date.now()}`,
             type: 'ai_moderation',
+            recipientId: targetAuthorId,
             user: {
               id: 'admin_moderator',
               name: 'Thông báo hệ thống',
@@ -1109,11 +1122,13 @@ export default function App() {
             content: `Nội dung của bạn đã bị Quản trị viên gắn nhãn vi phạm (${newLabel}${newImageLabel ? ` / Ảnh: ${newImageLabel}` : ''}) sau khi xác minh báo cáo và đã bị ẩn. Bạn có thể gửi đơn kháng cáo nếu cho rằng quyết định này chưa chuẩn xác.`,
             time: 'Vừa xong',
             isRead: false,
-            targetPostId: report?.targetId,
+            targetPostId: report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId),
             targetPost: {
-              id: String(report?.targetId || ''),
-              contentSnippet: report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
-              image: report?.imageUrl || null
+              id: String(report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId) || ''),
+              contentSnippet: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden
+                ? 'Bài viết đã bị ẩn sau khi xem xét.'
+                : report?.targetPostExcerpt || report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
+              image: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden ? null : (report?.targetPostImage || report?.imageUrl || null)
             },
             aiStatus: {
               label: newLabel,
@@ -1122,10 +1137,11 @@ export default function App() {
             }
           });
         } else if (currentUser && reporterId && currentUser.id === reporterId) {
-          // Với người gửi báo cáo: Gửi thông báo cảm ơn phản hồi kết quả
+          // Với người gửi báo cáo: Gửi thông báo cảm ơn phản hồi kết quả kèm bài viết
           addLocalNotification({
             id: `notif-report-result-${Date.now()}`,
             type: 'system',
+            recipientId: reporterId,
             user: {
               id: 'system',
               name: 'Thông báo hệ thống',
@@ -1133,7 +1149,15 @@ export default function App() {
             },
             content: `Báo cáo của bạn về nội dung của ${report?.targetAuthor?.name || 'thành viên'} đã được Quản trị viên xử lý (${newLabel}). Cảm ơn bạn đã đóng góp xây dựng không gian văn minh!`,
             time: 'Vừa xong',
-            isRead: false
+            isRead: false,
+            targetPostId: report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId),
+            targetPost: {
+              id: String(report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId) || ''),
+              contentSnippet: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden
+                ? 'Bài viết đã bị ẩn sau khi xem xét.'
+                : report?.targetPostExcerpt || report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
+              image: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden ? null : (report?.targetPostImage || report?.imageUrl || null)
+            }
           });
         }
 
@@ -1313,10 +1337,11 @@ export default function App() {
       console.warn('Lỗi gửi khiếu nại lên CSDL PostgreSQL:', err.message);
     }
 
-    // Thông báo cho user
+    // Thông báo cho user kèm trích đoạn nội dung khiếu nại
     const notif = {
       id: `notif-${Date.now()}`,
       type: 'system',
+      recipientId: currentUser?.id,
       user: {
         name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
@@ -1324,7 +1349,15 @@ export default function App() {
       content: 'Đơn khiếu nại kiểm duyệt của bạn đã được gửi. Quản trị viên sẽ kiểm tra ngữ cảnh thủ công sớm nhất.',
       createdAt: new Date().toISOString(),
       time: 'Vừa xong',
-      isRead: false
+      isRead: false,
+      targetPostId: appealData.contentType === 'post' ? appealData.contentId : appealData.parentPostId,
+      targetPost: {
+        id: String((appealData.contentType === 'post' ? appealData.contentId : appealData.parentPostId) || ''),
+        contentSnippet: appealData.aiActionTaken === 'hide'
+          ? 'Bài viết đang bị ẩn trong lúc chờ xem xét kháng cáo.'
+          : (appealData.originalText ? appealData.originalText.slice(0, 70) : 'Nội dung khiếu nại'),
+        image: appealData.aiActionTaken === 'hide' ? null : (appealData.imageUrl || null)
+      }
     };
     addLocalNotification(notif);
   };
@@ -1406,15 +1439,6 @@ export default function App() {
           }
         } else {
           // Normal hoặc Toxic hoặc Hate Speech: Gỡ bỏ cooldown
-          try {
-            await updateUserSanctionApi({
-              targetUserId,
-              action: 'clear_cooldown'
-            });
-          } catch (err) {
-            console.error('Lỗi khi gỡ cooldown:', err);
-          }
-
           if (currentUser && currentUser.id === targetUserId) {
             setCurrentUser(prev => ({
               ...prev,
@@ -1446,13 +1470,14 @@ export default function App() {
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // 4. Gửi thông báo
+      // 4. Gửi thông báo cho chính tác giả làm đơn khiếu nại (kèm xem lại bài viết)
       const notifMsg = newLabel === 'Normal'
         ? `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận an toàn (Normal), án phạt được gỡ bỏ ngay lập tức.`
         : `Nội dung của bạn sau khi xem xét lại được chuyển sang nhãn "${newLabel}".`;
       const apologyNotif = {
         id: `notif-${Date.now()}`,
         type: 'system',
+        recipientId: targetUserId,
         user: {
           name: 'Thông báo hệ thống',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
@@ -1460,9 +1485,21 @@ export default function App() {
         content: notifMsg,
         createdAt: new Date().toISOString(),
         time: 'Vừa xong',
-        isRead: false
+        isRead: false,
+        targetPostId: appeal.targetPostId || (appeal.contentType === 'post' ? appeal.contentId : appeal.parentPostId),
+        targetPost: {
+          id: String(appeal.targetPostId || (appeal.contentType === 'post' ? appeal.contentId : appeal.parentPostId) || ''),
+          contentSnippet: (['Violence', 'Hate Speech'].includes(newLabel) || (appeal.targetPostIsHidden && newLabel !== 'Normal'))
+            ? `Bài viết đã bị ẩn sau khi xem xét${appeal.targetPostLabel ? ` (${appeal.targetPostLabel})` : ''}.`
+            : (appeal.targetPostContent || appeal.originalText || '').slice(0, 70),
+          image: ['Violence', 'Hate Speech'].includes(newLabel) || (appeal.targetPostIsHidden && newLabel !== 'Normal')
+            ? null
+            : (appeal.targetPostImage || appeal.imageUrl || null)
+        }
       };
-      addLocalNotification(apologyNotif);
+      if (currentUser && targetUserId && currentUser.id === targetUserId) {
+        addLocalNotification(apologyNotif);
+      }
     } else {
       // Nếu từ chối khiếu nại (bác bỏ)
       if (appeal.contentType === 'comment') {
@@ -1500,7 +1537,6 @@ export default function App() {
         adminNotes,
         userId: currentUser?.id
       });
-      await loadModerationData();
       return res;
     } catch (err) {
       console.warn('Lỗi gọi resolveAppealApi:', err.message);

@@ -1,5 +1,6 @@
-// API Service kết nối Backend FastAPI cho chức năng Nhắn tin (http://localhost:8000)
-const API_BASE_URL = `${import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000'}/api/v1/messages`;
+// Tin nhắn đi qua API Gateway, gateway định tuyến đến FastAPI platform API.
+const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = `${API_ROOT}/api/v1/messages`;
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('nexussocial_token');

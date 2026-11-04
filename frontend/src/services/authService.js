@@ -1,5 +1,6 @@
-// API Service kết nối Backend FastAPI (http://localhost:8000)
-const API_BASE_URL = `${import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000'}/api/v1/auth`;
+// Dùng API Gateway; gateway định tuyến auth đến FastAPI platform API.
+const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = `${API_ROOT}/api/v1/auth`;
 
 const STORAGE_KEYS = {
   TOKEN: 'nexussocial_token',
@@ -11,7 +12,7 @@ export const authService = {
   // Kiểm tra trạng thái máy chủ FastAPI đã sẵn sàng chưa
   checkHealth: async () => {
     try {
-      const fastApiRoot = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+      const fastApiRoot = API_ROOT;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
       const res = await fetch(`${fastApiRoot}/api/health`, { signal: controller.signal });
@@ -91,8 +92,8 @@ export const authService = {
   },
 
   // Xác thực phiên làm việc hiện tại với Backend (FastAPI) để tránh lệch tài khoản
-  verifySession: async () => {
-    const token = authService.getToken();
+  verifySession: async (expectedToken = authService.getToken()) => {
+    const token = expectedToken;
     if (!token) {
       authService.logout();
       return null;
@@ -105,10 +106,11 @@ export const authService = {
       });
       if (!response.ok) {
         // Token hết hạn hoặc không hợp lệ -> xóa sạch session cũ
-        authService.logout();
+        if (authService.getToken() === token) authService.logout();
         return null;
       }
       const data = await response.json();
+      if (authService.getToken() !== token) return null;
       const cdVal = data.cooldown_until || data.cooldownUntil;
       const cdUntil = cdVal ? new Date(cdVal) : null;
       const isExpired = cdUntil && cdUntil <= new Date();

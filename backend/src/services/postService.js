@@ -214,10 +214,29 @@ export function createPostService({ postRepository, moderationHook, imageModerat
 
     async getVisiblePost({ user, postId }) {
       const post = await postRepository.findById(postId, user?.id || null);
-      if (!post || (post.ai_status !== 'approved' && post.author_id !== user?.id)) {
+      if (!post) {
         const error = new Error('Bài viết không tồn tại');
         error.statusCode = 404;
         throw error;
+      }
+      if (post.ai_status !== 'approved' && post.author_id !== user?.id && user?.role !== 'admin' && user?.role !== 'moderator') {
+        return {
+          id: post.id,
+          author_id: post.author_id,
+          author: {
+            id: post.author_id,
+            name: post.author_name || 'Người dùng',
+            username: post.author_username || '',
+            avatar: post.author_avatar || ''
+          },
+          content: 'Nội dung bài viết này đã bị ẩn do vi phạm Tiêu chuẩn cộng đồng.',
+          ai_status: 'hidden',
+          ai_label: post.ai_label || 'Vi phạm chính sách',
+          isHardHidden: true,
+          isHidden: true,
+          created_at: post.created_at,
+          comments: []
+        };
       }
       return post;
     },

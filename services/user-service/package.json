@@ -1,0 +1,11 @@
+{
+  "name": "user-service",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "User & Auth Microservice",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+
