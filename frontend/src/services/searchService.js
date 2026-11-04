@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 function getAuthHeaders() {
   const token = localStorage.getItem('nexussocial_token');

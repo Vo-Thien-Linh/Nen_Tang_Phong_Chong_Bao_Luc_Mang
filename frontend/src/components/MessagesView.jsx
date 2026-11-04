@@ -7,6 +7,7 @@ import {
   User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
+import { authService } from '../services/authService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
 import VideoCallModal from './VideoCallModal';
@@ -31,6 +32,15 @@ const EMOJI_CATEGORIES = [
     emojis: ['🎉', '🎊', '🎈', '🎁', '🏆', '🌟', '⭐', '✨', '🚀', '💡', '📌', '☕', '🍕', '🍔', '🍦', '🐱', '🐶', '🌸', '🌈', '☀️', '🎵', '💬']
   }
 ];
+
+function createAuthenticatedRealtimeSocket(wsUrl, userId) {
+  const token = authService.getToken();
+  if (!token) throw new Error('Bạn cần đăng nhập để kết nối cuộc gọi.');
+  return new WebSocket(`${wsUrl}/api/v1/messages/ws/${encodeURIComponent(userId)}`, [
+    'nexussocial',
+    `bearer.${token}`,
+  ]);
+}
 
 function FormattedMessageText({ text, isMe }) {
   if (!text) return null;
@@ -338,9 +348,9 @@ export default function MessagesView({
 
     const connectWs = () => {
       try {
-        const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+        const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
         const wsUrl = fastApiUrl.replace(/^http/, 'ws');
-        ws = new WebSocket(`${wsUrl}/api/v1/messages/ws/${currentUser.id}`);
+        ws = createAuthenticatedRealtimeSocket(wsUrl, currentUser.id);
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -730,9 +740,9 @@ export default function MessagesView({
       }
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
         try {
-          const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
+          const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
           const wsUrl = fastApiUrl.replace(/^http/, 'ws');
-          const newWs = new WebSocket(`${wsUrl}/api/v1/messages/ws/${currentUser.id}`);
+          const newWs = createAuthenticatedRealtimeSocket(wsUrl, currentUser.id);
           wsRef.current = newWs;
           await new Promise((resolve) => {
             newWs.onopen = () => {

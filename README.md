@@ -18,35 +18,21 @@ Trong bối cảnh bạo lực mạng, ngôn từ thù địch (*Hate Speech*), 
 
 ## 2. Kiến Trúc Hệ Thống (System Architecture)
 
-Dự án áp dụng kiến trúc **Dual-Backend Microservice** chuyên biệt hóa nhằm tối ưu hiệu năng:
+Dự án có API Gateway làm điểm vào cho frontend. Các API được tách theo nhóm nghiệp vụ; PostgreSQL/Supabase hiện vẫn là cơ sở dữ liệu dùng chung trong giai đoạn chuyển đổi.
 
 ```
-                                  ┌──────────────────────────────┐
-                                  │      Client Web Browser      │
-                                  │    React + Vite (Port 5173)  │
-                                  └──────────────┬───────────────┘
-                                                 │
-                        ┌────────────────────────┴────────────────────────┐
-                        │                                                 │
-                        ▼                                                 ▼
-        ┌───────────────────────────────┐                 ┌───────────────────────────────┐
-        │       FastAPI Backend         │                 │      Express.js Backend       │
-        │       (Python - Port 8000)    │                 │      (Node.js - Port 5000)    │
-        ├───────────────────────────────┤                 ├───────────────────────────────┤
-        │ • AI NLP: PhoBERT (4 nhãn)    │                 │ • Core Social Network APIs    │
-        │ • Vision Moderation Client    │                 │ • Feed, Posts, Comments CRUD  │
-        │ • Authentication (JWT, OTP)   │                 │ • Reactions (6 emojis), Share │
-        │ • Real-time Direct Messaging  │                 │ • Appeals & Reports Workflow  │
-        │ • Account Security & Ban logic│                 │ • Moderation Harmonizer       │
-        └───────────────┬───────────────┘                 └───────────────┬───────────────┘
-                        │                                                 │
-                        └────────────────────────┬────────────────────────┘
-                                                 │
-                                                 ▼
-                                  ┌──────────────────────────────┐
-                                  │      Supabase PostgreSQL     │
-                                  │   (Shared Cloud Database)    │
-                                  └──────────────────────────────┘
+Browser (React/Vite)
+        │
+        ▼
+API Gateway (:5000)
+   ├── User Service (:5001)          profiles and roles
+   ├── Social Content (:5002)        posts, comments, reactions
+   ├── Moderation (:5003)             reports, appeals, admin review
+   ├── Realtime/Notification (:5004)  notifications and SSE
+   ├── Platform API (:8000)           JWT auth, friends, messages, settings, search
+   └── AI Inference (:8001)           PhoBERT and EfficientNet predictions
+        │
+        └── Supabase PostgreSQL (shared during migration; table owners are documented)
 ```
 
 ### Công Nghệ Sử Dụng (Tech Stack)
@@ -54,11 +40,16 @@ Dự án áp dụng kiến trúc **Dual-Backend Microservice** chuyên biệt h�
 | Phân hệ | Công nghệ | Vai trò chi tiết |
 | :--- | :--- | :--- |
 | **Frontend** | React 19, Vite, Tailwind/Vanilla CSS, Lucide Icons | Ứng dụng SPA hiện đại, Dark/Light Mode, đồng hồ đếm ngược Cooldown thời gian thực, giao diện responsive. |
-| **Backend AI & Auth** | Python, FastAPI, PyTorch, HuggingFace Transformers, SQLAlchemy, Pydantic | Xử lý suy luận mô hình PhoBERT, kiểm duyệt đa phương tiện, bảo mật phiên làm việc và OTP Gmail. |
-| **Backend Nghiệp vụ** | Node.js, Express.js, pg (PostgreSQL Client) | Quản lý vòng đời bài viết, bình luận đa cấp, xử lý nghiệp vụ kiểm duyệt, cơ chế Auto-Heal CSDL. |
+| **Platform API** | Python, FastAPI, SQLAlchemy, Pydantic, JWT | Đăng nhập và phát hành JWT, nhắn tin, kết bạn, cài đặt và tìm kiếm. |
+| **AI Inference Service** | Python, FastAPI, PyTorch, Hugging Face Transformers | PhoBERT và EfficientNet phân loại nội dung; trả nhãn và độ tin cậy cho backend nghiệp vụ. |
+| **Node.js Services** | Node.js, Express.js, pg | Quản lý hồ sơ, bài viết, bình luận, tương tác, báo cáo, khiếu nại và thông báo. |
 | **Cơ sở dữ liệu** | Supabase PostgreSQL (Cloud Database) | Lưu trữ tập trung quan hệ người dùng, bài viết, bình luận, tương tác, khiếu nại, báo cáo và logs. |
 | **Lưu trữ Đa phương tiện** | Cloudinary CDN | Lưu trữ và phân phối hình ảnh bài viết, ảnh đại diện, ảnh bìa và ảnh bình luận. |
 | **Huấn luyện Mô hình** | Google Colab, GPU CUDA, Scikit-learn, ViHSD Dataset | Fine-tuning mô hình ngôn ngữ tiếng Việt PhoBERT 4 nhãn phân loại. |
+
+Ranh giới API và quyền sở hữu bảng được ghi tại [docs/architecture/service-boundaries.md](docs/architecture/service-boundaries.md) và [database/service-ownership.md](database/service-ownership.md).
+
+Trước khi dùng dashboard, áp dụng các migration còn thiếu theo thứ tự lên Supabase; nếu database đã có các migration trước đó thì cần áp dụng [010_moderation_content_read_model.sql](database/migrations/010_moderation_content_read_model.sql). Migration này tạo read model cho hàng đợi, báo cáo và khiếu nại; ứng dụng không tự chạy migration khi khởi động. Với Docker, có thể sao chép `.env.example` thành `.env` ở thư mục gốc rồi đặt `PUBLIC_API_URL` thành địa chỉ public của gateway. Mặc định `http://localhost:5000` dùng cho demo tại máy; thông tin database và secret nằm riêng trong `backend/.env`.
 
 ---
 
@@ -129,6 +120,13 @@ Hệ thống tích hợp song hành **2 Mô hình Học sâu (Deep Learning)** c
 * **Node.js:** Phiên bản `>= 18.x` (khuyến nghị `20.x` hoặc `22.x`)
 * **Python:** Phiên bản `>= 3.10` (khuyến nghị `3.11`)
 * Hệ điều hành: Windows, macOS hoặc Linux
+
+### Cấu hình JWT bắt buộc
+Trước khi chạy backend, đặt `JWT_SECRET_KEY` trong `backend/.env`. Có thể tạo khóa ngẫu nhiên bằng:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+Sao chép kết quả vào `backend/.env` dưới dạng `JWT_SECRET_KEY=<khóa>`. FastAPI sẽ từ chối khởi động nếu khóa thiếu hoặc ngắn hơn 32 ký tự; Express cũng yêu cầu khóa này ở production. Các cấu hình Docker Compose trong repo nạp biến từ `backend/.env`. Khi thay khóa, người dùng cần đăng nhập lại vì token cũ sẽ hết hiệu lực.
 
 ---
 

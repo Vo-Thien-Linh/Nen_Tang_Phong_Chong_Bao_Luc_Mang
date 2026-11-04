@@ -20,7 +20,6 @@ export function createReportsController({ reportRepository }) {
     async createReport(req, res, next) {
       try {
         const {
-          reporter,
           targetType,
           targetId,
           targetAuthor,
@@ -31,11 +30,16 @@ export function createReportsController({ reportRepository }) {
           targetModality,
           target_modality,
         } = req.body;
-        const reporterId = req.user?.id || reporter?.id;
+        const reporterId = req.user.id;
+        const authenticatedReporter = {
+          id: req.user.id,
+          name: req.user.full_name,
+          avatar: req.user.avatar_url,
+        };
 
         const result = await reportRepository.createReport({
           reporterId,
-          reporter,
+          reporter: authenticatedReporter,
           targetType,
           targetId,
           targetAuthor,

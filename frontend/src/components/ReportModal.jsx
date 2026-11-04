@@ -46,6 +46,7 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
       },
       targetType: target.targetType, // 'post' | 'comment' | 'message'
       targetId: target.targetId,
+      parentPostId: target.parentPostId || null,
       targetAuthor: target.targetAuthor || { name: 'Người dùng', username: 'user' },
       contentExcerpt: target.contentExcerpt || '',
       targetExcerpt: target.contentExcerpt || '',

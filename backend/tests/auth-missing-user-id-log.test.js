@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAuthMiddleware } from '../src/middleware/auth.js';
 
-test('log reason when user id header is missing', async () => {
+test('log reason when a bearer token is missing', async () => {
   const warnings = [];
   const originalWarn = console.warn;
   console.warn = (message) => warnings.push(message);
@@ -11,7 +11,7 @@ test('log reason when user id header is missing', async () => {
     const { requireAuth } = createAuthMiddleware({
       userRepository: {
         async findById() {
-          throw new Error('should not query without x-user-id');
+          throw new Error('should not query without a valid bearer token');
         },
       },
     });
@@ -39,7 +39,7 @@ test('log reason when user id header is missing', async () => {
     });
 
     assert.equal(res.statusCode, 401);
-    assert.equal(warnings.some((message) => message.includes('thiếu header x-user-id')), true);
+    assert.equal(warnings.some((message) => message.includes('thiếu Bearer token hợp lệ')), true);
   } finally {
     console.warn = originalWarn;
   }

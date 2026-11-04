@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import os
 
 from ..database import get_db
 from ..utils.security import decode_access_token
@@ -24,15 +25,17 @@ def get_current_user_id(
     x_user_id: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ) -> str:
-    """Dependency lấy user_id từ JWT Bearer token hoặc x-user-id Header"""
-    if authorization and authorization.startswith("Bearer "):
+    """Lấy danh tính từ JWT; x-user-id chỉ được dùng trong môi trường phát triển."""
+    if authorization:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ")
         token = authorization.split(" ")[1]
         payload = decode_access_token(token)
         if payload and "sub" in payload:
             return payload["sub"]
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên làm việc đã hết hạn hoặc token không hợp lệ")
     
-    # Hỗ trợ x-user-id khi chạy dev hoặc test
-    if x_user_id:
+    if x_user_id and os.getenv("NODE_ENV") != "production":
         return x_user_id
         
     raise HTTPException(

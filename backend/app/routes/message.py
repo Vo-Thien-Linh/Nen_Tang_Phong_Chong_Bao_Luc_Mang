@@ -22,8 +22,8 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(self, user_id: str, websocket: WebSocket, subprotocol: Optional[str] = None):
+        await websocket.accept(subprotocol=subprotocol)
         if user_id not in self.active_connections:
             self.active_connections[user_id] = set()
         self.active_connections[user_id].add(websocket)
@@ -56,9 +56,26 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+def get_websocket_bearer_token(websocket: WebSocket) -> Optional[str]:
+    """Read the bearer token from the browser WebSocket subprotocol handshake."""
+    offered_protocols = websocket.headers.get("sec-websocket-protocol", "").split(",")
+    for protocol in offered_protocols:
+        protocol = protocol.strip()
+        if protocol.startswith("bearer."):
+            token = protocol[len("bearer."):].strip()
+            return token or None
+    return None
+
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    await manager.connect(user_id, websocket)
+    token = get_websocket_bearer_token(websocket)
+    payload = decode_access_token(token) if token else None
+    token_user_id = str(payload.get("sub", "")) if payload else ""
+    if not token_user_id or token_user_id != str(user_id):
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
+
+    await manager.connect(user_id, websocket, subprotocol="nexussocial")
     try:
         while True:
             data = await websocket.receive_text()
@@ -94,8 +111,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                         })
                     else:
                         msg_payload["from_user_id"] = user_id
-                        if not msg_payload.get("caller_id"):
-                            msg_payload["caller_id"] = user_id
+                        msg_payload["caller_id"] = user_id
                         await manager.send_to_user(str(target_user_id), msg_payload)
     except WebSocketDisconnect:
         manager.disconnect(user_id, websocket)

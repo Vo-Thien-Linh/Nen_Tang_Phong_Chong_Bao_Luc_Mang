@@ -19,12 +19,17 @@ export function createAppealsController({ appealRepository }) {
      */
     async createAppeal(req, res, next) {
       try {
-        const { user, contentType, contentId, originalText, aiPredictedLabel, aiConfidence, aiActionTaken, appealReason } = req.body;
-        const userId = req.user?.id || user?.id;
+        const { contentType, contentId, originalText, aiPredictedLabel, aiConfidence, aiActionTaken, appealReason } = req.body;
+        const userId = req.user.id;
+        const authenticatedUser = {
+          id: req.user.id,
+          name: req.user.full_name,
+          avatar: req.user.avatar_url,
+        };
 
         const result = await appealRepository.createAppeal({
           userId,
-          user,
+          user: authenticatedUser,
           contentType,
           contentId,
           originalText,

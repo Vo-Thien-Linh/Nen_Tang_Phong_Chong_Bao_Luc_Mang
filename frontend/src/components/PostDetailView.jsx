@@ -69,13 +69,18 @@ export default function PostDetailView({
         if (fetchedData && (fetchedData.id || fetchedData.content)) {
           setPost(fetchedData);
         } else {
-          setErrorMessage('Bài viết không tồn tại hoặc đã bị tác giả xóa.');
+          setErrorMessage('Bài viết không tồn tại hoặc đã bị ẩn do vi phạm tiêu chuẩn cộng đồng.');
         }
       })
       .catch((err) => {
         if (!isMounted) return;
         console.warn('Lỗi khi tải chi tiết bài viết:', err);
-        setErrorMessage('Không thể tải bài viết này. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.');
+        const isForbiddenOrHidden = err.status === 403 || err.status === 404 || err.message?.includes('không tồn tại');
+        setErrorMessage(
+          isForbiddenOrHidden 
+            ? 'Bài viết không tồn tại hoặc đã bị ẩn do vi phạm Tiêu chuẩn cộng đồng.'
+            : 'Không thể tải bài viết này. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.'
+        );
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);

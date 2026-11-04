@@ -19,7 +19,7 @@ export async function moderateTextContent(text) {
 
   if (!isTestEnvironment) {
     try {
-      const fastApiBase = process.env.FASTAPI_URL || 'http://127.0.0.1:8000';
+      const fastApiBase = process.env.AI_SERVICE_URL || process.env.FASTAPI_URL || 'http://127.0.0.1:8001';
       const res = await fetch(`${fastApiBase}/api/v1/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

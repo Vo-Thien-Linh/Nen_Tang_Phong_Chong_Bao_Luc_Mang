@@ -1,7 +1,22 @@
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 import { hasRole, normalizeRole } from '../utils/rbac.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(__dirname, '../../.env') });
+
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET_KEY?.trim();
+  if (!secret || secret.length < 32 || secret === 'nexussocial-super-secret-jwt-key-2026-very-secure') {
+    throw new Error('JWT_SECRET_KEY must be configured with at least 32 characters.');
+  }
+  return secret;
+}
+
 export function createAuthMiddleware({ userRepository }) {
+  if (process.env.NODE_ENV === 'production') getJwtSecret();
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const authMessage = 'Bạn cần đăng nhập để tiếp tục';
 
@@ -18,33 +33,36 @@ export function createAuthMiddleware({ userRepository }) {
   const resolveUser = async (req, { required = false } = {}) => {
     let userId = null;
 
-    // 1. Thử lấy từ Bearer Token (nếu có)
+    // JWT là nguồn danh tính chính. Không hạ cấp sang header/query nếu token sai.
     const authHeader = req.header('authorization')?.trim();
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+    if (authHeader) {
+      if (!authHeader.startsWith('Bearer ')) {
+        throw authError();
+      }
       const token = authHeader.substring(7).trim();
+      if (!token) throw authError();
       try {
-        const decoded = jwt.decode(token);
-        if (decoded && (decoded.sub || decoded.user_id || decoded.id)) {
-          userId = decoded.sub || decoded.user_id || decoded.id;
+        const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+        if (!decoded || typeof decoded !== 'object' || !decoded.exp || decoded.exp * 1000 <= Date.now()) {
+          throw authError();
         }
-      } catch (err) {
-        warnRejectedAuth(`Lỗi giải mã token: ${err.message}`);
+        userId = decoded.sub || decoded.user_id || decoded.id || null;
+        if (!userId) throw authError();
+      } catch {
+        warnRejectedAuth('Bearer token không hợp lệ, hết hạn hoặc thiếu cấu hình secret');
+        throw authError();
       }
     }
 
-    // 2. Nếu chưa có userId từ token, lấy từ header x-user-id (hỗ trợ dev / frontend hiện có)
-    if (!userId) {
+    // x-user-id/query chỉ phục vụ phát triển; production bắt buộc JWT đã xác minh.
+    if (!userId && process.env.NODE_ENV !== 'production') {
       userId = req.header('x-user-id')?.trim();
-    }
-
-    // 3. Nếu chưa có từ header, cho phép lấy từ query param userId (hỗ trợ direct link download/export)
-    if (!userId && req.query?.userId) {
-      userId = String(req.query.userId).trim();
+      if (!userId && req.query?.userId) userId = String(req.query.userId).trim();
     }
 
     if (!userId) {
       if (required) {
-        warnRejectedAuth('thiếu header x-user-id');
+        warnRejectedAuth('thiếu Bearer token hợp lệ');
       }
       return null;
     }
@@ -189,6 +207,10 @@ export function createAuthMiddleware({ userRepository }) {
             success: false,
             message: 'Bạn không có quyền thực hiện thao tác này.',
           });
+        }
+
+        if (freshUser.status === 'banned' && (!freshUser.banned_until || new Date(freshUser.banned_until) > new Date())) {
+          return res.status(403).json({ success: false, message: 'Tài khoản đang bị khóa và không thể thực hiện thao tác này.' });
         }
 
         req.user = freshUser;

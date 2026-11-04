@@ -8,7 +8,6 @@ from app.config import settings
 from app.database import engine, Base, SessionLocal
 from app.services.auth_service import seed_default_users
 from app.routes.auth import router as auth_router
-from app.routes.moderate import router as moderate_router
 from app.routes.admin import router as admin_router
 from app.routes.friend import router as friend_router
 from app.routes.settings import router as settings_router
@@ -70,7 +69,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # 5. Đăng ký các Routes
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api") # Hỗ trợ cả alias /api/auth
-app.include_router(moderate_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api")
 app.include_router(friend_router, prefix="/api/v1")

@@ -105,6 +105,9 @@ export async function uploadPostImage(file) {
 
   const response = await fetch(`${API_URL}/api/upload`, {
     method: 'POST',
+    headers: localStorage.getItem('nexussocial_token')
+      ? { Authorization: `Bearer ${localStorage.getItem('nexussocial_token')}` }
+      : {},
     body: formData,
   });
 
@@ -126,9 +129,13 @@ export async function uploadPostImage(file) {
 export async function previewPostImage(file, userId) {
   const formData = new FormData();
   formData.append('image', file);
+  const token = localStorage.getItem('nexussocial_token');
   const response = await fetch(`${API_URL}/api/posts/preview-image`, {
     method: 'POST',
-    headers: userId ? { 'x-user-id': userId } : {},
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(userId ? { 'x-user-id': userId } : {}),
+    },
     body: formData,
   });
   const data = await response.json().catch(() => ({}));

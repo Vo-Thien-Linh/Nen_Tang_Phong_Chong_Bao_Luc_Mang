@@ -18,7 +18,11 @@ class Settings:
     )
     
     # JWT
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "nexussocial-super-secret-jwt-key-2026-very-secure")
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "").strip()
+    if len(JWT_SECRET_KEY) < 32:
+        raise RuntimeError("JWT_SECRET_KEY must be set in backend/.env with at least 32 characters.")
+    if JWT_SECRET_KEY == "nexussocial-super-secret-jwt-key-2026-very-secure":
+        raise RuntimeError("The built-in JWT secret is not safe; configure a unique JWT_SECRET_KEY.")
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 # 24 hours
     

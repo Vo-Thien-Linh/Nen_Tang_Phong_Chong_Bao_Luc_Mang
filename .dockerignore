@@ -1,0 +1,15 @@
+.git
+.env
+**/.env
+**/.env.*
+**/node_modules
+**/__pycache__
+**/*.py[cod]
+**/dist
+**/build
+**/.pytest_cache
+**/.venv
+backend/nexussocial_dev.db
+backend/tests
+backend/test_*.py
+frontend/tests
