@@ -70,11 +70,11 @@ jobs:
         working-directory: backend
         run: npm install
 
+      - name: 🔗 Expose backend dependencies to root-level services
+        run: ln -s "$GITHUB_WORKSPACE/backend/node_modules" "$GITHUB_WORKSPACE/node_modules"
+
       - name: 🧪 Chạy Kiểm thử Toàn diện Backend (Unit & Integration Tests)
         working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NODE_ENV: test
         run: npm test
 
       - name: 🔗 Chạy Integration Tests Chuyên sâu (Database & API Flow)

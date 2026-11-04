@@ -10,16 +10,8 @@ export function createAppealRepository({ pool }) {
       if (pool) {
         try {
           const q = `
-            SELECT a.id, a.user_id, a.content_type, a.content_id, a.original_text,
-                   a.ai_predicted_label, a.ai_confidence, a.ai_action_taken,
-                   a.appeal_reason, a.status, a.admin_notes, a.created_at,
-                   u.full_name AS user_name, u.avatar_url AS user_avatar, u.username,
-                   COALESCE(p.image_url, c.image_url) AS image_url
-            FROM appeals a
-            LEFT JOIN users u ON a.user_id = u.id
-            LEFT JOIN posts p ON a.content_type = 'post' AND a.content_id = p.id
-            LEFT JOIN comments c ON a.content_type = 'comment' AND a.content_id = c.id
-            ORDER BY CASE WHEN a.status = 'pending' THEN 0 ELSE 1 END, a.created_at DESC
+            SELECT * FROM moderation_appeal_read_model
+            ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, created_at DESC
           `;
           const result = await pool.query(q);
           return result.rows.map(row => ({
@@ -32,6 +24,13 @@ export function createAppealRepository({ pool }) {
             },
             contentType: row.content_type,
             contentId: String(row.content_id),
+            targetPostId: row.target_post_id ? String(row.target_post_id) : null,
+            targetPostContent: row.target_post_content || '',
+            targetPostImage: row.target_post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.target_post_image_status)
+              ? null
+              : (row.target_post_image || null),
+            targetPostIsHidden: row.target_post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.target_post_image_status),
+            targetPostLabel: row.target_post_ai_label || null,
             originalText: row.original_text,
             imageUrl: row.image_url || null,
             aiPredictedLabel: row.ai_predicted_label,
@@ -171,6 +170,11 @@ export function createAppealRepository({ pool }) {
           }
 
           const updatedRow = result.rows[0];
+          let notificationPostId = updatedRow.content_type === 'post' ? updatedRow.content_id : null;
+          if (updatedRow.content_type === 'comment') {
+            const parentPost = await client.query('SELECT post_id FROM comments WHERE id = $1', [updatedRow.content_id]);
+            notificationPostId = parentPost.rows[0]?.post_id || null;
+          }
           updatedAppeal = {
             id: String(updatedRow.id),
             userId: updatedRow.user_id,
@@ -188,9 +192,9 @@ export function createAppealRepository({ pool }) {
           if (status === 'rejected') {
             if (updatedRow.user_id) {
               await client.query(
-                `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                 VALUES ($1, $2, 'system', 'Khiếu nại của bạn về nội dung vi phạm đã bị từ chối sau khi xem xét lại.', FALSE)`,
-                [updatedRow.user_id, reviewerId]
+                `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                 VALUES ($1, $2, 'system', 'Khiếu nại của bạn về nội dung vi phạm đã bị từ chối sau khi xem xét lại.', FALSE, $3)`,
+                [updatedRow.user_id, reviewerId, notificationPostId]
               );
             }
           } else if (status === 'approved') {
@@ -226,9 +230,9 @@ export function createAppealRepository({ pool }) {
                 );
 
                 await client.query(
-                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                   VALUES ($1, $2, 'system', 'Khiếu nại được chấp thuận! Nội dung của bạn đã được xác nhận an toàn (Normal). Toàn bộ án phạt (cooldown/hạn chế) đã được gỡ bỏ.', FALSE)`,
-                  [updatedRow.user_id, reviewerId]
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                   VALUES ($1, $2, 'system', 'Khiếu nại được chấp thuận! Nội dung của bạn đã được xác nhận an toàn (Normal). Toàn bộ án phạt (cooldown/hạn chế) đã được gỡ bỏ.', FALSE, $3)`,
+                  [updatedRow.user_id, reviewerId, notificationPostId]
                 );
 
                 try {
@@ -289,9 +293,9 @@ export function createAppealRepository({ pool }) {
                 );
 
                 await client.query(
-                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                   VALUES ($1, $2, 'system', 'Nội dung của bạn sau khi thẩm định lại bị xác định vi phạm Bạo lực (Violence). Bạn bị tạm khóa 10 phút.', FALSE)`,
-                  [updatedRow.user_id, reviewerId]
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                   VALUES ($1, $2, 'system', 'Nội dung của bạn sau khi thẩm định lại bị xác định vi phạm Bạo lực (Violence). Bạn bị tạm khóa 10 phút.', FALSE, $3)`,
+                  [updatedRow.user_id, reviewerId, notificationPostId]
                 );
               }
             } else {
@@ -323,9 +327,9 @@ export function createAppealRepository({ pool }) {
                   ? 'Nội dung của bạn sau khi xem xét lại được phân loại là Ngôn từ thù ghét (Hate Speech) và đã bị ẩn.'
                   : 'Nội dung của bạn sau khi xem xét lại được phân loại là Độc hại (Toxic) và đã bị giới hạn hiển thị.';
                 await client.query(
-                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                   VALUES ($1, $2, 'system', $3, FALSE)`,
-                  [updatedRow.user_id, reviewerId, notifMsg]
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                   VALUES ($1, $2, 'system', $3, FALSE, $4)`,
+                  [updatedRow.user_id, reviewerId, notifMsg, notificationPostId]
                 );
               }
             }

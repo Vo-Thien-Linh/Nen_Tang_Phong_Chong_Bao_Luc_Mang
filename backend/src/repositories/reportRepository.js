@@ -19,22 +19,8 @@ export function createReportRepository({ pool }) {
       if (pool) {
         try {
           const q = `
-            SELECT r.id, r.reporter_id, r.target_type, r.target_id, r.reason, r.details, r.status, r.admin_notes, r.action_taken, r.created_at, r.target_modality,
-                   u.full_name AS reporter_name, u.avatar_url AS reporter_avatar,
-                   p.content AS post_content, p.image_url AS post_image, p.ai_label AS post_ai_label,
-                   p.image_moderation_label AS post_image_label, p.image_moderation_status AS post_image_status,
-                   c.content AS comment_content, c.image_url AS comment_image, c.ai_label AS comment_ai_label,
-                   c.image_moderation_label AS comment_image_label, c.image_moderation_status AS comment_image_status,
-                   author.full_name AS target_author_name, author.username AS target_author_username
-            FROM reports r
-            LEFT JOIN users u ON r.reporter_id = u.id
-            LEFT JOIN posts p ON r.target_type = 'post' AND r.target_id = p.id
-            LEFT JOIN comments c ON r.target_type = 'comment' AND r.target_id = c.id
-            LEFT JOIN users author ON (
-              (r.target_type = 'post' AND p.author_id = author.id) OR
-              (r.target_type = 'comment' AND c.author_id = author.id)
-            )
-            ORDER BY r.created_at DESC
+            SELECT * FROM moderation_report_read_model
+            ORDER BY created_at DESC
           `;
           const result = await pool.query(q);
           return result.rows.map(row => {
@@ -54,6 +40,13 @@ export function createReportRepository({ pool }) {
               },
               targetType: row.target_type,
               targetId: String(row.target_id),
+              parentPostId: row.parent_post_id ? String(row.parent_post_id) : null,
+              targetPostId: row.target_type === 'post' ? String(row.target_id) : (row.parent_post_id ? String(row.parent_post_id) : null),
+              targetPostExcerpt: row.target_type === 'post' ? (row.post_content || '') : (row.parent_post_content || ''),
+              targetPostImage: row.target_type === 'post' ? (row.post_image || null) : (row.parent_post_image || null),
+              targetPostIsHidden: row.target_type === 'post'
+                ? (row.post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.post_image_status))
+                : (row.parent_post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.parent_post_image_status)),
               targetAuthor: {
                 name: row.target_author_name || 'Người dùng',
                 username: row.target_author_username || 'user'
@@ -247,6 +240,11 @@ export function createReportRepository({ pool }) {
               };
 
               const targetAuthorId = await this.findTargetAuthorId(dbRep.target_type, dbRep.target_id);
+              let notificationPostId = dbRep.target_type === 'post' ? dbRep.target_id : null;
+              if (dbRep.target_type === 'comment') {
+                const parentPost = await pool.query('SELECT post_id FROM comments WHERE id = $1', [dbRep.target_id]);
+                notificationPostId = parentPost.rows[0]?.post_id || null;
+              }
 
               if (status === 'resolved_violation') {
                 const isAllClean = finalNewLabel === 'Normal' && (!finalNewImageLabel || finalNewImageLabel === 'Clean');
@@ -286,9 +284,9 @@ export function createReportRepository({ pool }) {
                     );
 
                     await pool.query(
-                      `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                       VALUES ($1, $2, 'system', 'Nội dung của bạn đã được thẩm định an toàn (Normal). Toàn bộ giới hạn và án phạt đã được gỡ bỏ.', FALSE)`,
-                      [targetAuthorId, reviewerId]
+                      `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                       VALUES ($1, $2, 'system', 'Nội dung của bạn đã được thẩm định an toàn (Normal). Toàn bộ giới hạn và án phạt đã được gỡ bỏ.', FALSE, $3)`,
+                      [targetAuthorId, reviewerId, notificationPostId]
                     );
 
                     try {
@@ -372,9 +370,9 @@ export function createReportRepository({ pool }) {
                     );
 
                     await pool.query(
-                      `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                       VALUES ($1, $2, 'system', 'Nội dung của bạn bị báo cáo vi phạm Bạo lực và đã bị ẩn. Bạn bị tạm khóa 10 phút.', FALSE)`,
-                      [targetAuthorId, reviewerId]
+                      `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                       VALUES ($1, $2, 'system', 'Nội dung của bạn bị báo cáo vi phạm Bạo lực và đã bị ẩn. Bạn bị tạm khóa 10 phút.', FALSE, $3)`,
+                      [targetAuthorId, reviewerId, notificationPostId]
                     );
                   } else if (targetAuthorId) {
                     await pool.query(
@@ -392,9 +390,9 @@ export function createReportRepository({ pool }) {
                       ? 'Nội dung của bạn bị báo cáo vi phạm Ngôn từ thù ghét (Hate Speech) và đã bị ẩn.'
                       : 'Nội dung của bạn bị báo cáo vi phạm tiêu chuẩn cộng đồng và đã bị giới hạn hiển thị.';
                     await pool.query(
-                      `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read)
-                       VALUES ($1, $2, 'system', $3, FALSE)`,
-                      [targetAuthorId, reviewerId, notifMsg]
+                      `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                       VALUES ($1, $2, 'system', $3, FALSE, $4)`,
+                      [targetAuthorId, reviewerId, notifMsg, notificationPostId]
                     );
                   }
 
@@ -485,6 +483,17 @@ export function createReportRepository({ pool }) {
                   targetType: dbRep.target_type,
                   targetId: dbRep.target_id,
                 });
+              }
+
+              if (dbRep.reporter_id && String(dbRep.reporter_id) !== String(targetAuthorId || '')) {
+                const reporterMessage = status === 'dismissed'
+                  ? 'Báo cáo của bạn đã được xem xét và chưa xác nhận vi phạm.'
+                  : `Báo cáo của bạn đã được xem xét; nội dung được xử lý theo nhãn ${finalNewLabel}.`;
+                await pool.query(
+                  `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
+                   VALUES ($1, $2, 'system', $3, FALSE, $4)`,
+                  [dbRep.reporter_id, reviewerId, reporterMessage, notificationPostId]
+                );
               }
             }
           }

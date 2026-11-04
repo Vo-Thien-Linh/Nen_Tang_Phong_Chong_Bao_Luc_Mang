@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import json
 
 from ..database import get_db
 from ..models.user import User
@@ -21,8 +22,8 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(self, user_id: str, websocket: WebSocket, subprotocol: Optional[str] = None):
+        await websocket.accept(subprotocol=subprotocol)
         if user_id not in self.active_connections:
             self.active_connections[user_id] = set()
         self.active_connections[user_id].add(websocket)
@@ -33,27 +34,85 @@ class ConnectionManager:
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
 
-    async def send_to_user(self, user_id: str, message: dict):
+    def is_user_online(self, user_id: str) -> bool:
+        return user_id in self.active_connections and len(self.active_connections[user_id]) > 0
+
+    async def send_to_user(self, user_id: str, message: dict) -> bool:
         if user_id in self.active_connections:
             dead = set()
+            delivered = False
             for ws in list(self.active_connections[user_id]):
                 try:
                     await ws.send_json(message)
+                    delivered = True
                 except Exception:
                     dead.add(ws)
             for ws in dead:
                 self.active_connections[user_id].discard(ws)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+            return delivered
+        return False
 
 manager = ConnectionManager()
 
+def get_websocket_bearer_token(websocket: WebSocket) -> Optional[str]:
+    """Read the bearer token from the browser WebSocket subprotocol handshake."""
+    offered_protocols = websocket.headers.get("sec-websocket-protocol", "").split(",")
+    for protocol in offered_protocols:
+        protocol = protocol.strip()
+        if protocol.startswith("bearer."):
+            token = protocol[len("bearer."):].strip()
+            return token or None
+    return None
+
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    await manager.connect(user_id, websocket)
+    token = get_websocket_bearer_token(websocket)
+    payload = decode_access_token(token) if token else None
+    token_user_id = str(payload.get("sub", "")) if payload else ""
+    if not token_user_id or token_user_id != str(user_id):
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
+
+    await manager.connect(user_id, websocket, subprotocol="nexussocial")
     try:
         while True:
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
+                continue
+
+            try:
+                msg_payload = json.loads(data)
+            except Exception:
+                continue
+
+            event_type = msg_payload.get("type")
+            target_user_id = msg_payload.get("receiver_id") or msg_payload.get("target_id")
+
+            # Xử lý các sự kiện Báo hiệu Cuộc gọi WebRTC (Call Signaling)
+            if event_type in [
+                "CALL_REQUEST",
+                "CALL_RESPONSE",
+                "WEBRTC_SIGNAL",
+                "CALL_ENDED",
+                "CALL_CANDIDATE",
+            ]:
+                if target_user_id:
+                    is_online = manager.is_user_online(str(target_user_id))
+                    if not is_online and event_type == "CALL_REQUEST":
+                        await websocket.send_json({
+                            "type": "CALL_RESPONSE",
+                            "caller_id": user_id,
+                            "receiver_id": target_user_id,
+                            "accepted": False,
+                            "reason": "offline"
+                        })
+                    else:
+                        msg_payload["from_user_id"] = user_id
+                        msg_payload["caller_id"] = user_id
+                        await manager.send_to_user(str(target_user_id), msg_payload)
     except WebSocketDisconnect:
         manager.disconnect(user_id, websocket)
     except Exception:

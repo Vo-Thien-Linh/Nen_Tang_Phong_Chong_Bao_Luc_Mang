@@ -1,4 +1,4 @@
-const API_URL = process.env.IMAGE_MODERATION_API_URL || 'http://127.0.0.1:8000/api/v1/moderate/image';
+const API_URL = process.env.IMAGE_MODERATION_API_URL || 'http://127.0.0.1:8001/api/v1/moderate/image';
 const PREVIEW_URL = API_URL.replace(/\/image$/, '/image/preview');
 
 export async function moderateImageUrl(imageUrl, { timeoutMs = 5000 } = {}) {

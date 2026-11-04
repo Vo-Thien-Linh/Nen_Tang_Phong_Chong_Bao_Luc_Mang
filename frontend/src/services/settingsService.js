@@ -1,8 +1,8 @@
-// API Service kết nối Backend FastAPI (http://localhost:8000)
+// Cài đặt người dùng đi qua API Gateway đến FastAPI platform API.
 const getFastApiBaseUrl = () => {
   try {
-    if (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_FASTAPI_URL) {
-      return import.meta.env.VITE_FASTAPI_URL;
+    if (typeof import.meta !== 'undefined' && import.meta?.env) {
+      return import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
     }
   } catch {}
   try {
@@ -10,7 +10,7 @@ const getFastApiBaseUrl = () => {
       return process.env.VITE_FASTAPI_URL;
     }
   } catch {}
-  return 'http://localhost:8000';
+  return 'http://localhost:5000';
 };
 
 const API_BASE_URL = `${getFastApiBaseUrl()}/api/v1/settings`;

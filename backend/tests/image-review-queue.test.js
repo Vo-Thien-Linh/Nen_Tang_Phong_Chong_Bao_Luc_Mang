@@ -8,8 +8,12 @@ function makeQueuePool(rowsByTable = {}) {
     queries,
     async query(sql, values) {
       queries.push({ sql, values });
-      const table = sql.includes('FROM posts item') ? 'posts' : 'comments';
-      return { rows: rowsByTable[table] || [] };
+      const contentType = values?.[1];
+      const rows = contentType === 'all'
+        ? [...(rowsByTable.posts || []), ...(rowsByTable.comments || [])]
+        : (rowsByTable[contentType === 'post' ? 'posts' : 'comments'] || []);
+      rows.sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
+      return { rows };
     },
   };
 }
@@ -43,8 +47,28 @@ test('image review queues filter by post or comment type', async () => {
   const pool = makeQueuePool();
   await listReviewQueue(pool, 'pending_review', { type: 'comment' });
   assert.equal(pool.queries.length, 1);
-  assert.match(pool.queries[0].sql, /FROM comments item/);
-  assert.doesNotMatch(pool.queries[0].sql, /FROM posts item/);
+  assert.match(pool.queries[0].sql, /FROM moderation_content_read_model item/);
+  assert.match(pool.queries[0].sql, /\$2 = 'all' OR item\.content_type = \$2/);
+});
+
+test('image review queue falls back to base tables if the read-model migration is missing', async () => {
+  const queries = [];
+  const pool = {
+    async query(sql, values) {
+      queries.push(sql);
+      if (sql.includes('FROM moderation_content_read_model')) {
+        const error = new Error('relation "moderation_content_read_model" does not exist');
+        error.code = '42P01';
+        throw error;
+      }
+      assert.match(sql, /FROM posts p JOIN users u/);
+      assert.match(sql, /FROM comments c JOIN users u/);
+      return { rows: [{ id: 12, content_type: 'post', author_id: 'author', author_name: 'A', content: 'text', image_url: '/image.jpg', status: 'pending_review' }] };
+    },
+  };
+  const result = await listReviewQueue(pool, 'pending_review', { type: 'all' });
+  assert.equal(queries.length, 2);
+  assert.equal(result.data[0].id, '12');
 });
 
 test('image review queues return the oldest item first', async () => {

@@ -1,0 +1,168 @@
+services:
+  # -------------------------------------------------------------
+  # API GATEWAY (Port 5000: Điểm đón thống nhất toàn hệ thống)
+  # -------------------------------------------------------------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gateway
+    container_name: nexussocial-api-gateway
+    ports:
+      - "5000:5000"
+    environment:
+      - GATEWAY_PORT=5000
+      - PLATFORM_SERVICE_URL=http://platform-service:8000
+      - AI_SERVICE_URL=http://ai-service:8001
+      - USER_SERVICE_URL=http://user-service:5001
+      - POST_SERVICE_URL=http://post-service:5002
+      - MODERATION_SERVICE_URL=http://moderation-service:5003
+      - REALTIME_SERVICE_URL=http://notification-service:5004
+    depends_on:
+      - user-service
+      - post-service
+      - moderation-service
+      - notification-service
+      - platform-service
+      - ai-service
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # -------------------------------------------------------------
+  # USER SERVICE (internal only; port 5001)
+  # -------------------------------------------------------------
+  user-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.user-service
+    container_name: nexussocial-user-service
+    expose:
+      - "5001"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - USER_SERVICE_PORT=5001
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # -------------------------------------------------------------
+  # SOCIAL CONTENT SERVICE (internal only; port 5002)
+  # -------------------------------------------------------------
+  post-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.post-service
+    container_name: nexussocial-post-service
+    expose:
+      - "5002"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - POST_SERVICE_PORT=5002
+      - AI_SERVICE_URL=http://ai-service:8001
+      - FASTAPI_URL=http://platform-service:8000
+      - IMAGE_MODERATION_API_URL=http://ai-service:8001/api/v1/moderate/image
+    restart: always
+    networks:
+      - nexussocial-net
+    depends_on:
+      - ai-service
+      - platform-service
+
+  # -------------------------------------------------------------
+  # MODERATION SERVICE (internal only; port 5003)
+  # -------------------------------------------------------------
+  moderation-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.moderation-service
+    container_name: nexussocial-moderation-service
+    expose:
+      - "5003"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - MODERATION_SERVICE_PORT=5003
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # -------------------------------------------------------------
+  # REALTIME / NOTIFICATION SERVICE (internal only; port 5004)
+  # -------------------------------------------------------------
+  notification-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.notification-service
+    container_name: nexussocial-notification-service
+    expose:
+      - "5004"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - NOTIFICATION_SERVICE_PORT=5004
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # -------------------------------------------------------------
+  # PLATFORM API: Auth, settings, friends, search and messaging (Port 8000)
+  # -------------------------------------------------------------
+  platform-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.fastapi
+    container_name: nexussocial-platform-service
+    expose:
+      - "8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # AI INFERENCE: PhoBERT and EfficientNet, isolated from the platform API
+  ai-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ai-service
+    container_name: nexussocial-ai-service
+    expose:
+      - "8001"
+    environment:
+      - AI_SERVICE_PORT=8001
+      - BACKEND_APP_DIR=/app/backend
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # -------------------------------------------------------------
+  # FRONTEND (public web UI; browser API traffic goes through gateway)
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+        VITE_FASTAPI_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+    container_name: nexussocial-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+    restart: always
+    networks:
+      - nexussocial-net
+
+networks:
+  nexussocial-net:
+    driver: bridge
+
