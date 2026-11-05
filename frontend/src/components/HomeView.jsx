@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, UserPlus, Users, MessageCircle, 
-  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw
+  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw,
+  Radio, Eye
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
@@ -42,7 +43,10 @@ export default function HomeView({
   focusedPostTarget = null,
   isLoadingPosts = false,
   onRefreshFeed,
-  refreshKey = 0
+  refreshKey = 0,
+  activeStreams = [],
+  onWatchStream,
+  onOpenLiveStream
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
@@ -429,14 +433,54 @@ export default function HomeView({
         {/* ================= BẢNG TIN TRUNG TÂM (MỞ RỘNG RỘNG RÃI, THOÁNG ĐÃNG) ================= */}
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
           
-          {/* Thanh Tin 24h (Story Bar) */}
-          <StoryBar
-            currentUser={currentUser}
-            storyTrays={storyTrays}
-            onOpenCreateStory={() => setIsCreateStoryOpen(true)}
-            onOpenStoryViewer={(tray) => setActiveStoryTray(tray)}
-            onRequireAuth={onRequireAuth}
-          />
+          {/* Thanh danh sách các phòng Livestream đang phát sóng THỰC TẾ từ CSDL */}
+          {activeStreams && activeStreams.length > 0 && (
+            <div className="bg-gradient-to-r from-rose-500/10 via-pink-500/10 to-indigo-500/10 border border-rose-200/70 dark:border-rose-900/40 rounded-2xl p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+                  </span>
+                  <span className="text-xs font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider">
+                    Đang phát trực tiếp ({activeStreams.length})
+                  </span>
+                </div>
+                <button
+                  onClick={onOpenLiveStream}
+                  className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer transition"
+                >
+                  <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  Phát trực tiếp
+                </button>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+                {activeStreams.map((s) => (
+                  <div
+                    key={s.id}
+                    onClick={() => onWatchStream && onWatchStream(s)}
+                    className="flex-shrink-0 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 shadow-2xs hover:shadow-md hover:border-rose-300 dark:hover:border-rose-700 transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center font-bold text-xs ring-2 ring-rose-500/50 shrink-0">
+                        {s.streamer_name?.charAt(0) || 'L'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{s.streamer_name}</p>
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <Eye className="w-3 h-3 text-rose-500" /> {s.viewer_count || 1} người xem
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate mb-1">{s.title}</p>
+                    <span className="inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] rounded-md font-medium">
+                      {s.category || 'Giao lưu'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Ô tạo bài viết mới */}
           <CreatePostCard 

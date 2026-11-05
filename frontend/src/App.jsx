@@ -18,6 +18,9 @@ import { handleRealtimeFeedEvent } from './utils/realtimeFeedLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
+import LiveStreamModal from './components/LiveStreamModal';
+import CreateLiveStreamModal from './components/CreateLiveStreamModal';
+import { livestreamService } from './services/livestreamService';
 import { authService } from './services/authService';
 import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rbac';
 import { 
@@ -130,6 +133,68 @@ export default function App() {
   const [appeals, setAppeals] = useState(initialAppeals);
   const [aiOverrides, setAiOverrides] = useState(initialAiOverrides);
   const [usersList, setUsersList] = useState(initialUsersList);
+
+  // Quản lý trạng thái chức năng Livestream THẬT từ CSDL PostgreSQL/SQLite
+  const [isCreateLiveOpen, setIsCreateLiveOpen] = useState(false);
+  const [activeLiveSession, setActiveLiveSession] = useState(null);
+  const [liveStreamMode, setLiveStreamMode] = useState('view');
+  const [activeStreamsList, setActiveStreamsList] = useState([]);
+
+  // Tải danh sách các phòng Livestream đang phát sóng THỰC TẾ từ CSDL
+  const loadActiveLivestreams = useCallback(async () => {
+    try {
+      const list = await livestreamService.getActiveStreams();
+      if (Array.isArray(list)) {
+        setActiveStreamsList(list);
+      }
+    } catch (err) {
+      console.warn('Lỗi lấy danh sách livestream từ CSDL:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadActiveLivestreams();
+    const interval = setInterval(loadActiveLivestreams, 8000);
+    return () => clearInterval(interval);
+  }, [loadActiveLivestreams]);
+
+  const handleOpenLiveStreamAction = () => {
+    if (!currentUser) {
+      setAuthNoticeMessage('Vui lòng đăng nhập để bắt đầu phát livestream');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsCreateLiveOpen(true);
+  };
+
+  const [liveStreamMedia, setLiveStreamMedia] = useState(null);
+
+  const handleCreateLiveStream = async (streamData, existingMediaStream = null) => {
+    const session = await livestreamService.createLiveStream(streamData);
+    if (existingMediaStream) {
+      setLiveStreamMedia(existingMediaStream);
+    }
+    setActiveLiveSession(session);
+    setLiveStreamMode('broadcast');
+    loadActiveLivestreams();
+  };
+
+  const handleWatchLiveStream = (streamSession) => {
+    setActiveLiveSession(streamSession);
+    const isStreamer = currentUser && String(streamSession?.streamer_id) === String(currentUser.id);
+    setLiveStreamMode(isStreamer ? 'broadcast' : 'view');
+  };
+
+  const handleEndLiveStream = async (sessionId) => {
+    try {
+      await livestreamService.endLiveStream(sessionId);
+    } catch (e) {
+      console.warn('Lỗi khi kết thúc live:', e);
+    }
+    setActiveLiveSession(null);
+    loadActiveLivestreams();
+  };
 
   // Tải dữ liệu kiểm duyệt THẬT từ CSDL PostgreSQL (reports, appeals, ai-overrides)
   const loadModerationData = useCallback(async () => {
@@ -1715,6 +1780,7 @@ export default function App() {
         onClearFilter={() => setHomeSearchQuery('')}
         onRefreshHome={handleRefreshHome}
         isLoadingPosts={isLoadingPosts}
+        onOpenLiveStream={handleOpenLiveStreamAction}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -1758,6 +1824,9 @@ export default function App() {
             isLoadingPosts={isLoadingPosts}
             onRefreshFeed={handleRefreshHome}
             refreshKey={feedRefreshKey}
+            activeStreams={activeStreamsList}
+            onWatchStream={handleWatchLiveStream}
+            onOpenLiveStream={handleOpenLiveStreamAction}
           />
         )}
 
@@ -2016,21 +2085,41 @@ export default function App() {
         }}
       />
 
-      {/* Modal Story Viewer toàn cục khi điều hướng từ thông báo hoặc từ Messages / Profile */}
-      {activeStoryViewerTarget && (
-        <StoryViewerModal
-          isOpen={true}
-          onClose={() => setActiveStoryViewerTarget(null)}
-          tray={activeStoryViewerTarget.tray}
-          initialStoryId={activeStoryViewerTarget.initialStoryId}
-          initialShowViewers={activeStoryViewerTarget.initialShowViewers}
-          targetViewerId={activeStoryViewerTarget.targetViewerId}
-          currentUser={currentUser}
-          onOpenReportModal={handleOpenReportModal}
-          onStoryDeleted={() => setActiveStoryViewerTarget(null)}
-        />
-      )}
+      {/* Modal Khởi tạo phòng phát trực tiếp */}
+      <CreateLiveStreamModal
+        isOpen={isCreateLiveOpen}
+        onClose={() => setIsCreateLiveOpen(false)}
+        onCreateStream={handleCreateLiveStream}
+      />
+
+      {/* Modal Xem & Phát Livestream Realtime có kiểm duyệt AI */}
+      <LiveStreamModal
+        isOpen={!!activeLiveSession}
+        mode={liveStreamMode}
+        session={activeLiveSession}
+        currentUser={currentUser}
+        initialStream={liveStreamMedia}
+        onClose={() => {
+          if (liveStreamMedia) {
+            try {
+              liveStreamMedia.getTracks().forEach(t => t.stop());
+            } catch (e) {}
+            setLiveStreamMedia(null);
+          }
+          setActiveLiveSession(null);
+        }}
+        onEndStream={(sessionId) => {
+          if (liveStreamMedia) {
+            try {
+              liveStreamMedia.getTracks().forEach(t => t.stop());
+            } catch (e) {}
+            setLiveStreamMedia(null);
+          }
+          handleEndLiveStream(sessionId);
+        }}
+      />
 
     </div>
   );
 }
+

@@ -195,8 +195,24 @@ async function checkAllHealth(res) {
   }, null, 2));
 }
 
+// Bắt lỗi ngắt kết nối client đột ngột (ECONNRESET / EPIPE) để Gateway không bao giờ bị crash
+process.on('uncaughtException', (err) => {
+  if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+    console.warn('⚠️ [Gateway] Bỏ qua lỗi ngắt kết nối socket client:', err.message);
+    return;
+  }
+  console.error('[Gateway Uncaught Exception]:', err);
+});
+
 // WebSocket chat do Platform API/FastAPI quản lý. Từ chối upgrade ở path khác.
 server.on('upgrade', (req, socket, head) => {
+  // Lắng nghe lỗi trên client socket để tránh unhandled ECONNRESET làm sập Gateway
+  socket.on('error', (err) => {
+    if (err.code !== 'ECONNRESET') {
+      console.warn('[Gateway Client Socket Error]:', err.message);
+    }
+  });
+
   const requestPath = new URL(req.url, 'http://gateway.local').pathname;
   if (!/^\/api(?:\/v1)?\/messages\/ws\//.test(requestPath)) {
     socket.destroy();
@@ -207,23 +223,30 @@ server.on('upgrade', (req, socket, head) => {
   const targetPort = Number(target.port || (target.protocol === 'https:' ? 443 : 80));
   const targetHost = target.hostname;
 
-  const proxySocket = net.connect(targetPort, targetHost, () => {
-    proxySocket.write(
-      `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n` +
-      Object.keys(req.headers)
-        .map(key => `${key}: ${req.headers[key]}`)
-        .join('\r\n') +
-      '\r\n\r\n'
-    );
-    proxySocket.write(head);
-    proxySocket.pipe(socket);
-    socket.pipe(proxySocket);
-  });
+  let proxySocket = null;
+  try {
+    proxySocket = net.connect(targetPort, targetHost, () => {
+      proxySocket.write(
+        `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n` +
+        Object.keys(req.headers)
+          .map(key => `${key}: ${req.headers[key]}`)
+          .join('\r\n') +
+        '\r\n\r\n'
+      );
+      proxySocket.write(head);
+      proxySocket.pipe(socket);
+      socket.pipe(proxySocket);
+    });
 
-  proxySocket.on('error', (err) => {
-    console.error('[Gateway WebSocket Error]:', err.message);
+    proxySocket.on('error', (err) => {
+      if (err.code !== 'ECONNRESET') {
+        console.error('[Gateway WebSocket Error]:', err.message);
+      }
+      socket.destroy();
+    });
+  } catch (err) {
     socket.destroy();
-  });
+  }
 });
 
 server.listen(PORT, () => {

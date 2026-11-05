@@ -4,7 +4,8 @@ import {
   Phone, Video, Check, CheckCheck, Clock, RotateCw, Loader2, MessageSquare, ArrowLeft,
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
-  User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download
+  User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download,
+  PhoneMissed, PhoneOff
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
@@ -14,7 +15,10 @@ import { fetchStories } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import {
   CALL_STATUS,
+  CALL_LOG_REASON,
   DEFAULT_ICE_SERVERS,
+  formatCallDuration,
+  formatCallLogText,
   toggleMediaTrack,
   stopMediaStream
 } from '../utils/callMediaLogic';
@@ -215,6 +219,8 @@ export default function MessagesView({
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const callTimerRef = useRef(null);
+  // Ref đếm timeout khi người được gọi không trả lời
+  const callTimeoutRef = useRef(null);
   const activeCallPartnerIdRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
 
@@ -451,7 +457,9 @@ export default function MessagesView({
                       ? ('[Hình ảnh] ' + (msg.content || '')) 
                       : (msg.media_url && msg.media_type === 'file' 
                           ? ('[Tệp tin] ' + (msg.content || '')) 
-                          : msg.content));
+                          : (msg.media_type === 'call_log'
+                              ? ('[Cuộc gọi] ' + (msg.content || ''))
+                              : msg.content)));
                 return prev.map((c) => {
                   if (String(c.id) === convIdStr) {
                     const isCurrentChat = String(selectedConversationIdRef.current) === convIdStr;
@@ -532,6 +540,11 @@ export default function MessagesView({
               if (data.accepted) {
                 setCallStatus(CALL_STATUS.CONNECTED);
                 setCallDuration(0);
+                // Người nhận bắt máy → hủy timeout chờ
+                if (callTimeoutRef.current) {
+                  clearTimeout(callTimeoutRef.current);
+                  callTimeoutRef.current = null;
+                }
                 if (callTimerRef.current) clearInterval(callTimerRef.current);
                 callTimerRef.current = setInterval(() => {
                   setCallDuration(prev => prev + 1);
@@ -560,14 +573,14 @@ export default function MessagesView({
                   }
                 }
               } else {
-                alert(
-                  data.reason === 'offline'
-                    ? 'Người dùng hiện không trực tuyến'
-                    : (data.reason === 'busy'
-                        ? 'Người dùng đang bận trong cuộc gọi khác'
-                        : 'Cuộc gọi đã bị từ chối')
-                );
+                // Người nhận từ chối cuộc gọi hoặc đang bận / offline
+                if (callTimeoutRef.current) {
+                  clearTimeout(callTimeoutRef.current);
+                  callTimeoutRef.current = null;
+                }
+                const partnerId = activeCallPartnerIdRef.current || data.from_user_id;
                 cleanupCall();
+                recordCallLog(data.reason || 'declined', 0, partnerId, callType);
               }
             } else if (data.type === 'WEBRTC_SIGNAL') {
               const partnerId = activeCallPartnerIdRef.current || data.from_user_id || data.caller_id;
@@ -642,6 +655,10 @@ export default function MessagesView({
                 }
               }
             } else if (data.type === 'CALL_ENDED') {
+              if (callTimeoutRef.current) {
+                clearTimeout(callTimeoutRef.current);
+                callTimeoutRef.current = null;
+              }
               cleanupCall();
             }
           } catch (e) {
@@ -678,11 +695,67 @@ export default function MessagesView({
     };
   }, [currentUser?.id]);
 
-  // Dọn dẹp tài nguyên cuộc gọi
+  // Ghi nhận nhật ký cuộc gọi vào khung chat và đồng bộ cơ sở dữ liệu
+  const recordCallLog = async (reason, duration = 0, targetPartnerId = null, cType = null) => {
+    const partnerId = targetPartnerId || activeCallPartnerIdRef.current || callPartnerUser?.id;
+    if (!partnerId || !currentUser?.id) return;
+
+    const usedCallType = cType || callType || 'video';
+    const logText = formatCallLogText({
+      callType: usedCallType,
+      reason,
+      duration
+    });
+
+    const nowTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const tempId = `call_log_${Date.now()}`;
+    const convIdStr = String(selectedConversationIdRef.current);
+
+    // Cập nhật optimistic vào activeMessages nếu đang mở cuộc trò chuyện này
+    setActiveMessages((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        senderId: 'current',
+        text: logText,
+        mediaUrl: null,
+        mediaType: 'call_log',
+        isRecalled: false,
+        time: nowTime,
+        status: 'sending'
+      }
+    ]);
+
+    // Cập nhật danh sách conversations
+    setConversations((prev) => prev.map((c) => {
+      if (String(c.id) === convIdStr || String(c.user?.id) === String(partnerId)) {
+        return {
+          ...c,
+          lastMessage: `[Cuộc gọi] ${logText}`,
+          lastTime: nowTime
+        };
+      }
+      return c;
+    }));
+
+    try {
+      await messageService.sendMessage(partnerId, logText, null, 'call_log');
+    } catch (err) {
+      console.warn('Lỗi ghi nhật ký cuộc gọi:', err);
+    }
+  };
+
+  // Dọn dẹp tài nguyên cuộc gọi (gọi sau mọi kết thúc: timeout, từ chối, kết thúc bình thường)
   const cleanupCall = () => {
+    // Hủy bộ đếm thời gian cuộc gọi đang kết nối
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       callTimerRef.current = null;
+    }
+    // Hủy timeout chờ người nhận bắt máy
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
     }
     stopMediaStream(localStreamRef.current);
     localStreamRef.current = null;
@@ -817,6 +890,22 @@ export default function MessagesView({
       caller_name: currentUser.name || 'Người dùng',
       caller_avatar: currentUser.avatar || DEFAULT_AVATAR
     }));
+
+    // ⏱ Tự động hủy cuộc gọi sau 30 giây nếu người nhận không bắt máy
+    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    callTimeoutRef.current = setTimeout(() => {
+      const partnerId = activeCallPartnerIdRef.current;
+      // Chỉ xử lý nếu vẫn đang trong trạng thái chờ (OUTGOING)
+      if (wsRef.current?.readyState === WebSocket.OPEN && partnerId) {
+        wsRef.current.send(JSON.stringify({
+          type: 'CALL_ENDED',
+          receiver_id: partnerId,
+          reason: 'no_answer'
+        }));
+      }
+      cleanupCall();
+      recordCallLog('missed', 0, partnerId, type);
+    }, 30000);
   };
 
   // Trả lời cuộc gọi đến
@@ -875,14 +964,27 @@ export default function MessagesView({
   // Kết thúc cuộc gọi
   const handleEndCall = () => {
     const partnerId = activeCallPartnerIdRef.current || callPartnerUser?.id;
+    const isOutgoing = callStatus === CALL_STATUS.OUTGOING;
+    const isConnected = callStatus === CALL_STATUS.CONNECTED;
+    const currentDuration = callDuration;
+    const currentCallType = callType;
+
     if (partnerId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'CALL_ENDED',
         receiver_id: partnerId,
-        duration: callDuration
+        reason: isOutgoing ? 'cancelled' : 'completed',
+        duration: currentDuration
       }));
     }
+
     cleanupCall();
+
+    if (isOutgoing) {
+      recordCallLog('cancelled', 0, partnerId, currentCallType);
+    } else if (isConnected) {
+      recordCallLog('completed', currentDuration, partnerId, currentCallType);
+    }
   };
 
   // Bật/Tắt Micro
@@ -1891,7 +1993,7 @@ export default function MessagesView({
                           )}
 
                           <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative flex flex-col ' + (isMe ? 'items-end' : 'items-start')}>
-                            {/* Nội dung tin nhắn: Thu hồi hoặc Hiển thị thường (ảnh + chữ + link) */}
+                            {/* Nội dung tin nhắn: Thu hồi hoặc Nhật ký cuộc gọi hoặc Hiển thị thường (ảnh + chữ + link) */}
                             {msg.isRecalled ? (
                               <div
                                 className={
@@ -1903,6 +2005,55 @@ export default function MessagesView({
                               >
                                 <RotateCcw className="w-3.5 h-3.5 opacity-70 shrink-0" />
                                 <span>Tin nhắn đã được thu hồi</span>
+                              </div>
+                            ) : msg.mediaType === 'call_log' ? (
+                              <div
+                                className={
+                                  'p-3 sm:p-3.5 rounded-2xl text-sm shadow-2xs border flex items-center gap-3 transition min-w-[240px] max-w-xs sm:max-w-sm ' +
+                                  (isMe
+                                    ? 'bg-blue-50/90 dark:bg-slate-800 border-blue-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-br-xs'
+                                    : 'bg-white dark:bg-slate-800 border-slate-200/90 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-xs')
+                                }
+                              >
+                                <div
+                                  className={
+                                    'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ' +
+                                    (msg.text?.includes('nhỡ') || msg.text?.includes('từ chối')
+                                      ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400'
+                                      : msg.text?.includes('hủy')
+                                        ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400'
+                                        : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400')
+                                  }
+                                >
+                                  {msg.text?.includes('nhỡ') ? (
+                                    <PhoneMissed className="w-5 h-5" />
+                                  ) : msg.text?.includes('từ chối') || msg.text?.includes('hủy') ? (
+                                    <PhoneOff className="w-5 h-5" />
+                                  ) : msg.text?.includes('thoại') ? (
+                                    <Phone className="w-5 h-5" />
+                                  ) : (
+                                    <Video className="w-5 h-5" />
+                                  )}
+                                </div>
+
+                                <div className="flex-1 min-w-0 pr-1">
+                                  <div className="font-semibold text-xs sm:text-sm truncate">
+                                    {msg.text}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-0.5">
+                                    {msg.time}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => startCall(msg.text?.includes('thoại') ? 'audio' : 'video')}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 transition shadow-xs cursor-pointer shrink-0 hover:scale-105 active:scale-95"
+                                  title="Gọi lại ngay"
+                                >
+                                  {msg.text?.includes('thoại') ? <Phone className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+                                  <span>Gọi lại</span>
+                                </button>
                               </div>
                             ) : (
                               <div

@@ -11,6 +11,41 @@ export const CALL_STATUS = {
   ENDED: 'ended'
 };
 
+export const CALL_LOG_REASON = {
+  DECLINED: 'declined',
+  MISSED: 'missed',
+  CANCELLED: 'cancelled',
+  COMPLETED: 'completed',
+  BUSY: 'busy',
+  OFFLINE: 'offline'
+};
+
+/**
+ * Định dạng nội dung tin nhắn hiển thị trong khung chat cho nhật ký cuộc gọi
+ */
+export function formatCallLogText({ callType = 'video', reason = 'completed', duration = 0 }) {
+  const typeText = callType === 'audio' ? 'thoại' : 'video';
+  switch (reason) {
+    case 'declined':
+      return `Cuộc gọi ${typeText} bị từ chối`;
+    case 'missed':
+    case 'no_answer':
+      return `Cuộc gọi ${typeText} nhỡ`;
+    case 'cancelled':
+      return `Cuộc gọi ${typeText} đã hủy`;
+    case 'busy':
+      return `Cuộc gọi ${typeText} • Người nhận bận`;
+    case 'offline':
+      return `Cuộc gọi ${typeText} • Người nhận không trực tuyến`;
+    case 'completed':
+    default:
+      if (duration > 0) {
+        return `Cuộc gọi ${typeText} • ${formatCallDuration(duration)}`;
+      }
+      return `Cuộc gọi ${typeText}`;
+  }
+}
+
 export const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
