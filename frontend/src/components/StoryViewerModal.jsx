@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, Trash2, Heart, 
   ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert,
-  Send, Loader2, Clock
+  Send, Loader2, Clock, MoreHorizontal, Link, BellOff, AlertTriangle
 } from 'lucide-react';
 import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
 import { messageService } from '../services/messageService';
@@ -29,10 +29,14 @@ export default function StoryViewerModal({
   initialStoryId,
   initialShowViewers = false,
   targetViewerId = null,
+  onOpenReportModal,
+  onStoryViewed,
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showStoryMenu, setShowStoryMenu] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
   const [viewersList, setViewersList] = useState([]);
   const [isLoadingViewers, setIsLoadingViewers] = useState(false);
@@ -43,9 +47,14 @@ export default function StoryViewerModal({
 
   // Trạng thái trả lời tin bằng tin nhắn (Reply Story)
   const [replyMessage, setReplyMessage] = useState('');
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [replySuccessMsg, setReplySuccessMsg] = useState('');
   const [replyErrorMsg, setReplyErrorMsg] = useState('');
+
+  // Giữ chuột / chạm màn hình để tạm dừng tin
+  const [isHolding, setIsHolding] = useState(false);
+  const pressStartTimeRef = useRef(0);
 
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
@@ -54,6 +63,26 @@ export default function StoryViewerModal({
   const safeIndex = stories.length > 0 ? Math.min(currentIndex, stories.length - 1) : 0;
   const currentStory = stories[safeIndex] || null;
   const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
+
+  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn hoặc danh sách người xem
+  const isEffectivePaused = Boolean(
+    isPaused || 
+    isHolding || 
+    isInputFocused || 
+    replyMessage.trim().length > 0 || 
+    showViewers ||
+    showStoryMenu
+  );
+
+  // Đồng bộ tạm dừng video khi tin bị tạm ngưng
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (isEffectivePaused) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isEffectivePaused]);
 
   // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
   useEffect(() => {
@@ -130,15 +159,74 @@ export default function StoryViewerModal({
     setMyReaction(currentStory.myReaction || null);
     setReplySuccessMsg('');
     setReplyErrorMsg('');
+    setShowStoryMenu(false);
 
-    if (currentUser?.id && !isAuthor) {
+    // Ghi nhận lượt xem cho cả người xem lẫn tác giả (để tác giả cũng chuyển viền xám khi đã xem hết)
+    if (currentUser?.id) {
+      currentStory.isViewed = true;
+      if (tray?.stories) {
+        tray.stories.forEach(s => {
+          if (String(s.id) === String(currentStory.id)) s.isViewed = true;
+        });
+        tray.hasUnviewedStories = tray.stories.some(s => !s.isViewed);
+      }
       viewStoryApi(currentStory.id).catch((err) => console.warn('Lỗi viewStory:', err.message));
+      onStoryViewed?.(currentStory.id, tray?.author?.id);
     }
   }, [currentStory?.id]);
 
+  const handleCopyStoryLink = () => {
+    const url = `${window.location.origin}?story=${currentStory?.id}`;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => {
+          setReplySuccessMsg('Đã sao chép liên kết tin!');
+          setShowStoryMenu(false);
+          setTimeout(() => setReplySuccessMsg(''), 2500);
+        })
+        .catch(() => {
+          setReplySuccessMsg('Đã sao chép liên kết tin!');
+          setShowStoryMenu(false);
+          setTimeout(() => setReplySuccessMsg(''), 2500);
+        });
+    } else {
+      setReplySuccessMsg('Đã sao chép liên kết tin!');
+      setShowStoryMenu(false);
+      setTimeout(() => setReplySuccessMsg(''), 2500);
+    }
+  };
+
+  const handleMuteAuthorStories = () => {
+    setReplySuccessMsg(`Đã tắt tin của ${tray?.author?.name || 'người này'}!`);
+    setShowStoryMenu(false);
+    setTimeout(() => setReplySuccessMsg(''), 2500);
+  };
+
+  const handleReportStory = () => {
+    setShowStoryMenu(false);
+    setIsPaused(true);
+    if (onOpenReportModal && currentStory) {
+      onOpenReportModal({
+        targetType: 'story',
+        type: 'story',
+        targetId: currentStory.id,
+        id: currentStory.id,
+        targetAuthor: {
+          id: tray?.author?.id,
+          name: tray?.author?.name || 'Tác giả tin',
+          username: tray?.author?.username || 'user',
+        },
+        targetExcerpt: currentStory.textContent || (currentStory.storyType === 'image' ? '[Hình ảnh Tin]' : '[Video Tin]'),
+        contentExcerpt: currentStory.textContent || (currentStory.storyType === 'image' ? '[Hình ảnh Tin]' : '[Video Tin]'),
+        imageUrl: currentStory.storyType === 'image' ? currentStory.mediaUrl : null,
+        target: currentStory,
+      });
+    }
+  };
+
   // Bộ đếm tiến trình (Progress bar 5s cho static / theo video duration)
   useEffect(() => {
-    if (!isOpen || isPaused || showViewers || !currentStory) return;
+    if (!isOpen || isEffectivePaused || !currentStory) return;
 
     const duration = currentStory.storyType === 'video' ? 15000 : 5000;
     const interval = 50; // cập nhật mỗi 50ms
@@ -155,7 +243,7 @@ export default function StoryViewerModal({
     }, interval);
 
     return () => clearInterval(progressTimerRef.current);
-  }, [isOpen, currentIndex, isPaused, showViewers, currentStory?.id]);
+  }, [isOpen, currentIndex, isEffectivePaused, currentStory?.id]);
 
   if (!isOpen || !currentStory) return null;
 
@@ -177,6 +265,35 @@ export default function StoryViewerModal({
     } else if (onPrevTray) {
       onPrevTray();
     }
+  };
+
+  // Bắt đầu giữ chuột / chạm màn hình để tạm dừng tin
+  const handleHoldStart = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    pressStartTimeRef.current = Date.now();
+    setIsHolding(true);
+  };
+
+  // Thả tay hoặc rời chuột
+  const handleHoldEnd = () => {
+    setIsHolding(false);
+  };
+
+  // Nhấn nhanh (<250ms) mép trái / mép phải để chuyển tin, hoặc nhả chuột sau khi giữ lâu
+  const handleTapOrRelease = (direction, e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const duration = Date.now() - pressStartTimeRef.current;
+    setIsHolding(false);
+
+    // Nếu nhấp nhanh dưới 250ms -> chuyển tin (next hoặc prev)
+    if (duration < 250) {
+      if (direction === 'prev') {
+        handlePrevStory();
+      } else {
+        handleNextStory();
+      }
+    }
+    // Nếu giữ trên 250ms -> là hành vi giữ tạm dừng (hold to pause), chỉ tiếp tục chạy chứ không chuyển tin
   };
 
   // Kích hoạt hiệu ứng hạt Reaction bay bổng đa hướng (Facebook Floating Hearts)
@@ -243,6 +360,7 @@ export default function StoryViewerModal({
       );
 
       setReplyMessage('');
+      setIsInputFocused(false);
       setReplySuccessMsg(`Đã gửi tin nhắn đến ${tray.author?.name || 'tác giả'}`);
       setTimeout(() => setReplySuccessMsg(''), 3000);
     } catch (err) {
@@ -250,6 +368,7 @@ export default function StoryViewerModal({
       setTimeout(() => setReplyErrorMsg(''), 3000);
     } finally {
       setIsSendingReply(false);
+      setIsInputFocused(false);
       setIsPaused(false);
     }
   };
@@ -339,11 +458,7 @@ export default function StoryViewerModal({
 
       {/* Khung nội dung Tin (Tỉ lệ 9:16 dọc chuẩn Story) */}
       <div 
-        className="relative w-full max-w-[420px] h-[85vh] sm:h-[90vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col justify-between"
-        onMouseDown={() => !replyMessage && setIsPaused(true)}
-        onMouseUp={() => !replyMessage && setIsPaused(false)}
-        onTouchStart={() => !replyMessage && setIsPaused(true)}
-        onTouchEnd={() => !replyMessage && setIsPaused(false)}
+        className="relative w-full max-w-[420px] h-[85vh] sm:h-[90vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col justify-between select-none"
       >
         {/* 1. Các vạch tiến trình (Progress Bars) trên đầu */}
         <div className="absolute top-3 inset-x-3 z-30 flex gap-1.5">
@@ -397,16 +512,134 @@ export default function StoryViewerModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {isAuthor && (
-              <button 
-                onClick={handleDelete}
-                className="p-2 rounded-full bg-black/40 hover:bg-rose-600/80 text-white backdrop-blur-sm transition cursor-pointer"
-                title="Xóa tin"
+          {/* Cụm công cụ góc phải trên (Play/Pause, Âm thanh, Menu 3 chấm ... chuẩn Facebook Story) */}
+          <div className="flex items-center gap-1.5 z-40 relative">
+            {/* Nút Bật/Tắt âm thanh (khi là Video) */}
+            {currentStory.storyType === 'video' && (
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-sm transition cursor-pointer"
+                title={isMuted ? 'Bật âm thanh' : 'Tắt âm thanh'}
               >
-                <Trash2 className="w-4 h-4" />
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
             )}
+
+            {/* Nút Tạm dừng / Phát */}
+            <button
+              onClick={() => setIsPaused(!isPaused)}
+              className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-sm transition cursor-pointer"
+              title={isPaused ? 'Phát tiếp' : 'Tạm dừng'}
+            >
+              {isPaused ? <Play className="w-4 h-4 fill-white" /> : <Pause className="w-4 h-4 fill-white" />}
+            </button>
+
+            {/* Nút Ba Chấm (...) Menu tùy chọn giống Facebook Story */}
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowStoryMenu(!showStoryMenu);
+                }}
+                className={`p-1.5 rounded-full transition cursor-pointer ${
+                  showStoryMenu 
+                    ? 'bg-blue-600 text-white shadow-lg' 
+                    : 'bg-black/40 hover:bg-black/60 text-white backdrop-blur-sm'
+                }`}
+                title="Tùy chọn khác"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+
+              {/* Popover Menu chuẩn Facebook Story */}
+              {showStoryMenu && (
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 top-10 w-72 sm:w-80 p-2 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/15 text-white z-50 animate-scale-up space-y-1 select-none"
+                >
+                  {/* Mục 1: Sao chép liên kết */}
+                  <button
+                    onClick={handleCopyStoryLink}
+                    className="w-full flex items-start gap-3 p-2.5 rounded-xl hover:bg-white/10 transition text-left cursor-pointer group"
+                  >
+                    <div className="p-2 rounded-full bg-white/10 group-hover:bg-blue-600/30 text-white transition shrink-0 mt-0.5">
+                      <Link className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-white group-hover:text-blue-300 transition">
+                        Sao chép liên kết để chia sẻ tin này
+                      </p>
+                      <p className="text-[10px] text-white/60 leading-tight mt-0.5">
+                        Tin sẽ hiển thị với đối tượng của {tray.author?.name} trong 24 giờ.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Mục 2: Tắt tin của tác giả */}
+                  {!isAuthor && (
+                    <button
+                      onClick={handleMuteAuthorStories}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/10 transition text-left cursor-pointer group"
+                    >
+                      <div className="p-2 rounded-full bg-white/10 group-hover:bg-amber-600/30 text-white transition shrink-0">
+                        <BellOff className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-amber-300 transition">
+                          Tắt tin của {tray.author?.name}
+                        </p>
+                        <p className="text-[10px] text-white/60 leading-tight">
+                          Không hiển thị tin từ người này trên đầu bảng tin
+                        </p>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Mục 3: Báo cáo tin (Đồng bộ với ReportModal) */}
+                  {!isAuthor && (
+                    <button
+                      onClick={handleReportStory}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-rose-500/20 transition text-left cursor-pointer group"
+                    >
+                      <div className="p-2 rounded-full bg-rose-500/20 text-rose-400 group-hover:bg-rose-500/30 transition shrink-0">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-rose-300 group-hover:text-rose-200 transition">
+                          Báo cáo tin
+                        </p>
+                        <p className="text-[10px] text-white/60 leading-tight">
+                          Tôi lo ngại về tin này (bạo lực, nhạy cảm, độc hại...)
+                        </p>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Mục 4: Xóa tin (Chỉ dành cho tác giả) */}
+                  {isAuthor && (
+                    <button
+                      onClick={() => {
+                        setShowStoryMenu(false);
+                        handleDelete();
+                      }}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-rose-500/20 transition text-left cursor-pointer group text-rose-400"
+                    >
+                      <div className="p-2 rounded-full bg-rose-500/20 group-hover:bg-rose-500/30 transition shrink-0">
+                        <Trash2 className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold group-hover:text-rose-300 transition">
+                          Xóa tin này
+                        </p>
+                        <p className="text-[10px] text-white/60 leading-tight">
+                          Gỡ tin vĩnh viễn khỏi trang cá nhân
+                        </p>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -415,7 +648,7 @@ export default function StoryViewerModal({
           {/* Tin văn bản */}
           {currentStory.storyType === 'text' && (
             <div 
-              className="w-full h-full relative"
+              className="w-full h-full relative flex items-center justify-center overflow-hidden"
               style={currentStory.backgroundStyle || { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
             >
               <div 
@@ -431,6 +664,7 @@ export default function StoryViewerModal({
                   style={{ 
                     fontFamily: currentStory.backgroundStyle?.fontFamily || 'sans-serif',
                     textAlign: currentStory.backgroundStyle?.textAlign || 'center',
+                    fontSize: currentStory.backgroundStyle?.textScale ? `${Math.round(28 * currentStory.backgroundStyle.textScale)}px` : undefined,
                   }}
                 >
                   {currentStory.textContent}
@@ -490,7 +724,12 @@ export default function StoryViewerModal({
                     color: currentStory.backgroundStyle?.overlayColor || '#ffffff',
                   }}
                 >
-                  <p className="font-bold text-xl sm:text-2xl break-words leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+                  <p 
+                    className="font-bold text-xl sm:text-2xl break-words leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]"
+                    style={{
+                      fontSize: currentStory.backgroundStyle?.textScale ? `${Math.round(24 * currentStory.backgroundStyle.textScale)}px` : undefined,
+                    }}
+                  >
                     {currentStory.backgroundStyle.overlayText}
                   </p>
                 </div>
@@ -520,7 +759,7 @@ export default function StoryViewerModal({
                 autoPlay
                 playsInline
                 loop
-                muted={currentStory.backgroundStyle?.isMuted || false}
+                muted={isMuted || currentStory.backgroundStyle?.isMuted || false}
                 className={`relative z-10 w-full h-full transition-all duration-200 ${
                   currentStory.backgroundStyle?.fitMode === 'cover' ? 'object-cover' : 'object-contain'
                 }`}
@@ -553,7 +792,12 @@ export default function StoryViewerModal({
                     color: currentStory.backgroundStyle?.overlayColor || '#ffffff',
                   }}
                 >
-                  <p className="font-bold text-xl sm:text-2xl break-words leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+                  <p 
+                    className="font-bold text-xl sm:text-2xl break-words leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]"
+                    style={{
+                      fontSize: currentStory.backgroundStyle?.textScale ? `${Math.round(24 * currentStory.backgroundStyle.textScale)}px` : undefined,
+                    }}
+                  >
                     {currentStory.backgroundStyle.overlayText}
                   </p>
                 </div>
@@ -587,6 +831,35 @@ export default function StoryViewerModal({
             ))}
           </div>
         </div>
+
+        {/* VÙNG NHẤN MÉP TRÁI / MÉP PHẢI ĐỂ CHUYỂN TIN & GIỮ CHUỘT ĐỂ TẠM DỪNG (INSTAGRAM / FACEBOOK UX) */}
+        <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex select-none pointer-events-auto">
+          {/* Mép trái (35%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
+          <div 
+            className="w-[35%] h-full cursor-pointer select-none"
+            onPointerDown={handleHoldStart}
+            onPointerUp={(e) => handleTapOrRelease('prev', e)}
+            onPointerLeave={handleHoldEnd}
+            onPointerCancel={handleHoldEnd}
+            title="Nhấn mép trái để xem tin trước • Giữ chuột để tạm dừng"
+          />
+          {/* Mép phải (65%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
+          <div 
+            className="w-[65%] h-full cursor-pointer select-none"
+            onPointerDown={handleHoldStart}
+            onPointerUp={(e) => handleTapOrRelease('next', e)}
+            onPointerLeave={handleHoldEnd}
+            onPointerCancel={handleHoldEnd}
+            title="Nhấn mép phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
+          />
+        </div>
+
+        {/* Biểu tượng Tạm dừng khi đang giữ chuột */}
+        {isHolding && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 p-3.5 rounded-full bg-black/60 backdrop-blur-md text-white pointer-events-none animate-scale-up shadow-2xl border border-white/20">
+            <Pause className="w-7 h-7" />
+          </div>
+        )}
 
         {/* 4. Footer tương tác: Xem lượt xem hoặc Trả lời tin & Thả reaction */}
         <div className="absolute bottom-4 inset-x-4 z-30 space-y-2">
@@ -639,8 +912,8 @@ export default function StoryViewerModal({
                   type="text"
                   value={replyMessage}
                   onChange={(e) => setReplyMessage(e.target.value)}
-                  onFocus={() => setIsPaused(true)}
-                  onBlur={() => !replyMessage.trim() && setIsPaused(false)}
+                  onFocus={() => setIsInputFocused(true)}
+                  onBlur={() => setIsInputFocused(false)}
                   placeholder={`Gửi tin nhắn cho ${tray.author?.name || 'tác giả'}...`}
                   className="flex-1 px-4 py-2.5 rounded-full bg-white/20 hover:bg-white/25 focus:bg-white/35 backdrop-blur-md text-white placeholder-white/70 text-xs border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/50 transition"
                 />

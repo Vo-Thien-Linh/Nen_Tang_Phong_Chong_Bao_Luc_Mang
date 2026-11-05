@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Search, Send, Image as ImageIcon, Smile, MoreVertical, 
   Phone, Video, Check, CheckCheck, Clock, RotateCw, Loader2, MessageSquare, ArrowLeft,
@@ -10,6 +10,7 @@ import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
+import { fetchStories } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import {
   CALL_STATUS,
@@ -112,7 +113,8 @@ export default function MessagesView({
   initialChatUserId, 
   onOpenReportModal, 
   onRequireAuth,
-  onOpenProfile
+  onOpenProfile,
+  onOpenStoryViewer
 }) {
   if (!currentUser) {
     return (
@@ -136,6 +138,29 @@ export default function MessagesView({
 
   // Tab danh sách bên trái: 'main' (Hộp thư chính) | 'requests' (Tin nhắn chờ từ người lạ)
   const [inboxTab, setInboxTab] = useState('main');
+
+  // Dữ liệu Story trays để hiển thị viền xanh & icon đám mây
+  const [storyTrays, setStoryTrays] = useState([]);
+  useEffect(() => {
+    fetchStories()
+      .then(res => setStoryTrays(res?.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Tạo Map: userId → { hasUnviewed, hasTextStory, tray } để tra cứu nhanh
+  const userStoryMap = useMemo(() => {
+    const map = new Map();
+    for (const tray of storyTrays) {
+      const uid = String(tray.author?.id);
+      map.set(uid, {
+        hasUnviewed: Boolean(tray.hasUnviewedStories),
+        hasTextStory: Array.isArray(tray.stories) && tray.stories.some(s => s.storyType === 'text'),
+        hasStory: true,
+        tray,
+      });
+    }
+    return map;
+  }, [storyTrays]);
 
   // Danh sách các cuộc trò chuyện thực tế từ CSDL
   const [conversations, setConversations] = useState([]);
@@ -1513,26 +1538,56 @@ export default function MessagesView({
                       (isSelected ? 'bg-blue-50/90 border-l-4 border-blue-600' : 'hover:bg-slate-50')
                     }
                   >
-                    {/* Avatar */}
-                    <div 
-                      className="relative shrink-0"
-                      onClick={(e) => {
-                        if (onOpenProfile) {
-                          e.stopPropagation();
-                          onOpenProfile(conv.user);
-                        }
-                      }}
-                      title="Bấm để xem trang cá nhân"
-                    >
-                      <img
-                        src={conv.user?.avatar || DEFAULT_AVATAR}
-                        alt={conv.user?.name || ''}
-                        className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
-                      />
-                      {conv.user?.isOnline && (
-                        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
-                      )}
-                    </div>
+                    {/* Avatar với viền xanh story & icon đám mây */}
+                    {(() => {
+                      const storyInfo = userStoryMap.get(String(conv.user?.id));
+                      return (
+                        <div 
+                          className="relative shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (storyInfo) {
+                              if (onOpenStoryViewer) {
+                                onOpenStoryViewer({ tray: storyInfo.tray, userId: conv.user?.id });
+                              }
+                            } else if (onOpenProfile) {
+                              onOpenProfile(conv.user);
+                            }
+                          }}
+                          title={storyInfo ? (storyInfo.hasUnviewed ? 'Nhấn để xem tin mới' : 'Nhấn để xem tin') : 'Bấm để xem trang cá nhân'}
+                        >
+                          {/* Viền story: xanh nếu chưa xem, xám nếu đã xem hết */}
+                          {storyInfo ? (
+                            <div className={`rounded-full p-[2.5px] ${storyInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400 ring-0' : 'bg-slate-300'}`}>
+                              <div className="rounded-full p-[2px] bg-white">
+                                <img
+                                  src={conv.user?.avatar || DEFAULT_AVATAR}
+                                  alt={conv.user?.name || ''}
+                                  className="w-10 h-10 rounded-full object-cover cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <img
+                              src={conv.user?.avatar || DEFAULT_AVATAR}
+                              alt={conv.user?.name || ''}
+                              className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
+                            />
+                          )}
+                          {/* Icon đám mây nếu có text story */}
+                          {storyInfo?.hasTextStory && (
+                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow border-2 border-white z-10">
+                              <svg viewBox="0 0 20 14" className="w-3 h-3 fill-white">
+                                <path d="M4.5 11.5A3 3 0 0 1 2 8.5a3 3 0 0 1 2.4-2.94A4 4 0 0 1 12 4.1a3.5 3.5 0 0 1 5.5 2.9 3 3 0 0 1-.5 5.5H4.5z"/>
+                              </svg>
+                            </div>
+                          )}
+                          {conv.user?.isOnline && (
+                            <span className={`absolute ${storyInfo ? 'bottom-0.5 right-0.5' : 'bottom-0 right-0'} w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full`} />
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Tên & Tin nhắn cuối */}
                     <div className="flex-1 min-w-0">
@@ -1584,20 +1639,45 @@ export default function MessagesView({
                     <ArrowLeft className="w-5 h-5" />
                   </button>
 
-                  <div 
-                    className="relative cursor-pointer group shrink-0"
-                    onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                    title="Bấm để xem trang cá nhân"
-                  >
-                    <img
-                      src={currentConversation.user.avatar || DEFAULT_AVATAR}
-                      alt={currentConversation.user.name}
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
-                    />
-                    {currentConversation.user.isOnline && (
-                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
-                    )}
-                  </div>
+                  {(() => {
+                    const headerStoryInfo = userStoryMap.get(String(currentConversation.user?.id));
+                    return (
+                      <div 
+                        className="relative cursor-pointer group shrink-0"
+                        onClick={() => {
+                          if (headerStoryInfo) {
+                            if (onOpenStoryViewer) {
+                              onOpenStoryViewer({ tray: headerStoryInfo.tray, userId: currentConversation.user.id });
+                            }
+                          } else if (onOpenProfile) {
+                            onOpenProfile(currentConversation.user);
+                          }
+                        }}
+                        title={headerStoryInfo ? (headerStoryInfo.hasUnviewed ? 'Nhấn để xem tin mới' : 'Nhấn để xem tin') : 'Bấm để xem trang cá nhân'}
+                      >
+                        {headerStoryInfo ? (
+                          <div className={`rounded-full p-[2px] ${headerStoryInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400' : 'bg-slate-300'}`}>
+                            <div className="rounded-full p-[1.5px] bg-white">
+                              <img
+                                src={currentConversation.user.avatar || DEFAULT_AVATAR}
+                                alt={currentConversation.user.name}
+                                className="w-9 h-9 rounded-full object-cover"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <img
+                            src={currentConversation.user.avatar || DEFAULT_AVATAR}
+                            alt={currentConversation.user.name}
+                            className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
+                          />
+                        )}
+                        {currentConversation.user.isOnline && (
+                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <div className="flex items-center gap-1.5">

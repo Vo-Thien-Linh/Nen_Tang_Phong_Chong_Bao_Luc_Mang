@@ -63,6 +63,33 @@ export default function HomeView({
     }
   };
 
+  const handleStoryViewed = (storyId, authorId) => {
+    setStoryTrays(prevTrays => {
+      const updated = prevTrays.map(tray => {
+        if (String(tray.author?.id) === String(authorId)) {
+          const updatedStories = tray.stories.map(s => 
+            String(s.id) === String(storyId) ? { ...s, isViewed: true } : s
+          );
+          const hasUnviewed = updatedStories.some(s => !s.isViewed);
+          return {
+            ...tray,
+            hasUnviewedStories: hasUnviewed,
+            stories: updatedStories,
+          };
+        }
+        return tray;
+      });
+
+      return [...updated].sort((a, b) => {
+        if (a.hasUnviewedStories && !b.hasUnviewedStories) return -1;
+        if (!a.hasUnviewedStories && b.hasUnviewedStories) return 1;
+        if (a.isSelf && !b.isSelf) return -1;
+        if (!a.isSelf && b.isSelf) return 1;
+        return new Date(b.latestStoryTime) - new Date(a.latestStoryTime);
+      });
+    });
+  };
+
   useEffect(() => {
     loadStories();
   }, [currentUser?.id, refreshKey]);
@@ -752,7 +779,12 @@ export default function HomeView({
           currentUser={currentUser}
           tray={activeStoryTray}
           isOpen={Boolean(activeStoryTray)}
-          onClose={() => setActiveStoryTray(null)}
+          onClose={() => {
+            setActiveStoryTray(null);
+            loadStories();
+          }}
+          onStoryViewed={handleStoryViewed}
+          onOpenReportModal={onOpenReportModal}
           onStoryDeleted={() => {
             loadStories();
           }}

@@ -230,13 +230,18 @@ export function createStoryRepository({ pool }) {
         });
       }
 
-      // Xếp tác giả: Bản thân lên đầu tiên, tiếp theo là những người có tin chưa xem, cuối cùng là đã xem hết
+      // Xếp tác giả: Ưu tiên các tin chưa xem lên trước, tin đã xem hết xếp về sau
       const trays = Array.from(userTrayMap.values());
       trays.sort((a, b) => {
-        if (a.isSelf) return -1;
-        if (b.isSelf) return 1;
+        // 1. Nhóm tin chưa xem luôn hiển thị lên đầu trước tin đã xem hết
         if (a.hasUnviewedStories && !b.hasUnviewedStories) return -1;
         if (!a.hasUnviewedStories && b.hasUnviewedStories) return 1;
+
+        // 2. Nếu cùng trạng thái xem: tin của bản thân xếp trước
+        if (a.isSelf && !b.isSelf) return -1;
+        if (!a.isSelf && b.isSelf) return 1;
+
+        // 3. Tin có cập nhật mới nhất xếp trước
         return new Date(b.latestStoryTime) - new Date(a.latestStoryTime);
       });
 
@@ -257,6 +262,10 @@ export function createStoryRepository({ pool }) {
     async markStoryAsViewed({ storyId, viewerId }) {
       if (!storyId || !viewerId) return false;
 
+      // Kiểm tra xem viewer có phải tác giả của tin không
+      const storyRes = await pool.query('SELECT author_id FROM stories WHERE id = $1', [storyId]);
+      const isAuthor = storyRes.rows.length > 0 && String(storyRes.rows[0].author_id) === String(viewerId);
+
       // Đảm bảo không đếm trùng lượt xem từ cùng 1 người
       const insertQuery = `
         INSERT INTO story_views (story_id, viewer_id, viewed_at)
@@ -267,10 +276,13 @@ export function createStoryRepository({ pool }) {
       const res = await pool.query(insertQuery, [storyId, viewerId]);
 
       if (res.rows.length > 0) {
-        await pool.query(
-          'UPDATE stories SET views_count = views_count + 1 WHERE id = $1',
-          [storyId]
-        );
+        // Chỉ tăng views_count nếu không phải tác giả tự xem tin của mình
+        if (!isAuthor) {
+          await pool.query(
+            'UPDATE stories SET views_count = views_count + 1 WHERE id = $1',
+            [storyId]
+          );
+        }
         return true;
       }
       return false;
@@ -302,10 +314,10 @@ export function createStoryRepository({ pool }) {
         FROM story_views sv
         JOIN users u ON u.id = sv.viewer_id
         LEFT JOIN story_reactions sr ON sr.story_id = sv.story_id AND sr.user_id = sv.viewer_id
-        WHERE sv.story_id = $1
+        WHERE sv.story_id = $1 AND sv.viewer_id != $2
         ORDER BY sv.viewed_at DESC
       `;
-      const { rows } = await pool.query(query, [storyId]);
+      const { rows } = await pool.query(query, [storyId, authorId]);
       return rows;
     },
 

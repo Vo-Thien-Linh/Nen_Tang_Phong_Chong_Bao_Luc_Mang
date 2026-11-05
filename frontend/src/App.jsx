@@ -645,7 +645,7 @@ export default function App() {
   };
 
   // Mở trình xem Story mục tiêu từ thông báo hoặc danh sách tin (chuyên nghiệp như Facebook)
-  const handleOpenStoryViewer = async ({ storyId, tray, initialShowViewers = false, targetViewerId = null }) => {
+  const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
     try {
       let targetTray = tray;
       if (!targetTray) {
@@ -654,10 +654,13 @@ export default function App() {
         if (storyId) {
           targetTray = allTrays.find((t) => t.stories?.some((s) => String(s.id) === String(storyId)));
         }
-        if (!targetTray && currentUser?.id) {
+        if (!targetTray && userId) {
+          targetTray = allTrays.find((t) => String(t.author?.id) === String(userId));
+        }
+        if (!targetTray && currentUser?.id && !userId) {
           targetTray = allTrays.find((t) => String(t.author?.id) === String(currentUser.id));
         }
-        if (!targetTray && allTrays.length > 0) {
+        if (!targetTray && allTrays.length > 0 && !userId) {
           targetTray = allTrays[0];
         }
       }
@@ -1809,6 +1812,7 @@ export default function App() {
             onOpenReportModal={handleOpenReportModal}
             onRequireAuth={handleRequireAuth}
             onOpenProfile={handleOpenUserProfile}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -1852,6 +1856,7 @@ export default function App() {
             onOpenAppealModal={handleOpenAppealModal}
             onEditPost={handleUpdatePost}
             onDeletePost={handleDeleteOwnPost}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -2011,7 +2016,7 @@ export default function App() {
         }}
       />
 
-      {/* Modal Story Viewer toàn cục khi điều hướng từ thông báo */}
+      {/* Modal Story Viewer toàn cục khi điều hướng từ thông báo hoặc từ Messages / Profile */}
       {activeStoryViewerTarget && (
         <StoryViewerModal
           isOpen={true}
@@ -2021,6 +2026,7 @@ export default function App() {
           initialShowViewers={activeStoryViewerTarget.initialShowViewers}
           targetViewerId={activeStoryViewerTarget.targetViewerId}
           currentUser={currentUser}
+          onOpenReportModal={handleOpenReportModal}
           onStoryDeleted={() => setActiveStoryViewerTarget(null)}
         />
       )}

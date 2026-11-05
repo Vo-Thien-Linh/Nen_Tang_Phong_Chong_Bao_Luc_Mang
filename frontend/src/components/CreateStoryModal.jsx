@@ -67,7 +67,8 @@ function exportEditedImage(file, {
   hasTimeSticker = false, 
   timeText = '',
   timePos = { x: 50, y: 16 },
-  textPos = { x: 50, y: 50 }
+  textPos = { x: 50, y: 50 },
+  textScale = 1,
 }) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -135,10 +136,11 @@ function exportEditedImage(file, {
           ctx.restore();
         }
 
-        // Vẽ chữ chèn lên ảnh theo đúng tọa độ người dùng kéo thả
+        // Vẽ chữ chèn lên ảnh theo đúng tọa độ người dùng kéo thả & kích cỡ đã chỉnh
         if (overlayText && overlayText.trim()) {
           ctx.save();
-          ctx.font = `bold 58px ${overlayFont || 'system-ui, sans-serif'}`;
+          const calculatedFontSize = Math.round(58 * textScale);
+          ctx.font = `bold ${calculatedFontSize}px ${overlayFont || 'system-ui, sans-serif'}`;
           ctx.fillStyle = overlayColor || '#ffffff';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -149,7 +151,7 @@ function exportEditedImage(file, {
           const targetCenterY = (textPos.y / 100) * canvasHeight;
 
           const lines = overlayText.split('\n');
-          const lineHeight = 76;
+          const lineHeight = Math.round(calculatedFontSize * 1.3);
           const startY = targetCenterY - ((lines.length - 1) * lineHeight) / 2;
           lines.forEach((line, idx) => {
             ctx.fillText(line, targetCenterX, startY + idx * lineHeight);
@@ -217,9 +219,11 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [altText, setAltText] = useState('');
   const [isAddingAltText, setIsAddingAltText] = useState(false);
 
-  // Vị trí kéo thả (Tọa độ phần trăm 0% -> 100%)
+  // Vị trí kéo thả (Tọa độ phần trăm 0% -> 100%) & Kích cỡ chữ (0.6x -> 2.5x)
   const [timePos, setTimePos] = useState({ x: 50, y: 16 });
   const [textPos, setTextPos] = useState({ x: 50, y: 50 });
+  const [textScale, setTextScale] = useState(1);
+  const [isResizing, setIsResizing] = useState(false);
 
   const fileInputRef = useRef(null);
   const cardRef = useRef(null);
@@ -279,6 +283,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setIsAddingAltText(false);
     setTimePos({ x: 50, y: 16 });
     setTextPos({ x: 50, y: 50 });
+    setTextScale(1);
+    setIsResizing(false);
   };
 
   const handleClose = () => {
@@ -327,6 +333,46 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     window.addEventListener('pointerup', onPointerUp);
   };
 
+  // Kéo các cạnh / góc để điều chỉnh kích cỡ chữ mượt mà
+  const handleResizeStart = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const container = e.currentTarget.closest('[data-story-text-container]');
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialDist = Math.hypot(startX - centerX, startY - centerY);
+    const initialScale = textScale;
+    const minInitDist = Math.max(initialDist, 20);
+
+    setIsResizing(true);
+
+    const onPointerMove = (moveEvent) => {
+      moveEvent.preventDefault();
+      const currentDist = Math.hypot(moveEvent.clientX - centerX, moveEvent.clientY - centerY);
+      const ratio = currentDist / minInitDist;
+      let newScale = initialScale * ratio;
+      newScale = Math.min(2.5, Math.max(0.6, parseFloat(newScale.toFixed(2))));
+      setTextScale(newScale);
+    };
+
+    const onPointerUp = () => {
+      setIsResizing(false);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -355,6 +401,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setMediaPreview(URL.createObjectURL(file));
     setZoomLevel(1);
     setRotation(0);
+    setTextScale(1);
     setTimePos({ x: 50, y: 16 });
     setTextPos({ x: 50, y: 50 });
     setMode('media');
@@ -377,7 +424,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         let fileToUpload = mediaFile;
         const hasVisualEdits = rotation !== 0 || zoomLevel !== 1 || overlayText.trim() || hasTimeSticker;
 
-        // Nếu là hình ảnh và có thao tác chỉnh sửa, xuất file mới qua Canvas với tọa độ kéo thả
+        // Nếu là hình ảnh và có thao tác chỉnh sửa, xuất file mới qua Canvas với tọa độ kéo thả & kích cỡ chữ
         if (mediaType === 'image' && hasVisualEdits) {
           fileToUpload = await exportEditedImage(mediaFile, {
             rotation,
@@ -389,6 +436,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             timeText: currentTimeText,
             timePos,
             textPos,
+            textScale,
           });
         }
 
@@ -406,6 +454,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           textAlign: 'center',
           color: '#ffffff',
           textPos,
+          textScale,
           isAiGenerated,
         } : {
           zoomLevel,
@@ -415,6 +464,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           timePos,
           overlayText: overlayText.trim() || null,
           textPos,
+          textScale,
           altText: altText.trim() || null,
           isAiGenerated,
         },
@@ -702,6 +752,61 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     )}
                   </div>
 
+                  {/* Điều chỉnh kích cỡ chữ (Slider & Nút +/-) */}
+                  <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Kích cỡ chữ
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md">
+                          {Math.round(textScale * 100)}%
+                        </span>
+                        {textScale !== 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setTextScale(1)}
+                            className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                            title="Đặt lại 100%"
+                          >
+                            Đặt lại
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTextScale((s) => Math.max(0.6, parseFloat((s - 0.1).toFixed(2))))}
+                        className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                        title="Giảm cỡ chữ"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <input
+                        type="range"
+                        min="0.6"
+                        max="2.5"
+                        step="0.05"
+                        value={textScale}
+                        onChange={(e) => setTextScale(parseFloat(e.target.value))}
+                        className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setTextScale((s) => Math.min(2.5, parseFloat((s + 0.1).toFixed(2))))}
+                        className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                        title="Tăng cỡ chữ"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                      Mẹo: Kéo các góc của khung chữ trên màn hình xem trước để phóng to/thu nhỏ
+                    </p>
+                  </div>
+
                   {/* Bảng chọn Phông nền (Màu chuyển sắc) */}
                   <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
                     <div className="mb-3">
@@ -814,6 +919,43 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                               ))}
                             </div>
                           )}
+                        </div>
+
+                        {/* Điều chỉnh kích cỡ chữ overlay */}
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Kích cỡ chữ</p>
+                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                              {Math.round(textScale * 100)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setTextScale((s) => Math.max(0.6, parseFloat((s - 0.1).toFixed(2))))}
+                              className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                              title="Giảm cỡ chữ"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <input
+                              type="range"
+                              min="0.6"
+                              max="2.5"
+                              step="0.05"
+                              value={textScale}
+                              onChange={(e) => setTextScale(parseFloat(e.target.value))}
+                              className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setTextScale((s) => Math.min(2.5, parseFloat((s + 0.1).toFixed(2))))}
+                              className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                              title="Tăng cỡ chữ"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -951,18 +1093,19 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                {(timePos.x !== 50 || timePos.y !== 16 || textPos.x !== 50 || textPos.y !== 50) && (
+                {(timePos.x !== 50 || timePos.y !== 16 || textPos.x !== 50 || textPos.y !== 50 || textScale !== 1) && (
                   <button
                     type="button"
                     onClick={() => {
                       setTimePos({ x: 50, y: 16 });
                       setTextPos({ x: 50, y: 50 });
+                      setTextScale(1);
                     }}
                     className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer flex items-center gap-1 text-xs"
-                    title="Đặt lại vị trí mặc định"
+                    title="Đặt lại vị trí & kích cỡ mặc định"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span className="text-[10px]">Căn giữa</span>
+                    <span className="text-[10px]">Đặt lại</span>
                   </button>
                 )}
                 <button
@@ -983,27 +1126,94 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                 className="w-[280px] sm:w-[310px] h-[490px] sm:h-[540px] rounded-2xl shadow-2xl relative flex items-center justify-center overflow-hidden transition-all duration-300 border border-white/10 select-none touch-none"
                 style={mode === 'text' ? selectedGradient.style : { backgroundColor: '#000000' }}
               >
-                {/* 1. HIỂN THỊ TIN VĂN BẢN (Kéo thả di chuyển được vị trí chữ) */}
+                {/* 1. HIỂN THỊ TIN VĂN BẢN (Kéo thả di chuyển vị trí & kéo các góc để chỉnh kích cỡ) */}
                 {mode === 'text' && (
                   <div className="w-full h-full relative">
                     <div
+                      data-story-text-container
                       onPointerDown={(e) => handlePointerDown('text', e)}
-                      className="absolute z-30 cursor-grab active:cursor-grabbing select-none group/text p-3 rounded-2xl hover:bg-white/10 hover:ring-2 hover:ring-blue-400/80 transition duration-150 max-w-[90%]"
+                      className={`absolute z-30 cursor-grab active:cursor-grabbing select-none group/text transition-shadow duration-150 max-w-[90%] ${
+                        isResizing ? 'ring-2 ring-blue-500 rounded-2xl shadow-xl' : ''
+                      }`}
                       style={{
                         left: `${textPos.x}%`,
                         top: `${textPos.y}%`,
                         transform: 'translate(-50%, -50%)',
                         fontFamily: selectedFont.font,
                       }}
-                      title="Kéo thả để di chuyển vị trí chữ"
+                      title="Kéo giữa để di chuyển • Kéo các góc để phóng to/thu nhỏ"
                     >
-                      <p className="text-white font-bold text-xl sm:text-2xl break-words max-w-full drop-shadow-md text-center leading-relaxed pointer-events-none">
-                        {textContent.trim() || (
-                          <span className="text-white/60 font-semibold text-base sm:text-lg">
-                            Bắt đầu nhập nội dung tin...
-                          </span>
-                        )}
-                      </p>
+                      {/* Bounding box với viền đứt đoạn nghệ thuật và các nút kéo góc/cạnh */}
+                      <div className="relative p-3 rounded-2xl border-2 border-dashed border-white/40 hover:border-blue-400/90 group-hover/text:border-blue-400 bg-black/10 backdrop-blur-xs transition-colors">
+                        {/* Đám mây nghệ thuật làm nền cho chữ */}
+                        <div className="absolute inset-0 -z-10 flex items-center justify-center pointer-events-none opacity-25">
+                          <svg viewBox="0 0 200 135" className="w-full h-auto text-white fill-current filter blur-[1px]">
+                            <path d="M 45 110 
+                                     A 30 30 0 0 1 25 58 
+                                     A 38 38 0 0 1 76 32 
+                                     A 44 44 0 0 1 140 38 
+                                     A 34 34 0 0 1 176 78 
+                                     A 30 30 0 0 1 155 110 
+                                     Z" />
+                          </svg>
+                        </div>
+                        {/* Góc Trên-Trái (NW) */}
+                        <div
+                          onPointerDown={handleResizeStart}
+                          className="absolute -top-2 -left-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nwse-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                          title="Kéo góc để chỉnh kích cỡ chữ"
+                        />
+                        {/* Góc Trên-Phải (NE) */}
+                        <div
+                          onPointerDown={handleResizeStart}
+                          className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nesw-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                          title="Kéo góc để chỉnh kích cỡ chữ"
+                        />
+                        {/* Góc Dưới-Trái (SW) */}
+                        <div
+                          onPointerDown={handleResizeStart}
+                          className="absolute -bottom-2 -left-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nesw-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                          title="Kéo góc để chỉnh kích cỡ chữ"
+                        />
+                        {/* Góc Dưới-Phải (SE) */}
+                        <div
+                          onPointerDown={handleResizeStart}
+                          className="absolute -bottom-2 -right-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nwse-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                          title="Kéo góc để chỉnh kích cỡ chữ"
+                        />
+                        {/* Cạnh Trái (W) */}
+                        <div
+                          onPointerDown={handleResizeStart}
+                          className="absolute top-1/2 -left-2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 shadow-md cursor-ew-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                          title="Kéo cạnh để chỉnh kích cỡ chữ"
+                        />
+                        {/* Cạnh Phải (E) */}
+                        <div
+                          onPointerDown={handleResizeStart}
+                          className="absolute top-1/2 -right-2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 shadow-md cursor-ew-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                          title="Kéo cạnh để chỉnh kích cỡ chữ"
+                        />
+
+                        {/* Badge kích cỡ phần trăm */}
+                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-blue-600/95 text-white text-[10px] font-bold shadow-lg pointer-events-none whitespace-nowrap z-40 flex items-center gap-1">
+                          <span>Cỡ chữ:</span>
+                          <span>{Math.round(textScale * 100)}%</span>
+                        </div>
+
+                        <p 
+                          className="text-white font-bold break-words max-w-full drop-shadow-md text-center leading-relaxed pointer-events-none transition-[font-size] duration-75"
+                          style={{
+                            fontSize: `${Math.round(24 * textScale)}px`,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          {textContent.trim() || (
+                            <span className="text-white/60 font-semibold" style={{ fontSize: `${Math.round(18 * textScale)}px` }}>
+                              Bắt đầu nhập nội dung tin...
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     </div>
 
                     {/* Icon mặt cười góc phải dưới */}
@@ -1067,11 +1277,14 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       </div>
                     )}
 
-                    {/* Chữ chèn lên ảnh (Overlay Text) - Kéo thả di chuyển được */}
+                    {/* Chữ chèn lên ảnh (Overlay Text) - Kéo thả di chuyển & kéo các góc chỉnh cỡ */}
                     {overlayText && overlayText.trim() && (
                       <div 
+                        data-story-text-container
                         onPointerDown={(e) => handlePointerDown('text', e)}
-                        className="absolute z-30 select-none cursor-grab active:cursor-grabbing group/text max-w-[88%]"
+                        className={`absolute z-30 select-none cursor-grab active:cursor-grabbing group/text max-w-[88%] transition-shadow duration-150 ${
+                          isResizing ? 'ring-2 ring-blue-500 rounded-2xl shadow-xl' : ''
+                        }`}
                         style={{ 
                           left: `${textPos.x}%`,
                           top: `${textPos.y}%`,
@@ -1079,10 +1292,59 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                           fontFamily: overlayFont.font, 
                           color: overlayColor 
                         }}
-                        title="Kéo thả để di chuyển vị trí chữ"
+                        title="Kéo giữa để di chuyển • Kéo các góc để phóng to/thu nhỏ"
                       >
-                        <div className="px-3 py-1.5 rounded-xl group-hover/text:bg-white/10 group-hover/text:ring-2 group-hover/text:ring-blue-400/80 transition duration-100 text-center">
-                          <p className="font-bold text-xl sm:text-2xl break-words drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] leading-snug pointer-events-none">
+                        <div className="relative p-2.5 rounded-2xl border-2 border-dashed border-white/50 hover:border-blue-400/90 group-hover/text:border-blue-400 bg-black/25 backdrop-blur-xs transition-colors text-center">
+                          {/* Góc Trên-Trái (NW) */}
+                          <div
+                            onPointerDown={handleResizeStart}
+                            className="absolute -top-2 -left-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nwse-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                            title="Kéo góc để chỉnh kích cỡ chữ"
+                          />
+                          {/* Góc Trên-Phải (NE) */}
+                          <div
+                            onPointerDown={handleResizeStart}
+                            className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nesw-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                            title="Kéo góc để chỉnh kích cỡ chữ"
+                          />
+                          {/* Góc Dưới-Trái (SW) */}
+                          <div
+                            onPointerDown={handleResizeStart}
+                            className="absolute -bottom-2 -left-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nesw-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                            title="Kéo góc để chỉnh kích cỡ chữ"
+                          />
+                          {/* Góc Dưới-Phải (SE) */}
+                          <div
+                            onPointerDown={handleResizeStart}
+                            className="absolute -bottom-2 -right-2 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow-md cursor-nwse-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                            title="Kéo góc để chỉnh kích cỡ chữ"
+                          />
+                          {/* Cạnh Trái (W) */}
+                          <div
+                            onPointerDown={handleResizeStart}
+                            className="absolute top-1/2 -left-2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 shadow-md cursor-ew-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                            title="Kéo cạnh để chỉnh kích cỡ chữ"
+                          />
+                          {/* Cạnh Phải (E) */}
+                          <div
+                            onPointerDown={handleResizeStart}
+                            className="absolute top-1/2 -right-2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 shadow-md cursor-ew-resize hover:scale-125 active:scale-110 transition-transform touch-none z-40"
+                            title="Kéo cạnh để chỉnh kích cỡ chữ"
+                          />
+
+                          {/* Badge kích cỡ phần trăm */}
+                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-blue-600/95 text-white text-[10px] font-bold shadow-lg pointer-events-none whitespace-nowrap z-40 flex items-center gap-1">
+                            <span>Cỡ chữ:</span>
+                            <span>{Math.round(textScale * 100)}%</span>
+                          </div>
+
+                          <p 
+                            className="font-bold break-words drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] leading-snug pointer-events-none transition-[font-size] duration-75"
+                            style={{
+                              fontSize: `${Math.round(24 * textScale)}px`,
+                              lineHeight: 1.25,
+                            }}
+                          >
                             {overlayText}
                           </p>
                         </div>
