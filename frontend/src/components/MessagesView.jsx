@@ -5,13 +5,14 @@ import {
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
   User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download,
-  PhoneMissed, PhoneOff
+  PhoneMissed, PhoneOff, Users, UserPlus
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
 import VideoCallModal from './VideoCallModal';
+import CreateGroupModal from './CreateGroupModal';
 import {
   CALL_STATUS,
   CALL_LOG_REASON,
@@ -152,6 +153,9 @@ export default function MessagesView({
   const [isTyping, setIsTyping] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   
+  // Modal tạo nhóm chat mới
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+
   // Trạng thái mở rộng toàn màn hình & Panel chi tiết
   const [showInfoSidebar, setShowInfoSidebar] = useState(false);
   const [isEdgeToEdge, setIsEdgeToEdge] = useState(false);
@@ -239,13 +243,19 @@ export default function MessagesView({
         setConversations(prev => {
           return data.map(c => {
             const existing = prev.find(p => String(p.id) === String(c.id));
+            const isGroup = c.type === 'group';
             return {
               id: String(c.id),
               status: c.status,
+              type: c.type || 'direct',
+              name: c.name || null,
+              avatar: c.avatar || null,
+              memberCount: c.member_count || (c.members?.length || 2),
+              members: c.members || [],
               initiatedBy: c.initiated_by || '',
               blockedBy: c.blocked_by || null,
               isRequester: Boolean(c.is_requester ?? (c.initiated_by === currentUser?.id)),
-              user: {
+              user: c.user ? {
                 id: c.user?.id || '',
                 name: c.user?.name || 'Người dùng',
                 username: c.user?.username || '',
@@ -254,8 +264,17 @@ export default function MessagesView({
                 isFriend: c.user?.is_friend ?? false,
                 bio: c.user?.bio || '',
                 lastSeen: 'Vừa xong'
+              } : {
+                id: 'group_' + c.id,
+                name: c.name || 'Nhóm trò chuyện',
+                username: 'group',
+                avatar: c.avatar || DEFAULT_AVATAR,
+                isOnline: true,
+                isFriend: true,
+                bio: `${c.member_count || (c.members?.length || 0)} thành viên`,
+                lastSeen: 'Vừa xong'
               },
-              lastMessage: c.last_message || (c.user?.is_friend ? 'Bắt đầu cuộc trò chuyện' : ''),
+              lastMessage: c.last_message || (isGroup ? 'Bắt đầu cuộc trò chuyện nhóm' : (c.user?.is_friend ? 'Bắt đầu cuộc trò chuyện' : '')),
               lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
               unreadCount: c.unread_count || 0,
               messages: existing ? (existing.messages || []) : []
@@ -304,6 +323,8 @@ export default function MessagesView({
         const formattedMsgs = msgs.map(m => ({
           id: m.id,
           senderId: m.sender_id === currentUser.id ? 'current' : m.sender_id,
+          senderName: m.sender_name || null,
+          senderAvatar: m.sender_avatar || null,
           text: m.content,
           mediaUrl: m.media_url || null,
           mediaType: m.media_type || 'text',
@@ -389,6 +410,8 @@ export default function MessagesView({
                         ? {
                             id: msg.id,
                             senderId: msg.sender_id === currentUser.id ? 'current' : msg.sender_id,
+                            senderName: msg.sender_name || null,
+                            senderAvatar: msg.sender_avatar || null,
                             text: msg.content,
                             mediaUrl: msg.media_url || null,
                             mediaType: msg.media_type || 'text',
@@ -404,6 +427,8 @@ export default function MessagesView({
                     {
                       id: msg.id,
                       senderId: msg.sender_id === currentUser.id ? 'current' : msg.sender_id,
+                      senderName: msg.sender_name || null,
+                      senderAvatar: msg.sender_avatar || null,
                       text: msg.content,
                       mediaUrl: msg.media_url || null,
                       mediaType: msg.media_type || 'text',
@@ -414,7 +439,7 @@ export default function MessagesView({
                   ];
                 });
 
-                if (msg.receiver_id === currentUser.id) {
+                if (msg.receiver_id === currentUser.id || msg.sender_id !== currentUser.id) {
                   messageService.markRead(convIdStr);
                 }
               }
@@ -428,13 +453,15 @@ export default function MessagesView({
                 }
                 const displayMsg = msg.is_recalled 
                   ? 'Tin nhắn đã được thu hồi' 
-                  : (msg.media_url && msg.media_type === 'image' 
-                      ? ('[Hình ảnh] ' + (msg.content || '')) 
-                      : (msg.media_url && msg.media_type === 'file' 
-                          ? ('[Tệp tin] ' + (msg.content || '')) 
-                          : (msg.media_type === 'call_log'
-                              ? ('[Cuộc gọi] ' + (msg.content || ''))
-                              : msg.content)));
+                  : (msg.media_type === 'system'
+                      ? msg.content
+                      : (msg.media_url && msg.media_type === 'image' 
+                          ? ('[Hình ảnh] ' + (msg.content || '')) 
+                          : (msg.media_url && msg.media_type === 'file' 
+                              ? ('[Tệp tin] ' + (msg.content || '')) 
+                              : (msg.media_type === 'call_log'
+                                  ? ('[Cuộc gọi] ' + (msg.content || ''))
+                                  : msg.content))));
                 return prev.map((c) => {
                   if (String(c.id) === convIdStr) {
                     const isCurrentChat = String(selectedConversationIdRef.current) === convIdStr;
@@ -448,6 +475,8 @@ export default function MessagesView({
                   return c;
                 });
               });
+            } else if (data.type === 'GROUP_CREATED') {
+              loadServerConversations(false);
             } else if (data.type === 'MESSAGE_RECALLED') {
               const msgId = data.message_id;
               const convIdStr = String(data.conversation_id);
@@ -1320,11 +1349,16 @@ export default function MessagesView({
     }));
 
     // Gửi tin nhắn qua Backend
+    const isGroup = currentConversation?.type === 'group';
     const targetUserId = currentConversation?.user?.id || targetInitialUserId;
     try {
       let serverMsg = null;
-      if (currentUser && targetUserId) {
-        serverMsg = await messageService.sendMessage(targetUserId, finalCaption, mediaUrl, mediaType);
+      if (currentUser) {
+        if (isGroup) {
+          serverMsg = await messageService.sendMessage(null, finalCaption, mediaUrl, mediaType, currentConversation.id);
+        } else if (targetUserId) {
+          serverMsg = await messageService.sendMessage(targetUserId, finalCaption, mediaUrl, mediaType);
+        }
       }
 
       // Trạng thái 2: Đã gửi (Server đã nhận và lưu thành công)
@@ -1397,11 +1431,16 @@ export default function MessagesView({
       return c;
     }));
 
+    const isGroup = currentConversation?.type === 'group';
     const targetUserId = currentConversation?.user?.id || targetInitialUserId;
     try {
       let serverMsg = null;
-      if (currentUser && targetUserId) {
-        serverMsg = await messageService.sendMessage(targetUserId, failedMsg.text, failedMsg.mediaUrl, failedMsg.mediaType || 'text');
+      if (currentUser) {
+        if (isGroup) {
+          serverMsg = await messageService.sendMessage(null, failedMsg.text, failedMsg.mediaUrl, failedMsg.mediaType || 'text', currentConversation.id);
+        } else if (targetUserId) {
+          serverMsg = await messageService.sendMessage(targetUserId, failedMsg.text, failedMsg.mediaUrl, failedMsg.mediaType || 'text');
+        }
       }
 
       // Đã gửi
@@ -1458,8 +1497,8 @@ export default function MessagesView({
     if (!c) return false;
     const isPendingForMe = c.status === 'pending' && c.initiatedBy !== currentUser?.id;
     const matchTab = (inboxTab === 'requests') ? isPendingForMe : !isPendingForMe;
-    const nameStr = c.user?.name || '';
-    const usernameStr = c.user?.username || '';
+    const nameStr = c.type === 'group' ? (c.name || '') : (c.user?.name || '');
+    const usernameStr = c.type === 'group' ? '' : (c.user?.username || '');
     const searchLower = (searchTerm || '').toLowerCase();
     const matchSearch = nameStr.toLowerCase().includes(searchLower) ||
                         usernameStr.toLowerCase().includes(searchLower);
@@ -1510,18 +1549,31 @@ export default function MessagesView({
                 </div>
               </div>
 
-              {/* Nút toggle Tràn viền (Edge-to-Edge) */}
-              <button
-                onClick={() => setIsEdgeToEdge(!isEdgeToEdge)}
-                className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-xl transition cursor-pointer"
-                title={isEdgeToEdge ? 'Thu về khung viền bo tròn' : 'Mở rộng tràn viền 100%'}
-              >
-                {isEdgeToEdge ? (
-                  <Minimize2 className="w-4 h-4" />
-                ) : (
-                  <Maximize2 className="w-4 h-4" />
-                )}
-              </button>
+              <div className="flex items-center gap-1">
+                {/* Nút Tạo nhóm chat mới */}
+                <button
+                  type="button"
+                  onClick={() => setShowCreateGroupModal(true)}
+                  className="px-2.5 py-1.5 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-xl transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                  title="Tạo nhóm trò chuyện mới"
+                >
+                  <UserPlus className="w-4 h-4 text-blue-600" />
+                  <span className="hidden sm:inline">Tạo nhóm</span>
+                </button>
+
+                {/* Nút toggle Tràn viền (Edge-to-Edge) */}
+                <button
+                  onClick={() => setIsEdgeToEdge(!isEdgeToEdge)}
+                  className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-xl transition cursor-pointer"
+                  title={isEdgeToEdge ? 'Thu về khung viền bo tròn' : 'Mở rộng tràn viền 100%'}
+                >
+                  {isEdgeToEdge ? (
+                    <Minimize2 className="w-4 h-4" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* 2 Tab: Hộp thư chính & Tin nhắn chờ (Người lạ) - ĐỂ YÊN CỐ ĐỊNH */}
@@ -1616,31 +1668,48 @@ export default function MessagesView({
                     }
                   >
                     {/* Avatar */}
-                    <div 
-                      className="relative shrink-0"
-                      onClick={(e) => {
-                        if (onOpenProfile) {
-                          e.stopPropagation();
-                          onOpenProfile(conv.user);
-                        }
-                      }}
-                      title="Bấm để xem trang cá nhân"
-                    >
-                      <img
-                        src={conv.user?.avatar || DEFAULT_AVATAR}
-                        alt={conv.user?.name || ''}
-                        className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
-                      />
-                      {conv.user?.isOnline && (
-                        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
-                      )}
-                    </div>
+                    {conv.type === 'group' ? (
+                      <div className="relative shrink-0">
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center ring-2 ring-slate-100 shadow-2xs">
+                          {conv.avatar ? (
+                            <img src={conv.avatar} alt={conv.name} className="w-12 h-12 rounded-full object-cover" />
+                          ) : (
+                            <Users className="w-6 h-6" />
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div 
+                        className="relative shrink-0"
+                        onClick={(e) => {
+                          if (onOpenProfile && conv.user) {
+                            e.stopPropagation();
+                            onOpenProfile(conv.user);
+                          }
+                        }}
+                        title="Bấm để xem trang cá nhân"
+                      >
+                        <img
+                          src={conv.user?.avatar || DEFAULT_AVATAR}
+                          alt={conv.user?.name || ''}
+                          className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
+                        />
+                        {conv.user?.isOnline && (
+                          <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
+                        )}
+                      </div>
+                    )}
 
                     {/* Tên & Tin nhắn cuối */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <h3 className={'text-sm font-bold truncate ' + (isSelected ? 'text-blue-900' : 'text-slate-800')}>
-                          {conv.user?.name || 'Người dùng'}
+                        <h3 className={'text-sm font-bold truncate flex items-center gap-1.5 ' + (isSelected ? 'text-blue-900' : 'text-slate-800')}>
+                          <span className="truncate">{conv.type === 'group' ? (conv.name || 'Nhóm trò chuyện') : (conv.user?.name || 'Người dùng')}</span>
+                          {conv.type === 'group' && (
+                            <span className="shrink-0 px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded text-[10px] font-semibold">
+                              Nhóm
+                            </span>
+                          )}
                         </h3>
                         <span className="text-[11px] text-slate-400 shrink-0 ml-1">
                           {conv.lastTime}
@@ -1686,37 +1755,55 @@ export default function MessagesView({
                     <ArrowLeft className="w-5 h-5" />
                   </button>
 
-                  <div 
-                    className="relative cursor-pointer group shrink-0"
-                    onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                    title="Bấm để xem trang cá nhân"
-                  >
-                    <img
-                      src={currentConversation.user.avatar || DEFAULT_AVATAR}
-                      alt={currentConversation.user.name}
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
-                    />
-                    {currentConversation.user.isOnline && (
-                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
-                    )}
-                  </div>
+                  {currentConversation.type === 'group' ? (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                      {currentConversation.avatar ? (
+                        <img src={currentConversation.avatar} alt={currentConversation.name} className="w-10 h-10 rounded-full object-cover" />
+                      ) : (
+                        <Users className="w-5 h-5" />
+                      )}
+                    </div>
+                  ) : (
+                    <div 
+                      className="relative cursor-pointer group shrink-0"
+                      onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                      title="Bấm để xem trang cá nhân"
+                    >
+                      <img
+                        src={currentConversation.user.avatar || DEFAULT_AVATAR}
+                        alt={currentConversation.user.name}
+                        className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
+                      />
+                      {currentConversation.user.isOnline && (
+                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <div className="flex items-center gap-1.5">
                       <h3 
-                        onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                        className="text-sm sm:text-base font-bold text-slate-800 leading-tight cursor-pointer hover:text-blue-600 transition"
+                        onClick={() => currentConversation.type !== 'group' && onOpenProfile && onOpenProfile(currentConversation.user)}
+                        className={`text-sm sm:text-base font-bold text-slate-800 leading-tight ${currentConversation.type !== 'group' ? 'cursor-pointer hover:text-blue-600' : ''} transition`}
                       >
-                        {currentConversation.user.name}
+                        {currentConversation.type === 'group' ? (currentConversation.name || 'Nhóm trò chuyện') : currentConversation.user.name}
                       </h3>
-                      {currentConversation.status === 'pending' && (
+                      {currentConversation.type === 'group' ? (
+                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded text-[10px] font-bold">
+                          Nhóm
+                        </span>
+                      ) : currentConversation.status === 'pending' ? (
                         <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 rounded text-[10px] font-bold">
                           Người lạ
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <p className="text-[11px] text-slate-400 flex items-center gap-1">
-                      {currentConversation.user.isOnline ? (
+                      {currentConversation.type === 'group' ? (
+                        <span className="text-blue-600 font-medium">
+                          {currentConversation.memberCount || currentConversation.members?.length || 0} thành viên
+                        </span>
+                      ) : currentConversation.user.isOnline ? (
                         <span className="text-emerald-600 font-medium">Đang trực tuyến</span>
                       ) : (
                         <span>Hoạt động: {currentConversation.user.lastSeen}</span>
@@ -1727,24 +1814,28 @@ export default function MessagesView({
 
                 {/* Actions ở Header Chat */}
                 <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500">
-                  <button 
-                    type="button"
-                    onClick={() => startCall('audio')}
-                    disabled={isBlocked}
-                    title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi thoại"}
-                    className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => startCall('video')}
-                    disabled={isBlocked}
-                    title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi video"}
-                    className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Video className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </button>
+                  {currentConversation.type !== 'group' && (
+                    <>
+                      <button 
+                        type="button"
+                        onClick={() => startCall('audio')}
+                        disabled={isBlocked}
+                        title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi thoại"}
+                        className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => startCall('video')}
+                        disabled={isBlocked}
+                        title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi video"}
+                        className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Video className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                    </>
+                  )}
 
                   {/* Nút Báo cáo cuộc trò chuyện */}
                   <button 
@@ -1895,8 +1986,21 @@ export default function MessagesView({
                 {/* Nhóm danh sách các tin nhắn */}
                 <div className="space-y-4 w-full">
                   {activeMessages.map((msg) => {
+                    if (msg.mediaType === 'system') {
+                      return (
+                        <div key={msg.id} className="flex justify-center my-2 w-full">
+                          <div className="px-3.5 py-1.5 bg-slate-100 text-slate-500 text-xs rounded-full font-medium shadow-2xs border border-slate-200/60 max-w-md text-center">
+                            {msg.text}
+                          </div>
+                        </div>
+                      );
+                    }
+
                     const isMe = msg.senderId === 'current';
                     const isLastRead = isMe && String(msg.id) === lastReadMessageId;
+                    const isGroup = currentConversation?.type === 'group';
+                    const senderAvatar = (isGroup ? msg.senderAvatar : currentConversation.user?.avatar) || DEFAULT_AVATAR;
+
                     return (
                         <div
                           key={msg.id}
@@ -1904,15 +2008,20 @@ export default function MessagesView({
                         >
                           {!isMe && (
                             <img
-                              src={currentConversation.user.avatar || DEFAULT_AVATAR}
+                              src={senderAvatar}
                               alt=""
-                              onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                              title="Bấm để xem trang cá nhân"
-                              className="w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
+                              onClick={() => !isGroup && onOpenProfile && onOpenProfile(currentConversation.user)}
+                              title={msg.senderName || currentConversation.user?.name || 'Người dùng'}
+                              className={`w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 ${!isGroup ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''} transition`}
                             />
                           )}
 
                           <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative flex flex-col ' + (isMe ? 'items-end' : 'items-start')}>
+                            {!isMe && isGroup && msg.senderName && (
+                              <span className="text-[11px] font-semibold text-slate-500 mb-1 px-1">
+                                {msg.senderName}
+                              </span>
+                            )}
                             {/* Nội dung tin nhắn: Thu hồi hoặc Nhật ký cuộc gọi hoặc Hiển thị thường (ảnh + chữ + link) */}
                             {msg.isRecalled ? (
                               <div
@@ -2067,14 +2176,16 @@ export default function MessagesView({
                                   {(msg.status === 'read' || !msg.status) && isLastRead && (
                                     <div 
                                       className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
-                                      title={`Đã xem bởi ${currentConversation.user.name}`}
+                                      title={currentConversation.type === 'group' ? 'Đã xem' : `Đã xem bởi ${currentConversation.user?.name || ''}`}
                                     >
                                       <span>Đã xem</span>
-                                      <img
-                                        src={currentConversation.user.avatar}
-                                        alt={currentConversation.user.name}
-                                        className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
-                                      />
+                                      {currentConversation.type !== 'group' && currentConversation.user?.avatar && (
+                                        <img
+                                          src={currentConversation.user.avatar}
+                                          alt={currentConversation.user?.name || ''}
+                                          className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
+                                        />
+                                      )}
                                     </div>
                                   )}
 
@@ -2376,48 +2487,65 @@ export default function MessagesView({
 
             {/* Thông tin đại diện */}
             <div className="p-6 flex flex-col items-center text-center border-b border-slate-100">
-              <div 
-                className="relative mb-3 cursor-pointer group shrink-0"
-                onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                title="Bấm để xem trang cá nhân"
-              >
-                <img 
-                  src={currentConversation.user.avatar || DEFAULT_AVATAR} 
-                  alt={currentConversation.user.name} 
-                  className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 shadow-md group-hover:ring-2 group-hover:ring-blue-500 transition"
-                />
-                {currentConversation.user.isOnline && (
-                  <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" />
-                )}
-              </div>
+              {currentConversation.type === 'group' ? (
+                <div className="w-20 h-20 mb-3 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center ring-4 ring-slate-100 shadow-md">
+                  {currentConversation.avatar ? (
+                    <img src={currentConversation.avatar} alt={currentConversation.name} className="w-20 h-20 rounded-full object-cover" />
+                  ) : (
+                    <Users className="w-10 h-10" />
+                  )}
+                </div>
+              ) : (
+                <div 
+                  className="relative mb-3 cursor-pointer group shrink-0"
+                  onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                  title="Bấm để xem trang cá nhân"
+                >
+                  <img 
+                    src={currentConversation.user.avatar || DEFAULT_AVATAR} 
+                    alt={currentConversation.user.name} 
+                    className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 shadow-md group-hover:ring-2 group-hover:ring-blue-500 transition"
+                  />
+                  {currentConversation.user.isOnline && (
+                    <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" />
+                  )}
+                </div>
+              )}
+
               <h4 
-                onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                className="text-base font-bold text-slate-900 leading-tight cursor-pointer hover:text-blue-600 transition"
+                onClick={() => currentConversation.type !== 'group' && onOpenProfile && onOpenProfile(currentConversation.user)}
+                className={`text-base font-bold text-slate-900 leading-tight ${currentConversation.type !== 'group' ? 'cursor-pointer hover:text-blue-600' : ''} transition`}
               >
-                {currentConversation.user.name}
+                {currentConversation.type === 'group' ? (currentConversation.name || 'Nhóm trò chuyện') : currentConversation.user.name}
               </h4>
               <p className="text-xs text-slate-500 mt-0.5">
-                @{currentConversation.user.username}
+                {currentConversation.type === 'group' 
+                  ? `${currentConversation.memberCount || currentConversation.members?.length || 0} thành viên`
+                  : `@${currentConversation.user.username}`}
               </p>
               <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                currentConversation.user.isOnline 
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                  : 'bg-slate-100 text-slate-600'
+                currentConversation.type === 'group'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                  : currentConversation.user.isOnline 
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                    : 'bg-slate-100 text-slate-600'
               }`}>
-                {currentConversation.user.isOnline ? 'Đang trực tuyến' : `Hoạt động: ${currentConversation.user.lastSeen}`}
+                {currentConversation.type === 'group' 
+                  ? 'Nhóm trò chuyện' 
+                  : (currentConversation.user.isOnline ? 'Đang trực tuyến' : `Hoạt động: ${currentConversation.user.lastSeen}`)}
               </span>
 
               {/* Phím tắt tác vụ nhanh */}
               <div className="grid grid-cols-3 gap-2 w-full mt-5">
                 <button 
-                  onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
+                  onClick={() => currentConversation.type !== 'group' && onOpenProfile && onOpenProfile(currentConversation.user)}
                   className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-50 text-slate-600 transition cursor-pointer"
-                  title="Trang cá nhân"
+                  title={currentConversation.type === 'group' ? 'Thành viên' : 'Trang cá nhân'}
                 >
                   <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
-                    <User className="w-4 h-4" />
+                    {currentConversation.type === 'group' ? <Users className="w-4 h-4" /> : <User className="w-4 h-4" />}
                   </div>
-                  <span className="text-[10px] font-medium">Trang cá nhân</span>
+                  <span className="text-[10px] font-medium">{currentConversation.type === 'group' ? 'Thành viên' : 'Trang cá nhân'}</span>
                 </button>
 
                 <button 
@@ -2436,7 +2564,7 @@ export default function MessagesView({
                       targetType: 'message',
                       targetId: currentConversation.id,
                       targetAuthor: currentConversation.user,
-                      contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + currentConversation.user.name)
+                      contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + (currentConversation.name || currentConversation.user?.name))
                     });
                   }}
                   className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-rose-50 text-rose-600 transition cursor-pointer"
@@ -2449,6 +2577,35 @@ export default function MessagesView({
                 </button>
               </div>
             </div>
+
+            {/* Danh sách thành viên (nếu là nhóm) */}
+            {currentConversation.type === 'group' && currentConversation.members?.length > 0 && (
+              <div className="p-4 border-b border-slate-100 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  <span>Thành viên ({currentConversation.members.length})</span>
+                </div>
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {currentConversation.members.map((m) => (
+                    <div key={m.id} className="flex items-center gap-2.5 p-1.5 rounded-xl hover:bg-slate-50 transition">
+                      <img
+                        src={m.avatar || DEFAULT_AVATAR}
+                        alt={m.name}
+                        className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-100 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 truncate">{m.name}</p>
+                        <p className="text-[10px] text-slate-400 truncate">@{m.username}</p>
+                      </div>
+                      {String(m.id) === String(currentUser?.id) && (
+                        <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded">
+                          Bạn
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* File, Ảnh & Link đã gửi */}
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -2805,6 +2962,21 @@ export default function MessagesView({
           onEndCall={handleEndCall}
           onToggleMic={handleToggleMic}
           onToggleCamera={handleToggleCamera}
+        />
+
+        {/* Modal Tạo nhóm chat mới */}
+        <CreateGroupModal
+          isOpen={showCreateGroupModal}
+          onClose={() => setShowCreateGroupModal(false)}
+          onGroupCreated={(newGroup) => {
+            loadServerConversations(false);
+            if (newGroup?.id) {
+              setSelectedConversationId(String(newGroup.id));
+              setDraftConversation(null);
+              setMobileShowChat(true);
+            }
+          }}
+          currentUser={currentUser}
         />
 
       </div>
