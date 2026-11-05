@@ -144,3 +144,4 @@ SELECT
     s.media_moderation_label AS image_moderation_label
 FROM stories s
 JOIN users u ON u.id = s.author_id;
+

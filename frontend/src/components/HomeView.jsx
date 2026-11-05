@@ -6,6 +6,10 @@ import {
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
 import InlineNotice from './InlineNotice';
+import StoryBar from './StoryBar';
+import CreateStoryModal from './CreateStoryModal';
+import StoryViewerModal from './StoryViewerModal';
+import { fetchStories } from '../api/client';
 import { suggestedFriends, trendingTopics } from '../data/mockData';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
@@ -42,8 +46,26 @@ export default function HomeView({
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
+  const [storyTrays, setStoryTrays] = useState([]);
+  const [isCreateStoryOpen, setIsCreateStoryOpen] = useState(false);
+  const [activeStoryTray, setActiveStoryTray] = useState(null);
   const leftSidebarRef = useRef(null);
   const rightSidebarRef = useRef(null);
+
+  const loadStories = async () => {
+    try {
+      const res = await fetchStories();
+      if (res?.success) {
+        setStoryTrays(res.data || []);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải danh sách tin:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    loadStories();
+  }, [currentUser?.id, refreshKey]);
 
   // Ngăn cuộn lan (scroll leakage) sang bài viết ở giữa khi lăn chuột trên cột trái hoặc cột phải
   useEffect(() => {
@@ -380,6 +402,15 @@ export default function HomeView({
         {/* ================= BẢNG TIN TRUNG TÂM (MỞ RỘNG RỘNG RÃI, THOÁNG ĐÃNG) ================= */}
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
           
+          {/* Thanh Tin 24h (Story Bar) */}
+          <StoryBar
+            currentUser={currentUser}
+            storyTrays={storyTrays}
+            onOpenCreateStory={() => setIsCreateStoryOpen(true)}
+            onOpenStoryViewer={(tray) => setActiveStoryTray(tray)}
+            onRequireAuth={onRequireAuth}
+          />
+
           {/* Ô tạo bài viết mới */}
           <CreatePostCard 
             currentUser={currentUser} 
@@ -704,6 +735,43 @@ export default function HomeView({
         </aside>
 
       </div>
+
+      {/* Modal Tạo Tin Mới */}
+      <CreateStoryModal
+        currentUser={currentUser}
+        isOpen={isCreateStoryOpen}
+        onClose={() => setIsCreateStoryOpen(false)}
+        onStoryCreated={() => {
+          loadStories();
+        }}
+      />
+
+      {/* Modal Xem Tin Toàn Màn Hình */}
+      {activeStoryTray && (
+        <StoryViewerModal
+          currentUser={currentUser}
+          tray={activeStoryTray}
+          isOpen={Boolean(activeStoryTray)}
+          onClose={() => setActiveStoryTray(null)}
+          onStoryDeleted={() => {
+            loadStories();
+          }}
+          onNextTray={() => {
+            const idx = storyTrays.findIndex(t => t.author?.id === activeStoryTray.author?.id);
+            if (idx >= 0 && idx < storyTrays.length - 1) {
+              setActiveStoryTray(storyTrays[idx + 1]);
+            } else {
+              setActiveStoryTray(null);
+            }
+          }}
+          onPrevTray={() => {
+            const idx = storyTrays.findIndex(t => t.author?.id === activeStoryTray.author?.id);
+            if (idx > 0) {
+              setActiveStoryTray(storyTrays[idx - 1]);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
