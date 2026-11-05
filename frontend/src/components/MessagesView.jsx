@@ -190,6 +190,8 @@ export default function MessagesView({
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const callTimerRef = useRef(null);
+  // Ref đếm timeout khi người được gọi không trả lời
+  const callTimeoutRef = useRef(null);
   const activeCallPartnerIdRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
 
@@ -507,6 +509,11 @@ export default function MessagesView({
               if (data.accepted) {
                 setCallStatus(CALL_STATUS.CONNECTED);
                 setCallDuration(0);
+                // Người nhận bắt máy → hủy timeout chờ
+                if (callTimeoutRef.current) {
+                  clearTimeout(callTimeoutRef.current);
+                  callTimeoutRef.current = null;
+                }
                 if (callTimerRef.current) clearInterval(callTimerRef.current);
                 callTimerRef.current = setInterval(() => {
                   setCallDuration(prev => prev + 1);
@@ -653,11 +660,17 @@ export default function MessagesView({
     };
   }, [currentUser?.id]);
 
-  // Dọn dẹp tài nguyên cuộc gọi
+  // Dọn dẹp tài nguyên cuộc gọi (gọi sau mọi kết thúc: timeout, từ chối, kết thúc bình thường)
   const cleanupCall = () => {
+    // Hủy bộ đếm thời gian cuộc gọi đang kết nối
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       callTimerRef.current = null;
+    }
+    // Hủy timeout chờ người nhận bắt máy
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
     }
     stopMediaStream(localStreamRef.current);
     localStreamRef.current = null;
@@ -792,6 +805,21 @@ export default function MessagesView({
       caller_name: currentUser.name || 'Người dùng',
       caller_avatar: currentUser.avatar || DEFAULT_AVATAR
     }));
+
+    // ⏱ Tự động hủy cuộc gọi sau 30 giây nếu người nhận không bắt máy
+    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    callTimeoutRef.current = setTimeout(() => {
+      // Chỉ xử lý nếu vẫn đang trong trạng thái chờ (OUTGOING)
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'CALL_ENDED',
+          receiver_id: activeCallPartnerIdRef.current,
+          reason: 'no_answer'
+        }));
+      }
+      cleanupCall();
+      alert('Không có ai trả lời. Vui lòng thử lại sau.');
+    }, 30000);
   };
 
   // Trả lời cuộc gọi đến
