@@ -23,7 +23,7 @@ const pool = new Pool({
     : { rejectUnauthorized: false },
   connectionTimeoutMillis: 5000,     // Timeout kết nối 5 giây tránh treo vĩnh viễn trên CI
   idleTimeoutMillis: 10000,          // Giải phóng kết nối nhàn rỗi sau 10 giây
-  max: 10,                           // Giới hạn pool kết nối an toàn cho Supabase
+  max: 3,                            // Giới hạn pool kết nối nhỏ gọn (3/service) để không vượt quá giới hạn Supabase
   keepAlive: true,                   // Gửi TCP keep-alive để chống Supavisor đóng kết nối ngầm
   keepAliveInitialDelayMillis: 10000,
 });

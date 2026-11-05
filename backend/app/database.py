@@ -13,11 +13,14 @@ is_postgres = False
 
 try:
     if "postgresql" in DATABASE_URL:
-        # Nếu là PostgreSQL / Supabase
+        # Nếu là PostgreSQL / Supabase (dùng pool size nhỏ để không chạm trần Supabase pooler)
         engine = create_engine(
             DATABASE_URL,
+            pool_size=3,
+            max_overflow=2,
+            pool_recycle=300,
             pool_pre_ping=True,
-            connect_args={"sslmode": "require", "connect_timeout": 3} if "supabase" in DATABASE_URL else {"connect_timeout": 3}
+            connect_args={"sslmode": "require", "connect_timeout": 5} if "supabase" in DATABASE_URL else {"connect_timeout": 5}
         )
         # Test kết nối nhanh
         with engine.connect() as conn:
