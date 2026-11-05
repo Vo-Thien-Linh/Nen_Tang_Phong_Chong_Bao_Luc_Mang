@@ -433,6 +433,15 @@ export default function HomeView({
         {/* ================= BẢNG TIN TRUNG TÂM (MỞ RỘNG RỘNG RÃI, THOÁNG ĐÃNG) ================= */}
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
           
+          {/* Thanh Tin 24h (Story Bar) */}
+          <StoryBar
+            currentUser={currentUser}
+            storyTrays={storyTrays}
+            onOpenCreateStory={() => setIsCreateStoryOpen(true)}
+            onOpenStoryViewer={(tray) => setActiveStoryTray(tray)}
+            onRequireAuth={onRequireAuth}
+          />
+
           {/* Thanh danh sách các phòng Livestream đang phát sóng THỰC TẾ từ CSDL */}
           {activeStreams && activeStreams.length > 0 && (
             <div className="bg-gradient-to-r from-rose-500/10 via-pink-500/10 to-indigo-500/10 border border-rose-200/70 dark:border-rose-900/40 rounded-2xl p-3.5 shadow-2xs">
