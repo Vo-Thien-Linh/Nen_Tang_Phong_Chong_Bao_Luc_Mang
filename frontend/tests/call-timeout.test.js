@@ -11,6 +11,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { formatCallLogText } from '../src/utils/callMediaLogic.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ function makeCallState() {
   let callStatus = 'idle';
   let callDuration = 0;
   const sentMessages = [];
+  const recordedLogs = [];
   const ws = makeFakeWs(sentMessages);
 
   const cleanupCall = () => {
@@ -56,12 +58,17 @@ function makeCallState() {
     callDuration = 0;
   };
 
+  const recordCallLog = (reason, duration = 0, callType = 'video') => {
+    const text = formatCallLogText({ callType, reason, duration });
+    recordedLogs.push({ reason, duration, text, callType });
+  };
+
   /**
    * Giả lập startCall(): đặt timeout 30 s và gửi CALL_REQUEST
    */
-  const startCall = (receiverId, timeoutMs = 30000) => {
+  const startCall = (receiverId, timeoutMs = 30000, callType = 'video') => {
     callStatus = 'outgoing';
-    ws.send(JSON.stringify({ type: 'CALL_REQUEST', receiver_id: receiverId }));
+    ws.send(JSON.stringify({ type: 'CALL_REQUEST', receiver_id: receiverId, call_type: callType }));
 
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     callTimeoutRef.current = setTimeout(() => {
@@ -69,6 +76,7 @@ function makeCallState() {
         ws.send(JSON.stringify({ type: 'CALL_ENDED', receiver_id: receiverId, reason: 'no_answer' }));
       }
       cleanupCall();
+      recordCallLog('missed', 0, callType);
     }, timeoutMs);
   };
 
@@ -85,25 +93,53 @@ function makeCallState() {
   };
 
   /**
+   * Giả lập khi người nhận từ chối cuộc gọi (CALL_RESPONSE accepted: false, reason: 'declined')
+   */
+  const onCallDeclined = (reason = 'declined', callType = 'video') => {
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+    cleanupCall();
+    recordCallLog(reason, 0, callType);
+  };
+
+  /**
    * Giả lập người gọi chủ động hủy (nút Cancel trong OUTGOING modal)
    */
-  const handleCancelCall = (receiverId) => {
+  const handleCancelCall = (receiverId, callType = 'video') => {
     if (ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'CALL_ENDED', receiver_id: receiverId, reason: 'cancelled' }));
     }
     cleanupCall();
+    recordCallLog('cancelled', 0, callType);
+  };
+
+  /**
+   * Giả lập kết thúc cuộc gọi khi đang kết nối (Connected hangup)
+   */
+  const handleEndCall = (receiverId, duration, callType = 'video') => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'CALL_ENDED', receiver_id: receiverId, reason: 'completed', duration }));
+    }
+    cleanupCall();
+    recordCallLog('completed', duration, callType);
   };
 
   return {
     callTimerRef,
     callTimeoutRef,
     sentMessages,
+    recordedLogs,
     get callStatus() { return callStatus; },
     get callDuration() { return callDuration; },
     startCall,
     onCallAccepted,
+    onCallDeclined,
     handleCancelCall,
-    cleanupCall
+    handleEndCall,
+    cleanupCall,
+    recordCallLog
   };
 }
 
@@ -221,4 +257,61 @@ test('call-timeout: gọi startCall() lại xóa timeout cũ, bắt đầu timeo
   state.cleanupCall();
   done();
 });
+
+test('call-timeout: khi người nhận từ chối cuộc gọi → hủy timeout ngay, về idle, và ghi log bị từ chối', () => {
+  const state = makeCallState();
+  state.startCall('receiver-6', 30000, 'video');
+
+  assert.equal(state.callStatus, 'outgoing');
+  assert.notEqual(state.callTimeoutRef.current, null);
+
+  // Callee sends decline
+  state.onCallDeclined('declined', 'video');
+
+  // Must be idle, timeout cleared, and recorded declined log
+  assert.equal(state.callStatus, 'idle');
+  assert.equal(state.callTimeoutRef.current, null);
+  assert.equal(state.recordedLogs.length, 1);
+  assert.equal(state.recordedLogs[0].reason, 'declined');
+  assert.equal(state.recordedLogs[0].text, 'Cuộc gọi video bị từ chối');
+});
+
+test('call-timeout: khi timeout 30s nổ → ghi log cuộc gọi nhỡ vào chat', (t, done) => {
+  const state = makeCallState();
+  state.startCall('receiver-7', 30, 'video');
+
+  setTimeout(() => {
+    assert.equal(state.callStatus, 'idle');
+    assert.equal(state.recordedLogs.length, 1);
+    assert.equal(state.recordedLogs[0].reason, 'missed');
+    assert.equal(state.recordedLogs[0].text, 'Cuộc gọi video nhỡ');
+    done();
+  }, 60);
+});
+
+test('call-timeout: khi caller chủ động cancel → ghi log cuộc gọi đã hủy', () => {
+  const state = makeCallState();
+  state.startCall('receiver-8', 30000, 'audio');
+
+  state.handleCancelCall('receiver-8', 'audio');
+
+  assert.equal(state.callStatus, 'idle');
+  assert.equal(state.recordedLogs.length, 1);
+  assert.equal(state.recordedLogs[0].reason, 'cancelled');
+  assert.equal(state.recordedLogs[0].text, 'Cuộc gọi thoại đã hủy');
+});
+
+test('call-timeout: khi cuộc gọi kết nối thành công rồi kết thúc → ghi log cuộc gọi kèm thời lượng', () => {
+  const state = makeCallState();
+  state.startCall('receiver-9', 30000, 'video');
+  state.onCallAccepted();
+
+  state.handleEndCall('receiver-9', 145, 'video');
+
+  assert.equal(state.callStatus, 'idle');
+  assert.equal(state.recordedLogs.length, 1);
+  assert.equal(state.recordedLogs[0].reason, 'completed');
+  assert.equal(state.recordedLogs[0].text, 'Cuộc gọi video • 02:25');
+});
+
 
