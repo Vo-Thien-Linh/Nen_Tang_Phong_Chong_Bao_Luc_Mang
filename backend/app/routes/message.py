@@ -14,6 +14,7 @@ from ..schemas.message import (
     MessageItem,
     MessageSendRequest,
     ConversationItem,
+    CreateGroupRequest,
 )
 
 router = APIRouter(prefix="/messages", tags=["Chức năng Nhắn tin (Messaging)"])
@@ -229,10 +230,32 @@ def get_or_create_conversation(
     }
 
 @router.post(
+    "/groups",
+    response_model=ConversationItem,
+    summary="Tạo nhóm trò chuyện mới",
+    description="Tạo cuộc trò chuyện nhóm với tối thiểu 3 thành viên"
+)
+async def create_group(
+    payload: CreateGroupRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    group = MessageService.create_group(current_user_id, payload, db)
+    recipients = MessageService.get_conversation_recipient_ids(group.id, current_user_id, db)
+    group_data = group.model_dump() if hasattr(group, "model_dump") else group.dict()
+    for r_id in recipients:
+        await manager.send_to_user(str(r_id), {
+            "type": "GROUP_CREATED",
+            "conversation_id": group.id,
+            "conversation": group_data
+        })
+    return group
+
+@router.post(
     "/send",
     response_model=MessageItem,
     summary="Gửi tin nhắn mới",
-    description="Gửi tin nhắn cho người dùng khác, tự động tạo cuộc trò chuyện nếu chưa có"
+    description="Gửi tin nhắn cho người dùng khác hoặc gửi vào nhóm trò chuyện"
 )
 async def send_message(
     payload: MessageSendRequest,
@@ -245,26 +268,32 @@ async def send_message(
         content=payload.content,
         db=db,
         media_url=payload.media_url,
-        media_type=payload.media_type
+        media_type=payload.media_type,
+        conversation_id=payload.conversation_id
     )
     msg_dict = {
         "id": msg.id,
         "conversation_id": msg.conversation_id,
         "sender_id": str(msg.sender_id),
-        "receiver_id": str(msg.receiver_id),
+        "receiver_id": str(msg.receiver_id) if msg.receiver_id else None,
         "content": msg.content,
         "media_url": msg.media_url,
         "media_type": msg.media_type,
         "status": msg.status,
         "is_read": msg.is_read,
         "is_recalled": msg.is_recalled,
-        "created_at": msg.created_at.isoformat() if msg.created_at else None
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "sender_name": getattr(msg, "sender_name", None),
+        "sender_avatar": getattr(msg, "sender_avatar", None),
     }
-    await manager.send_to_user(str(payload.receiver_id), {
-        "type": "NEW_MESSAGE",
-        "conversation_id": msg.conversation_id,
-        "message": msg_dict
-    })
+
+    recipients = MessageService.get_conversation_recipient_ids(msg.conversation_id, current_user_id, db)
+    for r_id in recipients:
+        await manager.send_to_user(str(r_id), {
+            "type": "NEW_MESSAGE",
+            "conversation_id": msg.conversation_id,
+            "message": msg_dict
+        })
     await manager.send_to_user(str(current_user_id), {
         "type": "MESSAGE_SENT",
         "conversation_id": msg.conversation_id,
@@ -292,7 +321,9 @@ async def recall_message(
         "status": msg.status,
         "is_recalled": True
     }
-    await manager.send_to_user(str(msg.receiver_id), recall_payload)
+    recipients = MessageService.get_conversation_recipient_ids(msg.conversation_id, current_user_id, db)
+    for r_id in recipients:
+        await manager.send_to_user(str(r_id), recall_payload)
     await manager.send_to_user(str(current_user_id), recall_payload)
     return msg
 
