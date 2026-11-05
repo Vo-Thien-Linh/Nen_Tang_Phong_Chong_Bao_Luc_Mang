@@ -283,7 +283,7 @@ export function createStoryRepository({ pool }) {
         [storyId]
       );
       if (storyCheck.rows.length === 0) return null;
-      if (storyCheck.rows[0].author_id !== authorId) {
+      if (String(storyCheck.rows[0].author_id) !== String(authorId)) {
         const error = new Error('Bạn không có quyền xem danh sách người xem của tin này');
         error.statusCode = 403;
         throw error;
@@ -324,6 +324,13 @@ export function createStoryRepository({ pool }) {
       `;
       const res = await pool.query(upsertQuery, [storyId, userId, reactionType]);
 
+      // Tự động ghi nhận lượt xem nếu chưa có để đảm bảo hiển thị đầy đủ trong danh sách người xem tin
+      try {
+        await this.markStoryAsViewed({ storyId, viewerId: userId });
+      } catch (viewErr) {
+        // bỏ qua nếu đã xem
+      }
+
       // Cập nhật lại số lượng cảm xúc
       const countRes = await pool.query(
         'SELECT COUNT(*)::INT AS total FROM story_reactions WHERE story_id = $1',
@@ -351,7 +358,7 @@ export function createStoryRepository({ pool }) {
       }
 
       const authorId = checkRes.rows[0].author_id;
-      if (authorId !== userId && !isAdmin) {
+      if (String(authorId) !== String(userId) && !isAdmin) {
         const error = new Error('Bạn không có quyền xóa tin này');
         error.statusCode = 403;
         throw error;

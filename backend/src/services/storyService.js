@@ -309,13 +309,24 @@ export function createStoryService({
       const result = await storyRepository.reactToStory({ storyId, userId: user.id, reactionType });
 
       // Thông báo cho tác giả nếu không phải tự thả cảm xúc tin của chính mình
-      if (story.author_id !== user.id && storyRepository.pool) {
+      if (String(story.author_id) !== String(user.id) && storyRepository.pool) {
         try {
-          const authorName = user.name || user.full_name || 'Người dùng';
+          const actorName = user.name || user.full_name || 'Người dùng';
           await storyRepository.pool.query(
-            `INSERT INTO notifications (recipient_id, actor_id, type, content)
-             VALUES ($1, $2, 'reaction', $3)`,
-            [story.author_id, user.id, `${authorName} đã thả cảm xúc về tin của bạn.`]
+            `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
+             VALUES ($1, $2, 'story_reaction', $3, $4)`,
+            [
+              story.author_id,
+              user.id,
+              `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
+              JSON.stringify({
+                storyId: String(storyId),
+                reactionType,
+                actorId: user.id,
+                actorName,
+                isStory: true,
+              }),
+            ]
           );
         } catch (notifErr) {
           console.warn('Lỗi gửi notification thả reaction tin:', notifErr.message);

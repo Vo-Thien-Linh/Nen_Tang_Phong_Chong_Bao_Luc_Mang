@@ -26,6 +26,9 @@ export default function StoryViewerModal({
   onStoryDeleted,
   onNextTray,
   onPrevTray,
+  initialStoryId,
+  initialShowViewers = false,
+  targetViewerId = null,
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -49,21 +52,45 @@ export default function StoryViewerModal({
 
   const stories = tray?.stories || [];
   const currentStory = stories[currentIndex];
-  const isAuthor = currentUser?.id && tray?.author?.id === currentUser?.id;
+  const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
 
-  // Reset khi mở tray mới
+  // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
   useEffect(() => {
     if (isOpen && stories.length > 0) {
-      // Tìm tin đầu tiên chưa xem
-      const firstUnviewedIndex = stories.findIndex((s) => !s.isViewed);
-      setCurrentIndex(firstUnviewedIndex >= 0 ? firstUnviewedIndex : 0);
+      let startIndex = 0;
+      if (initialStoryId) {
+        const foundIdx = stories.findIndex((s) => String(s.id) === String(initialStoryId));
+        if (foundIdx >= 0) startIndex = foundIdx;
+      } else {
+        const firstUnviewedIndex = stories.findIndex((s) => !s.isViewed);
+        if (firstUnviewedIndex >= 0) startIndex = firstUnviewedIndex;
+      }
+
+      setCurrentIndex(startIndex);
       setProgress(0);
-      setShowViewers(false);
       setReplyMessage('');
       setReplySuccessMsg('');
       setReplyErrorMsg('');
+
+      // Tự động mở danh sách người xem tin nếu đến từ thông báo cảm xúc/lượt xem
+      if (initialShowViewers && isAuthor) {
+        setShowViewers(true);
+        setIsPaused(true);
+        setIsLoadingViewers(true);
+        const targetStory = stories[startIndex];
+        if (targetStory?.id) {
+          fetchStoryViewersApi(targetStory.id)
+            .then((res) => {
+              if (res?.success) setViewersList(res.data || []);
+            })
+            .catch((err) => console.warn('Lỗi lấy viewers từ thông báo:', err.message))
+            .finally(() => setIsLoadingViewers(false));
+        }
+      } else {
+        setShowViewers(false);
+      }
     }
-  }, [isOpen, tray]);
+  }, [isOpen, tray, initialStoryId, initialShowViewers, currentUser?.id]);
 
   // Khóa cuộn trang nền và hỗ trợ phím Escape / Mũi tên trái phải
   useEffect(() => {
@@ -569,28 +596,61 @@ export default function StoryViewerModal({
               ) : viewersList.length === 0 ? (
                 <p className="text-center text-white/50 text-sm py-8">Chưa có ai xem tin này</p>
               ) : (
-                viewersList.map((v) => (
-                  <div key={v.view_id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img 
-                        src={v.avatar_url || DEFAULT_AVATAR} 
-                        alt={v.full_name} 
-                        className="w-9 h-9 rounded-full object-cover"
-                      />
-                      <div>
-                        <p className="font-semibold text-sm leading-tight">{v.full_name}</p>
-                        <p className="text-xs text-white/50">
-                          {new Date(v.viewed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
+                viewersList.map((v) => {
+                  const isTarget = targetViewerId && (
+                    String(v.viewer_id) === String(targetViewerId) || 
+                    String(v.user_id) === String(targetViewerId)
+                  );
+
+                  return (
+                    <div 
+                      key={v.view_id} 
+                      ref={(el) => {
+                        if (isTarget && el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
+                      className={`flex items-center justify-between p-2.5 rounded-2xl transition duration-300 ${
+                        isTarget 
+                          ? 'bg-blue-600/35 ring-2 ring-blue-400 shadow-lg shadow-blue-500/25 border border-blue-400/50' 
+                          : 'hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <img 
+                            src={v.avatar_url || DEFAULT_AVATAR} 
+                            alt={v.full_name} 
+                            className={`w-10 h-10 rounded-full object-cover ring-2 ${isTarget ? 'ring-blue-400 ring-offset-2 ring-offset-slate-900' : 'ring-white/20'}`}
+                          />
+                          {isTarget && (
+                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full ring-2 ring-slate-900 animate-ping" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm leading-tight flex items-center gap-1.5">
+                            <span>{v.full_name}</span>
+                            {isTarget && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/50 text-blue-200 border border-blue-400/50">
+                                Đã tương tác
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-white/50 mt-0.5">
+                            {new Date(v.viewed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
                       </div>
+                      {v.reaction_type && (
+                        <div className="flex items-center gap-1">
+                          <span className={`text-2xl transition drop-shadow-md ${isTarget ? 'scale-125 animate-pulse' : 'hover:scale-125'}`}>
+                            {REACTION_ICONS.find(r => r.type === v.reaction_type)?.emoji}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    {v.reaction_type && (
-                      <span className="text-xl">
-                        {REACTION_ICONS.find(r => r.type === v.reaction_type)?.emoji}
-                      </span>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
