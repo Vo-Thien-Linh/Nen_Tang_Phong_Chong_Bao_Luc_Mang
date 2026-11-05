@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, Trash2, Heart, 
-  ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert 
+  ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert,
+  Send, Loader2
 } from 'lucide-react';
 import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
+import { messageService } from '../services/messageService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 
 const REACTION_ICONS = [
@@ -32,7 +34,15 @@ export default function StoryViewerModal({
   const [viewersList, setViewersList] = useState([]);
   const [isLoadingViewers, setIsLoadingViewers] = useState(false);
   const [myReaction, setMyReaction] = useState(null);
-  const [reactionAnim, setReactionAnim] = useState(null);
+
+  // Hiệu ứng hạt Reaction bay lượn mượt mà (Facebook style)
+  const [floatingParticles, setFloatingParticles] = useState([]);
+
+  // Trạng thái trả lời tin bằng tin nhắn (Reply Story)
+  const [replyMessage, setReplyMessage] = useState('');
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [replySuccessMsg, setReplySuccessMsg] = useState('');
+  const [replyErrorMsg, setReplyErrorMsg] = useState('');
 
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
@@ -49,6 +59,9 @@ export default function StoryViewerModal({
       setCurrentIndex(firstUnviewedIndex >= 0 ? firstUnviewedIndex : 0);
       setProgress(0);
       setShowViewers(false);
+      setReplyMessage('');
+      setReplySuccessMsg('');
+      setReplyErrorMsg('');
     }
   }, [isOpen, tray]);
 
@@ -58,6 +71,14 @@ export default function StoryViewerModal({
       const prevOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       const handleKeyDown = (e) => {
+        // Không trigger phím chuyển tin nếu người dùng đang nhập tin nhắn
+        if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+          if (e.key === 'Escape') {
+            document.activeElement.blur();
+          }
+          return;
+        }
+
         if (e.key === 'Escape') {
           onClose();
         } else if (e.key === 'ArrowRight') {
@@ -79,6 +100,8 @@ export default function StoryViewerModal({
     if (!currentStory) return;
 
     setMyReaction(currentStory.myReaction || null);
+    setReplySuccessMsg('');
+    setReplyErrorMsg('');
 
     if (currentUser?.id && !isAuthor) {
       viewStoryApi(currentStory.id).catch((err) => console.warn('Lỗi viewStory:', err.message));
@@ -128,10 +151,28 @@ export default function StoryViewerModal({
     }
   };
 
+  // Kích hoạt hiệu ứng hạt Reaction bay bổng đa hướng (Facebook Floating Hearts)
   const handleReact = async (reactionType) => {
     setMyReaction(reactionType);
-    setReactionAnim(reactionType);
-    setTimeout(() => setReactionAnim(null), 1000);
+
+    const emoji = REACTION_ICONS.find((r) => r.type === reactionType)?.emoji || '❤️';
+    const newParticles = Array.from({ length: 8 }).map((_, i) => ({
+      id: `${Date.now()}-${i}-${Math.random()}`,
+      emoji,
+      left: 20 + Math.random() * 60, // Phân bổ ngang ngẫu nhiên 20% - 80%
+      scale: 0.85 + Math.random() * 0.7, // Kích thước biến thiên
+      delay: i * 65, // Hiệu ứng trễ từng đợt
+      duration: 1300 + Math.random() * 400, // 1.3s - 1.7s
+      rotate: -25 + Math.random() * 50, // Góc xoay nhẹ
+      driftX: -45 + Math.random() * 90, // Lượn sóng nhẹ theo chiều ngang
+    }));
+
+    setFloatingParticles((prev) => [...prev, ...newParticles]);
+
+    // Tự động dọn dẹp hạt sau khi bay xong
+    setTimeout(() => {
+      setFloatingParticles((prev) => prev.filter((p) => !newParticles.find((np) => np.id === p.id)));
+    }, 2400);
 
     try {
       await reactToStoryApi(currentStory.id, reactionType);
@@ -140,18 +181,63 @@ export default function StoryViewerModal({
     }
   };
 
+  // Xử lý gửi tin nhắn trả lời tin (Reply to Story)
+  const handleSendReply = async (e) => {
+    if (e) e.preventDefault();
+    if (!replyMessage.trim() || isSendingReply) return;
+
+    if (!currentUser?.id) {
+      setReplyErrorMsg('Vui lòng đăng nhập để trả lời tin');
+      setTimeout(() => setReplyErrorMsg(''), 3000);
+      return;
+    }
+
+    setIsSendingReply(true);
+    setReplyErrorMsg('');
+
+    try {
+      const authorId = tray.author?.id;
+      if (!authorId) throw new Error('Không tìm thấy thông tin tác giả tin');
+
+      // Định dạng nội dung tin nhắn có ngữ cảnh trích dẫn tin
+      let formattedContent = '';
+      if (currentStory.storyType === 'text') {
+        formattedContent = `[Trả lời tin: "${currentStory.textContent?.slice(0, 60) || 'Tin'}"]\n${replyMessage.trim()}`;
+      } else {
+        formattedContent = `[Trả lời tin]\n${replyMessage.trim()}`;
+      }
+
+      await messageService.sendMessage(
+        authorId,
+        formattedContent,
+        currentStory.mediaUrl || null,
+        currentStory.storyType === 'video' ? 'video' : (currentStory.storyType === 'image' ? 'image' : 'text')
+      );
+
+      setReplyMessage('');
+      setReplySuccessMsg(`Đã gửi tin nhắn đến ${tray.author?.name || 'tác giả'}`);
+      setTimeout(() => setReplySuccessMsg(''), 3000);
+    } catch (err) {
+      setReplyErrorMsg(err.message || 'Không thể gửi tin nhắn trả lời');
+      setTimeout(() => setReplyErrorMsg(''), 3000);
+    } finally {
+      setIsSendingReply(false);
+      setIsPaused(false);
+    }
+  };
+
   const handleDelete = async () => {
-    if (!confirm('Bạn có chắc chắn muốn xóa tin này không?')) return;
+    if (!window.confirm('Bạn có chắc chắn muốn xóa tin này không?')) return;
     try {
       await deleteStoryApi(currentStory.id);
       if (onStoryDeleted) onStoryDeleted(currentStory.id);
-      if (stories.length > 1) {
-        handleNextStory();
-      } else {
+      if (stories.length <= 1) {
         onClose();
+      } else {
+        handleNextStory();
       }
     } catch (err) {
-      alert(err.message || 'Không thể xóa tin');
+      alert('Lỗi khi xóa tin: ' + err.message);
     }
   };
 
@@ -176,10 +262,32 @@ export default function StoryViewerModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
+      {/* Định nghĩa CSS Keyframes cho hiệu ứng hạt Reaction bay bổng */}
+      <style>{`
+        @keyframes storyParticleFloat {
+          0% {
+            transform: translate3d(0, 0, 0) scale(0.6);
+            opacity: 0;
+          }
+          15% {
+            opacity: 1;
+            transform: translate3d(calc(var(--drift-x) * 0.25), -60px, 0) scale(1.15);
+          }
+          75% {
+            opacity: 0.95;
+          }
+          100% {
+            transform: translate3d(var(--drift-x), -400px, 0) scale(1.45);
+            opacity: 0;
+          }
+        }
+      `}</style>
+
       {/* Nút Đóng */}
       <button 
         onClick={onClose}
-        className="absolute top-4 right-4 z-50 p-2 rounded-full bg-white/20 hover:bg-white/40 text-white backdrop-blur-md transition"
+        className="absolute top-4 right-4 z-50 p-2 rounded-full bg-white/20 hover:bg-white/40 text-white backdrop-blur-md transition cursor-pointer"
+        aria-label="Đóng tin"
       >
         <X className="w-6 h-6" />
       </button>
@@ -187,14 +295,16 @@ export default function StoryViewerModal({
       {/* Nút Điều hướng Trái / Phải */}
       <button 
         onClick={handlePrevStory}
-        className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-3 rounded-full bg-white/10 hover:bg-white/30 text-white backdrop-blur-md transition hidden sm:flex"
+        className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-3 rounded-full bg-white/10 hover:bg-white/30 text-white backdrop-blur-md transition hidden sm:flex cursor-pointer"
+        aria-label="Tin trước"
       >
         <ChevronLeft className="w-6 h-6" />
       </button>
 
       <button 
         onClick={handleNextStory}
-        className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-3 rounded-full bg-white/10 hover:bg-white/30 text-white backdrop-blur-md transition hidden sm:flex"
+        className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-3 rounded-full bg-white/10 hover:bg-white/30 text-white backdrop-blur-md transition hidden sm:flex cursor-pointer"
+        aria-label="Tin kế tiếp"
       >
         <ChevronRight className="w-6 h-6" />
       </button>
@@ -202,10 +312,10 @@ export default function StoryViewerModal({
       {/* Khung nội dung Tin (Tỉ lệ 9:16 dọc chuẩn Story) */}
       <div 
         className="relative w-full max-w-[420px] h-[85vh] sm:h-[90vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col justify-between"
-        onMouseDown={() => setIsPaused(true)}
-        onMouseUp={() => setIsPaused(false)}
-        onTouchStart={() => setIsPaused(true)}
-        onTouchEnd={() => setIsPaused(false)}
+        onMouseDown={() => !replyMessage && setIsPaused(true)}
+        onMouseUp={() => !replyMessage && setIsPaused(false)}
+        onTouchStart={() => !replyMessage && setIsPaused(true)}
+        onTouchEnd={() => !replyMessage && setIsPaused(false)}
       >
         {/* 1. Các vạch tiến trình (Progress Bars) trên đầu */}
         <div className="absolute top-3 inset-x-3 z-30 flex gap-1.5">
@@ -250,7 +360,7 @@ export default function StoryViewerModal({
             {isAuthor && (
               <button 
                 onClick={handleDelete}
-                className="p-2 rounded-full bg-black/40 hover:bg-rose-600/80 text-white backdrop-blur-sm transition"
+                className="p-2 rounded-full bg-black/40 hover:bg-rose-600/80 text-white backdrop-blur-sm transition cursor-pointer"
                 title="Xóa tin"
               >
                 <Trash2 className="w-4 h-4" />
@@ -268,8 +378,11 @@ export default function StoryViewerModal({
               style={currentStory.backgroundStyle || { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
             >
               <p 
-                className="text-white font-bold text-2xl md:text-3xl break-words max-w-full drop-shadow-md"
-                style={{ fontFamily: currentStory.backgroundStyle?.fontFamily || 'sans-serif' }}
+                className="text-white font-bold text-2xl md:text-3xl break-words max-w-full drop-shadow-md leading-relaxed"
+                style={{ 
+                  fontFamily: currentStory.backgroundStyle?.fontFamily || 'sans-serif',
+                  textAlign: currentStory.backgroundStyle?.textAlign || 'center',
+                }}
               >
                 {currentStory.textContent}
               </p>
@@ -301,7 +414,7 @@ export default function StoryViewerModal({
                 </div>
               )}
               {currentStory.textContent && (
-                <div className="absolute bottom-20 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
+                <div className="absolute bottom-24 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
                   {currentStory.textContent}
                 </div>
               )}
@@ -331,30 +444,53 @@ export default function StoryViewerModal({
                 style={currentStory.backgroundStyle?.filter && currentStory.backgroundStyle.filter !== 'none' ? { filter: currentStory.backgroundStyle.filter } : undefined}
               />
               {currentStory.textContent && (
-                <div className="absolute bottom-20 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
+                <div className="absolute bottom-24 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
                   {currentStory.textContent}
                 </div>
               )}
             </div>
           )}
 
-          {/* Hiệu ứng Reaction bay lên */}
-          {reactionAnim && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40 animate-bounce">
-              <span className="text-7xl drop-shadow-2xl">
-                {REACTION_ICONS.find(r => r.type === reactionAnim)?.emoji || '❤️'}
-              </span>
-            </div>
-          )}
+          {/* Lớp hạt Reaction bay bổng đa chiều (Floating Particles 60fps) */}
+          <div className="absolute inset-0 pointer-events-none z-40 overflow-hidden">
+            {floatingParticles.map((p) => (
+              <div
+                key={p.id}
+                className="absolute bottom-20 select-none will-change-transform"
+                style={{
+                  left: `${p.left}%`,
+                  fontSize: `${28 * p.scale}px`,
+                  '--drift-x': `${p.driftX}px`,
+                  animation: `storyParticleFloat ${p.duration}ms cubic-bezier(0.22, 1, 0.36, 1) ${p.delay}ms forwards`,
+                }}
+              >
+                <span className="drop-shadow-xl inline-block" style={{ transform: `rotate(${p.rotate}deg)` }}>
+                  {p.emoji}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* 4. Footer tương tác */}
-        <div className="absolute bottom-4 inset-x-4 z-30">
+        {/* 4. Footer tương tác: Xem lượt xem hoặc Trả lời tin & Thả reaction */}
+        <div className="absolute bottom-4 inset-x-4 z-30 space-y-2">
+          {/* Thông báo gửi tin nhắn phản hồi thành công hoặc lỗi */}
+          {replySuccessMsg && (
+            <div className="py-1.5 px-3 rounded-xl bg-emerald-500/95 text-white text-xs font-semibold backdrop-blur-md text-center shadow-lg animate-fade-in">
+              ✓ {replySuccessMsg}
+            </div>
+          )}
+          {replyErrorMsg && (
+            <div className="py-1.5 px-3 rounded-xl bg-rose-500/95 text-white text-xs font-semibold backdrop-blur-md text-center shadow-lg animate-fade-in">
+              {replyErrorMsg}
+            </div>
+          )}
+
           {isAuthor ? (
             /* Dành cho Tác giả: Nút xem số lượng người đã xem */
             <button 
               onClick={handleOpenViewers}
-              className="w-full py-2.5 px-4 rounded-2xl bg-white/20 hover:bg-white/30 backdrop-blur-md text-white flex items-center justify-between text-xs font-semibold transition"
+              className="w-full py-2.5 px-4 rounded-2xl bg-white/20 hover:bg-white/30 backdrop-blur-md text-white flex items-center justify-between text-xs font-semibold transition cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <Eye className="w-4 h-4" />
@@ -363,15 +499,16 @@ export default function StoryViewerModal({
               <span className="text-white/70">Xem chi tiết &gt;</span>
             </button>
           ) : (
-            /* Dành cho Người xem: Thanh thả Reaction nhanh */
-            <div className="flex items-center justify-between p-2 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10">
-              <div className="flex items-center justify-around w-full">
+            /* Dành cho Người xem: Thanh thả Reaction & Ô gửi tin nhắn trả lời Story */
+            <div className="space-y-2">
+              {/* Dãy 6 biểu tượng cảm xúc nhanh */}
+              <div className="flex items-center justify-between px-3 py-1.5 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10">
                 {REACTION_ICONS.map((r) => (
                   <button
                     key={r.type}
                     onClick={() => handleReact(r.type)}
-                    className={`text-2xl hover:scale-125 transition-transform ${
-                      myReaction === r.type ? 'scale-125 filter drop-shadow' : 'opacity-80 hover:opacity-100'
+                    className={`text-2xl hover:scale-130 active:scale-95 transition-transform cursor-pointer p-1 ${
+                      myReaction === r.type ? 'scale-125 filter drop-shadow-md' : 'opacity-85 hover:opacity-100'
                     }`}
                     title={r.label}
                   >
@@ -379,6 +516,31 @@ export default function StoryViewerModal({
                   </button>
                 ))}
               </div>
+
+              {/* Ô nhập tin nhắn trả lời (Reply to Story) */}
+              <form onSubmit={handleSendReply} className="flex items-center gap-2">
+                <input 
+                  type="text"
+                  value={replyMessage}
+                  onChange={(e) => setReplyMessage(e.target.value)}
+                  onFocus={() => setIsPaused(true)}
+                  onBlur={() => !replyMessage.trim() && setIsPaused(false)}
+                  placeholder={`Gửi tin nhắn cho ${tray.author?.name || 'tác giả'}...`}
+                  className="flex-1 px-4 py-2.5 rounded-full bg-white/20 hover:bg-white/25 focus:bg-white/35 backdrop-blur-md text-white placeholder-white/70 text-xs border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/50 transition"
+                />
+                <button
+                  type="submit"
+                  disabled={!replyMessage.trim() || isSendingReply}
+                  className="p-2.5 rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white transition shadow-md flex items-center justify-center shrink-0 cursor-pointer"
+                  title="Gửi tin nhắn trả lời tin"
+                >
+                  {isSendingReply ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </button>
+              </form>
             </div>
           )}
         </div>
@@ -393,7 +555,7 @@ export default function StoryViewerModal({
               </h3>
               <button 
                 onClick={() => { setShowViewers(false); setIsPaused(false); }}
-                className="p-1 rounded-full hover:bg-white/10"
+                className="p-1 rounded-full hover:bg-white/10 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -439,4 +601,3 @@ export default function StoryViewerModal({
     document.body
   );
 }
-
