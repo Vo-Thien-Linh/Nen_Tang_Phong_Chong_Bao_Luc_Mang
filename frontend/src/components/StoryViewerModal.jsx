@@ -371,10 +371,15 @@ export default function StoryViewerModal({
               className="w-10 h-10 rounded-full border-2 border-white object-cover"
             />
             <div>
-              <h4 className="text-white font-bold text-sm leading-tight flex items-center gap-1">
-                {tray.author?.name}
+              <h4 className="text-white font-bold text-sm leading-tight flex items-center gap-1.5">
+                <span>{tray.author?.name}</span>
                 {tray.author?.isVerified && (
                   <span className="text-blue-400 text-xs">✓</span>
+                )}
+                {currentStory.backgroundStyle?.isAiGenerated && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/80 backdrop-blur-md text-white border border-blue-400/40">
+                    Nhãn AI
+                  </span>
                 )}
               </h4>
               <p className="text-white/70 text-xs">

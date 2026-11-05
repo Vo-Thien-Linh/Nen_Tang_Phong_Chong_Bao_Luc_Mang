@@ -1,51 +1,59 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  X, Image as ImageIcon, Type, Video, Sparkles, AlertCircle, 
-  Globe, Users, Lock, Loader2, ArrowLeft, CheckCircle2,
-  RotateCw, FlipHorizontal, Maximize2, Minimize2,
-  Sun, Contrast, Palette, SlidersHorizontal, RefreshCw,
-  Volume2, VolumeX, Wand2, AlignLeft, AlignCenter, AlignRight,
-  Paintbrush
+  X, Image as ImageIcon, Type, Sparkles, AlertCircle, 
+  Globe, Users, Lock, Loader2, ArrowLeft,
+  RotateCw, Settings, Clock, ChevronDown, Check, Smile, Minus, Plus,
+  FileText
 } from 'lucide-react';
 import { createStoryApi, uploadStoryMedia } from '../api/client';
+import { DEFAULT_AVATAR } from '../constants/defaults';
 
+// Danh sách phông nền chuyển sắc & đơn sắc phong cách Facebook Story
 const GRADIENT_PRESETS = [
-  { id: 'sunset', label: 'Hoàng hôn', style: { background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' } },
-  { id: 'ocean', label: 'Đại dương', style: { background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' } },
-  { id: 'aurora', label: 'Bắc cực quang', style: { background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' } },
-  { id: 'purple', label: 'Tím mộng mơ', style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' } },
-  { id: 'fire', label: 'Lửa hồng', style: { background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' } },
-  { id: 'midnight', label: 'Đêm huyền bí', style: { background: 'linear-gradient(135deg, #09203f 0%, #537895 100%)' } },
-  { id: 'cyberpunk', label: 'Neon Cyber', style: { background: 'linear-gradient(135deg, #8a2387 0%, #e94057 50%, #f27121 100%)' } },
-  { id: 'emerald', label: 'Ngọc lục bảo', style: { background: 'linear-gradient(135deg, #0ba360 0%, #3cba92 100%)' } },
-  { id: 'deepspace', label: 'Vũ trụ sâu', style: { background: 'linear-gradient(135deg, #1f1c2c 0%, #928dab 100%)' } },
+  { id: 'fb-blue', label: 'Xanh Facebook', style: { background: 'linear-gradient(135deg, #0064e0 0%, #00b4d8 100%)' } },
+  { id: 'purple-pink', label: 'Tím hồng', style: { background: 'linear-gradient(135deg, #8a2387 0%, #e94057 50%, #f27121 100%)' } },
+  { id: 'sunset', label: 'Cam hoàng hôn', style: { background: 'linear-gradient(135deg, #f12711 0%, #f5af19 100%)' } },
+  { id: 'crimson', label: 'Đỏ tươi', style: { background: 'linear-gradient(135deg, #f857a6 0%, #ff5858 100%)' } },
+  { id: 'deep-blue', label: 'Xanh thẳm', style: { background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)' } },
+  { id: 'solid-dark', label: 'Đen tuyền', style: { background: '#18191a' } },
+  { id: 'cosmic', label: 'Tím vũ trụ', style: { background: 'linear-gradient(135deg, #7f00ff 0%, #e100ff 100%)' } },
+  { id: 'sunset-glow', label: 'Lửa hồng', style: { background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' } },
+  { id: 'ruby', label: 'Đỏ ruby', style: { background: 'linear-gradient(135deg, #ed213a 0%, #93291e 100%)' } },
+  { id: 'pastel', label: 'Hồng pastel', style: { background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)' } },
+  { id: 'mint', label: 'Xanh ngọc', style: { background: 'linear-gradient(135deg, #0ba360 0%, #3cba92 100%)' } },
+  { id: 'midnight', label: 'Đêm đen', style: { background: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)' } },
+  { id: 'dark-obsidian', label: 'Đen xám', style: { background: '#111827' } },
+  { id: 'cyber', label: 'Cyber Blue', style: { background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' } },
   { id: 'gold', label: 'Hoàng kim', style: { background: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)' } },
   { id: 'darkslate', label: 'Xám sang trọng', style: { background: 'linear-gradient(135deg, #232526 0%, #414345 100%)' } },
-  { id: 'candy', label: 'Kẹo ngọt', style: { background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)' } },
 ];
 
+// Danh sách kiểu chữ Facebook Story
 const FONT_OPTIONS = [
-  { id: 'sans-serif', label: 'Hiện đại' },
-  { id: 'serif', label: 'Cổ điển' },
-  { id: 'cursive', label: 'Mềm mại' },
-  { id: 'impact', label: 'Nổi bật' },
+  { id: 'clean', label: 'Gọn gàng', font: 'system-ui, -apple-system, sans-serif' },
+  { id: 'simple', label: 'Đơn giản', font: '"Segoe UI", Roboto, Helvetica, Arial, sans-serif' },
+  { id: 'serif', label: 'Cổ điển', font: 'Georgia, Cambria, "Times New Roman", serif' },
+  { id: 'cursive', label: 'Mềm mại', font: '"Dancing Script", "Brush Script MT", cursive' },
+  { id: 'impact', label: 'Tiêu đề', font: 'Impact, "Arial Black", sans-serif' },
 ];
 
-const MEDIA_FILTERS = [
-  { id: 'normal', label: 'Gốc', filter: 'none', color: '#94a3b8' },
-  { id: 'vivid', label: 'Rực rỡ', filter: 'contrast(115%) saturate(135%) brightness(105%)', color: '#f59e0b' },
-  { id: 'vintage', label: 'Cổ điển', filter: 'sepia(35%) contrast(110%) brightness(95%)', color: '#d97706' },
-  { id: 'bw', label: 'Đen trắng', filter: 'grayscale(100%) contrast(115%)', color: '#475569' },
-  { id: 'warm', label: 'Ấm áp', filter: 'sepia(20%) saturate(125%) brightness(105%)', color: '#ea580c' },
-  { id: 'cool', label: 'Mát lạnh', filter: 'hue-rotate(185deg) saturate(90%)', color: '#0284c7' },
-  { id: 'dramatic', label: 'Điện ảnh', filter: 'contrast(130%) brightness(92%) saturate(115%)', color: '#7c3aed' },
+// Quyền riêng tư tin
+const PRIVACY_OPTIONS = [
+  { id: 'public', label: 'Công khai', desc: 'Bất kỳ ai trên WINGS đều có thể xem tin', icon: Globe },
+  { id: 'friends', label: 'Bạn bè', desc: 'Chỉ bạn bè của bạn mới có thể xem tin', icon: Users },
+  { id: 'private', label: 'Chỉ mình tôi', desc: 'Chỉ một mình bạn mới có thể xem tin này', icon: Lock },
+];
+
+// Bảng màu cho văn bản chèn lên ảnh
+const TEXT_COLORS = [
+  '#ffffff', '#000000', '#facc15', '#f87171', '#38bdf8', '#4ade80', '#c084fc', '#fb923c'
 ];
 
 /**
- * Xuất ảnh đã qua chỉnh sửa (Xoay, Lật, Bộ lọc, Độ sáng) sang File Blob qua Canvas
+ * Xuất ảnh đã qua chỉnh sửa (Xoay, Phóng to, Chèn chữ, Nhãn thời gian) sang File Blob
  */
-function exportEditedImage(file, { rotation, isFlippedH, filterString }) {
+function exportEditedImage(file, { rotation = 0, zoomLevel = 1, overlayText = '', overlayFont = '', overlayColor = '#ffffff', hasTimeSticker = false, timeText = '' }) {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -55,26 +63,75 @@ function exportEditedImage(file, { rotation, isFlippedH, filterString }) {
         const ctx = canvas.getContext('2d');
         const isRotated90 = (rotation % 180) !== 0;
 
-        canvas.width = isRotated90 ? img.naturalHeight : img.naturalWidth;
-        canvas.height = isRotated90 ? img.naturalWidth : img.naturalHeight;
+        // Chuẩn khung Story dọc 9:16 (1080 x 1920)
+        const canvasWidth = 1080;
+        const canvasHeight = 1920;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
 
+        // Nền tối
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Vẽ ảnh với xoay và zoom
         ctx.save();
-        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.translate(canvasWidth / 2, canvasHeight / 2);
         ctx.rotate((rotation * Math.PI) / 180);
-        if (isFlippedH) {
-          ctx.scale(-1, 1);
-        }
-        if (filterString && filterString !== 'none') {
-          ctx.filter = filterString;
-        }
-        ctx.drawImage(
-          img,
-          -img.naturalWidth / 2,
-          -img.naturalHeight / 2,
-          img.naturalWidth,
-          img.naturalHeight
-        );
+        ctx.scale(zoomLevel, zoomLevel);
+
+        const imgW = isRotated90 ? img.naturalHeight : img.naturalWidth;
+        const imgH = isRotated90 ? img.naturalWidth : img.naturalHeight;
+        const scale = Math.max(canvasWidth / imgW, canvasHeight / imgH);
+        const drawW = img.naturalWidth * scale;
+        const drawH = img.naturalHeight * scale;
+
+        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
         ctx.restore();
+
+        // Vẽ nhãn thời gian nếu được bật
+        if (hasTimeSticker && timeText) {
+          ctx.save();
+          ctx.font = 'bold 38px system-ui, sans-serif';
+          const textMetrics = ctx.measureText(timeText);
+          const boxW = textMetrics.width + 48;
+          const boxH = 64;
+          const boxX = canvasWidth / 2 - boxW / 2;
+          const boxY = 220;
+
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          if (ctx.roundRect) {
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, boxW, boxH, 32);
+            ctx.fill();
+          } else {
+            ctx.fillRect(boxX, boxY, boxW, boxH);
+          }
+
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(timeText, canvasWidth / 2, boxY + boxH / 2);
+          ctx.restore();
+        }
+
+        // Vẽ chữ chèn lên ảnh nếu có
+        if (overlayText && overlayText.trim()) {
+          ctx.save();
+          ctx.font = `bold 56px ${overlayFont || 'system-ui, sans-serif'}`;
+          ctx.fillStyle = overlayColor || '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+          ctx.shadowBlur = 14;
+
+          const lines = overlayText.split('\n');
+          const lineHeight = 72;
+          const startY = canvasHeight / 2 - ((lines.length - 1) * lineHeight) / 2;
+          lines.forEach((line, idx) => {
+            ctx.fillText(line, canvasWidth / 2, startY + idx * lineHeight);
+          });
+          ctx.restore();
+        }
 
         canvas.toBlob(
           (blob) => {
@@ -93,7 +150,7 @@ function exportEditedImage(file, { rotation, isFlippedH, filterString }) {
         );
       } catch (err) {
         URL.revokeObjectURL(objectUrl);
-        console.warn('Lỗi xử lý canvas, sử dụng file gốc:', err);
+        console.warn('Lỗi xuất canvas ảnh story:', err);
         resolve(file);
       }
     };
@@ -109,34 +166,31 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [mode, setMode] = useState(null); // 'text' | 'media' | null
   const [textContent, setTextContent] = useState('');
   const [privacy, setPrivacy] = useState('public');
+  const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [nudgeData, setNudgeData] = useState(null);
 
-  // State cấu hình tin văn bản
+  // Cấu hình Tin văn bản
   const [selectedGradient, setSelectedGradient] = useState(GRADIENT_PRESETS[0]);
-  const [bgTab, setBgTab] = useState('presets'); // 'presets' | 'custom'
-  const [bgType, setBgType] = useState('preset'); // 'preset' | 'customGradient' | 'solid'
-  const [customColor1, setCustomColor1] = useState('#4f46e5'); // Màu đầu
-  const [customColor2, setCustomColor2] = useState('#ec4899'); // Màu cuối
-  const [customSolidColor, setCustomSolidColor] = useState('#0f172a'); // Màu đơn
-  const [gradientDirection, setGradientDirection] = useState('135deg'); // '135deg' | '180deg' | '90deg' | 'radial'
-  const [fontFamily, setFontFamily] = useState('sans-serif');
-  const [textAlign, setTextAlign] = useState('center'); // 'left' | 'center' | 'right'
+  const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]);
+  const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
 
-  // State cấu hình tin Media
+  // Cấu hình Tin hình ảnh / Video
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [mediaType, setMediaType] = useState('image'); // 'image' | 'video'
-  const [fitMode, setFitMode] = useState('contain'); // 'contain' (vừa vặn, không mất góc) | 'cover' (lấp đầy khung)
+  const [zoomLevel, setZoomLevel] = useState(1); // 0.5 -> 2.5
   const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
-  const [isFlippedH, setIsFlippedH] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState('normal');
-  const [brightness, setBrightness] = useState(100); // 50 - 150
-  const [contrast, setContrast] = useState(100); // 50 - 150
-  const [saturation, setSaturation] = useState(100); // 0 - 200
-  const [isMuted, setIsMuted] = useState(false);
-  const [editTab, setEditTab] = useState('fit'); // 'fit' | 'filter' | 'tune'
+  const [hasTimeSticker, setHasTimeSticker] = useState(false);
+  const [currentTimeText, setCurrentTimeText] = useState('');
+  const [overlayText, setOverlayText] = useState('');
+  const [isAddingText, setIsAddingText] = useState(false);
+  const [overlayColor, setOverlayColor] = useState('#ffffff');
+  const [overlayFont, setOverlayFont] = useState(FONT_OPTIONS[0]);
+  const [altText, setAltText] = useState('');
+  const [isAddingAltText, setIsAddingAltText] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -157,34 +211,41 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     }
   }, [isOpen, isSubmitting]);
 
+  // Cập nhật nhãn thời gian khi mở tính năng
+  useEffect(() => {
+    if (hasTimeSticker && !currentTimeText) {
+      const now = new Date();
+      setCurrentTimeText(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    }
+  }, [hasTimeSticker, currentTimeText]);
+
   if (!isOpen) return null;
 
   const resetState = () => {
     setMode(null);
     setTextContent('');
-    setMediaFile(null);
-    setMediaPreview(null);
-    setMediaType('image');
+    setPrivacy('public');
+    setShowPrivacyMenu(false);
+    setIsAiGenerated(false);
     setErrorMsg('');
     setNudgeData(null);
     setSelectedGradient(GRADIENT_PRESETS[0]);
-    setBgTab('presets');
-    setBgType('preset');
-    setCustomColor1('#4f46e5');
-    setCustomColor2('#ec4899');
-    setCustomSolidColor('#0f172a');
-    setGradientDirection('135deg');
-    setFontFamily('sans-serif');
-    setTextAlign('center');
-    setFitMode('contain');
+    setSelectedFont(FONT_OPTIONS[0]);
+    setIsFontDropdownOpen(false);
+
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMediaType('image');
+    setZoomLevel(1);
     setRotation(0);
-    setIsFlippedH(false);
-    setSelectedFilter('normal');
-    setBrightness(100);
-    setContrast(100);
-    setSaturation(100);
-    setIsMuted(false);
-    setEditTab('fit');
+    setHasTimeSticker(false);
+    setCurrentTimeText('');
+    setOverlayText('');
+    setIsAddingText(false);
+    setOverlayColor('#ffffff');
+    setOverlayFont(FONT_OPTIONS[0]);
+    setAltText('');
+    setIsAddingAltText(false);
   };
 
   const handleClose = () => {
@@ -200,7 +261,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     const isImage = file.type.startsWith('image/');
 
     if (!isImage && !isVideo) {
-      setErrorMsg('Vui lòng chọn file hình ảnh (JPG, PNG) hoặc video (MP4, MOV)');
+      setErrorMsg('Vui lòng chọn hình ảnh (JPG, PNG) hoặc video (MP4, MOV)');
       return;
     }
 
@@ -209,8 +270,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       return;
     }
 
-    if (isImage && file.size > 10 * 1024 * 1024) {
-      setErrorMsg('Ảnh không được vượt quá 10MB');
+    if (isImage && file.size > 15 * 1024 * 1024) {
+      setErrorMsg('Ảnh không được vượt quá 15MB');
       return;
     }
 
@@ -218,60 +279,9 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setMediaFile(file);
     setMediaType(isVideo ? 'video' : 'image');
     setMediaPreview(URL.createObjectURL(file));
-    setFitMode('contain'); // Mặc định vừa vặn không mất góc ảnh
-    setMode('media');
-  };
-
-  // Tính style màu nền cho Tin Văn Bản
-  const getComputedBackgroundStyle = () => {
-    if (bgType === 'preset') {
-      return selectedGradient.style;
-    }
-    if (bgType === 'solid') {
-      return { background: customSolidColor };
-    }
-    if (gradientDirection === 'radial') {
-      return { background: `radial-gradient(circle, ${customColor1} 0%, ${customColor2} 100%)` };
-    }
-    return { background: `linear-gradient(${gradientDirection}, ${customColor1} 0%, ${customColor2} 100%)` };
-  };
-
-  // Font family hiển thị
-  const getFontFamilyValue = () => {
-    switch (fontFamily) {
-      case 'serif':
-        return 'Georgia, Cambria, "Times New Roman", serif';
-      case 'cursive':
-        return '"Brush Script MT", "Dancing Script", cursive';
-      case 'impact':
-        return 'Impact, "Arial Black", sans-serif';
-      default:
-        return 'system-ui, -apple-system, sans-serif';
-    }
-  };
-
-  // Tính chuỗi CSS filter tổng hợp cho ảnh/video
-  const getCombinedFilterString = () => {
-    const filterObj = MEDIA_FILTERS.find((f) => f.id === selectedFilter);
-    const baseFilter = filterObj && filterObj.filter !== 'none' ? filterObj.filter : '';
-    
-    const adjustments = [];
-    if (brightness !== 100) adjustments.push(`brightness(${brightness}%)`);
-    if (contrast !== 100) adjustments.push(`contrast(${contrast}%)`);
-    if (saturation !== 100) adjustments.push(`saturate(${saturation}%)`);
-
-    const combined = [baseFilter, ...adjustments].filter(Boolean).join(' ');
-    return combined || 'none';
-  };
-
-  const handleResetAdjustments = () => {
-    setSelectedFilter('normal');
-    setBrightness(100);
-    setContrast(100);
-    setSaturation(100);
+    setZoomLevel(1);
     setRotation(0);
-    setIsFlippedH(false);
-    setFitMode('contain');
+    setMode('media');
   };
 
   const handleSubmit = async (force = false) => {
@@ -289,19 +299,21 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         }
 
         let fileToUpload = mediaFile;
-        const combinedFilterCss = getCombinedFilterString();
-        const hasVisualEdits = rotation !== 0 || isFlippedH || combinedFilterCss !== 'none';
+        const hasVisualEdits = rotation !== 0 || zoomLevel !== 1 || overlayText.trim() || hasTimeSticker;
 
-        // Nếu là ảnh và có chỉnh sửa, xuất file mới qua Canvas
+        // Nếu là hình ảnh và có thao tác chỉnh sửa, xuất file mới qua Canvas
         if (mediaType === 'image' && hasVisualEdits) {
           fileToUpload = await exportEditedImage(mediaFile, {
             rotation,
-            isFlippedH,
-            filterString: combinedFilterCss,
+            zoomLevel,
+            overlayText: overlayText.trim(),
+            overlayFont: overlayFont.font,
+            overlayColor,
+            hasTimeSticker,
+            timeText: currentTimeText,
           });
         }
 
-        // Upload media lên Cloudinary
         const uploadRes = await uploadStoryMedia(fileToUpload);
         finalMediaUrl = uploadRes.url;
       }
@@ -309,18 +321,21 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       const res = await createStoryApi({
         storyType: mode === 'text' ? 'text' : mediaType,
         mediaUrl: finalMediaUrl,
-        textContent: textContent.trim() || null,
+        textContent: mode === 'text' ? textContent.trim() : (overlayText.trim() || altText.trim() || null),
         backgroundStyle: mode === 'text' ? {
-          ...getComputedBackgroundStyle(),
-          fontFamily: getFontFamilyValue(),
-          textAlign,
+          ...selectedGradient.style,
+          fontFamily: selectedFont.font,
+          textAlign: 'center',
           color: '#ffffff',
+          isAiGenerated,
         } : {
-          fitMode,
-          filter: getCombinedFilterString(),
+          zoomLevel,
           rotation,
-          isFlippedH,
-          isMuted,
+          hasTimeSticker,
+          timeText: currentTimeText,
+          overlayText: overlayText.trim() || null,
+          altText: altText.trim() || null,
+          isAiGenerated,
         },
         privacy,
         forcePost: force,
@@ -344,803 +359,477 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     }
   };
 
+  const userName = currentUser?.name || currentUser?.full_name || 'Bùi Minh Trọng';
+  const userAvatar = currentUser?.avatar || currentUser?.avatar_url || DEFAULT_AVATAR;
+
   return createPortal(
     <div 
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isSubmitting) handleClose();
       }}
     >
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className={`relative w-full ${mode ? 'max-w-3xl' : 'max-w-2xl'} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]`}
-      >
-        
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-2">
-            {mode && (
-              <button 
-                onClick={() => setMode(null)}
-                className="p-1 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                title="Quay lại chọn định dạng"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-blue-500" />
-              {mode === 'text' ? 'Tạo tin văn bản' : mode === 'media' ? 'Chỉnh sửa & Đăng tin Media' : 'Tạo tin của bạn'}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
+      {/* MÀN HÌNH 1: BẢNG CHỌN BAN ĐẦU (TẠO TIN VĂN BẢN HOẶC ẢNH/VIDEO) */}
+      {!mode && (
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-scale-up"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
+              <Sparkles className="w-6 h-6 text-blue-600" />
+              <span>Tạo tin của bạn</span>
             </h2>
+            <button 
+              onClick={handleClose}
+              className="p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button 
-            onClick={handleClose} 
-            className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          {/* Cards selection */}
+          <div className="p-8 grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <button
+              onClick={() => setMode('text')}
+              className="group p-8 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-all flex flex-col items-center justify-center text-center gap-4 cursor-pointer"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/25 group-hover:scale-105 transition">
+                <Type className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">Tạo tin văn bản</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Viết thông điệp trên nền màu chuyển sắc hoặc màu đơn phong phú
+                </p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="group p-8 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-all flex flex-col items-center justify-center text-center gap-4 cursor-pointer"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition">
+                <ImageIcon className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">Tạo tin ảnh hoặc video</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Chia sẻ khoảnh khắc với công cụ chỉnh sửa, phóng to, xoay ảnh
+                </p>
+              </div>
+            </button>
+          </div>
         </div>
+      )}
 
-        {/* Friendly Nudge Dialog (Nếu AI phát hiện từ ngữ tiêu cực) */}
-        {nudgeData && (
-          <div className="p-5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/50">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h4 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
-                  Lời nhắc nhở thân thiện từ NexusAI
-                </h4>
-                <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
-                  {nudgeData.message}
-                </p>
-                <div className="flex items-center gap-3 mt-4">
-                  <button
-                    onClick={() => setNudgeData(null)}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 transition cursor-pointer"
-                  >
-                    Xem lại & Chỉnh sửa
-                  </button>
-                  <button
-                    onClick={() => handleSubmit(true)}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition shadow-sm cursor-pointer"
-                  >
-                    Vẫn tiếp tục đăng
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Error Notice */}
-        {errorMsg && (
-          <div className="mx-6 mt-4 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-sm flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        {/* Modal Body */}
-        <div className="p-6 overflow-y-auto flex-1">
-          {/* Màn hình chọn ban đầu: Chọn Tin ảnh/video hoặc Tin chữ */}
-          {!mode && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-8">
-              <button
-                onClick={() => setMode('text')}
-                className="group p-8 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition flex flex-col items-center justify-center text-center gap-4 cursor-pointer"
-              >
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition">
-                  <Type className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base">Tạo tin văn bản</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Viết thông điệp, tự phối màu nền gradient hoặc màu đơn sắc hiện đại
-                  </p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="group p-8 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition flex flex-col items-center justify-center text-center gap-4 cursor-pointer"
-              >
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-500 to-cyan-500 flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition">
-                  <ImageIcon className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base">Tạo tin ảnh hoặc video</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Chỉnh sửa khung hình (không cắt mép), xoay lật, bộ lọc màu chuẩn Story
-                  </p>
-                </div>
-              </button>
-
-              <input 
-                ref={fileInputRef} 
-                type="file" 
-                accept="image/*,video/*" 
-                onChange={handleFileChange} 
-                className="hidden" 
-              />
-            </div>
-          )}
-
-          {/* Màn hình soạn Tin Văn Bản (Bố cục 2 cột chuẩn Studio) */}
-          {mode === 'text' && (
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-              {/* CỘT TRÁI: LIVE STORY 9:16 PREVIEW (Không bị đè / méo tỉ lệ) */}
-              <div className="md:col-span-5 flex flex-col items-center">
-                <div 
-                  className="relative w-full max-w-[240px] aspect-[9/16] rounded-2xl p-5 flex items-center justify-center text-center shadow-xl transition-all border border-slate-700/30 overflow-hidden"
-                  style={getComputedBackgroundStyle()}
+      {/* MÀN HÌNH 2: STUDIO TẠO TIN FACEBOOK-STYLE CHO TIN VĂN BẢN HOẶC ẢNH/VIDEO */}
+      {mode && (
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className="relative w-full max-w-6xl h-[92vh] max-h-[860px] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row overflow-hidden animate-scale-up"
+        >
+          {/* CỘT TRÁI: SIDEBAR ĐIỀU KHIỂN & CÀI ĐẶT */}
+          <div className="w-full lg:w-[360px] xl:w-[380px] shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 z-20">
+            
+            {/* Header Sidebar */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMode(null)}
+                  className="p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition cursor-pointer"
+                  title="Quay lại chọn định dạng"
                 >
-                  <p 
-                    className="text-white font-bold text-lg sm:text-xl break-words max-w-full drop-shadow-md select-none transition-all leading-relaxed"
-                    style={{ 
-                      fontFamily: getFontFamilyValue(),
-                      textAlign,
-                    }}
-                  >
-                    {textContent.trim() || 'Bắt đầu nhập nội dung tin...'}
-                  </p>
-
-                  {/* Badge đếm ký tự nhỏ góc dưới */}
-                  <div className="absolute bottom-2.5 right-3 text-[10px] text-white/70 font-semibold bg-black/30 backdrop-blur-xs px-2 py-0.5 rounded-full">
-                    {textContent.length}/500
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-slate-400 mt-2 text-center">
-                  Xem trước trực tiếp định dạng 9:16 trên Tin
-                </p>
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">Tin của bạn</h2>
               </div>
 
-              {/* CỘT PHẢI: TRÌNH SOẠN THẢO VĂN BẢN & PHỐI MÀU HIỆN ĐẠI */}
-              <div className="md:col-span-7 space-y-4">
-                {/* 1. Ô soạn thảo văn bản */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    NỘI DUNG TIN VĂN BẢN *
-                  </label>
-                  <textarea
-                    value={textContent}
-                    onChange={(e) => setTextContent(e.target.value)}
-                    placeholder="Bạn đang nghĩ gì thế? Viết điều gì đó thật thú vị nào..."
-                    rows={3}
-                    maxLength={500}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 text-sm resize-none shadow-inner"
-                  />
-                </div>
+              {/* Nút Cài đặt quyền riêng tư (Icon Bánh răng) */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowPrivacyMenu(!showPrivacyMenu)}
+                  className={`p-2 rounded-full transition cursor-pointer ${
+                    showPrivacyMenu 
+                      ? 'bg-blue-100 dark:bg-blue-950 text-blue-600' 
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Quyền riêng tư của tin"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
 
-                {/* 2. Căn lề & Kiểu chữ */}
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Kiểu chữ */}
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                      PHÔNG CHỮ
-                    </label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {FONT_OPTIONS.map((f) => (
+                {/* Popover Quyền riêng tư */}
+                {showPrivacyMenu && (
+                  <div className="absolute right-0 top-11 w-64 p-2 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 animate-scale-up">
+                    <p className="px-3 py-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      Quyền riêng tư
+                    </p>
+                    {PRIVACY_OPTIONS.map((opt) => {
+                      const Icon = opt.icon;
+                      const isSelected = privacy === opt.id;
+                      return (
                         <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setFontFamily(f.id)}
-                          className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition truncate cursor-pointer ${
-                            fontFamily === f.id
-                              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-500'
-                              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                          key={opt.id}
+                          onClick={() => {
+                            setPrivacy(opt.id);
+                            setShowPrivacyMenu(false);
+                          }}
+                          className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition cursor-pointer ${
+                            isSelected 
+                              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold' 
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-800 dark:text-slate-200'
                           }`}
                         >
-                          {f.label}
+                          <div className="flex items-center gap-2.5">
+                            <Icon className="w-4 h-4 text-slate-500" />
+                            <div>
+                              <p className="text-xs font-medium">{opt.label}</p>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">{opt.desc}</p>
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-4 h-4 text-blue-600" />}
                         </button>
-                      ))}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Thông tin tác giả */}
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
+              <img
+                src={userAvatar}
+                alt={userName}
+                className="w-10 h-10 rounded-full object-cover ring-2 ring-blue-500/30"
+              />
+              <div className="min-w-0">
+                <p className="font-bold text-sm text-slate-900 dark:text-white truncate">{userName}</p>
+                <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <Globe className="w-3 h-3" />
+                  <span>{PRIVACY_OPTIONS.find(p => p.id === privacy)?.label}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* NỘI DUNG ĐIỀU KHIỂN CHÍNH CUỘN ĐƯỢC */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+              {/* Thông báo lỗi nếu có */}
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-fade-in">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* Friendly Nudge nếu AI cảnh báo */}
+              {nudgeData && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertCircle className="w-4 h-4 text-amber-600" />
+                    <span>Nhắc nhở thân thiện từ NexusAI</span>
+                  </div>
+                  <p className="text-amber-800 dark:text-amber-300 leading-relaxed">{nudgeData.message}</p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setNudgeData(null)}
+                      className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
+                    >
+                      Sửa lại
+                    </button>
+                    <button
+                      onClick={() => handleSubmit(true)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-600 text-white font-semibold cursor-pointer"
+                    >
+                      Vẫn đăng
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* === NẾU LÀ MODE VĂN BẢN (TEXT STORY) === */}
+              {mode === 'text' && (
+                <>
+                  {/* Ô nhập nội dung văn bản */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Nội dung tin
+                    </label>
+                    <textarea
+                      value={textContent}
+                      onChange={(e) => setTextContent(e.target.value)}
+                      placeholder="Bắt đầu nhập nội dung tin..."
+                      rows={4}
+                      maxLength={500}
+                      className="w-full p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition"
+                    />
+                    <div className="text-right text-[11px] text-slate-400 mt-1">
+                      {textContent.length}/500
                     </div>
                   </div>
 
-                  {/* Căn lề */}
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                      CĂN LỀ CHỮ
-                    </label>
-                    <div className="flex gap-1.5">
-                      {[
-                        { id: 'left', icon: AlignLeft, label: 'Trái' },
-                        { id: 'center', icon: AlignCenter, label: 'Giữa' },
-                        { id: 'right', icon: AlignRight, label: 'Phải' },
-                      ].map((al) => {
-                        const IconComp = al.icon;
+                  {/* Chọn kiểu chữ (Dropdown giống Facebook) */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsFontDropdownOpen(!isFontDropdownOpen)}
+                      className="w-full flex items-center justify-between p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-semibold hover:border-slate-300 transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-500">Aa</span>
+                        <span>{selectedFont.label}</span>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-slate-500" />
+                    </button>
+
+                    {isFontDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-12 p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-30 animate-scale-up">
+                        {FONT_OPTIONS.map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedFont(f);
+                              setIsFontDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left text-sm transition cursor-pointer ${
+                              selectedFont.id === f.id
+                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold'
+                                : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
+                            }`}
+                            style={{ fontFamily: f.font }}
+                          >
+                            <span>Aa {f.label}</span>
+                            {selectedFont.id === f.id && <Check className="w-4 h-4 text-blue-600" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bảng chọn Phông nền (Màu chuyển sắc) */}
+                  <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                    <div className="mb-3">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">Phông nền</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Màu chuyển sắc</p>
+                    </div>
+
+                    <div className="grid grid-cols-6 sm:grid-cols-6 gap-2.5">
+                      {GRADIENT_PRESETS.map((preset) => {
+                        const isSelected = selectedGradient.id === preset.id;
                         return (
                           <button
-                            key={al.id}
+                            key={preset.id}
                             type="button"
-                            onClick={() => setTextAlign(al.id)}
-                            className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition cursor-pointer ${
-                              textAlign === al.id
-                                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 border-blue-500'
-                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                            onClick={() => setSelectedGradient(preset)}
+                            className={`w-8 h-8 rounded-full border border-black/10 dark:border-white/10 shadow-xs transition transform hover:scale-110 cursor-pointer ${
+                              isSelected ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900 scale-110' : ''
                             }`}
-                            title={al.label}
-                          >
-                            <IconComp className="w-4 h-4" />
-                          </button>
+                            style={preset.style}
+                            title={preset.label}
+                          />
                         );
                       })}
                     </div>
                   </div>
-                </div>
+                </>
+              )}
 
-                {/* 3. Tùy chọn Màu Nền (Presets vs Tự Chọn Màu Hiện Đại) */}
-                <div className="space-y-2.5 pt-1 border-t border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                      <Paintbrush className="w-3.5 h-3.5 text-blue-500" />
-                      <span>CHỌN MÀU NỀN</span>
-                    </label>
-                    <div className="flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setBgTab('presets')}
-                        className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
-                          bgTab === 'presets'
-                            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs'
-                            : 'text-slate-500 hover:text-slate-900'
-                        }`}
-                      >
-                        Mẫu phối sẵn
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBgTab('custom');
-                          if (bgType === 'preset') setBgType('customGradient');
-                        }}
-                        className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
-                          bgTab === 'custom'
-                            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs'
-                            : 'text-slate-500 hover:text-slate-900'
-                        }`}
-                      >
-                        Tự phối màu
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Tab 1: Mẫu gradient có sẵn */}
-                  {bgTab === 'presets' && (
-                    <div className="grid grid-cols-6 gap-2">
-                      {GRADIENT_PRESETS.map((g) => (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedGradient(g);
-                            setBgType('preset');
-                          }}
-                          className={`w-full aspect-square rounded-xl transition transform hover:scale-105 flex items-center justify-center cursor-pointer ${
-                            bgType === 'preset' && selectedGradient.id === g.id
-                              ? 'ring-2 ring-blue-500 ring-offset-2'
-                              : 'border border-slate-200/50'
-                          }`}
-                          style={g.style}
-                          title={g.label}
-                        >
-                          {bgType === 'preset' && selectedGradient.id === g.id && (
-                            <CheckCircle2 className="w-4 h-4 text-white drop-shadow" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Tab 2: Tự chọn màu nền hiện đại */}
-                  {bgTab === 'custom' && (
-                    <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                      {/* Chuyển đổi Gradient vs Solid */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setBgType('customGradient')}
-                          className={`flex-1 py-1 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                            bgType === 'customGradient'
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600'
-                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600'
-                          }`}
-                        >
-                          Dải màu Gradient
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setBgType('solid')}
-                          className={`flex-1 py-1 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                            bgType === 'solid'
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600'
-                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600'
-                          }`}
-                        >
-                          Màu đơn sắc
-                        </button>
+              {/* === NẾU LÀ MODE MEDIA (IMAGE / VIDEO STORY) === */}
+              {mode === 'media' && (
+                <div className="space-y-3">
+                  {/* Mục 1: Thêm văn bản lên ảnh */}
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingText(!isAddingText)}
+                      className={`w-full flex items-center justify-between p-3.5 text-left text-sm font-semibold transition cursor-pointer ${
+                        isAddingText 
+                          ? 'bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' 
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-slate-500">Aa</span>
+                        <span>Thêm văn bản</span>
                       </div>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isAddingText ? 'rotate-180' : ''}`} />
+                    </button>
 
-                      {/* Nếu là Gradient: 2 ô chọn màu + Hướng gradient */}
-                      {bgType === 'customGradient' ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-3">
-                            {/* Màu 1 */}
-                            <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
-                              <input
-                                type="color"
-                                value={customColor1}
-                                onChange={(e) => setCustomColor1(e.target.value)}
-                                className="w-7 h-7 rounded-lg cursor-pointer border-none bg-transparent"
-                              />
-                              <div className="min-w-0">
-                                <p className="text-[10px] text-slate-400 font-bold">MÀU ĐẦU</p>
-                                <p className="text-xs font-mono font-semibold uppercase">{customColor1}</p>
-                              </div>
-                            </div>
+                    {isAddingText && (
+                      <div className="p-3.5 bg-slate-50 dark:bg-slate-850 border-t border-slate-200 dark:border-slate-800 space-y-3 animate-fade-in">
+                        <textarea
+                          value={overlayText}
+                          onChange={(e) => setOverlayText(e.target.value)}
+                          placeholder="Nhập nội dung văn bản lên ảnh..."
+                          rows={2}
+                          className="w-full p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
 
-                            {/* Màu 2 */}
-                            <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
-                              <input
-                                type="color"
-                                value={customColor2}
-                                onChange={(e) => setCustomColor2(e.target.value)}
-                                className="w-7 h-7 rounded-lg cursor-pointer border-none bg-transparent"
-                              />
-                              <div className="min-w-0">
-                                <p className="text-[10px] text-slate-400 font-bold">MÀU CUỐI</p>
-                                <p className="text-xs font-mono font-semibold uppercase">{customColor2}</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Hướng đổ màu */}
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-500 font-medium">Hướng màu:</span>
-                            <div className="flex gap-1.5">
-                              {[
-                                { id: '135deg', label: 'Chéo ↗' },
-                                { id: '180deg', label: 'Dọc ↓' },
-                                { id: '90deg', label: 'Ngang →' },
-                                { id: 'radial', label: 'Tỏa tròn' },
-                              ].map((d) => (
-                                <button
-                                  key={d.id}
-                                  type="button"
-                                  onClick={() => setGradientDirection(d.id)}
-                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition cursor-pointer ${
-                                    gradientDirection === d.id
-                                      ? 'bg-blue-600 text-white border-blue-600'
-                                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                                  }`}
-                                >
-                                  {d.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Gợi ý phối màu hiện đại */}
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-bold mb-1.5">GỢI Ý PHỐI MÀU TRENDING:</p>
-                            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                              {[
-                                ['#4f46e5', '#ec4899'],
-                                ['#06b6d4', '#3b82f6'],
-                                ['#f97316', '#e11d48'],
-                                ['#10b981', '#06b6d4'],
-                                ['#8b5cf6', '#d946ef'],
-                                ['#111827', '#4b5563'],
-                              ].map(([c1, c2], idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => {
-                                    setCustomColor1(c1);
-                                    setCustomColor2(c2);
-                                    setBgType('customGradient');
-                                  }}
-                                  className="w-7 h-7 rounded-lg shrink-0 border border-white/50 shadow-xs hover:scale-110 transition cursor-pointer"
-                                  style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        /* Nếu là Solid Color */
-                        <div className="space-y-2.5">
-                          <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                            <input
-                              type="color"
-                              value={customSolidColor}
-                              onChange={(e) => setCustomSolidColor(e.target.value)}
-                              className="w-8 h-8 rounded-lg cursor-pointer border-none bg-transparent"
-                            />
-                            <div>
-                              <p className="text-[10px] text-slate-400 font-bold">MÃ MÀU CHỌN</p>
-                              <p className="text-xs font-mono font-semibold uppercase">{customSolidColor}</p>
-                            </div>
-                          </div>
-
-                          {/* Các màu đơn sắc sang trọng */}
-                          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                            {['#0f172a', '#1e1b4b', '#4c0519', '#14532d', '#701a75', '#451a03', '#1e293b'].map((col) => (
+                        {/* Chọn màu chữ */}
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Màu chữ</p>
+                          <div className="flex items-center gap-2">
+                            {TEXT_COLORS.map((c) => (
                               <button
-                                key={col}
+                                key={c}
                                 type="button"
-                                onClick={() => {
-                                  setCustomSolidColor(col);
-                                  setBgType('solid');
-                                }}
-                                className="w-7 h-7 rounded-lg shrink-0 border border-slate-300 shadow-xs hover:scale-110 transition cursor-pointer"
-                                style={{ background: col }}
+                                onClick={() => setOverlayColor(c)}
+                                className={`w-6 h-6 rounded-full border border-black/20 shadow-xs transition transform hover:scale-110 cursor-pointer ${
+                                  overlayColor === c ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : ''
+                                }`}
+                                style={{ backgroundColor: c }}
                               />
                             ))}
                           </div>
                         </div>
-                      )}
+
+                        {/* Chọn font chữ cho overlay */}
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Kiểu chữ</p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {FONT_OPTIONS.slice(0, 3).map((f) => (
+                              <button
+                                key={f.id}
+                                type="button"
+                                onClick={() => setOverlayFont(f)}
+                                className={`py-1 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                                  overlayFont.id === f.id
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                {f.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Mục 2: Thêm thời gian (Timestamp Sticker) */}
+                  <button
+                    type="button"
+                    onClick={() => setHasTimeSticker(!hasTimeSticker)}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
+                      hasTimeSticker 
+                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400' 
+                        : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Clock className="w-5 h-5 text-slate-500" />
+                      <span className="text-sm font-semibold">Thêm thời gian</span>
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+                    {hasTimeSticker && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">
+                        {currentTimeText || 'Bật'}
+                      </span>
+                    )}
+                  </button>
 
-          {/* Màn hình xem trước & Bộ công cụ chỉnh sửa Media */}
-          {mode === 'media' && (
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-              {/* CỘT TRÁI: KHUNG XEM TRƯỚC LIVE STORY 9:16 */}
-              <div className="md:col-span-5 flex flex-col items-center">
-                <div className="relative w-full max-w-[240px] aspect-[9/16] bg-black rounded-2xl overflow-hidden shadow-xl flex items-center justify-center border border-slate-700">
-                  {/* Nền mờ Ambient khi ở chế độ contain */}
-                  {fitMode === 'contain' && (
-                    <div
-                      className="absolute inset-0 bg-cover bg-center blur-xl opacity-60 scale-125 pointer-events-none transition-all duration-300"
-                      style={{
-                        backgroundImage: mediaType === 'image' ? `url(${mediaPreview})` : undefined,
-                      }}
-                    />
-                  )}
-
-                  {mediaType === 'video' ? (
-                    <video
-                      src={mediaPreview}
-                      controls
-                      muted={isMuted}
-                      playsInline
-                      className={`relative z-10 w-full h-full transition-all duration-200 ${
-                        fitMode === 'cover' ? 'object-cover' : 'object-contain'
+                  {/* Mục 3: Văn bản thay thế (Alt Text / Chú thích ảnh) */}
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingAltText(!isAddingAltText)}
+                      className={`w-full flex items-center justify-between p-3.5 text-left text-sm font-semibold transition cursor-pointer ${
+                        isAddingAltText 
+                          ? 'bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' 
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
                       }`}
-                      style={{
-                        transform: `rotate(${rotation}deg) scaleX(${isFlippedH ? -1 : 1})`,
-                        filter: getCombinedFilterString(),
-                      }}
-                    />
-                  ) : (
-                    <img
-                      src={mediaPreview}
-                      alt="Preview"
-                      className={`relative z-10 w-full h-full transition-all duration-200 ${
-                        fitMode === 'cover' ? 'object-cover' : 'object-contain'
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-5 h-5 text-slate-500" />
+                        <span>Văn bản thay thế</span>
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isAddingAltText ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isAddingAltText && (
+                      <div className="p-3.5 bg-slate-50 dark:bg-slate-850 border-t border-slate-200 dark:border-slate-800 animate-fade-in">
+                        <input
+                          type="text"
+                          value={altText}
+                          onChange={(e) => setAltText(e.target.value)}
+                          placeholder="Mô tả ngắn gọn nội dung hình ảnh..."
+                          className="w-full p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* MỤC CHUNG: THÊM NHÃN AI (AI LABELING TOGGLE) */}
+              <div className="pt-2">
+                <div className="flex items-start justify-between gap-3 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                  <div className="flex items-start gap-2.5">
+                    <div className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">Thêm nhãn AI</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mt-0.5">
+                        Chúng tôi yêu cầu bạn gắn nhãn cho một số nội dung nhất định tạo bằng AI và cảm giác như thật.{' '}
+                        <span className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer">Tìm hiểu thêm</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Switch Toggle */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isAiGenerated}
+                    onClick={() => setIsAiGenerated(!isAiGenerated)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      isAiGenerated ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                        isAiGenerated ? 'translate-x-5' : 'translate-x-0'
                       }`}
-                      style={{
-                        transform: `rotate(${rotation}deg) scaleX(${isFlippedH ? -1 : 1})`,
-                        filter: getCombinedFilterString(),
-                      }}
                     />
-                  )}
-
-                  {/* Chú thích hiển thị trực tiếp trên Story */}
-                  {textContent.trim() && (
-                    <div className="absolute bottom-3 inset-x-2 z-20 p-2 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-xs line-clamp-2">
-                      {textContent}
-                    </div>
-                  )}
-
-                  {/* Nút Đổi tệp */}
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="absolute top-2.5 right-2.5 z-20 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-[11px] font-semibold backdrop-blur-md transition cursor-pointer"
-                  >
-                    Đổi tệp
                   </button>
                 </div>
-
-                <p className="text-[11px] text-slate-400 mt-2 text-center">
-                  Xem trước định dạng 9:16 trên Tin
-                </p>
               </div>
 
-              {/* CỘT PHẢI: BỘ CÔNG CỤ CHỈNH SỬA ĐA NĂNG */}
-              <div className="md:col-span-7 space-y-4">
-                {/* Tabs chuyển đổi công cụ */}
-                <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                  <button
-                    onClick={() => setEditTab('fit')}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                      editTab === 'fit'
-                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    <span>Khung & Góc</span>
-                  </button>
-                  <button
-                    onClick={() => setEditTab('filter')}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                      editTab === 'filter'
-                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    <Palette className="w-3.5 h-3.5" />
-                    <span>Bộ lọc màu</span>
-                  </button>
-                  <button
-                    onClick={() => setEditTab('tune')}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                      editTab === 'tune'
-                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Tinh chỉnh</span>
-                  </button>
-                </div>
-
-                {/* TAB 1: KHUNG HÌNH & GÓC QUAY */}
-                {editTab === 'fit' && (
-                  <div className="space-y-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
-                        CHẾ ĐỘ HIỂN THỊ
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setFitMode('contain')}
-                          className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
-                            fitMode === 'contain'
-                              ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
-                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 font-bold text-xs">
-                            <Minimize2 className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Vừa vặn (Không cắt mép)</span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            Thấy trọn 100% ảnh/video, kèm nền mờ sang trọng
-                          </p>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setFitMode('cover')}
-                          className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
-                            fitMode === 'cover'
-                              ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
-                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 font-bold text-xs">
-                            <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Lấp đầy khung</span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            Phóng to tràn viền 9:16 (có thể cắt mép nếu ảnh ngang)
-                          </p>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
-                        XOAY & ĐẢO HƯỚNG
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setRotation((prev) => (prev + 90) % 360)}
-                          className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition cursor-pointer"
-                        >
-                          <RotateCw className="w-4 h-4 text-blue-600" />
-                          <span>Xoay 90° ({rotation}°)</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsFlippedH((prev) => !prev)}
-                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer ${
-                            isFlippedH
-                              ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-950/40'
-                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <FlipHorizontal className="w-4 h-4 text-blue-600" />
-                          <span>Lật ảnh ngang</span>
-                        </button>
-
-                        {mediaType === 'video' && (
-                          <button
-                            type="button"
-                            onClick={() => setIsMuted((prev) => !prev)}
-                            className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                              isMuted
-                                ? 'border-rose-500 bg-rose-50 text-rose-600 dark:bg-rose-950/40'
-                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-                            }`}
-                            title={isMuted ? 'Đang tắt tiếng' : 'Bật tiếng'}
-                          >
-                            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                            <span>{isMuted ? 'Tắt tiếng' : 'Có tiếng'}</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 2: BỘ LỌC MÀU (FILTERS) */}
-                {editTab === 'filter' && (
-                  <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                      CHỌN BỘ LỌC NGHỆ THUẬT
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {MEDIA_FILTERS.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setSelectedFilter(f.id)}
-                          className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center gap-1.5 cursor-pointer ${
-                            selectedFilter === f.id
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600 font-bold ring-2 ring-blue-500/20'
-                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div 
-                            className="w-8 h-8 rounded-full border border-slate-300 shadow-xs flex items-center justify-center text-xs"
-                            style={{ background: f.color || '#3b82f6' }}
-                          >
-                            <Sparkles className="w-3.5 h-3.5 text-white" />
-                          </div>
-                          <span className="text-[11px] truncate w-full">{f.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 3: TINH CHỈNH ÁNH SÁNG */}
-                {editTab === 'tune' && (
-                  <div className="space-y-3.5 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        TINH CHỈNH ÁNH SÁNG & MÀU SẮC
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleResetAdjustments}
-                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        <span>Khôi phục gốc</span>
-                      </button>
-                    </div>
-
-                    <div className="space-y-3 text-xs">
-                      {/* Độ sáng */}
-                      <div>
-                        <div className="flex justify-between text-slate-600 dark:text-slate-400 mb-1">
-                          <span className="flex items-center gap-1 font-medium">
-                            <Sun className="w-3.5 h-3.5 text-amber-500" /> Độ sáng
-                          </span>
-                          <span className="font-semibold text-slate-900 dark:text-white">{brightness}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="50"
-                          max="150"
-                          value={brightness}
-                          onChange={(e) => setBrightness(Number(e.target.value))}
-                          className="w-full accent-blue-600 cursor-pointer"
-                        />
-                      </div>
-
-                      {/* Độ tương phản */}
-                      <div>
-                        <div className="flex justify-between text-slate-600 dark:text-slate-400 mb-1">
-                          <span className="flex items-center gap-1 font-medium">
-                            <Contrast className="w-3.5 h-3.5 text-indigo-500" /> Độ tương phản
-                          </span>
-                          <span className="font-semibold text-slate-900 dark:text-white">{contrast}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="50"
-                          max="150"
-                          value={contrast}
-                          onChange={(e) => setContrast(Number(e.target.value))}
-                          className="w-full accent-blue-600 cursor-pointer"
-                        />
-                      </div>
-
-                      {/* Độ bão hòa màu */}
-                      <div>
-                        <div className="flex justify-between text-slate-600 dark:text-slate-400 mb-1">
-                          <span className="flex items-center gap-1 font-medium">
-                            <Wand2 className="w-3.5 h-3.5 text-rose-500" /> Độ bão hòa màu
-                          </span>
-                          <span className="font-semibold text-slate-900 dark:text-white">{saturation}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="200"
-                          value={saturation}
-                          onChange={(e) => setSaturation(Number(e.target.value))}
-                          className="w-full accent-blue-600 cursor-pointer"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Ô NHẬP CHÚ THÍCH */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
-                    CHÚ THÍCH (TÙY CHỌN)
-                  </label>
-                  <input
-                    type="text"
-                    value={textContent}
-                    onChange={(e) => setTextContent(e.target.value)}
-                    placeholder="Thêm chú thích cho tin của bạn..."
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        {mode && (
-          <div className="flex items-center justify-between px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800">
-            {/* Chọn Quyền riêng tư */}
-            <div className="flex items-center gap-2">
-              <select
-                value={privacy}
-                onChange={(e) => setPrivacy(e.target.value)}
-                className="text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 px-3 py-1.5 focus:outline-none cursor-pointer"
-              >
-                <option value="public">Công khai</option>
-                <option value="friends">Bạn bè</option>
-                <option value="private">Chỉ mình tôi</option>
-              </select>
             </div>
 
-            <div className="flex items-center gap-3">
+            {/* THANH THAO TÁC CỐ ĐỊNH Ở DƯỚI (NÚT BỎ & CHIA SẺ LÊN TIN) */}
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-3">
               <button
+                type="button"
                 onClick={handleClose}
                 disabled={isSubmitting}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-sm transition cursor-pointer"
               >
-                Hủy
+                Bỏ
               </button>
               <button
+                type="button"
                 onClick={() => handleSubmit(false)}
                 disabled={isSubmitting || (mode === 'text' && !textContent.trim()) || (mode === 'media' && !mediaFile)}
-                className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center gap-2 shadow-md shadow-blue-500/20 cursor-pointer"
+                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Đang chia sẻ...</span>
+                    <span>Đang đăng...</span>
                   </>
                 ) : (
                   <span>Chia sẻ lên tin</span>
@@ -1148,9 +837,167 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
               </button>
             </div>
           </div>
-        )}
 
-      </div>
+          {/* CỘT PHẢI: KHUNG XEM TRƯỚC (CANVAS XEM TRƯỚC CHUẨN FACEBOOK) */}
+          <div className="flex-1 flex flex-col bg-[#18191a] relative overflow-hidden">
+            
+            {/* Header Xem trước */}
+            <div className="px-6 py-4 flex items-center justify-between text-white/90 z-20">
+              <span className="text-sm font-bold tracking-wide">Xem trước</span>
+              <button
+                onClick={handleClose}
+                className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Vùng Canvas hiển thị điện thoại 9:16 */}
+            <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden relative">
+              
+              {/* Thẻ Story 9:16 */}
+              <div 
+                className="w-[280px] sm:w-[310px] h-[490px] sm:h-[540px] rounded-2xl shadow-2xl relative flex items-center justify-center overflow-hidden transition-all duration-300 border border-white/10 select-none"
+                style={mode === 'text' ? selectedGradient.style : { backgroundColor: '#000000' }}
+              >
+                {/* 1. HIỂN THỊ TIN VĂN BẢN */}
+                {mode === 'text' && (
+                  <div className="w-full h-full flex flex-col justify-between p-6">
+                    <div />
+                    <p 
+                      className="text-white font-bold text-xl sm:text-2xl break-words max-w-full drop-shadow-md text-center leading-relaxed"
+                      style={{ fontFamily: selectedFont.font }}
+                    >
+                      {textContent.trim() || (
+                        <span className="text-white/60 font-semibold text-base sm:text-lg">
+                          Bắt đầu nhập nội dung tin...
+                        </span>
+                      )}
+                    </p>
+                    {/* Icon mặt cười góc phải dưới */}
+                    <div className="flex justify-end">
+                      <div className="p-1.5 rounded-full bg-white/20 text-white backdrop-blur-md">
+                        <Smile className="w-5 h-5" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. HIỂN THỊ TIN MEDIA (ẢNH / VIDEO) */}
+                {mode === 'media' && mediaPreview && (
+                  <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
+                    {/* Nền mờ Ambient phía sau */}
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center blur-2xl opacity-50 scale-125 pointer-events-none"
+                      style={{ backgroundImage: `url(${mediaPreview})` }}
+                    />
+
+                    {/* Đối tượng Media chính áp dụng xoay và zoom */}
+                    {mediaType === 'image' ? (
+                      <img
+                        src={mediaPreview}
+                        alt="Preview"
+                        className="relative z-10 w-full h-full object-contain transition-transform duration-150"
+                        style={{
+                          transform: `rotate(${rotation}deg) scale(${zoomLevel})`,
+                        }}
+                      />
+                    ) : (
+                      <video
+                        src={mediaPreview}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="relative z-10 w-full h-full object-contain transition-transform duration-150"
+                        style={{
+                          transform: `rotate(${rotation}deg) scale(${zoomLevel})`,
+                        }}
+                      />
+                    )}
+
+                    {/* Nhãn thời gian (Timestamp Sticker) */}
+                    {hasTimeSticker && currentTimeText && (
+                      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-white font-bold text-xs tracking-wider border border-white/20 shadow-lg flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{currentTimeText}</span>
+                      </div>
+                    )}
+
+                    {/* Chữ chèn lên ảnh (Overlay Text) */}
+                    {overlayText && overlayText.trim() && (
+                      <div 
+                        className="absolute inset-x-4 top-1/2 -translate-y-1/2 z-20 text-center pointer-events-none drop-shadow-xl"
+                        style={{ 
+                          fontFamily: overlayFont.font, 
+                          color: overlayColor 
+                        }}
+                      >
+                        <p className="font-bold text-xl sm:text-2xl break-words leading-snug">
+                          {overlayText}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* THANH ĐIỀU KHIỂN PHÓNG TO & XOAY ẢNH DƯỚI KHUNG PREVIEW (CHUẨN SCREENSHOT 2) */}
+              {mode === 'media' && (
+                <div className="mt-4 flex items-center gap-4 px-4 py-2 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 text-white z-20 animate-fade-in">
+                  {/* Cụm Zoom Slider */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setZoomLevel((z) => Math.max(0.5, parseFloat((z - 0.1).toFixed(2))))}
+                      className="p-1 rounded-full hover:bg-white/10 transition cursor-pointer"
+                      title="Thu nhỏ"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.5"
+                      step="0.05"
+                      value={zoomLevel}
+                      onChange={(e) => setZoomLevel(parseFloat(e.target.value))}
+                      className="w-28 sm:w-36 h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setZoomLevel((z) => Math.min(2.5, parseFloat((z + 0.1).toFixed(2))))}
+                      className="p-1 rounded-full hover:bg-white/10 transition cursor-pointer"
+                      title="Phóng to"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="w-px h-5 bg-white/20" />
+
+                  {/* Nút Xoay ảnh 90 độ */}
+                  <button
+                    type="button"
+                    onClick={() => setRotation((r) => (r + 90) % 360)}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/15 hover:bg-white/25 transition text-xs font-semibold cursor-pointer"
+                    title="Xoay 90 độ"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>Xoay</span>
+                  </button>
+                </div>
+              )}
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
     </div>,
     document.body
   );
