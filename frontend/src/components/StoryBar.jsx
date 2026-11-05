@@ -89,17 +89,27 @@ export default function StoryBar({
                   </p>
                 </div>
               ) : (
-                <div className="w-full h-full bg-slate-950 overflow-hidden">
+                <div className="relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center">
+                  {firstStory.backgroundStyle?.fitMode === 'contain' && (
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center blur-md opacity-60 scale-125 pointer-events-none"
+                      style={{ backgroundImage: `url(${firstStory.mediaUrl})` }}
+                    />
+                  )}
                   {firstStory.storyType === 'video' ? (
                     <video
                       src={firstStory.mediaUrl}
-                      className="w-full h-full object-cover group-hover/story:scale-105 transition duration-300"
+                      className={`relative z-10 w-full h-full group-hover/story:scale-105 transition duration-300 ${
+                        firstStory.backgroundStyle?.fitMode === 'contain' ? 'object-contain' : 'object-cover'
+                      }`}
                     />
                   ) : (
                     <img
                       src={firstStory.mediaUrl}
                       alt="Story"
-                      className="w-full h-full object-cover group-hover/story:scale-105 transition duration-300"
+                      className={`relative z-10 w-full h-full group-hover/story:scale-105 transition duration-300 ${
+                        firstStory.backgroundStyle?.fitMode === 'contain' ? 'object-contain' : 'object-cover'
+                      }`}
                     />
                   )}
                 </div>

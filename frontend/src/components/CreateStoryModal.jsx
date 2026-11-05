@@ -2,7 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   X, Image as ImageIcon, Type, Video, Sparkles, AlertCircle, 
-  Globe, Users, Lock, Loader2, ArrowLeft, CheckCircle2 
+  Globe, Users, Lock, Loader2, ArrowLeft, CheckCircle2,
+  RotateCw, FlipHorizontal, Maximize2, Minimize2,
+  Sun, Contrast, Palette, SlidersHorizontal, RefreshCw,
+  Volume2, VolumeX, Wand2
 } from 'lucide-react';
 import { createStoryApi, uploadStoryMedia } from '../api/client';
 
@@ -15,8 +18,81 @@ const GRADIENT_PRESETS = [
   { id: 'midnight', label: 'Đêm đen', style: { background: 'linear-gradient(135deg, #09203f 0%, #537895 100%)' } },
 ];
 
+const MEDIA_FILTERS = [
+  { id: 'normal', label: 'Gốc', filter: 'none', color: '#94a3b8' },
+  { id: 'vivid', label: 'Rực rỡ', filter: 'contrast(115%) saturate(135%) brightness(105%)', color: '#f59e0b' },
+  { id: 'vintage', label: 'Cổ điển', filter: 'sepia(35%) contrast(110%) brightness(95%)', color: '#d97706' },
+  { id: 'bw', label: 'Đen trắng', filter: 'grayscale(100%) contrast(115%)', color: '#475569' },
+  { id: 'warm', label: 'Ấm áp', filter: 'sepia(20%) saturate(125%) brightness(105%)', color: '#ea580c' },
+  { id: 'cool', label: 'Mát lạnh', filter: 'hue-rotate(185deg) saturate(90%)', color: '#0284c7' },
+  { id: 'dramatic', label: 'Điện ảnh', filter: 'contrast(130%) brightness(92%) saturate(115%)', color: '#7c3aed' },
+];
+
+/**
+ * Xuất ảnh đã chỉnh sửa (Xoay, Lật, Áp dụng bộ lọc màu và ánh sáng) ra File ảnh thật qua Canvas ngầm
+ */
+function exportEditedImage(file, { rotation, isFlippedH, filterString }) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const isRotated90 = (rotation % 180) !== 0;
+
+        canvas.width = isRotated90 ? img.naturalHeight : img.naturalWidth;
+        canvas.height = isRotated90 ? img.naturalWidth : img.naturalHeight;
+
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate((rotation * Math.PI) / 180);
+        if (isFlippedH) {
+          ctx.scale(-1, 1);
+        }
+        if (filterString && filterString !== 'none') {
+          ctx.filter = filterString;
+        }
+        ctx.drawImage(
+          img,
+          -img.naturalWidth / 2,
+          -img.naturalHeight / 2,
+          img.naturalWidth,
+          img.naturalHeight
+        );
+        ctx.restore();
+
+        canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(objectUrl);
+            if (blob) {
+              const editedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+                type: 'image/jpeg',
+              });
+              resolve(editedFile);
+            } else {
+              resolve(file);
+            }
+          },
+          'image/jpeg',
+          0.92
+        );
+      } catch (err) {
+        URL.revokeObjectURL(objectUrl);
+        console.warn('Lỗi xử lý canvas, sử dụng file gốc:', err);
+        resolve(file);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+    img.src = objectUrl;
+  });
+}
+
 export default function CreateStoryModal({ currentUser, isOpen, onClose, onStoryCreated }) {
-  const [mode, setMode] = useState(null); // 'text' | 'media' | null (chọn ban đầu)
+  const [mode, setMode] = useState(null); // 'text' | 'media' | null
   const [textContent, setTextContent] = useState('');
   const [selectedGradient, setSelectedGradient] = useState(GRADIENT_PRESETS[0]);
   const [fontFamily, setFontFamily] = useState('sans-serif');
@@ -27,6 +103,17 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [nudgeData, setNudgeData] = useState(null);
+
+  // Trạng thái công cụ chỉnh sửa hình ảnh & video
+  const [fitMode, setFitMode] = useState('contain'); // 'contain' (vừa vặn, không mất góc) | 'cover' (lấp đầy khung)
+  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
+  const [isFlippedH, setIsFlippedH] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState('normal');
+  const [brightness, setBrightness] = useState(100); // 50 - 150
+  const [contrast, setContrast] = useState(100); // 50 - 150
+  const [saturation, setSaturation] = useState(100); // 0 - 200
+  const [isMuted, setIsMuted] = useState(false);
+  const [editTab, setEditTab] = useState('fit'); // 'fit' | 'filter' | 'tune'
 
   const fileInputRef = useRef(null);
 
@@ -57,6 +144,15 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setMediaType('image');
     setErrorMsg('');
     setNudgeData(null);
+    setFitMode('contain');
+    setRotation(0);
+    setIsFlippedH(false);
+    setSelectedFilter('normal');
+    setBrightness(100);
+    setContrast(100);
+    setSaturation(100);
+    setIsMuted(false);
+    setEditTab('fit');
   };
 
   const handleClose = () => {
@@ -90,7 +186,32 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setMediaFile(file);
     setMediaType(isVideo ? 'video' : 'image');
     setMediaPreview(URL.createObjectURL(file));
+    setFitMode('contain'); // Mặc định vừa vặn để không bị cắt mép
     setMode('media');
+  };
+
+  // Tính chuỗi CSS filter tổng hợp từ bộ lọc màu và các thanh trượt
+  const getCombinedFilterString = () => {
+    const filterObj = MEDIA_FILTERS.find((f) => f.id === selectedFilter);
+    const baseFilter = filterObj && filterObj.filter !== 'none' ? filterObj.filter : '';
+    
+    const adjustments = [];
+    if (brightness !== 100) adjustments.push(`brightness(${brightness}%)`);
+    if (contrast !== 100) adjustments.push(`contrast(${contrast}%)`);
+    if (saturation !== 100) adjustments.push(`saturate(${saturation}%)`);
+
+    const combined = [baseFilter, ...adjustments].filter(Boolean).join(' ');
+    return combined || 'none';
+  };
+
+  const handleResetAdjustments = () => {
+    setSelectedFilter('normal');
+    setBrightness(100);
+    setContrast(100);
+    setSaturation(100);
+    setRotation(0);
+    setIsFlippedH(false);
+    setFitMode('contain');
   };
 
   const handleSubmit = async (force = false) => {
@@ -106,8 +227,22 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           setIsSubmitting(false);
           return;
         }
+
+        let fileToUpload = mediaFile;
+        const combinedFilterCss = getCombinedFilterString();
+        const hasVisualEdits = rotation !== 0 || isFlippedH || combinedFilterCss !== 'none';
+
+        // Nếu là ảnh và người dùng có thao tác chỉnh sửa, render sang file ảnh mới qua Canvas
+        if (mediaType === 'image' && hasVisualEdits) {
+          fileToUpload = await exportEditedImage(mediaFile, {
+            rotation,
+            isFlippedH,
+            filterString: combinedFilterCss,
+          });
+        }
+
         // Upload media lên Cloudinary
-        const uploadRes = await uploadStoryMedia(mediaFile);
+        const uploadRes = await uploadStoryMedia(fileToUpload);
         finalMediaUrl = uploadRes.url;
       }
 
@@ -120,7 +255,13 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           fontFamily,
           color: '#ffffff',
           textAlign: 'center',
-        } : null,
+        } : {
+          fitMode,
+          filter: getCombinedFilterString(),
+          rotation,
+          isFlippedH,
+          isMuted,
+        },
         privacy,
         forcePost: force,
       });
@@ -152,7 +293,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     >
       <div 
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
+        className={`relative w-full ${mode === 'media' ? 'max-w-3xl' : 'max-w-2xl'} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]`}
       >
         
         {/* Header */}
@@ -169,7 +310,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             )}
             <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-blue-500" />
-              {mode === 'text' ? 'Tạo tin văn bản' : mode === 'media' ? 'Tạo tin ảnh/video' : 'Tạo tin của bạn'}
+              {mode === 'text' ? 'Tạo tin văn bản' : mode === 'media' ? 'Chỉnh sửa & Đăng tin Media' : 'Tạo tin của bạn'}
             </h2>
           </div>
           <button 
@@ -249,7 +390,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-base">Tạo tin ảnh hoặc video</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Chia sẻ khoảnh khắc với video tối đa 60 giây
+                    Hỗ trợ chỉnh sửa khung hình, xoay lật, màu sắc chuẩn Story
                   </p>
                 </div>
               </button>
@@ -264,52 +405,66 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             </div>
           )}
 
-          {/* Màn hình soạn tin văn bản */}
+          {/* Màn hình soạn Tin Văn Bản */}
           {mode === 'text' && (
             <div className="space-y-6">
-              {/* Vùng xem trước Tin văn bản */}
+              {/* Vùng xem trước phong cách Story 9:16 */}
               <div 
-                className="w-full h-72 rounded-2xl flex items-center justify-center p-6 text-white shadow-inner relative transition-all duration-300"
+                className="w-full aspect-[9/16] max-h-80 rounded-2xl p-6 flex items-center justify-center text-center shadow-lg transition-all mx-auto"
                 style={selectedGradient.style}
               >
+                <p 
+                  className="text-white font-bold text-xl sm:text-2xl break-words max-w-full drop-shadow"
+                  style={{ fontFamily }}
+                >
+                  {textContent || 'Bắt đầu nhập nội dung tin...'}
+                </p>
+              </div>
+
+              {/* Ô nhập nội dung */}
+              <div>
+                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
+                  NỘI DUNG VĂN BẢN *
+                </label>
                 <textarea
                   value={textContent}
                   onChange={(e) => setTextContent(e.target.value)}
-                  placeholder="Bắt đầu nhập nội dung tin..."
+                  placeholder="Bạn đang nghĩ gì thế? Viết điều gì đó thật thú vị nào..."
+                  rows={3}
                   maxLength={500}
-                  style={{ fontFamily }}
-                  className="w-full bg-transparent text-center text-xl md:text-2xl font-bold placeholder-white/60 text-white resize-none outline-none border-none focus:ring-0"
-                  rows={4}
+                  className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 text-sm"
                 />
-                <span className="absolute bottom-3 right-4 text-xs text-white/70">
-                  {textContent.length}/500
-                </span>
+                <div className="text-right text-[11px] text-slate-400 mt-1">
+                  {textContent.length}/500 ký tự
+                </div>
               </div>
 
-              {/* Bộ chọn màu nền Gradient */}
+              {/* Chọn Nền Gradient */}
               <div>
                 <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-2">
-                  CHỌN MÀU NỀN
+                  CHỌN PHÔNG NỀN
                 </label>
-                <div className="flex items-center gap-3 overflow-x-auto pb-2">
-                  {GRADIENT_PRESETS.map((preset) => (
+                <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none">
+                  {GRADIENT_PRESETS.map((g) => (
                     <button
-                      key={preset.id}
-                      onClick={() => setSelectedGradient(preset)}
-                      className={`w-10 h-10 rounded-full shrink-0 transition-transform ${
-                        selectedGradient.id === preset.id ? 'ring-4 ring-blue-500 ring-offset-2 scale-110' : 'hover:scale-105'
+                      key={g.id}
+                      onClick={() => setSelectedGradient(g)}
+                      className={`w-10 h-10 rounded-xl shrink-0 transition transform hover:scale-110 flex items-center justify-center ${
+                        selectedGradient.id === g.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''
                       }`}
-                      style={preset.style}
-                      title={preset.label}
-                    />
+                      style={g.style}
+                      title={g.label}
+                    >
+                      {selectedGradient.id === g.id && <CheckCircle2 className="w-5 h-5 text-white" />}
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Chọn kiểu chữ */}
+              {/* Chọn Font Chữ */}
               <div>
                 <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-2">
-                  KIỂU CHỮ
+                  PHÔNG CHỮ
                 </label>
                 <div className="flex gap-2">
                   {[
@@ -334,45 +489,322 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             </div>
           )}
 
-          {/* Màn hình xem trước & chú thích tin Media */}
+          {/* Màn hình xem trước & Bộ công cụ chỉnh sửa Media */}
           {mode === 'media' && (
-            <div className="space-y-4">
-              <div className="relative w-full max-h-80 bg-slate-950 rounded-2xl overflow-hidden flex items-center justify-center">
-                {mediaType === 'video' ? (
-                  <video 
-                    src={mediaPreview} 
-                    controls 
-                    className="max-h-80 w-auto rounded-lg mx-auto"
-                  />
-                ) : (
-                  <img 
-                    src={mediaPreview} 
-                    alt="Preview" 
-                    className="max-h-80 w-auto object-contain rounded-lg mx-auto"
-                  />
-                )}
-                <div className="absolute top-3 right-3 flex gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+              {/* CỘT TRÁI: KHUNG XEM TRƯỚC LIVE STORY 9:16 */}
+              <div className="md:col-span-5 flex flex-col items-center">
+                <div className="relative w-full max-w-[240px] aspect-[9/16] bg-black rounded-2xl overflow-hidden shadow-xl flex items-center justify-center border border-slate-700">
+                  {/* Nền mờ Ambient khi ở chế độ contain */}
+                  {fitMode === 'contain' && (
+                    <div
+                      className="absolute inset-0 bg-cover bg-center blur-xl opacity-60 scale-125 pointer-events-none transition-all duration-300"
+                      style={{
+                        backgroundImage: mediaType === 'image' ? `url(${mediaPreview})` : undefined,
+                      }}
+                    />
+                  )}
+
+                  {mediaType === 'video' ? (
+                    <video
+                      src={mediaPreview}
+                      controls
+                      muted={isMuted}
+                      playsInline
+                      className={`relative z-10 w-full h-full transition-all duration-200 ${
+                        fitMode === 'cover' ? 'object-cover' : 'object-contain'
+                      }`}
+                      style={{
+                        transform: `rotate(${rotation}deg) scaleX(${isFlippedH ? -1 : 1})`,
+                        filter: getCombinedFilterString(),
+                      }}
+                    />
+                  ) : (
+                    <img
+                      src={mediaPreview}
+                      alt="Preview"
+                      className={`relative z-10 w-full h-full transition-all duration-200 ${
+                        fitMode === 'cover' ? 'object-cover' : 'object-contain'
+                      }`}
+                      style={{
+                        transform: `rotate(${rotation}deg) scaleX(${isFlippedH ? -1 : 1})`,
+                        filter: getCombinedFilterString(),
+                      }}
+                    />
+                  )}
+
+                  {/* Chú thích hiển thị trực tiếp trên Story */}
+                  {textContent.trim() && (
+                    <div className="absolute bottom-3 inset-x-2 z-20 p-2 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-xs line-clamp-2">
+                      {textContent}
+                    </div>
+                  )}
+
+                  {/* Nút Đổi tệp */}
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-lg bg-black/60 text-white text-xs hover:bg-black/80 transition backdrop-blur-sm"
+                    className="absolute top-2.5 right-2.5 z-20 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-[11px] font-semibold backdrop-blur-md transition"
                   >
                     Đổi tệp
                   </button>
                 </div>
+
+                <p className="text-[11px] text-slate-400 mt-2 text-center">
+                  Xem trước định dạng 9:16 trên Tin
+                </p>
               </div>
 
-              {/* Caption tuỳ chọn */}
-              <div>
-                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
-                  CHÚ THÍCH (TÙY CHỌN)
-                </label>
-                <input
-                  type="text"
-                  value={textContent}
-                  onChange={(e) => setTextContent(e.target.value)}
-                  placeholder="Thêm chú thích cho tin của bạn..."
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 text-sm"
-                />
+              {/* CỘT PHẢI: BỘ CÔNG CỤ CHỈNH SỬA ĐA NĂNG */}
+              <div className="md:col-span-7 space-y-4">
+                {/* Tabs chuyển đổi công cụ */}
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                  <button
+                    onClick={() => setEditTab('fit')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                      editTab === 'fit'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>Khung & Góc</span>
+                  </button>
+                  <button
+                    onClick={() => setEditTab('filter')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                      editTab === 'filter'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <Palette className="w-3.5 h-3.5" />
+                    <span>Bộ lọc màu</span>
+                  </button>
+                  <button
+                    onClick={() => setEditTab('tune')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                      editTab === 'tune'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>Tinh chỉnh</span>
+                  </button>
+                </div>
+
+                {/* TAB 1: KHUNG HÌNH & GÓC QUAY */}
+                {editTab === 'fit' && (
+                  <div className="space-y-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
+                        CHẾ ĐỘ HIỂN THỊ
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFitMode('contain')}
+                          className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                            fitMode === 'contain'
+                              ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
+                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 font-bold text-xs">
+                            <Minimize2 className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Vừa vặn (Không cắt mép)</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Thấy trọn 100% ảnh/video, kèm nền mờ sang trọng
+                          </p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFitMode('cover')}
+                          className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 ${
+                            fitMode === 'cover'
+                              ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
+                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 font-bold text-xs">
+                            <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Lấp đầy khung</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Phóng to tràn viền 9:16 (có thể cắt mép nếu ảnh ngang)
+                          </p>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
+                        XOAY & ĐẢO HƯỚNG
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRotation((prev) => (prev + 90) % 360)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition"
+                        >
+                          <RotateCw className="w-4 h-4 text-blue-600" />
+                          <span>Xoay 90° ({rotation}°)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsFlippedH((prev) => !prev)}
+                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition ${
+                            isFlippedH
+                              ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-950/40'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <FlipHorizontal className="w-4 h-4 text-blue-600" />
+                          <span>Lật ảnh ngang</span>
+                        </button>
+
+                        {mediaType === 'video' && (
+                          <button
+                            type="button"
+                            onClick={() => setIsMuted((prev) => !prev)}
+                            className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                              isMuted
+                                ? 'border-rose-500 bg-rose-50 text-rose-600 dark:bg-rose-950/40'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                            }`}
+                            title={isMuted ? 'Đang tắt tiếng' : 'Bật tiếng'}
+                          >
+                            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                            <span>{isMuted ? 'Tắt tiếng' : 'Có tiếng'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 2: BỘ LỌC MÀU (FILTERS) */}
+                {editTab === 'filter' && (
+                  <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                      CHỌN BỘ LỌC NGHỆ THUẬT
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {MEDIA_FILTERS.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setSelectedFilter(f.id)}
+                          className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center gap-1.5 ${
+                            selectedFilter === f.id
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600 font-bold ring-2 ring-blue-500/20'
+                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div 
+                            className="w-8 h-8 rounded-full border border-slate-300 shadow-xs flex items-center justify-center text-xs"
+                            style={{ background: f.color || '#3b82f6' }}
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-white" />
+                          </div>
+                          <span className="text-[11px] truncate w-full">{f.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: TINH CHỈNH ÁNH SÁNG */}
+                {editTab === 'tune' && (
+                  <div className="space-y-3.5 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        TINH CHỈNH ÁNH SÁNG & MÀU SẮC
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleResetAdjustments}
+                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Khôi phục gốc</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      {/* Độ sáng */}
+                      <div>
+                        <div className="flex justify-between text-slate-600 dark:text-slate-400 mb-1">
+                          <span className="flex items-center gap-1 font-medium">
+                            <Sun className="w-3.5 h-3.5 text-amber-500" /> Độ sáng
+                          </span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{brightness}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="50"
+                          max="150"
+                          value={brightness}
+                          onChange={(e) => setBrightness(Number(e.target.value))}
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Độ tương phản */}
+                      <div>
+                        <div className="flex justify-between text-slate-600 dark:text-slate-400 mb-1">
+                          <span className="flex items-center gap-1 font-medium">
+                            <Contrast className="w-3.5 h-3.5 text-indigo-500" /> Độ tương phản
+                          </span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{contrast}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="50"
+                          max="150"
+                          value={contrast}
+                          onChange={(e) => setContrast(Number(e.target.value))}
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Độ bão hòa màu */}
+                      <div>
+                        <div className="flex justify-between text-slate-600 dark:text-slate-400 mb-1">
+                          <span className="flex items-center gap-1 font-medium">
+                            <Wand2 className="w-3.5 h-3.5 text-rose-500" /> Độ bão hòa màu
+                          </span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{saturation}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          value={saturation}
+                          onChange={(e) => setSaturation(Number(e.target.value))}
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Ô NHẬP CHÚ THÍCH */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
+                    CHÚ THÍCH (TÙY CHỌN)
+                  </label>
+                  <input
+                    type="text"
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                    placeholder="Thêm chú thích cho tin của bạn..."
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -425,4 +857,3 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     document.body
   );
 }
-

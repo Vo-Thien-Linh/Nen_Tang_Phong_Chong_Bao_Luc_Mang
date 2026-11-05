@@ -278,21 +278,30 @@ export default function StoryViewerModal({
 
           {/* Tin Hình ảnh */}
           {currentStory.storyType === 'image' && (
-            <div className="relative w-full h-full flex items-center justify-center bg-black">
+            <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
+              {/* Lớp nền mờ Ambient nhân bản từ ảnh để không bị khoảng trống đen */}
+              <div 
+                className="absolute inset-0 bg-cover bg-center blur-2xl opacity-60 scale-125 pointer-events-none transition-all duration-300"
+                style={{ backgroundImage: `url(${currentStory.mediaUrl})` }}
+              />
+
               <img 
                 src={currentStory.mediaUrl} 
                 alt="Story"
-                className={`w-full h-full object-cover ${currentStory.isSensitive ? 'blur-xl' : ''}`}
+                className={`relative z-10 w-full h-full transition-all duration-200 ${
+                  currentStory.backgroundStyle?.fitMode === 'cover' ? 'object-cover' : 'object-contain'
+                } ${currentStory.isSensitive ? 'blur-xl' : ''}`}
+                style={currentStory.backgroundStyle?.filter && currentStory.backgroundStyle.filter !== 'none' ? { filter: currentStory.backgroundStyle.filter } : undefined}
               />
               {currentStory.isSensitive && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-md text-white">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-md text-white">
                   <ShieldAlert className="w-12 h-12 text-amber-400 mb-2" />
                   <p className="font-semibold text-sm">Nội dung có thể nhạy cảm</p>
                   <p className="text-xs text-white/70 mt-1">Tin này đã được AI gắn nhãn cảnh báo phù hợp tiêu chuẩn cộng đồng.</p>
                 </div>
               )}
               {currentStory.textContent && (
-                <div className="absolute bottom-20 inset-x-4 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm">
+                <div className="absolute bottom-20 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
                   {currentStory.textContent}
                 </div>
               )}
@@ -301,17 +310,28 @@ export default function StoryViewerModal({
 
           {/* Tin Video */}
           {currentStory.storyType === 'video' && (
-            <div className="relative w-full h-full flex items-center justify-center bg-black">
+            <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
+              {/* Lớp nền mờ Ambient cho video khi ở chế độ vừa vặn */}
+              {currentStory.backgroundStyle?.fitMode === 'contain' && (
+                <div 
+                  className="absolute inset-0 bg-cover bg-center blur-2xl opacity-50 scale-125 pointer-events-none"
+                  style={{ backgroundImage: `url(${currentStory.mediaUrl})` }}
+                />
+              )}
               <video 
                 ref={videoRef}
                 src={currentStory.mediaUrl}
                 autoPlay
                 playsInline
                 loop
-                className="w-full h-full object-cover"
+                muted={currentStory.backgroundStyle?.isMuted || false}
+                className={`relative z-10 w-full h-full transition-all duration-200 ${
+                  currentStory.backgroundStyle?.fitMode === 'cover' ? 'object-cover' : 'object-contain'
+                }`}
+                style={currentStory.backgroundStyle?.filter && currentStory.backgroundStyle.filter !== 'none' ? { filter: currentStory.backgroundStyle.filter } : undefined}
               />
               {currentStory.textContent && (
-                <div className="absolute bottom-20 inset-x-4 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm">
+                <div className="absolute bottom-20 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
                   {currentStory.textContent}
                 </div>
               )}
