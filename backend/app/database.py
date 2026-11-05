@@ -56,6 +56,17 @@ def ensure_schema_migrations(eng):
                     if "media_type" not in existing_msg_cols:
                         conn.execute(text("ALTER TABLE messages ADD COLUMN media_type VARCHAR(20) DEFAULT 'text'"))
 
+                existing_user_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
+                if existing_user_cols:
+                    if "banned_until" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN banned_until TIMESTAMP"))
+                    if "ban_reason" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN ban_reason TEXT"))
+                    if "created_at" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
+                    if "updated_at" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP"))
+
                 existing_conv_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(conversations)")).fetchall()]
                 if existing_conv_cols:
                     if "blocked_by" not in existing_conv_cols:

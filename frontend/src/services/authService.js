@@ -1,5 +1,5 @@
-// Dùng API Gateway; gateway định tuyến auth đến FastAPI platform API.
-const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Dùng API Gateway hoặc trực tiếp FastAPI platform API (cổng 8000).
+const API_ROOT = import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000';
 const API_BASE_URL = `${API_ROOT}/api/v1/auth`;
 
 const STORAGE_KEYS = {

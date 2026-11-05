@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Text, ForeignKey, func, Uuid
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Text, ForeignKey, func, Uuid
 from ..database import Base
 
 class UserSettings(Base):
     __tablename__ = "user_settings"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True, index=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True, index=True)
     user_id = Column(Uuid(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
 
     # 1. Phòng chống bạo lực mạng & An toàn AI
