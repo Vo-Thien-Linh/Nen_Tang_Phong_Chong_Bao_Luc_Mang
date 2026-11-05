@@ -757,7 +757,7 @@ export default function HomeView({
             loadStories();
           }}
           onNextTray={() => {
-            const idx = storyTrays.findIndex(t => t.author?.id === activeStoryTray.author?.id);
+            const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
             if (idx >= 0 && idx < storyTrays.length - 1) {
               setActiveStoryTray(storyTrays[idx + 1]);
             } else {
@@ -765,7 +765,7 @@ export default function HomeView({
             }
           }}
           onPrevTray={() => {
-            const idx = storyTrays.findIndex(t => t.author?.id === activeStoryTray.author?.id);
+            const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
             if (idx > 0) {
               setActiveStoryTray(storyTrays[idx - 1]);
             }

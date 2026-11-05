@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, Trash2, Heart, 
   ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert,
-  Send, Loader2
+  Send, Loader2, Clock
 } from 'lucide-react';
 import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
 import { messageService } from '../services/messageService';
@@ -51,7 +51,8 @@ export default function StoryViewerModal({
   const progressTimerRef = useRef(null);
 
   const stories = tray?.stories || [];
-  const currentStory = stories[currentIndex];
+  const safeIndex = stories.length > 0 ? Math.min(currentIndex, stories.length - 1) : 0;
+  const currentStory = stories[safeIndex] || null;
   const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
 
   // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
@@ -383,7 +384,15 @@ export default function StoryViewerModal({
                 )}
               </h4>
               <p className="text-white/70 text-xs">
-                {new Date(currentStory.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {(() => {
+                  try {
+                    const raw = currentStory.createdAt || currentStory.created_at || Date.now();
+                    const d = new Date(raw);
+                    return isNaN(d.getTime()) ? 'Vừa xong' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  } catch {
+                    return 'Vừa xong';
+                  }
+                })()}
               </p>
             </div>
           </div>
@@ -717,7 +726,14 @@ export default function StoryViewerModal({
                             )}
                           </p>
                           <p className="text-xs text-white/50 mt-0.5">
-                            {new Date(v.viewed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {(() => {
+                              try {
+                                const d = new Date(v.viewed_at || Date.now());
+                                return isNaN(d.getTime()) ? 'Vừa xong' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                              } catch {
+                                return 'Vừa xong';
+                              }
+                            })()}
                           </p>
                         </div>
                       </div>
