@@ -4,7 +4,7 @@ import {
   X, Image as ImageIcon, Type, Sparkles, AlertCircle, 
   Globe, Users, Lock, Loader2, ArrowLeft,
   RotateCw, Settings, Clock, ChevronDown, Check, Smile, Minus, Plus,
-  FileText
+  FileText, Move, RotateCcw
 } from 'lucide-react';
 import { createStoryApi, uploadStoryMedia } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
@@ -29,13 +29,18 @@ const GRADIENT_PRESETS = [
   { id: 'darkslate', label: 'Xám sang trọng', style: { background: 'linear-gradient(135deg, #232526 0%, #414345 100%)' } },
 ];
 
-// Danh sách kiểu chữ Facebook Story
+// Danh sách kiểu chữ đa dạng nghệ thuật phong cách Story (10 phông chữ phong phú)
 const FONT_OPTIONS = [
-  { id: 'clean', label: 'Gọn gàng', font: 'system-ui, -apple-system, sans-serif' },
-  { id: 'simple', label: 'Đơn giản', font: '"Segoe UI", Roboto, Helvetica, Arial, sans-serif' },
-  { id: 'serif', label: 'Cổ điển', font: 'Georgia, Cambria, "Times New Roman", serif' },
-  { id: 'cursive', label: 'Mềm mại', font: '"Dancing Script", "Brush Script MT", cursive' },
-  { id: 'impact', label: 'Tiêu đề', font: 'Impact, "Arial Black", sans-serif' },
+  { id: 'clean', label: 'Gọn gàng', font: 'system-ui, -apple-system, sans-serif', sample: 'Aa Gọn gàng' },
+  { id: 'simple', label: 'Đơn giản', font: '"Segoe UI", Roboto, Helvetica, Arial, sans-serif', sample: 'Aa Đơn giản' },
+  { id: 'serif', label: 'Cổ điển', font: 'Georgia, Cambria, "Times New Roman", serif', sample: 'Aa Cổ điển' },
+  { id: 'cursive', label: 'Viết tay mềm mại', font: '"Dancing Script", "Brush Script MT", cursive', sample: 'Aa Viết tay mềm mại' },
+  { id: 'impact', label: 'Tiêu đề đậm', font: 'Impact, "Arial Black", sans-serif', sample: 'Aa TIÊU ĐỀ ĐẬM' },
+  { id: 'typewriter', label: 'Máy đánh chữ', font: '"Courier New", Courier, monospace', sample: 'Aa Máy đánh chữ' },
+  { id: 'elegant', label: 'Nghệ thuật & Tinh tế', font: '"Playfair Display", Georgia, serif', sample: 'Aa Nghệ thuật' },
+  { id: 'cinzel', label: 'Hoàng gia La Mã', font: '"Cinzel", "Times New Roman", serif', sample: 'Aa HOÀNG GIA' },
+  { id: 'neon', label: 'Neon Cyberpunk', font: '"Orbitron", "Trebuchet MS", sans-serif', sample: 'Aa NEON CYBER' },
+  { id: 'caveat', label: 'Bút dạ tự nhiên', font: '"Caveat", "Comic Sans MS", cursive', sample: 'Aa Bút dạ tự nhiên' },
 ];
 
 // Quyền riêng tư tin
@@ -51,9 +56,19 @@ const TEXT_COLORS = [
 ];
 
 /**
- * Xuất ảnh đã qua chỉnh sửa (Xoay, Phóng to, Chèn chữ, Nhãn thời gian) sang File Blob
+ * Xuất ảnh đã qua chỉnh sửa (Xoay, Phóng to, Chèn chữ kéo thả, Nhãn thời gian kéo thả) sang File Blob
  */
-function exportEditedImage(file, { rotation = 0, zoomLevel = 1, overlayText = '', overlayFont = '', overlayColor = '#ffffff', hasTimeSticker = false, timeText = '' }) {
+function exportEditedImage(file, { 
+  rotation = 0, 
+  zoomLevel = 1, 
+  overlayText = '', 
+  overlayFont = '', 
+  overlayColor = '#ffffff', 
+  hasTimeSticker = false, 
+  timeText = '',
+  timePos = { x: 50, y: 16 },
+  textPos = { x: 50, y: 50 }
+}) {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -88,21 +103,27 @@ function exportEditedImage(file, { rotation = 0, zoomLevel = 1, overlayText = ''
         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
         ctx.restore();
 
-        // Vẽ nhãn thời gian nếu được bật
+        // Vẽ nhãn thời gian theo đúng tọa độ người dùng kéo thả
         if (hasTimeSticker && timeText) {
           ctx.save();
-          ctx.font = 'bold 38px system-ui, sans-serif';
+          ctx.font = 'bold 42px system-ui, sans-serif';
           const textMetrics = ctx.measureText(timeText);
-          const boxW = textMetrics.width + 48;
-          const boxH = 64;
-          const boxX = canvasWidth / 2 - boxW / 2;
-          const boxY = 220;
+          const boxW = textMetrics.width + 56;
+          const boxH = 68;
 
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          const targetCenterX = (timePos.x / 100) * canvasWidth;
+          const targetCenterY = (timePos.y / 100) * canvasHeight;
+          const boxX = targetCenterX - boxW / 2;
+          const boxY = targetCenterY - boxH / 2;
+
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
           if (ctx.roundRect) {
             ctx.beginPath();
-            ctx.roundRect(boxX, boxY, boxW, boxH, 32);
+            ctx.roundRect(boxX, boxY, boxW, boxH, 34);
             ctx.fill();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
           } else {
             ctx.fillRect(boxX, boxY, boxW, boxH);
           }
@@ -110,25 +131,28 @@ function exportEditedImage(file, { rotation = 0, zoomLevel = 1, overlayText = ''
           ctx.fillStyle = '#ffffff';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(timeText, canvasWidth / 2, boxY + boxH / 2);
+          ctx.fillText(timeText, targetCenterX, targetCenterY);
           ctx.restore();
         }
 
-        // Vẽ chữ chèn lên ảnh nếu có
+        // Vẽ chữ chèn lên ảnh theo đúng tọa độ người dùng kéo thả
         if (overlayText && overlayText.trim()) {
           ctx.save();
-          ctx.font = `bold 56px ${overlayFont || 'system-ui, sans-serif'}`;
+          ctx.font = `bold 58px ${overlayFont || 'system-ui, sans-serif'}`;
           ctx.fillStyle = overlayColor || '#ffffff';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-          ctx.shadowBlur = 14;
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+          ctx.shadowBlur = 18;
+
+          const targetCenterX = (textPos.x / 100) * canvasWidth;
+          const targetCenterY = (textPos.y / 100) * canvasHeight;
 
           const lines = overlayText.split('\n');
-          const lineHeight = 72;
-          const startY = canvasHeight / 2 - ((lines.length - 1) * lineHeight) / 2;
+          const lineHeight = 76;
+          const startY = targetCenterY - ((lines.length - 1) * lineHeight) / 2;
           lines.forEach((line, idx) => {
-            ctx.fillText(line, canvasWidth / 2, startY + idx * lineHeight);
+            ctx.fillText(line, targetCenterX, startY + idx * lineHeight);
           });
           ctx.restore();
         }
@@ -189,10 +213,16 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [isAddingText, setIsAddingText] = useState(false);
   const [overlayColor, setOverlayColor] = useState('#ffffff');
   const [overlayFont, setOverlayFont] = useState(FONT_OPTIONS[0]);
+  const [isOverlayFontDropdownOpen, setIsOverlayFontDropdownOpen] = useState(false);
   const [altText, setAltText] = useState('');
   const [isAddingAltText, setIsAddingAltText] = useState(false);
 
+  // Vị trí kéo thả (Tọa độ phần trăm 0% -> 100%)
+  const [timePos, setTimePos] = useState({ x: 50, y: 16 });
+  const [textPos, setTextPos] = useState({ x: 50, y: 50 });
+
   const fileInputRef = useRef(null);
+  const cardRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -244,13 +274,57 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setIsAddingText(false);
     setOverlayColor('#ffffff');
     setOverlayFont(FONT_OPTIONS[0]);
+    setIsOverlayFontDropdownOpen(false);
     setAltText('');
     setIsAddingAltText(false);
+    setTimePos({ x: 50, y: 16 });
+    setTextPos({ x: 50, y: 50 });
   };
 
   const handleClose = () => {
     resetState();
     onClose();
+  };
+
+  // Kéo thả linh hoạt các thành phần (Nhãn giờ & Văn bản)
+  const handlePointerDown = (type, e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const card = cardRef.current;
+    if (!card) return;
+
+    const rect = card.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialPos = type === 'time' ? { ...timePos } : { ...textPos };
+
+    const onPointerMove = (moveEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      const deltaXPercent = (deltaX / rect.width) * 100;
+      const deltaYPercent = (deltaY / rect.height) * 100;
+
+      const newX = Math.min(88, Math.max(12, initialPos.x + deltaXPercent));
+      const newY = Math.min(88, Math.max(12, initialPos.y + deltaYPercent));
+
+      if (type === 'time') {
+        setTimePos({ x: Math.round(newX), y: Math.round(newY) });
+      } else {
+        setTextPos({ x: Math.round(newX), y: Math.round(newY) });
+      }
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   const handleFileChange = (e) => {
@@ -281,6 +355,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setMediaPreview(URL.createObjectURL(file));
     setZoomLevel(1);
     setRotation(0);
+    setTimePos({ x: 50, y: 16 });
+    setTextPos({ x: 50, y: 50 });
     setMode('media');
   };
 
@@ -301,7 +377,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         let fileToUpload = mediaFile;
         const hasVisualEdits = rotation !== 0 || zoomLevel !== 1 || overlayText.trim() || hasTimeSticker;
 
-        // Nếu là hình ảnh và có thao tác chỉnh sửa, xuất file mới qua Canvas
+        // Nếu là hình ảnh và có thao tác chỉnh sửa, xuất file mới qua Canvas với tọa độ kéo thả
         if (mediaType === 'image' && hasVisualEdits) {
           fileToUpload = await exportEditedImage(mediaFile, {
             rotation,
@@ -311,6 +387,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             overlayColor,
             hasTimeSticker,
             timeText: currentTimeText,
+            timePos,
+            textPos,
           });
         }
 
@@ -327,13 +405,16 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           fontFamily: selectedFont.font,
           textAlign: 'center',
           color: '#ffffff',
+          textPos,
           isAiGenerated,
         } : {
           zoomLevel,
           rotation,
           hasTimeSticker,
           timeText: currentTimeText,
+          timePos,
           overlayText: overlayText.trim() || null,
+          textPos,
           altText: altText.trim() || null,
           isAiGenerated,
         },
@@ -424,7 +505,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base">Tạo tin ảnh hoặc video</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                  Chia sẻ khoảnh khắc với công cụ chỉnh sửa, phóng to, xoay ảnh
+                  Kéo thả vị trí chữ, giờ, phóng to, xoay ảnh và chèn nhãn nghệ thuật
                 </p>
               </div>
             </button>
@@ -432,7 +513,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         </div>
       )}
 
-      {/* MÀN HÌNH 2: STUDIO TẠO TIN FACEBOOK-STYLE CHO TIN VĂN BẢN HOẶC ẢNH/VIDEO */}
+      {/* MÀN HÌNH 2: STUDIO TẠO TIN FACEBOOK-STYLE */}
       {mode && (
         <div 
           onClick={(e) => e.stopPropagation()}
@@ -579,8 +660,11 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     </div>
                   </div>
 
-                  {/* Chọn kiểu chữ (Dropdown giống Facebook) */}
+                  {/* Chọn kiểu chữ (Dropdown với 10 font phong phú) */}
                   <div className="relative">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Kiểu chữ ({FONT_OPTIONS.length} phông đa dạng)
+                    </label>
                     <button
                       type="button"
                       onClick={() => setIsFontDropdownOpen(!isFontDropdownOpen)}
@@ -588,13 +672,13 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-500">Aa</span>
-                        <span>{selectedFont.label}</span>
+                        <span style={{ fontFamily: selectedFont.font }}>{selectedFont.label}</span>
                       </div>
                       <ChevronDown className="w-4 h-4 text-slate-500" />
                     </button>
 
                     {isFontDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-12 p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-30 animate-scale-up">
+                      <div className="absolute left-0 right-0 top-16 max-h-64 overflow-y-auto p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-40 animate-scale-up">
                         {FONT_OPTIONS.map((f) => (
                           <button
                             key={f.id}
@@ -610,7 +694,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                             }`}
                             style={{ fontFamily: f.font }}
                           >
-                            <span>Aa {f.label}</span>
+                            <span>{f.sample}</span>
                             {selectedFont.id === f.id && <Check className="w-4 h-4 text-blue-600" />}
                           </button>
                         ))}
@@ -695,25 +779,41 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                           </div>
                         </div>
 
-                        {/* Chọn font chữ cho overlay */}
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Kiểu chữ</p>
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {FONT_OPTIONS.slice(0, 3).map((f) => (
-                              <button
-                                key={f.id}
-                                type="button"
-                                onClick={() => setOverlayFont(f)}
-                                className={`py-1 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
-                                  overlayFont.id === f.id
-                                    ? 'bg-blue-600 text-white border-blue-600'
-                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                                }`}
-                              >
-                                {f.label}
-                              </button>
-                            ))}
-                          </div>
+                        {/* Chọn phông chữ nghệ thuật cho overlay */}
+                        <div className="relative">
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Kiểu chữ ({FONT_OPTIONS.length} tùy chọn)</p>
+                          <button
+                            type="button"
+                            onClick={() => setIsOverlayFontDropdownOpen(!isOverlayFontDropdownOpen)}
+                            className="w-full flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold hover:border-slate-300 transition cursor-pointer"
+                          >
+                            <span style={{ fontFamily: overlayFont.font }}>{overlayFont.label}</span>
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                          </button>
+
+                          {isOverlayFontDropdownOpen && (
+                            <div className="absolute left-0 right-0 top-16 max-h-52 overflow-y-auto p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 animate-scale-up">
+                              {FONT_OPTIONS.map((f) => (
+                                <button
+                                  key={f.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setOverlayFont(f);
+                                    setIsOverlayFontDropdownOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-xs transition cursor-pointer ${
+                                    overlayFont.id === f.id
+                                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold'
+                                      : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
+                                  }`}
+                                  style={{ fontFamily: f.font }}
+                                >
+                                  <span>{f.sample}</span>
+                                  {overlayFont.id === f.id && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -838,44 +938,76 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             </div>
           </div>
 
-          {/* CỘT PHẢI: KHUNG XEM TRƯỚC (CANVAS XEM TRƯỚC CHUẨN FACEBOOK) */}
+          {/* CỘT PHẢI: KHUNG XEM TRƯỚC (CANVAS XEM TRƯỚC VỚI HỖ TRỢ KÉO THẢ) */}
           <div className="flex-1 flex flex-col bg-[#18191a] relative overflow-hidden">
             
             {/* Header Xem trước */}
             <div className="px-6 py-4 flex items-center justify-between text-white/90 z-20">
-              <span className="text-sm font-bold tracking-wide">Xem trước</span>
-              <button
-                onClick={handleClose}
-                className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold tracking-wide">Xem trước</span>
+                <span className="text-[11px] text-white/50 flex items-center gap-1 bg-white/10 px-2.5 py-0.5 rounded-full">
+                  <Move className="w-3 h-3 text-blue-400" />
+                  Kéo thả để di chuyển chữ & giờ
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {(timePos.x !== 50 || timePos.y !== 16 || textPos.x !== 50 || textPos.y !== 50) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimePos({ x: 50, y: 16 });
+                      setTextPos({ x: 50, y: 50 });
+                    }}
+                    className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer flex items-center gap-1 text-xs"
+                    title="Đặt lại vị trí mặc định"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span className="text-[10px]">Căn giữa</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleClose}
+                  className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Vùng Canvas hiển thị điện thoại 9:16 */}
             <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden relative">
               
-              {/* Thẻ Story 9:16 */}
+              {/* Thẻ Story 9:16 - Gắn ref để tính tọa độ kéo thả */}
               <div 
-                className="w-[280px] sm:w-[310px] h-[490px] sm:h-[540px] rounded-2xl shadow-2xl relative flex items-center justify-center overflow-hidden transition-all duration-300 border border-white/10 select-none"
+                ref={cardRef}
+                className="w-[280px] sm:w-[310px] h-[490px] sm:h-[540px] rounded-2xl shadow-2xl relative flex items-center justify-center overflow-hidden transition-all duration-300 border border-white/10 select-none touch-none"
                 style={mode === 'text' ? selectedGradient.style : { backgroundColor: '#000000' }}
               >
-                {/* 1. HIỂN THỊ TIN VĂN BẢN */}
+                {/* 1. HIỂN THỊ TIN VĂN BẢN (Kéo thả di chuyển được vị trí chữ) */}
                 {mode === 'text' && (
-                  <div className="w-full h-full flex flex-col justify-between p-6">
-                    <div />
-                    <p 
-                      className="text-white font-bold text-xl sm:text-2xl break-words max-w-full drop-shadow-md text-center leading-relaxed"
-                      style={{ fontFamily: selectedFont.font }}
+                  <div className="w-full h-full relative">
+                    <div
+                      onPointerDown={(e) => handlePointerDown('text', e)}
+                      className="absolute z-30 cursor-grab active:cursor-grabbing select-none group/text p-3 rounded-2xl hover:bg-white/10 hover:ring-2 hover:ring-blue-400/80 transition duration-150 max-w-[90%]"
+                      style={{
+                        left: `${textPos.x}%`,
+                        top: `${textPos.y}%`,
+                        transform: 'translate(-50%, -50%)',
+                        fontFamily: selectedFont.font,
+                      }}
+                      title="Kéo thả để di chuyển vị trí chữ"
                     >
-                      {textContent.trim() || (
-                        <span className="text-white/60 font-semibold text-base sm:text-lg">
-                          Bắt đầu nhập nội dung tin...
-                        </span>
-                      )}
-                    </p>
+                      <p className="text-white font-bold text-xl sm:text-2xl break-words max-w-full drop-shadow-md text-center leading-relaxed pointer-events-none">
+                        {textContent.trim() || (
+                          <span className="text-white/60 font-semibold text-base sm:text-lg">
+                            Bắt đầu nhập nội dung tin...
+                          </span>
+                        )}
+                      </p>
+                    </div>
+
                     {/* Icon mặt cười góc phải dưới */}
-                    <div className="flex justify-end">
+                    <div className="absolute bottom-4 right-4 z-10 pointer-events-none">
                       <div className="p-1.5 rounded-full bg-white/20 text-white backdrop-blur-md">
                         <Smile className="w-5 h-5" />
                       </div>
@@ -897,7 +1029,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       <img
                         src={mediaPreview}
                         alt="Preview"
-                        className="relative z-10 w-full h-full object-contain transition-transform duration-150"
+                        className="relative z-10 w-full h-full object-contain transition-transform duration-150 pointer-events-none"
                         style={{
                           transform: `rotate(${rotation}deg) scale(${zoomLevel})`,
                         }}
@@ -909,40 +1041,58 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                         loop
                         muted
                         playsInline
-                        className="relative z-10 w-full h-full object-contain transition-transform duration-150"
+                        className="relative z-10 w-full h-full object-contain transition-transform duration-150 pointer-events-none"
                         style={{
                           transform: `rotate(${rotation}deg) scale(${zoomLevel})`,
                         }}
                       />
                     )}
 
-                    {/* Nhãn thời gian (Timestamp Sticker) */}
+                    {/* Nhãn thời gian (Timestamp Sticker) - Kéo thả di chuyển được */}
                     {hasTimeSticker && currentTimeText && (
-                      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-white font-bold text-xs tracking-wider border border-white/20 shadow-lg flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{currentTimeText}</span>
+                      <div 
+                        onPointerDown={(e) => handlePointerDown('time', e)}
+                        className="absolute z-30 select-none cursor-grab active:cursor-grabbing group/time"
+                        style={{
+                          left: `${timePos.x}%`,
+                          top: `${timePos.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        title="Kéo thả để di chuyển vị trí giờ"
+                      >
+                        <div className="px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md text-white font-bold text-xs tracking-wider border border-white/25 shadow-xl flex items-center gap-1.5 group-hover/time:ring-2 group-hover/time:ring-blue-400 group-hover/time:scale-105 transition-transform duration-100">
+                          <Clock className="w-3.5 h-3.5 text-blue-300" />
+                          <span>{currentTimeText}</span>
+                        </div>
                       </div>
                     )}
 
-                    {/* Chữ chèn lên ảnh (Overlay Text) */}
+                    {/* Chữ chèn lên ảnh (Overlay Text) - Kéo thả di chuyển được */}
                     {overlayText && overlayText.trim() && (
                       <div 
-                        className="absolute inset-x-4 top-1/2 -translate-y-1/2 z-20 text-center pointer-events-none drop-shadow-xl"
+                        onPointerDown={(e) => handlePointerDown('text', e)}
+                        className="absolute z-30 select-none cursor-grab active:cursor-grabbing group/text max-w-[88%]"
                         style={{ 
+                          left: `${textPos.x}%`,
+                          top: `${textPos.y}%`,
+                          transform: 'translate(-50%, -50%)',
                           fontFamily: overlayFont.font, 
                           color: overlayColor 
                         }}
+                        title="Kéo thả để di chuyển vị trí chữ"
                       >
-                        <p className="font-bold text-xl sm:text-2xl break-words leading-snug">
-                          {overlayText}
-                        </p>
+                        <div className="px-3 py-1.5 rounded-xl group-hover/text:bg-white/10 group-hover/text:ring-2 group-hover/text:ring-blue-400/80 transition duration-100 text-center">
+                          <p className="font-bold text-xl sm:text-2xl break-words drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] leading-snug pointer-events-none">
+                            {overlayText}
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* THANH ĐIỀU KHIỂN PHÓNG TO & XOAY ẢNH DƯỚI KHUNG PREVIEW (CHUẨN SCREENSHOT 2) */}
+              {/* THANH ĐIỀU KHIỂN PHÓNG TO & XOAY ẢNH DƯỚI KHUNG PREVIEW */}
               {mode === 'media' && (
                 <div className="mt-4 flex items-center gap-4 px-4 py-2 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 text-white z-20 animate-fade-in">
                   {/* Cụm Zoom Slider */}

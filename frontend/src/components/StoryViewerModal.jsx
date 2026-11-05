@@ -406,18 +406,27 @@ export default function StoryViewerModal({
           {/* Tin văn bản */}
           {currentStory.storyType === 'text' && (
             <div 
-              className="w-full h-full flex items-center justify-center p-8 text-center"
+              className="w-full h-full relative"
               style={currentStory.backgroundStyle || { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
             >
-              <p 
-                className="text-white font-bold text-2xl md:text-3xl break-words max-w-full drop-shadow-md leading-relaxed"
-                style={{ 
-                  fontFamily: currentStory.backgroundStyle?.fontFamily || 'sans-serif',
-                  textAlign: currentStory.backgroundStyle?.textAlign || 'center',
+              <div 
+                className="absolute p-6 text-center max-w-[90%]"
+                style={{
+                  left: `${currentStory.backgroundStyle?.textPos?.x ?? 50}%`,
+                  top: `${currentStory.backgroundStyle?.textPos?.y ?? 50}%`,
+                  transform: 'translate(-50%, -50%)',
                 }}
               >
-                {currentStory.textContent}
-              </p>
+                <p 
+                  className="text-white font-bold text-2xl md:text-3xl break-words max-w-full drop-shadow-md leading-relaxed"
+                  style={{ 
+                    fontFamily: currentStory.backgroundStyle?.fontFamily || 'sans-serif',
+                    textAlign: currentStory.backgroundStyle?.textAlign || 'center',
+                  }}
+                >
+                  {currentStory.textContent}
+                </p>
+              </div>
             </div>
           )}
 
@@ -445,7 +454,40 @@ export default function StoryViewerModal({
                   <p className="text-xs text-white/70 mt-1">Tin này đã được AI gắn nhãn cảnh báo phù hợp tiêu chuẩn cộng đồng.</p>
                 </div>
               )}
-              {currentStory.textContent && (
+              {/* Nhãn thời gian cho video */}
+              {currentStory.backgroundStyle?.hasTimeSticker && currentStory.backgroundStyle?.timeText && (
+                <div 
+                  className="absolute z-20 px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md text-white font-bold text-xs tracking-wider border border-white/20 shadow-lg flex items-center gap-1.5 pointer-events-none"
+                  style={{
+                    left: `${currentStory.backgroundStyle?.timePos?.x ?? 50}%`,
+                    top: `${currentStory.backgroundStyle?.timePos?.y ?? 16}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <Clock className="w-3.5 h-3.5 text-blue-300" />
+                  <span>{currentStory.backgroundStyle.timeText}</span>
+                </div>
+              )}
+
+              {/* Văn bản overlay cho video */}
+              {currentStory.backgroundStyle?.overlayText && (
+                <div 
+                  className="absolute z-20 text-center pointer-events-none drop-shadow-xl max-w-[88%]"
+                  style={{
+                    left: `${currentStory.backgroundStyle?.textPos?.x ?? 50}%`,
+                    top: `${currentStory.backgroundStyle?.textPos?.y ?? 50}%`,
+                    transform: 'translate(-50%, -50%)',
+                    fontFamily: currentStory.backgroundStyle?.overlayFont || 'sans-serif',
+                    color: currentStory.backgroundStyle?.overlayColor || '#ffffff',
+                  }}
+                >
+                  <p className="font-bold text-xl sm:text-2xl break-words leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+                    {currentStory.backgroundStyle.overlayText}
+                  </p>
+                </div>
+              )}
+
+              {currentStory.textContent && !currentStory.backgroundStyle?.overlayText && (
                 <div className="absolute bottom-24 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
                   {currentStory.textContent}
                 </div>
@@ -475,7 +517,40 @@ export default function StoryViewerModal({
                 }`}
                 style={currentStory.backgroundStyle?.filter && currentStory.backgroundStyle.filter !== 'none' ? { filter: currentStory.backgroundStyle.filter } : undefined}
               />
-              {currentStory.textContent && (
+              {/* Nhãn thời gian cho video */}
+              {currentStory.backgroundStyle?.hasTimeSticker && currentStory.backgroundStyle?.timeText && (
+                <div 
+                  className="absolute z-20 px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md text-white font-bold text-xs tracking-wider border border-white/20 shadow-lg flex items-center gap-1.5 pointer-events-none"
+                  style={{
+                    left: `${currentStory.backgroundStyle?.timePos?.x ?? 50}%`,
+                    top: `${currentStory.backgroundStyle?.timePos?.y ?? 16}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <Clock className="w-3.5 h-3.5 text-blue-300" />
+                  <span>{currentStory.backgroundStyle.timeText}</span>
+                </div>
+              )}
+
+              {/* Văn bản overlay cho video */}
+              {currentStory.backgroundStyle?.overlayText && (
+                <div 
+                  className="absolute z-20 text-center pointer-events-none drop-shadow-xl max-w-[88%]"
+                  style={{
+                    left: `${currentStory.backgroundStyle?.textPos?.x ?? 50}%`,
+                    top: `${currentStory.backgroundStyle?.textPos?.y ?? 50}%`,
+                    transform: 'translate(-50%, -50%)',
+                    fontFamily: currentStory.backgroundStyle?.overlayFont || 'sans-serif',
+                    color: currentStory.backgroundStyle?.overlayColor || '#ffffff',
+                  }}
+                >
+                  <p className="font-bold text-xl sm:text-2xl break-words leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+                    {currentStory.backgroundStyle.overlayText}
+                  </p>
+                </div>
+              )}
+
+              {currentStory.textContent && !currentStory.backgroundStyle?.overlayText && (
                 <div className="absolute bottom-24 inset-x-4 z-20 p-3 rounded-xl bg-black/60 backdrop-blur-md text-white text-center text-sm shadow-lg">
                   {currentStory.textContent}
                 </div>
