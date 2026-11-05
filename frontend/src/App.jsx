@@ -10,6 +10,7 @@ import AdminDashboardView from './components/AdminDashboardView';
 import ModeratorView from './components/ModeratorView';
 import SettingsView from './components/SettingsView';
 import PostDetailView from './components/PostDetailView';
+import StoryViewerModal from './components/StoryViewerModal';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
 import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost, replacePostComments } from './utils/creationFlowLogic';
@@ -44,7 +45,8 @@ import {
   createAppealApi,
   resolveAppealApi,
   fetchAiOverridesList,
-  createAiOverrideApi
+  createAiOverrideApi,
+  fetchStories
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
@@ -232,6 +234,7 @@ export default function App() {
   const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
   const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
+  const [activeStoryViewerTarget, setActiveStoryViewerTarget] = useState(null); // Story viewer modal được mở từ thông báo
 
   // Kiểm tra phiên đăng nhập và mở màn hình đăng nhập đầu tiên khi vào trang nếu chưa có tài khoản
   useEffect(() => {
@@ -703,6 +706,39 @@ export default function App() {
       } finally {
         setIsLoadingPosts(false);
       }
+    }
+  };
+
+  // Mở trình xem Story mục tiêu từ thông báo hoặc danh sách tin (chuyên nghiệp như Facebook)
+  const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
+    try {
+      let targetTray = tray;
+      if (!targetTray) {
+        const res = await fetchStories();
+        const allTrays = res?.data || [];
+        if (storyId) {
+          targetTray = allTrays.find((t) => t.stories?.some((s) => String(s.id) === String(storyId)));
+        }
+        if (!targetTray && userId) {
+          targetTray = allTrays.find((t) => String(t.author?.id) === String(userId));
+        }
+        if (!targetTray && currentUser?.id && !userId) {
+          targetTray = allTrays.find((t) => String(t.author?.id) === String(currentUser.id));
+        }
+        if (!targetTray && allTrays.length > 0 && !userId) {
+          targetTray = allTrays[0];
+        }
+      }
+      if (targetTray) {
+        setActiveStoryViewerTarget({
+          tray: targetTray,
+          initialStoryId: storyId ? String(storyId) : undefined,
+          initialShowViewers: Boolean(initialShowViewers),
+          targetViewerId: targetViewerId ? String(targetViewerId) : undefined,
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi mở Story Viewer:', err.message);
     }
   };
 
@@ -1845,6 +1881,7 @@ export default function App() {
             onOpenReportModal={handleOpenReportModal}
             onRequireAuth={handleRequireAuth}
             onOpenProfile={handleOpenUserProfile}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -1865,6 +1902,7 @@ export default function App() {
             activeFilter={notifFilter}
             onFilterChange={setNotifFilter}
             onViewPost={handleViewPost}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -1887,6 +1925,7 @@ export default function App() {
             onOpenAppealModal={handleOpenAppealModal}
             onEditPost={handleUpdatePost}
             onDeletePost={handleDeleteOwnPost}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -2007,6 +2046,28 @@ export default function App() {
             setToastNotification(null);
             return;
           }
+
+          const rawPayload = toastNotification?.payload || toastNotification?.snapshot;
+          const payload = typeof rawPayload === 'object' && rawPayload !== null
+            ? rawPayload
+            : (() => { try { return JSON.parse(rawPayload); } catch { return {}; } })();
+
+          const isStory = 
+            toastNotification?.type === 'story_reaction' || 
+            toastNotification?.type === 'story_view' ||
+            Boolean(payload?.isStory || payload?.storyId) ||
+            (toastNotification?.content && (toastNotification.content.includes('về tin của bạn') || toastNotification.content.includes('vào tin của bạn') || toastNotification.content.includes('xem tin của bạn')));
+
+          if (isStory) {
+            handleOpenStoryViewer({
+              storyId: payload.storyId || null,
+              initialShowViewers: true,
+              targetViewerId: payload.actorId || toastNotification?.actor_id || toastNotification?.user?.id,
+            });
+            setToastNotification(null);
+            return;
+          }
+
           const targetId = getNotificationNavigationTarget(toastNotification);
           if (targetId) {
             handleViewPost(targetId, {

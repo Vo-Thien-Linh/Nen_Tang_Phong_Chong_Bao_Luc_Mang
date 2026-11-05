@@ -13,7 +13,7 @@ import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
 import { settingsService } from '../services/settingsService';
-import { updatePostReaction, sharePost, fetchUserTrustHistory } from '../api/client';
+import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
@@ -53,7 +53,8 @@ export default function ProfileView({
   onOpenAppealModal,
   onEditPost,
   onDeletePost,
-  onSharePost
+  onSharePost,
+  onOpenStoryViewer
 }) {
   const targetUserId = viewedUser?.id || currentUser?.id;
   const isOwnProfile = !viewedUser || (currentUser && String(viewedUser.id) === String(currentUser.id));
@@ -95,6 +96,46 @@ export default function ProfileView({
   const quickCoverFileRef = useRef(null);
   const [isQuickUploading, setIsQuickUploading] = useState(false);
   const [quickUploadToast, setQuickUploadToast] = useState('');
+
+  // ── Story ring quanh avatar trang cá nhân ──────────────────
+  const [profileStoryInfo, setProfileStoryInfo] = useState(null); // { hasUnviewed, tray }
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false); // Popup tùy chọn khi click avatar có story đã xem
+
+  useEffect(() => {
+    if (!targetUserId) return;
+    fetchStories()
+      .then(res => {
+        const trays = res?.data || [];
+        const tray = trays.find(t => String(t.author?.id) === String(targetUserId));
+        if (tray) {
+          setProfileStoryInfo({ 
+            hasUnviewed: Boolean(tray.hasUnviewedStories),
+            tray 
+          });
+        } else {
+          setProfileStoryInfo(null);
+        }
+      })
+      .catch(() => setProfileStoryInfo(null));
+  }, [targetUserId]);
+
+  // Xử lý khi nhấn vào Avatar lớn trang cá nhân
+  const handleAvatarClick = () => {
+    if (profileStoryInfo) {
+      if (profileStoryInfo.hasUnviewed) {
+        // Có vòng xanh: hiển thị story chưa xem đó ngay lập tức
+        if (onOpenStoryViewer && profileStoryInfo.tray) {
+          onOpenStoryViewer({ tray: profileStoryInfo.tray, userId: targetUserId });
+        }
+      } else {
+        // Màu xám: hiện popup lựa chọn xem ảnh nền hay xem story
+        setShowAvatarMenu(true);
+      }
+    } else {
+      // Không có story: xem ảnh đại diện như bình thường
+      setLightboxImage(activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR);
+    }
+  };
 
   const handleQuickAvatarUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -797,12 +838,30 @@ export default function ProfileView({
               
               {/* Avatar nổi lên trên ảnh bìa */}
               <div className="relative group shrink-0 -mt-20 sm:-mt-28">
-                <img 
-                  src={activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR} 
-                  alt={activeUser.name || activeUser.full_name} 
-                  className="w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover ring-4 ring-white shadow-xl bg-white cursor-pointer"
-                  onClick={() => setLightboxImage(activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR)}
-                />
+                {/* Viền story quanh avatar: xanh nếu đang có tin chưa xem, xám nếu đã xem */}
+                {profileStoryInfo ? (
+                  <div 
+                    onClick={handleAvatarClick}
+                    title={profileStoryInfo.hasUnviewed ? 'Nhấn để xem tin mới' : 'Nhấn để xem tùy chọn tin & ảnh'}
+                    className={`inline-flex rounded-full p-[3px] ${profileStoryInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400' : 'bg-slate-300'} ring-4 ring-white shadow-xl cursor-pointer hover:scale-102 transition-transform duration-150`}
+                  >
+                    <div className="rounded-full p-[3px] bg-white">
+                      <img 
+                        src={activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR} 
+                        alt={activeUser.name || activeUser.full_name} 
+                        className="w-[128px] h-[128px] sm:w-[160px] sm:h-[160px] rounded-full object-cover bg-white"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <img 
+                    src={activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR} 
+                    alt={activeUser.name || activeUser.full_name} 
+                    className="w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover ring-4 ring-white shadow-xl bg-white cursor-pointer"
+                    onClick={handleAvatarClick}
+                    title="Bấm để xem ảnh đại diện"
+                  />
+                )}
                 {isOwnProfile && (
                   <button 
                     onClick={() => quickAvatarFileRef.current?.click()}
@@ -1826,6 +1885,86 @@ export default function ProfileView({
         isSaving={isSavingProfile}
         successMsg={saveSuccessMsg}
       />
+
+      {/* ================= POPUP LỰA CHỌN KHI NHẤN AVATAR CÓ STORY ĐÃ XEM ================= */}
+      {showAvatarMenu && (
+        <div 
+          onClick={() => setShowAvatarMenu(false)}
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 animate-scale-up"
+          >
+            <div className="text-center pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                Tùy chọn ảnh đại diện
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {activeUser.name || activeUser.full_name}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {/* Lựa chọn 1: Xem story */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvatarMenu(false);
+                  if (onOpenStoryViewer && profileStoryInfo?.tray) {
+                    onOpenStoryViewer({ tray: profileStoryInfo.tray, userId: targetUserId });
+                  }
+                }}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl hover:bg-blue-50 dark:hover:bg-slate-800 transition cursor-pointer text-left group"
+              >
+                <div className="w-11 h-11 rounded-full p-[2px] bg-slate-300 group-hover:bg-blue-500 transition shrink-0 flex items-center justify-center">
+                  <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center">
+                    <Clock className="w-5 h-5 text-slate-600 dark:text-slate-300 group-hover:text-blue-600 transition" />
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-800 dark:text-white group-hover:text-blue-600 transition">
+                    Xem tin
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    Xem lại tin đã đăng của người dùng này
+                  </p>
+                </div>
+              </button>
+
+              {/* Lựa chọn 2: Xem ảnh đại diện */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvatarMenu(false);
+                  setLightboxImage(activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR);
+                }}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer text-left group"
+              >
+                <div className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-200 transition shrink-0 flex items-center justify-center text-slate-600 dark:text-slate-300">
+                  <ImageIcon className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-800 dark:text-white group-hover:text-slate-900 transition">
+                    Xem ảnh đại diện
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    Xem ảnh đại diện kích thước đầy đủ
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAvatarMenu(false)}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ================= MODAL XEM ẢNH PHÓNG TO (LIGHTBOX) ================= */}
       {lightboxImage && (

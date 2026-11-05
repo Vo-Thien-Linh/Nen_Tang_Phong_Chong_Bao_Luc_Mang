@@ -14,7 +14,7 @@ export function createNotificationRepository({ pool }) {
       if (filter === 'unread') {
         filterCondition = 'AND n.is_read = FALSE';
       } else if (filter === 'interaction') {
-        filterCondition = "AND n.type IN ('like', 'comment', 'share', 'reaction')";
+        filterCondition = "AND n.type IN ('like', 'comment', 'share', 'reaction', 'story_reaction')";
       } else if (filter === 'system') {
         filterCondition = "AND n.type IN ('system', 'ai_moderation', 'report', 'appeal', 'warning')";
       }

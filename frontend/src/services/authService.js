@@ -158,10 +158,16 @@ export const authService = {
       });
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data = {};
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = { detail: rawText || `Lỗi máy chủ (${response.status})` };
+      }
 
       if (!response.ok) {
-        throw new Error(data.detail || "Email hoặc mật khẩu không chính xác");
+        throw new Error(data.detail || data.message || "Email hoặc mật khẩu không chính xác");
       }
 
       // Chuẩn hóa object người dùng tương thích Frontend

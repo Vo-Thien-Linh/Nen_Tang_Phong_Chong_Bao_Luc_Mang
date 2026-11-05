@@ -56,6 +56,7 @@ const ROUTE_TARGETS = [
   { prefix: '/api/search', target: SERVICE_URLS.platform, name: 'Platform API (FastAPI)' },
   { prefix: '/api/users', target: SERVICE_URLS.users, name: 'User Service (Express; profile and role APIs)' },
   { prefix: '/api/posts', target: SERVICE_URLS.posts, name: 'Social Content Service (Express)' },
+  { prefix: '/api/stories', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; stories)' },
   { prefix: '/api/upload', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; uploads)' },
   { prefix: '/api/reports', target: SERVICE_URLS.moderation, name: 'Moderation Service (Express; reports)' },
   { prefix: '/api/appeals', target: SERVICE_URLS.moderation, name: 'Moderation Service (Express; appeals)' },
