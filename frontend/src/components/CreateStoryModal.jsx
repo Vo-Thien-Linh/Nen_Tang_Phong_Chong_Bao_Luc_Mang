@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Image as ImageIcon, Type, Video, Sparkles, AlertCircle, 
   Globe, Users, Lock, Loader2, ArrowLeft, CheckCircle2 
@@ -28,6 +29,23 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [nudgeData, setNudgeData] = useState(null);
 
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape' && !isSubmitting) {
+          handleClose();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = prevOverflow || 'unset';
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [isOpen, isSubmitting]);
 
   if (!isOpen) return null;
 
@@ -125,9 +143,17 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSubmitting) handleClose();
+      }}
+    >
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
+      >
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
@@ -395,7 +421,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         )}
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

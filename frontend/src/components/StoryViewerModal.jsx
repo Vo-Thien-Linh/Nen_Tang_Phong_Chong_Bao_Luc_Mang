@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, Trash2, Heart, 
   ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert 
@@ -50,6 +51,28 @@ export default function StoryViewerModal({
       setShowViewers(false);
     }
   }, [isOpen, tray]);
+
+  // Khóa cuộn trang nền và hỗ trợ phím Escape / Mũi tên trái phải
+  useEffect(() => {
+    if (isOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          onClose();
+        } else if (e.key === 'ArrowRight') {
+          handleNextStory();
+        } else if (e.key === 'ArrowLeft') {
+          handlePrevStory();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = prevOverflow || 'unset';
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [isOpen, currentIndex, stories.length]);
 
   // Ghi nhận lượt xem tin và thiết lập myReaction
   useEffect(() => {
@@ -146,8 +169,13 @@ export default function StoryViewerModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 select-none animate-fade-in">
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 select-none animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       {/* Nút Đóng */}
       <button 
         onClick={onClose}
@@ -387,7 +415,8 @@ export default function StoryViewerModal({
         )}
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
