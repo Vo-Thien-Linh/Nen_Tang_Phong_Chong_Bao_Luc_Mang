@@ -13,13 +13,13 @@ is_postgres = False
 
 try:
     if "postgresql" in DATABASE_URL:
-        # Nếu là PostgreSQL / Supabase
+        # Nếu là PostgreSQL / Supabase - tăng connect_timeout lên 15s để kết nối cloud ổn định
         engine = create_engine(
             DATABASE_URL,
             pool_pre_ping=True,
-            connect_args={"sslmode": "require", "connect_timeout": 3} if "supabase" in DATABASE_URL else {"connect_timeout": 3}
+            connect_args={"sslmode": "require", "connect_timeout": 15} if "supabase" in DATABASE_URL else {"connect_timeout": 15}
         )
-        # Test kết nối nhanh
+        # Test kết nối
         with engine.connect() as conn:
             is_postgres = True
             logger.info("[Database] Da ket noi thanh cong toi PostgreSQL/Supabase!")
@@ -44,6 +44,21 @@ def ensure_schema_migrations(eng):
         from sqlalchemy import text
         with eng.connect() as conn:
             if "sqlite" in str(eng.url):
+                existing_user_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
+                if existing_user_cols:
+                    if "banned_until" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN banned_until TIMESTAMP"))
+                    if "ban_reason" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN ban_reason TEXT"))
+                    if "cooldown_until" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN cooldown_until TIMESTAMP"))
+                    if "cooldown_reason" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN cooldown_reason TEXT"))
+                    if "cooldown_violation_text" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN cooldown_violation_text TEXT"))
+                    if "trust_score" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN trust_score INTEGER DEFAULT 100"))
+
                 existing_msg_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(messages)")).fetchall()]
                 if existing_msg_cols:
                     if "is_recalled" not in existing_msg_cols:
@@ -59,11 +74,14 @@ def ensure_schema_migrations(eng):
                         conn.execute(text("ALTER TABLE conversations ADD COLUMN blocked_by TEXT"))
                 conn.commit()
             else:
-                conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_recalled BOOLEAN DEFAULT FALSE"))
-                conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT"))
-                conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(20) DEFAULT 'text'"))
-                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS blocked_by UUID"))
-                conn.commit()
+                try:
+                    conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_recalled BOOLEAN DEFAULT FALSE"))
+                    conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT"))
+                    conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(20) DEFAULT 'text'"))
+                    conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS blocked_by UUID"))
+                    conn.commit()
+                except Exception as inner_e:
+                    logger.warning(f"[Database] Migration non-critical check: {inner_e}")
     except Exception as e:
         logger.warning(f"[Database] Migration check: {e}")
 

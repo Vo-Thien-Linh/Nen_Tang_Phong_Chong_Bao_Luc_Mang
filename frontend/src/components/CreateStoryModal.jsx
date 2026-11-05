@@ -398,3 +398,4 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     </div>
   );
 }
+
