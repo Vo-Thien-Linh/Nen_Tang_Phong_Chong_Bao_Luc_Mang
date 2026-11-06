@@ -36,3 +36,12 @@ test('create post without hashtags stores none', async () => {
   await createPostRepository({ pool }).createPost({ authorId: 'u1', content: 'No tags here' });
   assert.equal(pool.queries.some(({ sql }) => sql.includes('post_hashtags')), false);
 });
+
+test('failed post creation stores no hashtags', async () => {
+  const pool = queryPool({ failInsert: true });
+  await assert.rejects(
+    () => createPostRepository({ pool }).createPost({ authorId: 'u1', content: 'Fail #NoWrite' }),
+    /insert failed/
+  );
+  assert.equal(pool.queries.some(({ sql }) => sql.includes('post_hashtags')), false);
+});
