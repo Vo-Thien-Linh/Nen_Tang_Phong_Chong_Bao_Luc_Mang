@@ -10,8 +10,8 @@ import InlineNotice from './InlineNotice';
 import StoryBar from './StoryBar';
 import CreateStoryModal from './CreateStoryModal';
 import StoryViewerModal from './StoryViewerModal';
-import { fetchStories } from '../api/client';
-import { suggestedFriends, trendingTopics } from '../data/mockData';
+import { fetchStories, fetchTrendingHashtags } from '../api/client';
+import { suggestedFriends } from '../data/mockData';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
 
@@ -53,8 +53,30 @@ export default function HomeView({
   const [storyTrays, setStoryTrays] = useState([]);
   const [isCreateStoryOpen, setIsCreateStoryOpen] = useState(false);
   const [activeStoryTray, setActiveStoryTray] = useState(null);
+  const [trendingTopics, setTrendingTopics] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(false);
   const leftSidebarRef = useRef(null);
   const rightSidebarRef = useRef(null);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!currentUser?.id) {
+      setTrendingTopics([]);
+      return undefined;
+    }
+    setTrendingLoading(true);
+    fetchTrendingHashtags({ userId: currentUser.id })
+      .then((result) => {
+        if (mounted) setTrendingTopics(Array.isArray(result?.data) ? result.data : []);
+      })
+      .catch(() => {
+        if (mounted) setTrendingTopics([]);
+      })
+      .finally(() => {
+        if (mounted) setTrendingLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [currentUser?.id, refreshKey]);
 
   const loadStories = async () => {
     try {
@@ -786,21 +808,28 @@ export default function HomeView({
             </h3>
 
             <div className="space-y-3">
-              {trendingTopics.map((topic, index) => (
+              {trendingLoading ? <p className="text-xs text-slate-400">Đang tải...</p> : trendingTopics.length === 0 ? (
+                <p className="text-xs text-slate-400">Chưa có chủ đề thịnh hành</p>
+              ) : trendingTopics.map((topic) => (
                 <div 
-                  key={index} 
+                  key={topic.tag} 
                   onClick={() => onSelectHashtag?.(topic.tag)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') onSelectHashtag?.(topic.tag);
+                  }}
                   className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-blue-50/60 transition duration-150"
                   title={`Lọc bài viết với ${topic.tag}`}
                 >
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{topic.category}</span>
+                    <span>#{topic.displayTag || topic.tag}</span>
                     <span className="text-[10px] text-blue-500 font-semibold group-hover:underline">Khám phá</span>
                   </div>
                   <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition">
-                    {topic.tag}
+                    #{topic.displayTag || topic.tag}
                   </p>
-                  <p className="text-[10px] text-slate-400">{topic.posts}</p>
+                  <p className="text-[10px] text-slate-400">{topic.postCount} bài viết</p>
                 </div>
               ))}
             </div>
