@@ -64,3 +64,17 @@ test('edit replaces hashtags with the new text', async () => {
   assert.equal(queries.some(({ sql }) => sql.includes('DELETE FROM post_hashtags')), true);
   assert.deepEqual(queries.find(({ sql }) => sql.includes('INSERT INTO post_hashtags')).params.slice(1), ['newtag', 'NewTag']);
 });
+
+test('edit removing all hashtags clears them', async () => {
+  const queries = [];
+  const pool = {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      if (sql.includes('UPDATE posts')) return { rows: [{ id: 11 }] };
+      return { rows: [] };
+    },
+  };
+  await createPostRepository({ pool }).updatePost({ postId: 11, authorId: 'u1', content: 'No hashtags', imageUrl: null });
+  assert.equal(queries.filter(({ sql }) => sql.includes('post_hashtags')).length, 1);
+  assert.match(queries.find(({ sql }) => sql.includes('post_hashtags')).sql, /DELETE FROM post_hashtags/);
+});
