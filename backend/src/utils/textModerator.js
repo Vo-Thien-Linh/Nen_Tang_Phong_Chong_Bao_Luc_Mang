@@ -67,7 +67,12 @@ export async function moderateTextContent(text) {
     lower.includes('rác') ||
     lower.includes('khốn') ||
     lower.includes('điên') ||
-    lower.includes('óc chó')
+    lower.includes('óc chó') ||
+    lower.includes('thần kinh') ||
+    lower.includes('khùng') ||
+    lower.includes('mất dạy') ||
+    lower.includes('đồ khốn') ||
+    lower.includes('đồ điên')
   ) {
     return { label: 'Toxic', confidence: 0.91, action: 'warn' };
   }

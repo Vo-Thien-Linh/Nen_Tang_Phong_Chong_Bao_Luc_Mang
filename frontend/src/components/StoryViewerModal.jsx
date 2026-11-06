@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  X, ChevronLeft, ChevronRight, Eye, Trash2, Heart, 
+  X, ChevronLeft, ChevronRight, Eye, EyeOff, Trash2, Heart, 
   ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert,
   Send, Loader2, Clock, MoreHorizontal, Link, BellOff, AlertTriangle
 } from 'lucide-react';
@@ -41,6 +41,7 @@ export default function StoryViewerModal({
   const [viewersList, setViewersList] = useState([]);
   const [isLoadingViewers, setIsLoadingViewers] = useState(false);
   const [myReaction, setMyReaction] = useState(null);
+  const [revealedStoryIds, setRevealedStoryIds] = useState({});
 
   // Hiệu ứng hạt Reaction bay lượn mượt mà (Facebook style)
   const [floatingParticles, setFloatingParticles] = useState([]);
@@ -64,14 +65,58 @@ export default function StoryViewerModal({
   const currentStory = stories[safeIndex] || null;
   const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
 
-  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn hoặc danh sách người xem
+  // Kiểm tra mức độ kiểm duyệt của tin hiện tại (Áp dụng Phương án A: Bạo lực ẩn cứng, Toxic/NSFW che mờ)
+  const isHardHidden = Boolean(
+    currentStory && (
+      currentStory.isHardHidden ||
+      currentStory.aiStatus === 'hidden' ||
+      currentStory.ai_status === 'hidden' ||
+      currentStory.aiLabel === 'Violence' ||
+      currentStory.ai_label === 'Violence' ||
+      currentStory.aiLabel === 'Hate Speech' ||
+      currentStory.ai_label === 'Hate Speech'
+    )
+  );
+
+  const isToxic = Boolean(
+    currentStory && (
+      currentStory.isToxic ||
+      currentStory.aiStatus === 'sensitive' ||
+      currentStory.ai_status === 'sensitive' ||
+      currentStory.aiLabel === 'Toxic' ||
+      currentStory.ai_label === 'Toxic'
+    )
+  );
+
+  const isNsfw = Boolean(
+    currentStory && (
+      currentStory.isNsfw ||
+      currentStory.mediaModerationStatus === 'sensitive' ||
+      currentStory.media_moderation_status === 'sensitive' ||
+      currentStory.mediaModerationLabel === 'nsfw' ||
+      currentStory.media_moderation_label === 'nsfw' ||
+      (Number(currentStory.media_moderation_nsfw) >= 0.7)
+    )
+  );
+
+  const isSensitiveStory = Boolean((isToxic || isNsfw) && !isHardHidden);
+  const isStoryRevealed = Boolean(revealedStoryIds[currentStory?.id]);
+  const isStoryCovered = Boolean(
+    (isSensitiveStory && !isStoryRevealed) ||
+    (isHardHidden && !isAuthor)
+  );
+
+  const badgeText = isToxic && isNsfw ? 'Toxic & NSFW' : isToxic ? 'Toxic' : 'NSFW';
+
+  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn, danh sách người xem hoặc khi gặp tin nhạy cảm đang bị che cảnh báo
   const isEffectivePaused = Boolean(
     isPaused || 
     isHolding || 
     isInputFocused || 
     replyMessage.trim().length > 0 || 
     showViewers ||
-    showStoryMenu
+    showStoryMenu ||
+    isStoryCovered
   );
 
   // Đồng bộ tạm dừng video khi tin bị tạm ngưng
@@ -497,6 +542,18 @@ export default function StoryViewerModal({
                     Nhãn AI
                   </span>
                 )}
+                {isSensitiveStory && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/30 backdrop-blur-md text-amber-200 border border-amber-400/50 flex items-center gap-1 shadow-xs">
+                    <ShieldAlert className="w-3 h-3 text-amber-400" />
+                    {badgeText}
+                  </span>
+                )}
+                {isHardHidden && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500/30 backdrop-blur-md text-rose-200 border border-rose-400/50 flex items-center gap-1 shadow-xs">
+                    <ShieldAlert className="w-3 h-3 text-rose-400" />
+                    {currentStory.aiLabel === 'Violence' ? 'Bạo lực' : 'Thù ghét'} (Bị ẩn)
+                  </span>
+                )}
               </h4>
               <p className="text-white/70 text-xs">
                 {(() => {
@@ -643,8 +700,38 @@ export default function StoryViewerModal({
           </div>
         </div>
 
+        {/* Banner cảnh báo đang hiển thị nội dung nhạy cảm (khi người xem đã bấm 'Xem toàn bộ tin' - chuẩn như Bài viết) */}
+        {isSensitiveStory && isStoryRevealed && (
+          <div className="absolute top-20 inset-x-4 z-40 px-3 py-1.5 rounded-xl bg-amber-500/25 border border-amber-400/50 backdrop-blur-md flex items-center justify-between text-xs text-amber-200 shadow-md animate-fade-in">
+            <div className="flex items-center gap-1.5 font-semibold">
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Đang hiển thị nội dung nhạy cảm ({badgeText})</span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setRevealedStoryIds((prev) => ({ ...prev, [currentStory.id]: false }));
+              }}
+              className="text-amber-300 hover:text-white hover:underline font-bold text-[11px] cursor-pointer flex items-center gap-1 pl-2"
+            >
+              <EyeOff className="w-3 h-3" />
+              <span>Ẩn lại</span>
+            </button>
+          </div>
+        )}
+
+        {/* Banner dành cho chính tác giả khi xem tin bị ẩn cứng */}
+        {isHardHidden && isAuthor && (
+          <div className="absolute top-20 inset-x-4 z-40 px-3 py-1.5 rounded-xl bg-rose-500/25 border border-rose-400/50 backdrop-blur-md flex items-center gap-1.5 text-xs text-rose-200 shadow-md animate-fade-in font-semibold">
+            <ShieldAlert className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <span>Tin của bạn đã bị ẩn: vi phạm tiêu chuẩn ({currentStory.aiLabel || currentStory.ai_label || 'Bạo lực / Thù ghét'})</span>
+          </div>
+        )}
+
         {/* 3. Vùng hiển thị Nội dung Media hoặc Text */}
         <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+          <div className={`w-full h-full relative flex items-center justify-center transition-all duration-300 ${isStoryCovered ? 'blur-2xl scale-110 pointer-events-none' : ''}`}>
           {/* Tin văn bản */}
           {currentStory.storyType === 'text' && (
             <div 
@@ -687,16 +774,9 @@ export default function StoryViewerModal({
                 alt="Story"
                 className={`relative z-10 w-full h-full transition-all duration-200 ${
                   currentStory.backgroundStyle?.fitMode === 'cover' ? 'object-cover' : 'object-contain'
-                } ${currentStory.isSensitive ? 'blur-xl' : ''}`}
+                } ${isStoryCovered ? 'blur-xl' : ''}`}
                 style={currentStory.backgroundStyle?.filter && currentStory.backgroundStyle.filter !== 'none' ? { filter: currentStory.backgroundStyle.filter } : undefined}
               />
-              {currentStory.isSensitive && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-md text-white">
-                  <ShieldAlert className="w-12 h-12 text-amber-400 mb-2" />
-                  <p className="font-semibold text-sm">Nội dung có thể nhạy cảm</p>
-                  <p className="text-xs text-white/70 mt-1">Tin này đã được AI gắn nhãn cảnh báo phù hợp tiêu chuẩn cộng đồng.</p>
-                </div>
-              )}
               {/* Nhãn thời gian cho video */}
               {currentStory.backgroundStyle?.hasTimeSticker && currentStory.backgroundStyle?.timeText && (
                 <div 
@@ -830,29 +910,100 @@ export default function StoryViewerModal({
               </div>
             ))}
           </div>
+          </div>
+
+          {/* LỚP PHỦ CẢNH BÁO NỘI DUNG NHẠY CẢM (CHUẨN BÀI VIẾT) */}
+          {isSensitiveStory && !isStoryRevealed && (
+            <div 
+              className="absolute inset-0 z-35 flex items-center justify-center p-4 bg-black/65 backdrop-blur-md select-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-full max-w-xs bg-amber-50/95 dark:bg-slate-900/95 border border-amber-300 dark:border-amber-600/60 rounded-3xl p-6 text-center shadow-2xl animate-scale-up">
+                <div className="w-14 h-14 mx-auto mb-3.5 rounded-2xl bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h3 className="font-black text-base text-amber-950 dark:text-white mb-2">
+                  Cảnh báo: Nội dung nhạy cảm
+                </h3>
+                <p className="text-xs text-amber-900/90 dark:text-slate-300 leading-relaxed mb-5">
+                  {isToxic && isNsfw
+                    ? 'Tin này có thể chứa cả ngôn từ độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
+                    : isToxic
+                    ? 'Tin này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).'
+                    : 'Tin này có thể chứa hình ảnh nhạy cảm (NSFW).'}
+                </p>
+                <div className="flex flex-col gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setRevealedStoryIds((prev) => ({ ...prev, [currentStory.id]: true }))}
+                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2 transition cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>Xem toàn bộ tin</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextStory}
+                    className="w-full py-2 px-4 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 transition cursor-pointer"
+                  >
+                    Bỏ qua sang tin tiếp
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* LỚP PHỦ KHÓA TIN NẾU BỊ ẨN CỨNG (BẠO LỰC / THÙ GHÉT) */}
+          {isHardHidden && !isAuthor && (
+            <div 
+              className="absolute inset-0 z-35 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md select-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-full max-w-xs bg-slate-900/95 border border-rose-500/50 rounded-3xl p-6 text-center shadow-2xl animate-scale-up">
+                <div className="w-14 h-14 mx-auto mb-3.5 rounded-2xl bg-rose-950/60 border border-rose-500/60 flex items-center justify-center text-rose-400">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h3 className="font-black text-base text-rose-100 mb-2">
+                  Tin đã bị ẩn
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed mb-5">
+                  Nội dung tin này đã bị ẩn do vi phạm chính sách cộng đồng về {currentStory.aiLabel === 'Violence' ? 'Bạo lực' : 'Ngôn từ thù ghét'}.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleNextStory}
+                  className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                >
+                  Xem tin kế tiếp
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* VÙNG NHẤN MÉP TRÁI / MÉP PHẢI ĐỂ CHUYỂN TIN & GIỮ CHUỘT ĐỂ TẠM DỪNG (INSTAGRAM / FACEBOOK UX) */}
-        <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex select-none pointer-events-auto">
-          {/* Mép trái (35%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
-          <div 
-            className="w-[35%] h-full cursor-pointer select-none"
-            onPointerDown={handleHoldStart}
-            onPointerUp={(e) => handleTapOrRelease('prev', e)}
-            onPointerLeave={handleHoldEnd}
-            onPointerCancel={handleHoldEnd}
-            title="Nhấn mép trái để xem tin trước • Giữ chuột để tạm dừng"
-          />
-          {/* Mép phải (65%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
-          <div 
-            className="w-[65%] h-full cursor-pointer select-none"
-            onPointerDown={handleHoldStart}
-            onPointerUp={(e) => handleTapOrRelease('next', e)}
-            onPointerLeave={handleHoldEnd}
-            onPointerCancel={handleHoldEnd}
-            title="Nhấn mép phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
-          />
-        </div>
+        {!isStoryCovered && (
+          <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex select-none pointer-events-auto">
+            {/* Mép trái (35%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
+            <div 
+              className="w-[35%] h-full cursor-pointer select-none"
+              onPointerDown={handleHoldStart}
+              onPointerUp={(e) => handleTapOrRelease('prev', e)}
+              onPointerLeave={handleHoldEnd}
+              onPointerCancel={handleHoldEnd}
+              title="Nhấn mép trái để xem tin trước • Giữ chuột để tạm dừng"
+            />
+            {/* Mép phải (65%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
+            <div 
+              className="w-[65%] h-full cursor-pointer select-none"
+              onPointerDown={handleHoldStart}
+              onPointerUp={(e) => handleTapOrRelease('next', e)}
+              onPointerLeave={handleHoldEnd}
+              onPointerCancel={handleHoldEnd}
+              title="Nhấn mép phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
+            />
+          </div>
+        )}
 
         {/* Biểu tượng Tạm dừng khi đang giữ chuột */}
         {isHolding && (
@@ -862,6 +1013,7 @@ export default function StoryViewerModal({
         )}
 
         {/* 4. Footer tương tác: Xem lượt xem hoặc Trả lời tin & Thả reaction */}
+        {!isStoryCovered && (
         <div className="absolute bottom-4 inset-x-4 z-30 space-y-2">
           {/* Thông báo gửi tin nhắn phản hồi thành công hoặc lỗi */}
           {replySuccessMsg && (
@@ -933,6 +1085,7 @@ export default function StoryViewerModal({
             </div>
           )}
         </div>
+        )}
 
         {/* Modal Xem danh sách người đã xem (Chỉ tác giả) */}
         {showViewers && (
