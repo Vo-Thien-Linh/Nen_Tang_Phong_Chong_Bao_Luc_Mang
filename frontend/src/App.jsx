@@ -53,6 +53,7 @@ import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionL
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
 import { normalizeHashtag } from '../../shared/hashtag.js';
+import { buildHashtagHash, parseHashtagHash } from './utils/hashtagRouteLogic';
 import {
   clearPostNotice,
   countVisiblePosts,
@@ -318,7 +319,7 @@ export default function App() {
       initialPostId = rawHash.replace('post-', '');
     } else if (rawHash.startsWith('hashtag/')) {
       initialHash = 'hashtag';
-      setSelectedHashtag(normalizeHashtag(decodeURIComponent(rawHash.slice('hashtag/'.length))));
+      setSelectedHashtag(parseHashtagHash(rawHash));
     } else if (rawHash === 'post') {
       initialHash = 'post';
       initialPostId = sessionStorage.getItem('wings_viewed_post_id');
@@ -368,7 +369,7 @@ export default function App() {
         targetPostId = targetTab.replace('post-', '');
         targetTab = 'post';
       } else if (targetTab.startsWith('hashtag/')) {
-        setSelectedHashtag(normalizeHashtag(decodeURIComponent(targetTab.slice('hashtag/'.length))));
+        setSelectedHashtag(parseHashtagHash(targetTab));
         targetTab = 'hashtag';
       } else if (targetTab === 'post' && !targetPostId) {
         targetPostId = sessionStorage.getItem('wings_viewed_post_id');
@@ -515,7 +516,7 @@ export default function App() {
     if (!normalized) return;
     setSelectedHashtag(normalized);
     setActiveTab('hashtag');
-    window.history.pushState({ tab: 'hashtag', hashtag: normalized }, '', `#hashtag/${encodeURIComponent(normalized)}`);
+    window.history.pushState({ tab: 'hashtag', hashtag: normalized }, '', buildHashtagHash(normalized));
   };
 
   // Cập nhật thông tin người dùng đồng bộ
