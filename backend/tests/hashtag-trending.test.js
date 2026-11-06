@@ -60,3 +60,9 @@ test('trending excludes posts older than the window', async () => {
   assert.match(queries[0].sql, /p\.created_at >= CURRENT_TIMESTAMP - \(\$1 \* INTERVAL '1 day'\)/i);
   assert.deepEqual(queries[0].params, [7, 5]);
 });
+
+test('trending counts a post once per hashtag', async () => {
+  const { repository, queries } = repoWithRows([]);
+  await repository.findTrending({ limit: 5, days: 7 });
+  assert.match(queries[0].sql, /COUNT\(DISTINCT id\)/i);
+});
