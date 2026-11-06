@@ -45,3 +45,11 @@ test('trending excludes posts under image review for everyone', async () => {
   assert.match(queries[0].sql, /image_moderation_status IS NULL OR p\.image_moderation_status IN \('safe', 'sensitive'\)/i);
   assert.match(queries[0].sql, /p\.ai_status = 'approved'/i);
 });
+
+test('trending excludes rejected and appealed posts', async () => {
+  const { repository, queries } = repoWithRows([]);
+  await repository.findTrending({ limit: 5, days: 7 });
+  const sql = queries[0].sql;
+  assert.doesNotMatch(sql, /rejected_admin|appeal_pending|rejected_final/i);
+  assert.match(sql, /p\.ai_status = 'approved'/i);
+});
