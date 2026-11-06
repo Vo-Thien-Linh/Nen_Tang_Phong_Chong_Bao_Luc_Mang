@@ -144,9 +144,11 @@ async function runPostTransaction(pool, work) {
   }
 }
 
-async function replacePostHashtags(db, postId, content) {
+async function replacePostHashtags(db, postId, content, { clearExisting = true } = {}) {
+  const hashtags = extractHashtags(content);
+  if (!clearExisting && hashtags.length === 0) return;
   await db.query('DELETE FROM post_hashtags WHERE post_id = $1', [postId]);
-  for (const { tag, displayTag } of extractHashtags(content)) {
+  for (const { tag, displayTag } of hashtags) {
     await db.query(
       `INSERT INTO post_hashtags (post_id, tag, display_tag)
        VALUES ($1, $2, $3)
@@ -184,7 +186,7 @@ export function createPostRepository({ pool }) {
             imageModeration?.thresholds || null,
             aiLabel, aiConfidence, aiStatus]
         );
-        await replacePostHashtags(db, insertResult.rows[0].id, content);
+        await replacePostHashtags(db, insertResult.rows[0].id, content, { clearExisting: false });
         return insertResult;
       });
 
