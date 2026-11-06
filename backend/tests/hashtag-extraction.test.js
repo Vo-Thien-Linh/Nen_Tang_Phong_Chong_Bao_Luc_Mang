@@ -61,3 +61,10 @@ test('accept any user typed hashtag', () => {
     { tag: 'nocategoryneeded', displayTag: 'NoCategoryNeeded' },
   ]);
 });
+
+test('limit hashtag length to fifty', () => {
+  const exactlyFifty = `#${'a'.repeat(50)}`;
+  const tooLong = `#${'b'.repeat(51)}`;
+  assert.equal(extractHashtags(exactlyFifty)[0].tag.length, 50);
+  assert.deepEqual(extractHashtags(tooLong), []);
+});
