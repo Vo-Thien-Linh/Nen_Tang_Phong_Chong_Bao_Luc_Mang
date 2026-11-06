@@ -28,11 +28,13 @@ export async function moderateTextContent(text) {
       });
       if (res.ok) {
         const data = await res.json();
-        return {
-          label: data.label || 'Normal',
-          confidence: data.confidence || 0.98,
-          action: data.action || 'allow',
-        };
+        if (data.reason !== 'Mo hinh AI dang san sang.') {
+          return {
+            label: data.label || 'Normal',
+            confidence: data.confidence || 0.98,
+            action: data.action || 'allow',
+          };
+        }
       }
     } catch {
       // Fallback nếu FastAPI PhoBERT chưa bật hoặc timeout
@@ -46,7 +48,12 @@ export async function moderateTextContent(text) {
     lower.includes('giết') ||
     lower.includes('chém') ||
     lower.includes('bạo lực') ||
-    lower.includes('bắn chết')
+    lower.includes('bắn chết') ||
+    lower.includes('chết') ||
+    lower.includes('đâm') ||
+    lower.includes('chặt') ||
+    lower.includes('giết chết') ||
+    lower.includes('đánh chết')
   ) {
     return { label: 'Violence', confidence: 0.95, action: 'hide' };
   }

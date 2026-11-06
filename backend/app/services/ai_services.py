@@ -43,11 +43,39 @@ def predict_vi_content(text: str) -> dict:
         }
 
     if not model or not tokenizer or not torch:
+        # Fallback từ khóa tiếng Việt an toàn khi chưa có file trọng số model.safetensors (~540MB)
+        lower = str(text).lower()
+        violence_kw = ['đánh', 'đập', 'giết', 'chém', 'bạo lực', 'bắn chết', 'chết', 'đâm', 'đánh chết', 'giết chết', 'chém chết', 'chặt đầu', 'bắn']
+        hate_speech_kw = ['kỳ thị', 'mọi rợ', 'phản động', 'cút xéo', 'súc vật', 'bọn mọi', 'lũ mọi', 'đồ súc vật']
+        toxic_kw = ['thần kinh', 'ngu', 'chó', 'rác', 'khốn', 'điên', 'óc chó', 'khùng', 'mất dạy', 'đồ khốn', 'đồ điên', 'thằng điên', 'thằng khùng']
+
+        if any(w in lower for w in violence_kw):
+            return {
+                "label": "Violence",
+                "confidence": 0.95,
+                "action": "hide",
+                "reason": "Phát hiện nội dung có yếu tố đe dọa hoặc bạo lực (Chế độ dự phòng)."
+            }
+        if any(w in lower for w in hate_speech_kw):
+            return {
+                "label": "Hate Speech",
+                "confidence": 0.92,
+                "action": "hide",
+                "reason": "Phát hiện phát ngôn mang tính thù địch, kích động (Chế độ dự phòng)."
+            }
+        if any(w in lower for w in toxic_kw):
+            return {
+                "label": "Toxic",
+                "confidence": 0.91,
+                "action": "warn",
+                "reason": "Phát hiện từ ngữ xúc phạm hoặc công kích độc hại (Chế độ dự phòng)."
+            }
+
         return {
             "label": "Normal",
             "confidence": 0.99,
             "action": "allow",
-            "reason": "Mo hinh AI dang san sang."
+            "reason": "Nội dung an toàn, không phát hiện vi phạm."
         }
 
     inputs = tokenizer(
