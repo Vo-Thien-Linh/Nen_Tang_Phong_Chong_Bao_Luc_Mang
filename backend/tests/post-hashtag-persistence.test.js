@@ -78,3 +78,18 @@ test('edit removing all hashtags clears them', async () => {
   assert.equal(queries.filter(({ sql }) => sql.includes('post_hashtags')).length, 1);
   assert.match(queries.find(({ sql }) => sql.includes('post_hashtags')).sql, /DELETE FROM post_hashtags/);
 });
+
+test('blocked edit does not change hashtags', async () => {
+  const queries = [];
+  const pool = {
+    async query(sql, params) {
+      queries.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () => createPostRepository({ pool }).updatePost({ postId: 11, authorId: 'u1', content: 'Blocked #New', imageUrl: null }),
+    (error) => error.statusCode === 404,
+  );
+  assert.equal(queries.some(({ sql }) => sql.includes('post_hashtags')), false);
+});
