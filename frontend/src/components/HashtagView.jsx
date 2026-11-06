@@ -13,14 +13,15 @@ export default function HashtagView({
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [loadedTag, setLoadedTag] = useState(null);
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    setError('');
     fetchHashtagPosts({ userId: currentUser?.id, tag })
       .then((result) => {
+        if (mounted) setError('');
         if (mounted) setPosts(Array.isArray(result?.data) ? result.data : []);
+        if (mounted) setLoadedTag(tag);
       })
       .catch((err) => {
         if (mounted) setError(err.message || 'Không thể tải bài viết theo hashtag.');
@@ -31,10 +32,10 @@ export default function HashtagView({
     return () => { mounted = false; };
   }, [currentUser?.id, tag]);
 
-  useEffect(() => {
-    if (!Array.isArray(allPosts) || !allPosts.length) return;
-    setPosts((previous) => previous.map((post) => allPosts.find((item) => String(item.id) === String(post.id)) || post));
-  }, [allPosts]);
+  const displayedPosts = posts.map((post) => (
+    Array.isArray(allPosts) ? allPosts.find((item) => String(item.id) === String(post.id)) || post : post
+  ));
+  const isLoading = loading || loadedTag !== tag;
 
   return (
     <main className="w-full max-w-[760px] mx-auto px-4 sm:px-6 py-6">
@@ -47,11 +48,11 @@ export default function HashtagView({
           <p className="text-xs text-slate-500">Bài viết công khai có hashtag này</p>
         </div>
       </div>
-      {loading && <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-blue-600" /></div>}
-      {!loading && error && <p className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}
-      {!loading && !error && posts.length === 0 && <p className="rounded-xl bg-white p-6 text-center text-sm text-slate-500">Chưa có bài viết nào với hashtag này.</p>}
+      {isLoading && <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-blue-600" /></div>}
+      {!isLoading && error && <p className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}
+      {!isLoading && !error && displayedPosts.length === 0 && <p className="rounded-xl bg-white p-6 text-center text-sm text-slate-500">Chưa có bài viết nào với hashtag này.</p>}
       <div className="space-y-4">
-        {posts.map((post) => (
+        {displayedPosts.map((post) => (
           <PostCard key={post.id} post={post} currentUser={currentUser} allPosts={allPosts} {...postProps} />
         ))}
       </div>
