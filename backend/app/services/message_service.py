@@ -12,6 +12,7 @@ from ..schemas.message import (
     ConversationItem,
     ConversationPartner,
     CreateGroupRequest,
+    UpdateGroupRequest,
 )
 
 class MessageService:
@@ -182,6 +183,143 @@ class MessageService:
             last_message_status="sent",
             last_message_sender_id=str(creator_id)
         )
+
+    @staticmethod
+    def update_group(conversation_id: int, user_id: str, payload: UpdateGroupRequest, db: Session) -> dict:
+        conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conv or getattr(conv, "type", "direct") != "group":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy nhóm trò chuyện"
+            )
+
+        is_member = db.query(ConversationMember).filter(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == user_id
+        ).first() is not None
+        if not is_member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không phải thành viên của nhóm này"
+            )
+
+        updater = db.query(User).filter(User.id == user_id).first()
+        if not updater:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy thông tin người dùng"
+            )
+
+        system_messages = []
+
+        if payload.name is not None:
+            new_name = payload.name.strip()
+            if not new_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Tên nhóm không được để trống"
+                )
+            if new_name != conv.name:
+                conv.name = new_name
+                sys_msg_name = Message(
+                    conversation_id=conv.id,
+                    sender_id=user_id,
+                    receiver_id=None,
+                    content=f"{updater.full_name} đã đổi tên nhóm thành \"{new_name}\"",
+                    media_type="system",
+                    status="sent",
+                    is_read=True,
+                    created_at=func.now()
+                )
+                db.add(sys_msg_name)
+                system_messages.append(sys_msg_name)
+
+        if payload.avatar_url is not None:
+            if payload.avatar_url != conv.avatar_url:
+                conv.avatar_url = payload.avatar_url
+                sys_msg_avatar = Message(
+                    conversation_id=conv.id,
+                    sender_id=user_id,
+                    receiver_id=None,
+                    content=f"{updater.full_name} đã thay đổi ảnh đại diện của nhóm",
+                    media_type="system",
+                    status="sent",
+                    is_read=True,
+                    created_at=func.now()
+                )
+                db.add(sys_msg_avatar)
+                system_messages.append(sys_msg_avatar)
+
+        if system_messages:
+            conv.last_message_at = func.now()
+            conv.updated_at = func.now()
+            db.commit()
+            db.refresh(conv)
+            for sm in system_messages:
+                db.refresh(sm)
+
+        members_query = db.query(ConversationMember, User).join(
+            User, User.id == ConversationMember.user_id
+        ).filter(ConversationMember.conversation_id == conv.id).all()
+
+        group_members = [
+            ConversationPartner(
+                id=str(u.id),
+                name=u.full_name,
+                username=u.username,
+                avatar=u.avatar_url,
+                bio=u.bio,
+                is_online=True,
+                is_friend=True
+            )
+            for _, u in members_query
+        ]
+
+        last_msg = db.query(Message).filter(
+            Message.conversation_id == conv.id
+        ).order_by(desc(Message.created_at)).first()
+
+        updated_conv = ConversationItem(
+            id=conv.id,
+            type="group",
+            name=conv.name or "Nhóm trò chuyện",
+            avatar=conv.avatar_url,
+            member_count=len(group_members),
+            members=group_members,
+            status=conv.status,
+            initiated_by=str(conv.initiated_by) if conv.initiated_by else None,
+            blocked_by=None,
+            is_requester=str(conv.initiated_by) == str(user_id),
+            last_message=last_msg.content if last_msg else None,
+            last_message_at=last_msg.created_at if last_msg else conv.last_message_at,
+            unread_count=0,
+            last_message_status=last_msg.status if last_msg else None,
+            last_message_sender_id=str(last_msg.sender_id) if last_msg else None
+        )
+
+        formatted_sys_msgs = [
+            MessageItem(
+                id=sm.id,
+                conversation_id=sm.conversation_id,
+                sender_id=str(sm.sender_id),
+                receiver_id=None,
+                content=sm.content,
+                media_url=None,
+                media_type="system",
+                status=sm.status,
+                is_read=sm.is_read,
+                is_recalled=False,
+                created_at=sm.created_at,
+                sender_name=updater.full_name,
+                sender_avatar=updater.avatar_url
+            )
+            for sm in system_messages
+        ]
+
+        return {
+            "conversation": updated_conv,
+            "system_messages": formatted_sys_msgs
+        }
 
     @staticmethod
     def get_conversation_recipient_ids(conversation_id: int, sender_id: str, db: Session) -> List[str]:

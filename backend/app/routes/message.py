@@ -15,6 +15,7 @@ from ..schemas.message import (
     MessageSendRequest,
     ConversationItem,
     CreateGroupRequest,
+    UpdateGroupRequest,
 )
 
 router = APIRouter(prefix="/messages", tags=["Chức năng Nhắn tin (Messaging)"])
@@ -250,6 +251,44 @@ async def create_group(
             "conversation": group_data
         })
     return group
+
+@router.put(
+    "/groups/{conversation_id}",
+    response_model=ConversationItem,
+    summary="Cập nhật thông tin nhóm trò chuyện (tên nhóm, ảnh đại diện)",
+    description="Cho phép thành viên cập nhật tên nhóm hoặc ảnh đại diện của nhóm"
+)
+async def update_group(
+    conversation_id: int,
+    payload: UpdateGroupRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    result = MessageService.update_group(conversation_id, current_user_id, payload, db)
+    updated_group = result["conversation"]
+    system_messages = result["system_messages"]
+
+    group_data = updated_group.model_dump() if hasattr(updated_group, "model_dump") else updated_group.dict()
+    recipients = MessageService.get_conversation_recipient_ids(conversation_id, current_user_id, db)
+    all_members = list(set(recipients + [str(current_user_id)]))
+
+    for u_id in all_members:
+        await manager.send_to_user(str(u_id), {
+            "type": "GROUP_UPDATED",
+            "conversation_id": conversation_id,
+            "conversation": group_data
+        })
+        for sm in system_messages:
+            sm_dict = sm.model_dump() if hasattr(sm, "model_dump") else sm.dict()
+            if sm_dict.get("created_at") and hasattr(sm_dict["created_at"], "isoformat"):
+                sm_dict["created_at"] = sm_dict["created_at"].isoformat()
+            await manager.send_to_user(str(u_id), {
+                "type": "NEW_MESSAGE",
+                "conversation_id": conversation_id,
+                "message": sm_dict
+            })
+
+    return updated_group
 
 @router.post(
     "/send",

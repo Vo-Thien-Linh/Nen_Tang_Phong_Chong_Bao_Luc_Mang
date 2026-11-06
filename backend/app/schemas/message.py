@@ -14,6 +14,10 @@ class CreateGroupRequest(BaseModel):
     member_ids: List[str]
     avatar_url: Optional[str] = None
 
+class UpdateGroupRequest(BaseModel):
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
 class MessageItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
