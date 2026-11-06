@@ -93,3 +93,21 @@ test('blocked edit does not change hashtags', async () => {
   );
   assert.equal(queries.some(({ sql }) => sql.includes('post_hashtags')), false);
 });
+
+test('tags are written in the same transaction as the post', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('INSERT INTO posts')) return { rows: [{ id: 12 }] };
+      return { rows: [] };
+    },
+    release() { calls.push({ sql: 'RELEASE' }); },
+  };
+  const pool = { connect: async () => client, async query() { return { rows: [] }; } };
+  await createPostRepository({ pool }).createPost({ authorId: 'u1', content: 'Atomic #Tag' });
+  assert.equal(calls[0].sql, 'BEGIN');
+  assert.ok(calls.some(({ sql }) => sql.includes('INSERT INTO post_hashtags')));
+  assert.equal(calls.at(-2).sql, 'COMMIT');
+  assert.equal(calls.at(-1).sql, 'RELEASE');
+});
