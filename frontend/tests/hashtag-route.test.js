@@ -11,3 +11,8 @@ test('hashtag route preserves unicode tags in encoded links', () => {
   assert.equal(buildHashtagHash('SinhViên'), '#hashtag/sinhvi%C3%AAn');
 });
 
+test('invalid hashtag route is rejected', () => {
+  assert.equal(parseHashtagHash('#hashtag/123'), null);
+  assert.equal(parseHashtagHash('#home'), null);
+});
+
