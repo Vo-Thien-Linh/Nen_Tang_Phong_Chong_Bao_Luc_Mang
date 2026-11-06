@@ -9,7 +9,12 @@ export default function HashtagText({ text, className = '' }) {
           key={`${part.tag}-${index}`}
           href={`#hashtag/${encodeURIComponent(part.tag)}`}
           className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            event.preventDefault();
+            window.history.pushState({}, '', `#hashtag/${encodeURIComponent(part.tag)}`);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }}
         >
           {part.value}
         </a>
