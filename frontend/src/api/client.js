@@ -37,6 +37,21 @@ export async function fetchPosts({ userId } = {}) {
   });
 }
 
+export async function fetchTrendingHashtags({ userId, limit = 5 } = {}) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return request(`/api/hashtags/trending?${query}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchHashtagPosts({ userId, tag, page = 1, limit = 20 } = {}) {
+  const encodedTag = encodeURIComponent(String(tag || '').replace(/^#/, ''));
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
+  return request(`/api/hashtags/${encodedTag}/posts?${query}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function fetchPostById({ postId, userId } = {}) {
   const cleanId = String(postId || '').replace(/^post-/, '');
   return request(`/api/posts/${cleanId}`, {
