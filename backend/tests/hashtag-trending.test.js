@@ -88,3 +88,9 @@ test('trending uses the same visibility predicate as the feed', () => {
   assert.match(feed, /postVisibility/);
   assert.match(trending, /publicOnly: true/);
 });
+
+test('hashtag browse normalizes tags and rejects invalid input', () => {
+  const route = readFileSync(fileURLToPath(new URL('../src/routes/hashtagsRouter.js', import.meta.url)), 'utf8');
+  assert.match(route, /normalizeHashtag\(decodeURIComponent/);
+  assert.match(route, /res\.status\(400\)/);
+});
