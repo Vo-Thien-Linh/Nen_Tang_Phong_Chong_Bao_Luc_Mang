@@ -826,9 +826,6 @@ export default function HomeView({
                     <span>#{topic.displayTag || topic.tag}</span>
                     <span className="text-[10px] text-blue-500 font-semibold group-hover:underline">Khám phá</span>
                   </div>
-                  <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition">
-                    #{topic.displayTag || topic.tag}
-                  </p>
                   <p className="text-[10px] text-slate-400">{topic.postCount} bài viết</p>
                 </div>
               ))}
