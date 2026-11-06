@@ -30,3 +30,9 @@ test('create post stores its hashtags', async () => {
     ['sinhviên', 'SinhViên'],
   ]);
 });
+
+test('create post without hashtags stores none', async () => {
+  const pool = queryPool();
+  await createPostRepository({ pool }).createPost({ authorId: 'u1', content: 'No tags here' });
+  assert.equal(pool.queries.some(({ sql }) => sql.includes('post_hashtags')), false);
+});
