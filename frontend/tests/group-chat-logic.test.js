@@ -137,3 +137,120 @@ test('Group Chat: format group messages and identify system messages', () => {
   assert.equal(formatted[1].senderName, 'Bob Tran');
 });
 
+test('Group Chat: group name update validation', () => {
+  const validateGroupNameUpdate = (name) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) {
+      return { valid: false, error: 'Tên nhóm không được để trống' };
+    }
+    if (trimmed.length > 100) {
+      return { valid: false, error: 'Tên nhóm không được vượt quá 100 ký tự' };
+    }
+    return { valid: true, name: trimmed };
+  };
+
+  assert.deepEqual(validateGroupNameUpdate(''), {
+    valid: false,
+    error: 'Tên nhóm không được để trống'
+  });
+  assert.deepEqual(validateGroupNameUpdate('   '), {
+    valid: false,
+    error: 'Tên nhóm không được để trống'
+  });
+  assert.deepEqual(validateGroupNameUpdate(null), {
+    valid: false,
+    error: 'Tên nhóm không được để trống'
+  });
+  assert.deepEqual(validateGroupNameUpdate('Nhóm Dự Án Mới'), {
+    valid: true,
+    name: 'Nhóm Dự Án Mới'
+  });
+});
+
+test('Group Chat: group avatar validation enforces image type and 5MB size limit', () => {
+  const validateGroupAvatarFile = (file) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      return { valid: false, error: 'Vui lòng chọn tệp hình ảnh hợp lệ (PNG, JPG, WebP, GIF)' };
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      return { valid: false, error: 'Dung lượng ảnh tối đa là 5MB' };
+    }
+    return { valid: true };
+  };
+
+  assert.deepEqual(validateGroupAvatarFile({ type: 'application/pdf', size: 1024 }), {
+    valid: false,
+    error: 'Vui lòng chọn tệp hình ảnh hợp lệ (PNG, JPG, WebP, GIF)'
+  });
+  assert.deepEqual(validateGroupAvatarFile({ type: 'image/jpeg', size: 6 * 1024 * 1024 }), {
+    valid: false,
+    error: 'Dung lượng ảnh tối đa là 5MB'
+  });
+  assert.deepEqual(validateGroupAvatarFile({ type: 'image/png', size: 2 * 1024 * 1024 }), {
+    valid: true
+  });
+});
+
+test('Group Chat: GROUP_UPDATED event updates conversation and user sub-object in state', () => {
+  const prevConversations = [
+    {
+      id: '32',
+      type: 'group',
+      name: 'Nhóm Cũ',
+      avatar: null,
+      memberCount: 3,
+      user: { id: 'group_32', name: 'Nhóm Cũ', avatar: 'default.png' }
+    },
+    {
+      id: '33',
+      type: 'direct',
+      name: null,
+      avatar: null,
+      user: { id: 'user_2', name: 'Bob', avatar: 'bob.png' }
+    }
+  ];
+
+  const updateEvent = {
+    type: 'GROUP_UPDATED',
+    conversation_id: 32,
+    conversation: {
+      id: 32,
+      name: 'Nhóm Siêu Cấp Vip',
+      avatar: 'https://example.com/new-avatar.png',
+      member_count: 4
+    }
+  };
+
+  const updatedGroup = updateEvent.conversation;
+  const convIdStr = String(updateEvent.conversation_id);
+  const nextConversations = prevConversations.map(c => {
+    if (String(c.id) === convIdStr) {
+      const newName = updatedGroup.name || c.name;
+      const newAvatar = updatedGroup.avatar !== undefined ? updatedGroup.avatar : c.avatar;
+      return {
+        ...c,
+        name: newName,
+        avatar: newAvatar,
+        memberCount: updatedGroup.member_count !== undefined ? updatedGroup.member_count : c.memberCount,
+        user: {
+          ...c.user,
+          name: newName || c.user?.name,
+          avatar: newAvatar || c.user?.avatar
+        }
+      };
+    }
+    return c;
+  });
+
+  const updatedTarget = nextConversations.find(c => c.id === '32');
+  assert.equal(updatedTarget.name, 'Nhóm Siêu Cấp Vip');
+  assert.equal(updatedTarget.avatar, 'https://example.com/new-avatar.png');
+  assert.equal(updatedTarget.memberCount, 4);
+  assert.equal(updatedTarget.user.name, 'Nhóm Siêu Cấp Vip');
+  assert.equal(updatedTarget.user.avatar, 'https://example.com/new-avatar.png');
+
+  // Verify non-target was not modified
+  assert.equal(nextConversations.find(c => c.id === '33').user.name, 'Bob');
+});
+
+
