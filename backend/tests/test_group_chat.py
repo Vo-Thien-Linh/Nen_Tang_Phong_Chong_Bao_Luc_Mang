@@ -7,7 +7,7 @@ from app.database import Base
 from app.models.user import User
 from app.models.message import Conversation, Message, ConversationMember
 from app.services.message_service import MessageService
-from app.schemas.message import CreateGroupRequest
+from app.schemas.message import CreateGroupRequest, UpdateGroupRequest
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -218,4 +218,78 @@ def test_group_conversations_listing(db_session):
     # David is not in the group, so his list should not contain this group
     david_convs = MessageService.get_conversations(u4_id, "accepted", db_session)
     assert not any(c.id == group.id for c in david_convs)
+
+def test_update_group_name_and_avatar(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Cũ", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    update_payload = UpdateGroupRequest(
+        name="Nhóm Mới Cập Nhật",
+        avatar_url="https://example.com/new-avatar.jpg"
+    )
+    result = MessageService.update_group(group.id, u1_id, update_payload, db_session)
+
+    updated_conv = result["conversation"]
+    system_messages = result["system_messages"]
+
+    assert updated_conv.name == "Nhóm Mới Cập Nhật"
+    assert updated_conv.avatar == "https://example.com/new-avatar.jpg"
+    assert len(system_messages) == 2
+
+    contents = [sm.content for sm in system_messages]
+    assert any("Alice Nguyen đã đổi tên nhóm thành \"Nhóm Mới Cập Nhật\"" in c for c in contents)
+    assert any("Alice Nguyen đã thay đổi ảnh đại diện của nhóm" in c for c in contents)
+
+    # Check database messages
+    db_msgs = db_session.query(Message).filter(
+        Message.conversation_id == group.id,
+        Message.media_type == "system"
+    ).all()
+    assert len(db_msgs) == 3 # 1 creation + 2 updates
+
+def test_update_group_forbidden_for_non_member(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+    u4_id = "44444444-4444-4444-4444-444444444444"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Test", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        MessageService.update_group(group.id, u4_id, UpdateGroupRequest(name="Hack"), db_session)
+    assert exc_info.value.status_code == 403
+
+def test_update_group_empty_name(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Test", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        MessageService.update_group(group.id, u1_id, UpdateGroupRequest(name="   "), db_session)
+    assert exc_info.value.status_code == 400
+
+def test_update_group_nonexistent_group(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+
+    with pytest.raises(HTTPException) as exc_info:
+        MessageService.update_group(999999, u1_id, UpdateGroupRequest(name="Nhóm Ảo"), db_session)
+    assert exc_info.value.status_code == 404
+
 
