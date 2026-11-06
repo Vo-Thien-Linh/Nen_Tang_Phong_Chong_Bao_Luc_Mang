@@ -94,6 +94,29 @@ export const messageService = {
   },
 
   /**
+   * Cập nhật thông tin nhóm (tên nhóm, ảnh đại diện)
+   */
+  async updateGroup(conversationId, { name, avatarUrl } = {}) {
+    if (!hasValidToken()) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const body = {};
+    if (name !== undefined) body.name = (name || '').trim();
+    if (avatarUrl !== undefined) body.avatar_url = avatarUrl;
+
+    const res = await fetch(`${API_BASE_URL}/groups/${conversationId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể cập nhật thông tin nhóm');
+    }
+    return await res.json();
+  },
+
+  /**
    * Gửi tin nhắn mới tới receiverId hoặc nhóm qua conversationId (hỗ trợ văn bản và đa phương tiện ảnh/link)
    */
   async sendMessage(receiverId, content = '', mediaUrl = null, mediaType = 'text', conversationId = null) {
