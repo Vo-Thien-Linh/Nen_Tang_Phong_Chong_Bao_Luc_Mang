@@ -24,7 +24,10 @@ export default function HashtagView({
         if (mounted) setLoadedTag(tag);
       })
       .catch((err) => {
-        if (mounted) setError(err.message || 'Không thể tải bài viết theo hashtag.');
+        if (mounted) {
+          setLoadedTag(tag);
+          setError(err.message || 'Không thể tải bài viết theo hashtag.');
+        }
       })
       .finally(() => {
         if (mounted) setLoading(false);
