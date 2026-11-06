@@ -66,3 +66,10 @@ test('trending counts a post once per hashtag', async () => {
   await repository.findTrending({ limit: 5, days: 7 });
   assert.match(queries[0].sql, /COUNT\(DISTINCT id\)/i);
 });
+
+test('trending respects the limit', async () => {
+  const { repository, queries } = repoWithRows([]);
+  await repository.findTrending({ limit: 99, days: 7 });
+  assert.equal(queries[0].params[1], 10);
+  assert.match(queries[0].sql, /LIMIT \$2/i);
+});
