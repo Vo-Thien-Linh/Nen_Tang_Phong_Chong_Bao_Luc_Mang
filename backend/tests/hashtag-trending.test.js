@@ -31,3 +31,10 @@ test('trending ranks by distinct authors then posts', async () => {
     { tag: 'btl', displayTag: 'BTL', postCount: 9, authorCount: 2 },
   ]);
 });
+
+test('one author repeating a tag counts once for ranking', async () => {
+  const { repository, queries } = repoWithRows([]);
+  await repository.findTrending({ limit: 5, days: 7 });
+  assert.match(queries[0].sql, /COUNT\(DISTINCT author_id\)/i);
+  assert.match(queries[0].sql, /COUNT\(DISTINCT id\)/i);
+});
