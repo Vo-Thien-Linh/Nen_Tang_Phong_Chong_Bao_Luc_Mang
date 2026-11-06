@@ -38,3 +38,10 @@ test('one author repeating a tag counts once for ranking', async () => {
   assert.match(queries[0].sql, /COUNT\(DISTINCT author_id\)/i);
   assert.match(queries[0].sql, /COUNT\(DISTINCT id\)/i);
 });
+
+test('trending excludes posts under image review for everyone', async () => {
+  const { repository, queries } = repoWithRows([]);
+  await repository.findTrending({ limit: 5, days: 7 });
+  assert.match(queries[0].sql, /image_moderation_status IS NULL OR p\.image_moderation_status IN \('safe', 'sensitive'\)/i);
+  assert.match(queries[0].sql, /p\.ai_status = 'approved'/i);
+});
