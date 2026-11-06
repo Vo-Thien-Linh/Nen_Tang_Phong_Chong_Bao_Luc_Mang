@@ -34,3 +34,9 @@ test('hashtag posts hide review statuses from other viewers', async () => {
   assert.match(queries[0].sql, /image_moderation_status IS NULL OR p\.image_moderation_status IN \('safe', 'sensitive'\)/i);
 });
 
+test('hashtag posts allow the author to see their own review status post', async () => {
+  const { repository, queries } = browseRepo([]);
+  await repository.findPosts({ tag: 'wings', viewerId: 'author-1' });
+  assert.match(queries[0].sql, /p\.author_id = \$1/i);
+});
+
