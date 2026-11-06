@@ -26,3 +26,11 @@ test('hashtag posts are newest first and paginated', async () => {
   assert.deepEqual(queries[0].params, ['u1', 'wings', 2, 2]);
   assert.match(queries[0].sql, /ORDER BY p\.created_at DESC/i);
 });
+
+test('hashtag posts hide review statuses from other viewers', async () => {
+  const { repository, queries } = browseRepo([]);
+  await repository.findPosts({ tag: 'wings', viewerId: 'u1' });
+  assert.match(queries[0].sql, /p\.ai_status = 'approved'/i);
+  assert.match(queries[0].sql, /image_moderation_status IS NULL OR p\.image_moderation_status IN \('safe', 'sensitive'\)/i);
+});
+
