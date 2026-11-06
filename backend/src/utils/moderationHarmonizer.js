@@ -47,7 +47,7 @@ export function harmonizeModeration({ textMod = {}, imageModeration = null, cont
       violationDetail = 'ngôn từ có tính chất bạo lực / đe dọa';
     }
 
-    const typeName = contentType === 'post' ? 'Bài viết' : 'Bình luận';
+    const typeName = contentType === 'post' ? 'Bài viết' : contentType === 'story' ? 'Tin' : 'Bình luận';
     const notifMessage = `${typeName} của bạn đã bị ẩn và tài khoản bị tạm khóa 10 phút do vi phạm chính sách về Bạo lực (${violationDetail}). Bạn có thể gửi kháng cáo nếu đây là sự nhầm lẫn.`;
 
     return {
@@ -68,7 +68,7 @@ export function harmonizeModeration({ textMod = {}, imageModeration = null, cont
 
   // 2. CẤP ĐỘ 2: NGÔN TỪ THÙ GHÉT (Hate Speech)
   if (textLabel === 'Hate Speech') {
-    const typeName = contentType === 'post' ? 'Bài viết' : 'Bình luận';
+    const typeName = contentType === 'post' ? 'Bài viết' : contentType === 'story' ? 'Tin' : 'Bình luận';
     const notifMessage = `${typeName} của bạn đã bị ẩn do vi phạm chính sách về Ngôn từ thù ghét (Hate Speech). Bạn có thể gửi kháng cáo nếu đây là sự nhầm lẫn.`;
 
     return {

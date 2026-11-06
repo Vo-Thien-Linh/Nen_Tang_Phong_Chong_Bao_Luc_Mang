@@ -85,6 +85,7 @@ export function createNotificationsController({ notificationRepository }) {
                     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
                 },
           snapshot: row.payload || null,
+          payload: row.payload || null,
           targetPost: row.target_post_id && row.payload?.type !== 'moderation_removal'
             ? (() => {
                 const isHidden = row.post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.post_image_moderation_status);
