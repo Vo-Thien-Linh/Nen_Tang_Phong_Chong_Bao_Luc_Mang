@@ -22,3 +22,27 @@ export function extractHashtags(text, max = 10) {
 
   return found;
 }
+
+export function splitHashtagText(text) {
+  const source = String(text || '').normalize('NFC');
+  const parts = [];
+  let cursor = 0;
+  let match;
+  const pattern = new RegExp(HASHTAG_PATTERN.source, HASHTAG_PATTERN.flags);
+
+  while ((match = pattern.exec(source))) {
+    const start = match.index + match[1].length;
+    if (start > cursor) parts.push({ type: 'text', value: source.slice(cursor, start) });
+    const displayTag = match[2];
+    const tag = normalizeHashtag(displayTag);
+    if (!tag) {
+      parts.push({ type: 'text', value: source.slice(start, pattern.lastIndex) });
+    } else {
+      parts.push({ type: 'hashtag', value: `#${displayTag}`, tag, displayTag });
+    }
+    cursor = pattern.lastIndex;
+  }
+
+  if (cursor < source.length) parts.push({ type: 'text', value: source.slice(cursor) });
+  return parts.length ? parts : [{ type: 'text', value: source }];
+}

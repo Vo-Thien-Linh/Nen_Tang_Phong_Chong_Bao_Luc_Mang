@@ -29,6 +29,7 @@ import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
 import PostReactionsModal from './PostReactionsModal';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
+import HashtagText from './HashtagText';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
@@ -1013,7 +1014,7 @@ export default function PostCard({
             )}
 
             <p className="text-slate-800 dark:text-slate-100 text-sm sm:text-base leading-relaxed whitespace-pre-line break-words">
-              {post.content}
+              <HashtagText text={post.content} />
             </p>
 
             {/* Tags */}
@@ -1093,7 +1094,7 @@ export default function PostCard({
               {/* Nội dung bài gốc */}
               {post.originalPost.content && (
                 <p className="px-3.5 pb-2 text-slate-700 leading-relaxed line-clamp-3">
-                  {post.originalPost.content}
+                  <HashtagText text={post.originalPost.content} />
                 </p>
               )}
               {/* Ảnh bài gốc */}
@@ -1637,7 +1638,7 @@ export default function PostCard({
                           )}
                         </div>
                       </div>
-                      {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed">{comment.content}</p>}
+                      {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed"><HashtagText text={comment.content} /></p>}
 
                       {/* Hiển thị hình ảnh đính kèm (ẩn mềm chung đã được mở, không lồng thêm lớp blur thứ hai) */}
                       {comment.image && (
