@@ -621,6 +621,7 @@ export default function AuthModal({
 
               {/* Nút Submit Đăng nhập */}
               <button
+                id="btn-auth-submit"
                 type="submit"
                 disabled={isLoading}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
@@ -642,6 +643,7 @@ export default function AuthModal({
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
+                    id="btn-quick-login-admin"
                     type="button"
                     onClick={() => {
                       setLoginIdentifier('linh.vothien@example.com');

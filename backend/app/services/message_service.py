@@ -190,6 +190,8 @@ class MessageService:
                     last_msg_text = "[Hình ảnh] " + (last_msg.content or "")
                 elif getattr(last_msg, "media_url", None) and getattr(last_msg, "media_type", "") == "file":
                     last_msg_text = "[Tệp tin] " + (last_msg.content or "")
+                elif getattr(last_msg, "media_type", "") == "call_log":
+                    last_msg_text = "[Cuộc gọi] " + (last_msg.content or "")
                 else:
                     last_msg_text = last_msg.content
             elif is_friend:
