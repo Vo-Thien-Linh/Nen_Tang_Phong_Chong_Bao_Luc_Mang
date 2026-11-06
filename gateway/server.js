@@ -3,6 +3,7 @@ import net from 'net';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { findRouteTarget } from './src/routeMatcher.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,7 @@ const ROUTE_TARGETS = [
   { prefix: '/api/search', target: SERVICE_URLS.platform, name: 'Platform API (FastAPI)' },
   { prefix: '/api/users', target: SERVICE_URLS.users, name: 'User Service (Express; profile and role APIs)' },
   { prefix: '/api/posts', target: SERVICE_URLS.posts, name: 'Social Content Service (Express)' },
+  { prefix: '/api/hashtags', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; hashtags)' },
   { prefix: '/api/stories', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; stories)' },
   { prefix: '/api/upload', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; uploads)' },
   { prefix: '/api/reports', target: SERVICE_URLS.moderation, name: 'Moderation Service (Express; reports)' },
@@ -75,12 +77,7 @@ const SERVICES_HEALTH = [
 ];
 
 function findTarget(url) {
-  for (const route of ROUTE_TARGETS) {
-    if (url === route.prefix || url.startsWith(route.prefix + '/') || url.startsWith(route.prefix + '?')) {
-      return route;
-    }
-  }
-  return null;
+  return findRouteTarget(url, ROUTE_TARGETS);
 }
 
 async function checkServiceHealth(svc) {
