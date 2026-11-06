@@ -52,7 +52,7 @@ import {
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
-import { normalizeHashtag } from '../../shared/hashtag.js';
+import { normalizeHashtag } from './utils/hashtag.js';
 import { buildHashtagHash, parseHashtagHash } from './utils/hashtagRouteLogic';
 import {
   clearPostNotice,

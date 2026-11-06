@@ -1,4 +1,4 @@
-import { splitHashtagText } from '../../../shared/hashtag.js';
+import { splitHashtagText } from '../utils/hashtag.js';
 
 export default function HashtagText({ text, className = '' }) {
   const parts = splitHashtagText(text);

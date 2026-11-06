@@ -1,4 +1,4 @@
-import { extractHashtags } from '../../../shared/hashtag.js';
+import { extractHashtags } from '../utils/hashtag.js';
 import { buildPostVisibilityPredicate } from './postVisibility.js';
 
 export const postSelect = `

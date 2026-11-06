@@ -1,4 +1,4 @@
-import { normalizeHashtag } from '../../../shared/hashtag.js';
+import { normalizeHashtag } from './hashtag.js';
 
 export function parseHashtagHash(value) {
   const raw = String(value || '').replace(/^#/, '');

@@ -3,7 +3,7 @@ import { createAuthMiddleware } from '../middleware/auth.js';
 import { createUserRepository } from '../repositories/userRepository.js';
 import { createHashtagRepository } from '../repositories/hashtagRepository.js';
 import { getHashtagTrendingDays } from '../config/hashtagConfig.js';
-import { normalizeHashtag } from '../../../shared/hashtag.js';
+import { normalizeHashtag } from '../utils/hashtag.js';
 import { mapPostToResponse } from '../controllers/postsController.js';
 
 export function createHashtagsRouter({ pool, postRepository }) {
