@@ -9,6 +9,18 @@ const getAuthHeaders = () => {
   };
 };
 
+async function getErrorMessage(res, fallback) {
+  const body = await res.text();
+  if (!body) return fallback;
+
+  try {
+    const payload = JSON.parse(body);
+    return payload.detail || payload.message || payload.error || fallback;
+  } catch {
+    return body.slice(0, 300) || fallback;
+  }
+}
+
 export const livestreamService = {
   async createLiveStream(data) {
     const res = await fetch(API_BASE_URL, {
@@ -17,8 +29,7 @@ export const livestreamService = {
       body: JSON.stringify(data)
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Không thể tạo phiên phát trực tiếp');
+      throw new Error(await getErrorMessage(res, 'Không thể tạo phiên phát trực tiếp'));
     }
     return await res.json();
   },
@@ -55,8 +66,7 @@ export const livestreamService = {
       body: JSON.stringify({ content })
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Không thể gửi bình luận');
+      throw new Error(await getErrorMessage(res, 'Không thể gửi bình luận'));
     }
     return await res.json();
   },
