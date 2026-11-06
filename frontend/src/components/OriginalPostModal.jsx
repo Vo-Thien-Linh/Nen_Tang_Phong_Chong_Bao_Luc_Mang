@@ -715,7 +715,7 @@ export default function OriginalPostModal({
                       )}
                       {cmt.content && (
                         <p className="text-slate-700 leading-relaxed whitespace-pre-line break-words">
-                          {cmt.content}
+                          <HashtagText text={cmt.content} />
                         </p>
                       )}
 

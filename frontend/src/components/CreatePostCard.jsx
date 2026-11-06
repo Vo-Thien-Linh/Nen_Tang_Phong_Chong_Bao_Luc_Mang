@@ -6,6 +6,7 @@ import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
+import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
 
 const getInitialDefaultPrivacy = () => {
   try {
@@ -34,6 +35,13 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [errorMessage, setErrorMessage] = useState('');
   const [nudgeData, setNudgeData] = useState(null);
   const submitLockRef = useRef(false);
+  const hashtagHighlightRef = useRef(null);
+
+  const syncHashtagHighlightScroll = (event) => {
+    if (!hashtagHighlightRef.current) return;
+    hashtagHighlightRef.current.scrollTop = event.currentTarget.scrollTop;
+    hashtagHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+  };
 
   useEffect(() => {
     const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
@@ -272,10 +280,23 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
           className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shrink-0"
         />
         <div className="flex-1">
-          <textarea
+          <div className="relative rounded-xl bg-slate-50 hover:bg-slate-100/70 focus-within:bg-white">
+            <div
+              ref={hashtagHighlightRef}
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-xl border border-transparent p-3 text-sm leading-normal text-slate-800 dark:text-slate-100 ${
+                (isBanned || isCooldown) ? 'opacity-60' : ''
+              }`}
+            >
+              {getHashtagHighlightParts(content).map((part, index) => part.type === 'hashtag' ? (
+                <span key={`${part.tag}-${index}`} className={part.className}>{part.value}</span>
+              ) : <span key={`text-${index}`}>{part.value}</span>)}
+            </div>
+            <textarea
             rows={2}
             value={content}
             disabled={isBanned || isCooldown}
+            onScroll={syncHashtagHighlightScroll}
             onClick={() => {
               if (!currentUser && onRequireAuth) {
                 onRequireAuth("Chỉ đăng nhập rồi mới được đăng bài (User Story 4)");
@@ -294,10 +315,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 ? `${currentUser.name || currentUser.full_name || currentUser.username || 'Bạn'} ơi, bạn đang nghĩ gì thế?` 
                 : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."
             }
-            className={`w-full resize-none p-3 text-slate-800 placeholder-slate-400 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm transition duration-150 ${
+            className={`relative w-full resize-none bg-transparent p-3 text-transparent caret-slate-800 placeholder-slate-400 selection:bg-blue-200 selection:text-transparent hover:bg-transparent focus:bg-transparent rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm leading-normal transition duration-150 ${
               (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''
             }`}
           />
+          </div>
 
           {message && (
             <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">

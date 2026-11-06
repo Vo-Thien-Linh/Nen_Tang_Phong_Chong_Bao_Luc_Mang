@@ -1,14 +1,14 @@
-import { splitHashtagText } from '../utils/hashtag.js';
+import { getHashtagHighlightParts } from '../utils/hashtagHighlight.js';
 
 export default function HashtagText({ text, className = '' }) {
-  const parts = splitHashtagText(text);
+  const parts = getHashtagHighlightParts(text);
   return (
     <span className={className}>
       {parts.map((part, index) => part.type === 'hashtag' ? (
         <a
           key={`${part.tag}-${index}`}
           href={`#hashtag/${encodeURIComponent(part.tag)}`}
-          className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+          className={`${part.className} cursor-pointer hover:text-blue-700 hover:underline`}
           onClick={(event) => {
             event.stopPropagation();
             event.preventDefault();
