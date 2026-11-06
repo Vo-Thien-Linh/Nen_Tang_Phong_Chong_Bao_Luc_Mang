@@ -104,7 +104,6 @@ def ensure_schema_migrations(eng):
                 """))
                 conn.commit()
             else:
-            else:
                 try:
                     conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_recalled BOOLEAN DEFAULT FALSE"))
                     conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT"))
