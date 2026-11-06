@@ -73,3 +73,8 @@ test('trending respects the limit', async () => {
   assert.equal(queries[0].params[1], 10);
   assert.match(queries[0].sql, /LIMIT \$2/i);
 });
+
+test('trending requires authentication', () => {
+  const route = readFileSync(fileURLToPath(new URL('../src/routes/hashtagsRouter.js', import.meta.url)), 'utf8');
+  assert.match(route, /router\.get\('\/trending', requireAuth/);
+});
