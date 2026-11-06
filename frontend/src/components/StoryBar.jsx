@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 
 export default function StoryBar({
@@ -87,6 +87,20 @@ export default function StoryBar({
             const displayStory = unviewedStory || tray.stories?.[tray.stories.length - 1] || tray.stories?.[0];
             if (!displayStory) return null;
 
+            const isDisplaySensitive = Boolean(
+              displayStory &&
+              !displayStory.isHardHidden &&
+              (displayStory.isSensitive ||
+               displayStory.aiStatus === 'sensitive' ||
+               displayStory.ai_status === 'sensitive' ||
+               displayStory.aiLabel === 'Toxic' ||
+               displayStory.ai_label === 'Toxic' ||
+               displayStory.mediaModerationStatus === 'sensitive' ||
+               displayStory.media_moderation_status === 'sensitive' ||
+               displayStory.mediaModerationLabel === 'nsfw' ||
+               displayStory.media_moderation_label === 'nsfw')
+            );
+
             return (
               <div
                 key={tray.author?.id}
@@ -96,7 +110,9 @@ export default function StoryBar({
                 {/* Ảnh / Video nền hoặc Màu Gradient với Đám mây cho tin văn bản */}
                 {displayStory.storyType === 'text' ? (
                   <div
-                    className="w-full h-full p-2.5 flex flex-col items-center justify-center text-center group-hover/story:scale-105 transition duration-300 relative overflow-hidden"
+                    className={`w-full h-full p-2.5 flex flex-col items-center justify-center text-center group-hover/story:scale-105 transition duration-300 relative overflow-hidden ${
+                      isDisplaySensitive ? 'blur-md scale-105' : ''
+                    }`}
                     style={displayStory.backgroundStyle || { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
                   >
                     {/* Khung Đám mây nghệ thuật bao quanh văn bản (Chuẩn phong cách Story) */}
@@ -122,7 +138,7 @@ export default function StoryBar({
                     </div>
                   </div>
                 ) : (
-                  <div className="relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center">
+                  <div className={`relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center ${isDisplaySensitive ? 'blur-md scale-105' : ''}`}>
                     {displayStory.backgroundStyle?.fitMode === 'contain' && (
                       <div 
                         className="absolute inset-0 bg-cover bg-center blur-md opacity-60 scale-125 pointer-events-none"
@@ -145,6 +161,16 @@ export default function StoryBar({
                         }`}
                       />
                     )}
+                  </div>
+                )}
+
+                {/* Huy hiệu cảnh báo nội dung nhạy cảm nếu có */}
+                {isDisplaySensitive && (
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-2 text-center bg-black/40 backdrop-blur-xs pointer-events-none">
+                    <div className="w-8 h-8 rounded-full bg-amber-500/80 backdrop-blur-md flex items-center justify-center text-white mb-1 shadow-md">
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
+                    <span className="text-[10px] font-extrabold text-amber-200 uppercase tracking-wider drop-shadow">Nhạy cảm</span>
                   </div>
                 )}
 

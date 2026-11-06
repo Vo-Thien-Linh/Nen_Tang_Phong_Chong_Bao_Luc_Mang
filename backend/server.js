@@ -19,7 +19,7 @@ import { createAdminRouter } from './src/routes/adminRouter.js';
 import { createUploadRouter } from './src/routes/uploadRouter.js';
 import { createRealtimeRouter } from './src/routes/realtimeRouter.js';
 import { createHashtagsRouter } from './src/routes/hashtagsRouter.js';
-
+import { createStoriesRouter } from './src/routes/storiesRouter.js';
 dotenv.config();
 
 const app = express();
@@ -71,6 +71,7 @@ app.use('/api/posts/preview-image', createImagePreviewRouter({ pool }));
 app.use('/api/reports', createReportsRouter({ pool, userRepository }));
 app.use('/api/appeals', createAppealsRouter({ pool, userRepository }));
 app.use('/api/admin', createAdminRouter({ pool, userRepository }));
+app.use('/api/stories', createStoriesRouter({ pool }));
 app.use('/api/realtime', createRealtimeRouter());
 
 // Middleware xử lý lỗi tập trung

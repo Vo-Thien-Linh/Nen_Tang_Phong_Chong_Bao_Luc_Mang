@@ -189,6 +189,8 @@ export function createStoryService({
 
       if (harmonized.aiStatus && harmonized.aiStatus !== 'approved') {
         storyInput.aiStatus = harmonized.aiStatus;
+      } else if (harmonized.isSoftHidden) {
+        storyInput.aiStatus = 'sensitive';
       }
       if (harmonized.finalLabel && harmonized.finalLabel !== 'Normal') {
         storyInput.aiLabel = harmonized.finalLabel;
@@ -230,6 +232,20 @@ export function createStoryService({
           );
         } catch (notifErr) {
           console.error('Lỗi gửi thông báo kiểm duyệt tin:', notifErr.message);
+        }
+      }
+
+      // Gửi thông báo kiểm duyệt nếu tin bị gắn nhãn nhạy cảm (Toxic / NSFW)
+      if (storyRepository.pool && harmonized.isSoftHidden && createdStory.ai_status !== 'hidden') {
+        try {
+          const softMsg = `Tin của bạn đã được đăng nhưng bị gắn nhãn nhạy cảm (${harmonized.finalLabel === 'Toxic' ? 'Ngôn từ độc hại (Toxic)' : 'Hình ảnh nhạy cảm (NSFW)'}) và được che cảnh báo đối với người xem.`;
+          await storyRepository.pool.query(
+            `INSERT INTO notifications (recipient_id, actor_id, type, content)
+             VALUES ($1, $2, 'ai_moderation', $3)`,
+            [user.id, null, softMsg]
+          );
+        } catch (notifErr) {
+          console.error('Lỗi gửi thông báo tin nhạy cảm:', notifErr.message);
         }
       }
 

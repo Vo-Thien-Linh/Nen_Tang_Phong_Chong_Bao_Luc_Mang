@@ -132,8 +132,20 @@ export function createStoryRepository({ pool }) {
         }
       }
 
+      const isToxic = story.ai_label === 'Toxic' || story.ai_status === 'sensitive';
+      const isNsfw = story.media_moderation_status === 'sensitive' || story.media_moderation_label === 'nsfw' || (Number(story.media_moderation_nsfw) >= 0.7);
+      const isHardHidden = story.ai_status === 'hidden' || story.ai_label === 'Violence' || story.ai_label === 'Hate Speech';
+
       return {
         ...story,
+        aiStatus: story.ai_status,
+        aiLabel: story.ai_label,
+        mediaModerationStatus: story.media_moderation_status,
+        mediaModerationLabel: story.media_moderation_label,
+        isToxic,
+        isNsfw,
+        isSensitive: (isToxic || isNsfw) && !isHardHidden,
+        isHardHidden,
         is_viewed: isViewed,
         my_reaction: myReaction,
       };
@@ -209,6 +221,10 @@ export function createStoryRepository({ pool }) {
           tray.hasUnviewedStories = true;
         }
 
+        const isToxic = row.ai_label === 'Toxic' || row.ai_status === 'sensitive';
+        const isNsfw = row.media_moderation_status === 'sensitive' || row.media_moderation_label === 'nsfw' || (Number(row.media_moderation_nsfw) >= 0.7);
+        const isHardHidden = row.ai_status === 'hidden' || row.ai_label === 'Violence' || row.ai_label === 'Hate Speech';
+
         tray.stories.push({
           id: String(row.id),
           storyType: row.story_type,
@@ -219,10 +235,17 @@ export function createStoryRepository({ pool }) {
           expiresAt: row.expires_at,
           createdAt: row.created_at,
           aiStatus: row.ai_status,
+          ai_status: row.ai_status,
           aiLabel: row.ai_label,
+          ai_label: row.ai_label,
           mediaModerationStatus: row.media_moderation_status,
+          media_moderation_status: row.media_moderation_status,
           mediaModerationLabel: row.media_moderation_label,
-          isSensitive: row.media_moderation_status === 'sensitive',
+          media_moderation_label: row.media_moderation_label,
+          isToxic,
+          isNsfw,
+          isSensitive: (isToxic || isNsfw) && !isHardHidden,
+          isHardHidden,
           viewsCount: Number(row.views_count || 0),
           reactionsCount: Number(row.reactions_count || 0),
           isViewed: Boolean(row.is_viewed),
@@ -256,7 +279,22 @@ export function createStoryRepository({ pool }) {
         LIMIT $2 OFFSET $3
       `;
       const { rows } = await pool.query(query, [authorId, limit, offset]);
-      return rows;
+      return rows.map((story) => {
+        const isToxic = story.ai_label === 'Toxic' || story.ai_status === 'sensitive';
+        const isNsfw = story.media_moderation_status === 'sensitive' || story.media_moderation_label === 'nsfw' || (Number(story.media_moderation_nsfw) >= 0.7);
+        const isHardHidden = story.ai_status === 'hidden' || story.ai_label === 'Violence' || story.ai_label === 'Hate Speech';
+        return {
+          ...story,
+          aiStatus: story.ai_status,
+          aiLabel: story.ai_label,
+          mediaModerationStatus: story.media_moderation_status,
+          mediaModerationLabel: story.media_moderation_label,
+          isToxic,
+          isNsfw,
+          isSensitive: (isToxic || isNsfw) && !isHardHidden,
+          isHardHidden,
+        };
+      });
     },
 
     async markStoryAsViewed({ storyId, viewerId }) {

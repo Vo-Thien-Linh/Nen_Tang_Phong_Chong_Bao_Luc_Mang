@@ -207,6 +207,54 @@ test('createStory: triggers Violence Cooldown 10 mins when violent story is forc
   );
 });
 
+test('createStory: marks toxic story as sensitive and notifies author when forced', async () => {
+  const notificationsCreated = [];
+  let savedInput = null;
+
+  const mockPool = {
+    async query(sql, params) {
+      if (sql.includes('INSERT INTO notifications')) {
+        notificationsCreated.push({ sql, params });
+        return { rowCount: 1, rows: [] };
+      }
+      if (sql.includes('user_trust_logs') || sql.includes('UPDATE users')) {
+        return { rowCount: 1, rows: [{ id: 'u-toxic', trust_score: 95 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const mockRepo = {
+    pool: mockPool,
+    async createStory(input) {
+      savedInput = input;
+      return {
+        id: 'story-toxic-1',
+        ...input,
+        ai_status: input.aiStatus || 'approved',
+        ai_label: input.aiLabel || 'Normal',
+      };
+    },
+  };
+
+  const service = createStoryService({
+    storyRepository: mockRepo,
+  });
+
+  const res = await service.createStory({
+    user: { id: 'u-toxic' },
+    storyType: 'text',
+    textContent: 'thằng thần kinh này',
+    forcePost: true,
+  });
+
+  assert.equal(res.id, 'story-toxic-1');
+  assert.equal(savedInput.aiStatus, 'sensitive');
+  assert.equal(savedInput.aiLabel, 'Toxic');
+  assert.ok(notificationsCreated.length >= 1);
+  assert.ok(notificationsCreated.some((n) => /gắn nhãn nhạy cảm/i.test(n.params[2])));
+});
+
 test('createStory: successfully creates normal text, image, and video stories', async () => {
   const createdStories = [];
   const mockRepo = {
