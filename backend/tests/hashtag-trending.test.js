@@ -78,3 +78,13 @@ test('trending requires authentication', () => {
   const route = readFileSync(fileURLToPath(new URL('../src/routes/hashtagsRouter.js', import.meta.url)), 'utf8');
   assert.match(route, /router\.get\('\/trending', requireAuth/);
 });
+
+test('trending uses the same visibility predicate as the feed', () => {
+  const root = fileURLToPath(new URL('../src/', import.meta.url));
+  const feed = readFileSync(`${root}repositories/postRepository.js`, 'utf8');
+  const trending = readFileSync(`${root}repositories/hashtagRepository.js`, 'utf8');
+  assert.match(feed, /buildPostVisibilityPredicate/);
+  assert.match(trending, /buildPostVisibilityPredicate/);
+  assert.match(feed, /postVisibility/);
+  assert.match(trending, /publicOnly: true/);
+});
