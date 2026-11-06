@@ -166,8 +166,23 @@ function proxyRequest(targetBaseUrl, req, res) {
     proxyRes.pipe(res);
   });
 
+  req.on('error', (err) => {
+    if (err.code !== 'ECONNRESET') {
+      console.warn('[Gateway Req Error]:', err.message);
+    }
+    proxyReq.destroy();
+  });
+
+  res.on('error', (err) => {
+    if (err.code !== 'ECONNRESET') {
+      console.warn('[Gateway Res Error]:', err.message);
+    }
+  });
+
   proxyReq.on('error', (err) => {
-    console.error(`[Gateway Proxy Error] Không thể kết nối tới ${targetBaseUrl}:`, err.message);
+    if (err.code !== 'ECONNRESET') {
+      console.error(`[Gateway Proxy Error] Không thể kết nối tới ${targetBaseUrl}:`, err.message);
+    }
     if (!res.headersSent) {
       res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
@@ -197,6 +212,14 @@ async function checkAllHealth(res) {
   }, null, 2));
 }
 
+// Bắt lỗi clientError trên HTTP server để tránh ngắt kết nối đột ngột gây crash
+server.on('clientError', (err, socket) => {
+  if (err.code === 'ECONNRESET' || !socket.writable) {
+    return;
+  }
+  socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+});
+
 // Bắt lỗi ngắt kết nối client đột ngột (ECONNRESET / EPIPE) để Gateway không bao giờ bị crash
 process.on('uncaughtException', (err) => {
   if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
@@ -204,6 +227,10 @@ process.on('uncaughtException', (err) => {
     return;
   }
   console.error('[Gateway Uncaught Exception]:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.warn('⚠️ [Gateway Unhandled Rejection]:', reason);
 });
 
 // WebSocket chat do Platform API/FastAPI quản lý. Từ chối upgrade ở path khác.

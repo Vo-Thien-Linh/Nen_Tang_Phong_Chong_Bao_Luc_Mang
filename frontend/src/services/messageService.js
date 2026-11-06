@@ -71,9 +71,55 @@ export const messageService = {
   },
 
   /**
-   * Gửi tin nhắn mới tới receiverId (hỗ trợ văn bản và đa phương tiện ảnh/link)
+   * Tạo nhóm trò chuyện mới (tối thiểu 3 thành viên bao gồm người tạo)
    */
-  async sendMessage(receiverId, content = '', mediaUrl = null, mediaType = 'text') {
+  async createGroup(name, memberIds, avatarUrl = null) {
+    if (!hasValidToken()) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const res = await fetch(`${API_BASE_URL}/groups`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        name: (name || '').trim(),
+        member_ids: memberIds,
+        avatar_url: avatarUrl
+      })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể tạo nhóm trò chuyện');
+    }
+    return await res.json();
+  },
+
+  /**
+   * Cập nhật thông tin nhóm (tên nhóm, ảnh đại diện)
+   */
+  async updateGroup(conversationId, { name, avatarUrl } = {}) {
+    if (!hasValidToken()) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const body = {};
+    if (name !== undefined) body.name = (name || '').trim();
+    if (avatarUrl !== undefined) body.avatar_url = avatarUrl;
+
+    const res = await fetch(`${API_BASE_URL}/groups/${conversationId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể cập nhật thông tin nhóm');
+    }
+    return await res.json();
+  },
+
+  /**
+   * Gửi tin nhắn mới tới receiverId hoặc nhóm qua conversationId (hỗ trợ văn bản và đa phương tiện ảnh/link)
+   */
+  async sendMessage(receiverId, content = '', mediaUrl = null, mediaType = 'text', conversationId = null) {
     if (!hasValidToken()) {
       throw new Error('Bạn chưa đăng nhập');
     }
@@ -81,7 +127,8 @@ export const messageService = {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
-        receiver_id: receiverId,
+        receiver_id: receiverId || null,
+        conversation_id: conversationId || null,
         content: (content || '').trim(),
         media_url: mediaUrl,
         media_type: mediaType
