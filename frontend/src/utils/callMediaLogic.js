@@ -127,3 +127,21 @@ export function stopMediaStream(stream) {
     console.warn('Lỗi khi dừng media stream:', err);
   }
 }
+
+/**
+ * Thay thế track video gửi đi trong kết nối WebRTC (Dùng cho AR Filter mà không ngắt cuộc gọi)
+ */
+export async function applyVideoTrackToPeer(peerConnection, newVideoTrack) {
+  if (!peerConnection || !newVideoTrack) return false;
+  try {
+    const senders = typeof peerConnection.getSenders === 'function' ? peerConnection.getSenders() : [];
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+    if (videoSender && typeof videoSender.replaceTrack === 'function') {
+      await videoSender.replaceTrack(newVideoTrack);
+      return true;
+    }
+  } catch (err) {
+    console.warn('Lỗi khi thay thế track video trong WebRTC:', err);
+  }
+  return false;
+}
