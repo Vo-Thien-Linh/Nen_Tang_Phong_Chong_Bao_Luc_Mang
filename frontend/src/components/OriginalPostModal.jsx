@@ -18,6 +18,7 @@ import {
   getSummaryReactions, 
   applyReactionState 
 } from '../utils/reactionLogic';
+import HashtagText from './HashtagText';
 
 export default function OriginalPostModal({ 
   post, 
@@ -444,7 +445,7 @@ export default function OriginalPostModal({
             )}
             {post.content && (
               <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line break-words pt-1">
-                {post.content}
+                <HashtagText text={post.content} />
               </p>
             )}
 
@@ -714,7 +715,7 @@ export default function OriginalPostModal({
                       )}
                       {cmt.content && (
                         <p className="text-slate-700 leading-relaxed whitespace-pre-line break-words">
-                          {cmt.content}
+                          <HashtagText text={cmt.content} />
                         </p>
                       )}
 

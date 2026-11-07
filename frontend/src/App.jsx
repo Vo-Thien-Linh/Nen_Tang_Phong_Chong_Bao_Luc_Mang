@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
+import HashtagView from './components/HashtagView';
 import FriendsView from './components/FriendsView';
 import MessagesView from './components/MessagesView';
 import NotificationsView from './components/NotificationsView';
@@ -51,6 +52,8 @@ import {
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
+import { normalizeHashtag } from './utils/hashtag.js';
+import { buildHashtagHash, parseHashtagHash } from './utils/hashtagRouteLogic';
 import {
   clearPostNotice,
   countVisiblePosts,
@@ -74,6 +77,7 @@ export default function App() {
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
   const [focusedPostTarget, setFocusedPostTarget] = useState(null);
@@ -313,6 +317,9 @@ export default function App() {
     if (rawHash.startsWith('post-')) {
       initialHash = 'post';
       initialPostId = rawHash.replace('post-', '');
+    } else if (rawHash.startsWith('hashtag/')) {
+      initialHash = 'hashtag';
+      setSelectedHashtag(parseHashtagHash(rawHash));
     } else if (rawHash === 'post') {
       initialHash = 'post';
       initialPostId = sessionStorage.getItem('wings_viewed_post_id');
@@ -332,7 +339,7 @@ export default function App() {
     }
 
     if (!currentUser) {
-      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings') {
+      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings' || initialHash === 'hashtag') {
         initialHash = 'home';
       }
       setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
@@ -361,6 +368,9 @@ export default function App() {
       if (targetTab.startsWith('post-')) {
         targetPostId = targetTab.replace('post-', '');
         targetTab = 'post';
+      } else if (targetTab.startsWith('hashtag/')) {
+        setSelectedHashtag(parseHashtagHash(targetTab));
+        targetTab = 'hashtag';
       } else if (targetTab === 'post' && !targetPostId) {
         targetPostId = sessionStorage.getItem('wings_viewed_post_id');
       }
@@ -385,7 +395,7 @@ export default function App() {
         setViewedPostDetail(null);
       }
 
-      if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation')) {
+      if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation' || targetTab === 'hashtag')) {
         targetTab = 'home';
         setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
         setAuthModalTab('login');
@@ -499,6 +509,14 @@ export default function App() {
     } else {
       window.history.pushState(stateObj, '', `#${effectiveTab}`);
     }
+  };
+
+  const handleOpenHashtag = (tag) => {
+    const normalized = normalizeHashtag(tag);
+    if (!normalized) return;
+    setSelectedHashtag(normalized);
+    setActiveTab('hashtag');
+    window.history.pushState({ tab: 'hashtag', hashtag: normalized }, '', buildHashtagHash(normalized));
   };
 
   // Cập nhật thông tin người dùng đồng bộ
@@ -1815,10 +1833,7 @@ export default function App() {
             onDismissNotice={handleDismissPostNotice}
             searchQuery={homeSearchQuery}
             onClearSearch={() => setHomeSearchQuery('')}
-            onSelectHashtag={(tag) => {
-              setHomeSearchQuery(tag);
-              setActiveTab('home');
-            }}
+            onSelectHashtag={handleOpenHashtag}
             onSharePost={handleSharePost}
             focusedPostTarget={focusedPostTarget}
             isLoadingPosts={isLoadingPosts}
@@ -1827,6 +1842,30 @@ export default function App() {
             activeStreams={activeStreamsList}
             onWatchStream={handleWatchLiveStream}
             onOpenLiveStream={handleOpenLiveStreamAction}
+          />
+        )}
+
+        {activeTab === 'hashtag' && selectedHashtag && (
+          <HashtagView
+            tag={selectedHashtag}
+            currentUser={currentUser}
+            allPosts={posts}
+            onBack={() => handleTabChange('home')}
+            onToggleLike={handleToggleLike}
+            onAddComment={handleAddComment}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onRequireAuth={handleRequireAuth}
+            onRequireLogin={handleRequireLogin}
+            onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
+            onUpdatePost={handleUpdatePost}
+            onSharePost={handleSharePost}
           />
         )}
 

@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import pool, { testDbConnection } from './src/config/db.js';
 import { createUserRepository } from './src/repositories/userRepository.js';
+import { createPostRepository } from './src/repositories/postRepository.js';
 
 // Routers
 import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
@@ -17,8 +18,8 @@ import { createAppealsRouter } from './src/routes/appealsRouter.js';
 import { createAdminRouter } from './src/routes/adminRouter.js';
 import { createUploadRouter } from './src/routes/uploadRouter.js';
 import { createRealtimeRouter } from './src/routes/realtimeRouter.js';
+import { createHashtagsRouter } from './src/routes/hashtagsRouter.js';
 import { createStoriesRouter } from './src/routes/storiesRouter.js';
-
 dotenv.config();
 
 const app = express();
@@ -61,6 +62,7 @@ app.get('/api/db-test', async (req, res) => {
 app.use('/api/upload', createUploadRouter({ pool }));
 app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
+app.use('/api/hashtags', createHashtagsRouter({ pool, postRepository: createPostRepository({ pool }) }));
 app.use('/api/users', createUsersRouter({ pool }));
 app.use('/api/notifications', createNotificationsRouter({ pool }));
 app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
