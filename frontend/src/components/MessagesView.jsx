@@ -21,8 +21,10 @@ import {
   formatCallDuration,
   formatCallLogText,
   toggleMediaTrack,
-  stopMediaStream
+  stopMediaStream,
+  applyVideoTrackToPeer
 } from '../utils/callMediaLogic';
+import { FaceFilterManager } from '../utils/faceFilterLogic';
 
 const EMOJI_CATEGORIES = [
   {
@@ -224,11 +226,14 @@ export default function MessagesView({
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [isWsConnected, setIsWsConnected] = useState(false);
+  const [activeCallFilterId, setActiveCallFilterId] = useState('none');
 
   const wsRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
+  const rawCameraStreamRef = useRef(null);
+  const filterManagerRef = useRef(null);
   const callTimerRef = useRef(null);
   // Ref đếm timeout khi người được gọi không trả lời
   const callTimeoutRef = useRef(null);
@@ -819,7 +824,14 @@ export default function MessagesView({
     }
     stopMediaStream(localStreamRef.current);
     localStreamRef.current = null;
+    rawCameraStreamRef.current = null;
     setLocalStream(null);
+
+    if (filterManagerRef.current) {
+      filterManagerRef.current.destroy();
+      filterManagerRef.current = null;
+    }
+    setActiveCallFilterId('none');
 
     stopMediaStream(remoteStreamRef.current);
     remoteStreamRef.current = null;
@@ -929,6 +941,7 @@ export default function MessagesView({
           video: type === 'video',
           audio: true
         });
+        rawCameraStreamRef.current = stream;
         localStreamRef.current = stream;
         setLocalStream(stream);
       }
@@ -980,6 +993,7 @@ export default function MessagesView({
           video: callType === 'video',
           audio: true
         });
+        rawCameraStreamRef.current = stream;
         localStreamRef.current = stream;
         setLocalStream(stream);
       }
@@ -1059,6 +1073,57 @@ export default function MessagesView({
     const nextOff = !isVideoOff;
     setIsVideoOff(nextOff);
     toggleMediaTrack(localStreamRef.current, 'video', !nextOff);
+  };
+
+  // Chọn bộ lọc AR / Hiệu ứng khuôn mặt
+  const handleSelectCallFilter = async (filterId) => {
+    setActiveCallFilterId(filterId);
+    const rawStream = rawCameraStreamRef.current || localStreamRef.current;
+    if (!rawStream) return;
+
+    if (filterId === 'none') {
+      if (filterManagerRef.current) {
+        filterManagerRef.current.setFilter('none');
+      }
+      const rawVideoTrack = rawStream.getVideoTracks ? rawStream.getVideoTracks()[0] : null;
+      if (rawVideoTrack && peerConnectionRef.current) {
+        await applyVideoTrackToPeer(peerConnectionRef.current, rawVideoTrack);
+      }
+      localStreamRef.current = rawStream;
+      setLocalStream(rawStream);
+      return;
+    }
+
+    try {
+      if (!filterManagerRef.current) {
+        const mgr = new FaceFilterManager();
+        await mgr.init(rawStream);
+        filterManagerRef.current = mgr;
+      }
+      filterManagerRef.current.setFilter(filterId);
+      const filteredStream = filterManagerRef.current.getFilteredStream();
+      if (filteredStream) {
+        let combinedStream = filteredStream;
+        if (typeof MediaStream !== 'undefined') {
+          combinedStream = new MediaStream();
+          if (rawStream.getAudioTracks) {
+            rawStream.getAudioTracks().forEach(t => combinedStream.addTrack(t));
+          }
+          if (filteredStream.getVideoTracks) {
+            filteredStream.getVideoTracks().forEach(t => combinedStream.addTrack(t));
+          }
+        }
+
+        const filteredVideoTrack = filteredStream.getVideoTracks ? filteredStream.getVideoTracks()[0] : null;
+        if (filteredVideoTrack && peerConnectionRef.current) {
+          await applyVideoTrackToPeer(peerConnectionRef.current, filteredVideoTrack);
+        }
+        localStreamRef.current = combinedStream;
+        setLocalStream(combinedStream);
+      }
+    } catch (err) {
+      console.warn('Lỗi khi kích hoạt filter khuôn mặt:', err);
+    }
   };
 
   // 2. Polling dự phòng (fallback) để đồng bộ dữ liệu
@@ -3231,11 +3296,13 @@ export default function MessagesView({
           callDuration={callDuration}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
+          activeFilterId={activeCallFilterId}
           onAccept={handleAcceptCall}
           onDecline={handleDeclineCall}
           onEndCall={handleEndCall}
           onToggleMic={handleToggleMic}
           onToggleCamera={handleToggleCamera}
+          onSelectFilter={handleSelectCallFilter}
         />
 
         {/* Modal Tạo nhóm chat mới */}
