@@ -240,7 +240,7 @@ server.on('upgrade', (req, socket, head) => {
   });
 
   const requestPath = new URL(req.url, 'http://gateway.local').pathname;
-  if (!/^\/api(?:\/v1)?\/messages\/ws\//.test(requestPath)) {
+  if (!/^\/api(?:\/v1)?\/(?:messages|livestreams)\/ws\//.test(requestPath)) {
     socket.destroy();
     return;
   }

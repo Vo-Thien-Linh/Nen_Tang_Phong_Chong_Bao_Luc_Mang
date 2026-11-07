@@ -48,6 +48,14 @@ export default function LiveStreamModal({
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [isTerminated, setIsTerminated] = useState(session?.status === 'TERMINATED_FOR_VIOLATION');
   const [terminationReason, setTerminationReason] = useState(session?.termination_reason || '');
+  const [isStreamEnded, setIsStreamEnded] = useState(
+    session?.status === 'ENDED' || Boolean(session?.ended_at)
+  );
+  const [streamEndedInfo, setStreamEndedInfo] = useState({
+    message: session?.status === 'ENDED' ? 'Buổi phát trực tiếp đã kết thúc' : '',
+    endedAt: session?.ended_at || null,
+    streamerName: session?.streamer_name || 'Người phát sóng'
+  });
 
   const videoRef = useRef(null);
   const viewerVideoRef = useRef(null);
@@ -87,6 +95,89 @@ export default function LiveStreamModal({
       window.__wings_active_broadcast_stream = localStream;
     }
   }, [localStream, effectiveMode]);
+
+  // Dọn dẹp triệt để luồng video của người xem để giải phóng và không bị đóng băng hình ảnh cuối
+  const stopRemoteStream = useCallback(() => {
+    if (viewerVideoRef.current) {
+      try {
+        viewerVideoRef.current.pause();
+        viewerVideoRef.current.srcObject = null;
+      } catch (e) {}
+    }
+    if (viewerPcRef.current) {
+      try {
+        viewerPcRef.current.close();
+      } catch (e) {}
+      viewerPcRef.current = null;
+    }
+    setRemoteStream(null);
+    setStreamLoading(false);
+  }, []);
+
+  // Xử lý khi buổi livestream kết thúc
+  const handleStreamEnded = useCallback((info = {}) => {
+    setIsStreamEnded(true);
+    setStreamEndedInfo((prev) => ({
+      ...prev,
+      message: info.message || 'Buổi phát trực tiếp đã kết thúc',
+      endedAt: info.ended_at || new Date().toISOString(),
+      streamerName: info.streamer_name || session?.streamer_name || 'Streamer'
+    }));
+    stopRemoteStream();
+  }, [session?.streamer_name, stopRemoteStream]);
+
+  // Đồng bộ trạng thái kết thúc hoặc vi phạm từ props session
+  useEffect(() => {
+    if (session?.status === 'ENDED' || Boolean(session?.ended_at)) {
+      handleStreamEnded({
+        message: 'Buổi phát trực tiếp đã kết thúc',
+        ended_at: session?.ended_at,
+        streamer_name: session?.streamer_name
+      });
+    }
+    if (session?.status === 'TERMINATED_FOR_VIOLATION') {
+      setIsTerminated(true);
+      setTerminationReason(session?.termination_reason || 'Nội dung vi phạm nghiêm trọng quy chuẩn phòng chống bạo lực mạng.');
+      stopRemoteStream();
+    }
+  }, [session?.status, session?.ended_at, session?.streamer_name, session?.termination_reason, handleStreamEnded, stopRemoteStream]);
+
+  // Cơ chế Polling Fallback (3 giây một lần) dành cho người xem để phát hiện tức thì khi streamer đã tắt live
+  useEffect(() => {
+    if (!isOpen || effectiveMode !== 'view' || !session?.id || isStreamEnded || isTerminated) return;
+
+    let isMounted = true;
+    const pollInterval = setInterval(async () => {
+      try {
+        const detail = await livestreamService.getStreamDetail(session.id);
+        if (!isMounted) return;
+        if (detail.status === 'ENDED' || detail.ended_at) {
+          handleStreamEnded({
+            message: `Buổi phát trực tiếp của ${detail.streamer_name || session?.streamer_name || 'Streamer'} đã kết thúc.`,
+            ended_at: detail.ended_at,
+            streamer_name: detail.streamer_name
+          });
+        } else if (detail.status === 'TERMINATED_FOR_VIOLATION') {
+          setIsTerminated(true);
+          setTerminationReason(detail.termination_reason || 'Nội dung vi phạm nghiêm trọng quy chuẩn phòng chống bạo lực mạng.');
+          stopRemoteStream();
+        }
+      } catch (err) {
+        if (err.message && (err.message.includes('404') || err.message.includes('Không tìm thấy'))) {
+          if (isMounted) {
+            handleStreamEnded({
+              message: 'Buổi phát trực tiếp đã kết thúc hoặc không còn tồn tại.'
+            });
+          }
+        }
+      }
+    }, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [isOpen, effectiveMode, session?.id, isStreamEnded, isTerminated, session?.streamer_name, handleStreamEnded, stopRemoteStream]);
 
   // Nạp danh sách bình luận THẬT từ CSDL PostgreSQL/SQLite khi mở phòng
   useEffect(() => {
@@ -322,7 +413,40 @@ export default function LiveStreamModal({
 
         if (event.track) {
           inboundStream.addTrack(event.track);
+          event.track.onended = () => {
+            if (session?.id) {
+              livestreamService.getStreamDetail(session.id)
+                .then((d) => {
+                  if (d.status === 'ENDED' || d.ended_at) {
+                    handleStreamEnded({
+                      message: `Buổi phát trực tiếp của ${d.streamer_name || session?.streamer_name || 'Streamer'} đã kết thúc.`,
+                      ended_at: d.ended_at,
+                      streamer_name: d.streamer_name
+                    });
+                  }
+                })
+                .catch(() => {});
+            }
+          };
         }
+
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+            if (session?.id) {
+              livestreamService.getStreamDetail(session.id)
+                .then((d) => {
+                  if (d.status === 'ENDED' || d.ended_at) {
+                    handleStreamEnded({
+                      message: `Buổi phát trực tiếp của ${d.streamer_name || session?.streamer_name || 'Streamer'} đã kết thúc.`,
+                      ended_at: d.ended_at,
+                      streamer_name: d.streamer_name
+                    });
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        };
 
         if (viewerVideoRef.current) {
           if (viewerVideoRef.current.srcObject !== inboundStream) {
@@ -456,8 +580,21 @@ export default function LiveStreamModal({
                 (uid) => String(uid) === String(session.streamer_id)
               );
               setStreamerOnline(isOnline);
+              if (!isOnline && effectiveMode === 'view' && session?.id) {
+                livestreamService.getStreamDetail(session.id)
+                  .then((d) => {
+                    if (d.status === 'ENDED' || d.ended_at) {
+                      handleStreamEnded({
+                        message: `Buổi phát trực tiếp của ${d.streamer_name || session?.streamer_name || 'Streamer'} đã kết thúc.`,
+                        ended_at: d.ended_at,
+                        streamer_name: d.streamer_name
+                      });
+                    }
+                  })
+                  .catch(() => {});
+              }
             }
-            if (effectiveMode === 'view' && !remoteStream) {
+            if (effectiveMode === 'view' && !remoteStream && !isStreamEnded) {
               requestStreamFromStreamer();
             }
           } else if (data.type === 'STREAM_REQUEST') {
@@ -476,6 +613,26 @@ export default function LiveStreamModal({
             handleReceiveIceCandidate(data.from_user_id, data.candidate);
           } else if (data.type === 'STREAMER_STATUS') {
             if (data.isVideoOff !== undefined) setStreamerIsVideoOff(data.isVideoOff);
+          } else if (data.type === 'STREAM_ENDED') {
+            handleStreamEnded({
+              message: data.message || `Buổi phát trực tiếp của ${data.streamer_name || session?.streamer_name || 'Streamer'} đã kết thúc.`,
+              ended_at: data.ended_at,
+              streamer_name: data.streamer_name || session?.streamer_name
+            });
+          } else if (data.type === 'STREAMER_DISCONNECTED') {
+            if (effectiveMode === 'view' && session?.id) {
+              livestreamService.getStreamDetail(session.id)
+                .then((d) => {
+                  if (d.status === 'ENDED' || d.ended_at) {
+                    handleStreamEnded({
+                      message: `Buổi phát trực tiếp của ${d.streamer_name || session?.streamer_name || 'Streamer'} đã kết thúc.`,
+                      ended_at: d.ended_at,
+                      streamer_name: d.streamer_name
+                    });
+                  }
+                })
+                .catch(() => {});
+            }
           } else if (data.type === 'NEW_LIVE_COMMENT') {
             setComments((prev) => [...prev, data]);
           } else if (data.type === 'CHAT_MODERATION_ALERT') {
@@ -486,6 +643,7 @@ export default function LiveStreamModal({
           } else if (data.type === 'STREAM_TERMINATED') {
             setIsTerminated(true);
             setTerminationReason(data.reason || 'Vi phạm tiêu chuẩn cộng đồng');
+            stopRemoteStream();
           }
         } catch (e) {
           console.error('Lỗi phân tích tin nhắn WebSocket:', e);
@@ -513,7 +671,7 @@ export default function LiveStreamModal({
         wsRef.current.close();
       }
     };
-  }, [isOpen, session?.id, currentUser?.id, effectiveMode, requestStreamFromStreamer, handleStreamRequest, handleReceiveOffer, handleReceiveAnswer, handleReceiveIceCandidate]);
+  }, [isOpen, session?.id, currentUser?.id, effectiveMode, requestStreamFromStreamer, handleStreamRequest, handleReceiveOffer, handleReceiveAnswer, handleReceiveIceCandidate, handleStreamEnded, stopRemoteStream, isStreamEnded]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -627,10 +785,17 @@ export default function LiveStreamModal({
           {/* Header Video */}
           <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-auto">
             <div className="flex items-center gap-3 bg-black/50 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10">
-              <span id="live-stream-badge" className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-xs font-bold uppercase tracking-wider animate-pulse">
-                <Radio className="w-3.5 h-3.5" />
-                Trực tiếp
-              </span>
+              {isStreamEnded ? (
+                <span id="live-stream-ended-badge" className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-bold uppercase tracking-wider border border-white/10">
+                  <Radio className="w-3.5 h-3.5 text-slate-400" />
+                  Đã kết thúc
+                </span>
+              ) : (
+                <span id="live-stream-badge" className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-xs font-bold uppercase tracking-wider animate-pulse">
+                  <Radio className="w-3.5 h-3.5" />
+                  Trực tiếp
+                </span>
+              )}
               <span className="text-white text-sm font-semibold truncate max-w-[200px]">
                 {session?.title || 'Phòng phát trực tiếp'}
               </span>
@@ -657,7 +822,72 @@ export default function LiveStreamModal({
 
           {/* Màn hình Video / Cảnh báo ngắt sóng */}
           <div className="relative w-full h-full flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-black">
-            {isTerminated ? (
+            {isStreamEnded ? (
+              /* MÀN HÌNH THÔNG BÁO LIVESTREAM ĐÃ KẾT THÚC CHUẨN FACEBOOK / TIKTOK */
+              <div id="live-ended-overlay" className="relative w-full h-full flex items-center justify-center p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-black overflow-hidden animate-fadeIn">
+                {/* Hiệu ứng ánh sáng hào quang ambient nền */}
+                <div className="absolute w-80 h-80 rounded-full bg-rose-500/10 filter blur-3xl -top-10 -left-10 pointer-events-none" />
+                <div className="absolute w-80 h-80 rounded-full bg-indigo-500/10 filter blur-3xl -bottom-10 -right-10 pointer-events-none" />
+
+                {/* Khung Card thông báo chính */}
+                <div className="relative z-10 max-w-md w-full bg-slate-900/90 border border-slate-700/70 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-2xl backdrop-blur-xl">
+                  
+                  {/* Avatar streamer kèm huy hiệu kết thúc */}
+                  <div className="relative mb-4">
+                    <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full p-1 bg-gradient-to-tr from-slate-700 via-rose-500/50 to-indigo-500/50 shadow-xl">
+                      <img
+                        src={session?.streamer_avatar || DEFAULT_AVATAR}
+                        alt={session?.streamer_name || 'Streamer'}
+                        className="w-full h-full rounded-full object-cover bg-slate-800"
+                        onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                      />
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 shadow-md">
+                      <Radio className="w-3 h-3 text-rose-400" />
+                      Đã kết thúc
+                    </div>
+                  </div>
+
+                  {/* Tiêu đề thông báo */}
+                  <h3 className="text-xl sm:text-2xl font-black text-white mb-2 tracking-tight">
+                    Buổi phát trực tiếp đã kết thúc
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mb-5 max-w-xs leading-relaxed">
+                    Cảm ơn bạn đã tham gia và theo dõi buổi phát trực tiếp của{' '}
+                    <span className="text-indigo-300 font-bold">{streamEndedInfo.streamerName || session?.streamer_name || 'Streamer'}</span>.
+                  </p>
+
+                  {/* Bảng thống kê tóm tắt buổi live */}
+                  <div className="w-full grid grid-cols-2 gap-3 mb-6 bg-slate-800/70 border border-slate-700/50 rounded-2xl p-3.5">
+                    <div className="flex flex-col items-center">
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
+                        <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                        Lượt xem
+                      </span>
+                      <span className="text-base font-bold text-white">{viewerCount || 1}</span>
+                    </div>
+                    <div className="flex flex-col items-center border-l border-slate-700/60">
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                        Bình luận
+                      </span>
+                      <span className="text-base font-bold text-white">{comments.length}</span>
+                    </div>
+                  </div>
+
+                  {/* Nút thao tác rời phòng */}
+                  <button
+                    type="button"
+                    id="btn-leave-ended-livestream"
+                    onClick={onClose}
+                    className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-rose-600 hover:from-indigo-500 hover:to-rose-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    <span>Rời phòng & Quay lại bảng tin</span>
+                  </button>
+                </div>
+              </div>
+            ) : isTerminated ? (
               <div className="flex flex-col items-center justify-center text-center p-8 bg-rose-950/80 border border-rose-500/50 rounded-2xl max-w-lg m-4 shadow-2xl backdrop-blur-lg">
                 <AlertTriangle className="w-16 h-16 text-rose-500 animate-bounce mb-4" />
                 <h3 className="text-xl font-bold text-white mb-2">PHÒNG LIVE ĐÃ BỊ CƯỠNG CHẾ DỪNG</h3>
@@ -865,7 +1095,7 @@ export default function LiveStreamModal({
           {/* Thanh điều khiển dưới đáy Video */}
           <div className="absolute bottom-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-auto">
             <div className="flex items-center gap-2">
-              {effectiveMode === 'broadcast' && (
+              {!isStreamEnded && effectiveMode === 'broadcast' && (
                 <>
                   <button
                     id="btn-toggle-mic"
@@ -899,24 +1129,39 @@ export default function LiveStreamModal({
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md p-1.5 rounded-full border border-white/10">
-                {['❤️', '👏', '🔥', '🛡️'].map((emoji) => (
-                  <button
-                    key={emoji}
-                    id={`btn-reaction-${emoji}`}
-                    onClick={() => handleSendReaction(emoji)}
-                    className="w-9 h-9 rounded-full hover:bg-white/20 flex items-center justify-center text-lg transition transform hover:scale-125 active:scale-95 cursor-pointer"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
+              {!isStreamEnded && (
+                <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md p-1.5 rounded-full border border-white/10">
+                  {['❤️', '👏', '🔥', '🛡️'].map((emoji) => (
+                    <button
+                      key={emoji}
+                      id={`btn-reaction-${emoji}`}
+                      onClick={() => handleSendReaction(emoji)}
+                      className="w-9 h-9 rounded-full hover:bg-white/20 flex items-center justify-center text-lg transition transform hover:scale-125 active:scale-95 cursor-pointer"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {effectiveMode === 'broadcast' && (
+              {!isStreamEnded && effectiveMode === 'broadcast' && (
                 <button
                   type="button"
                   id="btn-end-livestream"
-                  onClick={() => onEndStream && onEndStream(session?.id)}
+                  onClick={() => {
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                      try {
+                        wsRef.current.send(JSON.stringify({
+                          type: 'STREAM_ENDED',
+                          session_id: session?.id,
+                          streamer_name: currentUser?.full_name || session?.streamer_name
+                        }));
+                      } catch (e) {}
+                    }
+                    if (onEndStream) {
+                      onEndStream(session?.id);
+                    }
+                  }}
                   className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-semibold rounded-full flex items-center gap-1.5 transition shadow-lg shadow-rose-600/30 cursor-pointer"
                 >
                   <PhoneOff className="w-4 h-4" />
@@ -973,6 +1218,14 @@ export default function LiveStreamModal({
             </div>
           )}
 
+          {/* Cảnh báo kết thúc buổi live */}
+          {isStreamEnded && (
+            <div id="live-ended-chat-notice" className="mx-3 mb-2 p-2.5 bg-slate-800/90 border border-slate-700/80 rounded-xl text-slate-300 text-xs flex items-center gap-2 animate-fadeIn">
+              <Radio className="w-4 h-4 text-rose-400 shrink-0" />
+              <span className="leading-tight">Buổi phát trực tiếp đã kết thúc. Cảm ơn mọi người đã tương tác văn minh!</span>
+            </div>
+          )}
+
           {/* Ô nhập bình luận */}
           <form onSubmit={handleSendComment} className="p-3 border-t border-slate-800 bg-slate-900/90 flex items-center gap-2">
             <input
@@ -980,15 +1233,15 @@ export default function LiveStreamModal({
               type="text"
               value={inputComment}
               onChange={(e) => setInputComment(e.target.value)}
-              placeholder="Gửi bình luận văn minh..."
-              className="flex-1 bg-slate-800/80 border border-slate-700 rounded-full px-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
-              disabled={isTerminated}
+              placeholder={isStreamEnded ? "Buổi phát trực tiếp đã kết thúc" : "Gửi bình luận văn minh..."}
+              className="flex-1 bg-slate-800/80 border border-slate-700 rounded-full px-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={isTerminated || isStreamEnded}
             />
             <button
               id="live-chat-send-btn"
               type="submit"
-              disabled={!inputComment.trim() || isTerminated}
-              className="w-9 h-9 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white flex items-center justify-center transition shrink-0 cursor-pointer"
+              disabled={!inputComment.trim() || isTerminated || isStreamEnded}
+              className="w-9 h-9 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white flex items-center justify-center transition shrink-0 cursor-pointer disabled:cursor-not-allowed"
             >
               <Send className="w-4 h-4" />
             </button>

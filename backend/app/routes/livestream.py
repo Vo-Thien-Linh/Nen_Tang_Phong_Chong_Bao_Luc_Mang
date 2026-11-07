@@ -4,8 +4,9 @@ from typing import Optional, List, Dict, Set
 from datetime import datetime
 import json
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models.user import User
+from ..models.livestream import LiveSession
 from ..utils.security import decode_access_token
 from ..services.livestream_service import LiveStreamService
 from ..schemas.livestream import (
@@ -187,12 +188,21 @@ def get_livestream_detail(session_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{session_id}/end", response_model=LiveSessionResponse, summary="Kết thúc buổi Livestream")
-def end_livestream(
+async def end_livestream(
     session_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     session = LiveStreamService.end_session(db, session_id, current_user.id)
+    # Phát tán tín hiệu STREAM_ENDED tới tất cả khán giả trong phòng qua WebSocket
+    await live_manager.broadcast(session_id, {
+        "type": "STREAM_ENDED",
+        "session_id": session_id,
+        "streamer_id": str(current_user.id),
+        "streamer_name": current_user.full_name,
+        "ended_at": session.ended_at.isoformat() if session.ended_at else datetime.utcnow().isoformat(),
+        "message": f"Buổi phát trực tiếp của {current_user.full_name} đã kết thúc."
+    })
     return LiveSessionResponse(
         id=session.id,
         streamer_id=str(current_user.id),
@@ -279,13 +289,19 @@ def moderate_live_frame(
 
 
 @router.post("/{session_id}/terminate", response_model=LiveSessionResponse, summary="Cưỡng chế ngắt sóng buổi Live (Admin/AI)")
-def terminate_livestream(
+async def terminate_livestream(
     session_id: int,
     reason: Optional[str] = "Cưỡng chế ngắt sóng do vi phạm nghiêm trọng an toàn không gian mạng",
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     session = LiveStreamService.emergency_terminate(db, session_id, reason)
+    await live_manager.broadcast(session_id, {
+        "type": "STREAM_TERMINATED",
+        "session_id": session_id,
+        "reason": reason,
+        "message": f"Phòng live đã bị cưỡng chế dừng: {reason}"
+    })
     streamer = db.query(User).filter(User.id == session.streamer_id).first()
     return LiveSessionResponse(
         id=session.id,
@@ -362,7 +378,36 @@ async def livestream_websocket(websocket: WebSocket, session_id: int, user_id: s
                     "reaction": reaction_type
                 })
 
+            # 4. Streamer chủ động gửi tín hiệu kết thúc qua WebSocket
+            elif event_type == "STREAM_ENDED":
+                await live_manager.broadcast(session_id, {
+                    "type": "STREAM_ENDED",
+                    "session_id": session_id,
+                    "from_user_id": user_id,
+                    "streamer_name": data.get("streamer_name", "Streamer"),
+                    "ended_at": datetime.utcnow().isoformat(),
+                    "message": "Buổi phát trực tiếp đã kết thúc."
+                })
+
     except WebSocketDisconnect:
         await live_manager.leave_room(session_id, user_id, websocket)
     except Exception:
         await live_manager.leave_room(session_id, user_id, websocket)
+    finally:
+        # Kiểm tra nếu người vừa ngắt kết nối chính là Streamer của phòng
+        try:
+            db_conn = SessionLocal()
+            try:
+                s = db_conn.query(LiveSession).filter(LiveSession.id == session_id).first()
+                if s and str(s.streamer_id) == str(user_id):
+                    # Báo hiệu cho khán giả biết streamer đã kết thúc hoặc ngắt kết nối
+                    await live_manager.broadcast(session_id, {
+                        "type": "STREAM_ENDED" if s.status == "ENDED" else "STREAMER_DISCONNECTED",
+                        "session_id": session_id,
+                        "streamer_id": user_id,
+                        "message": "Buổi phát trực tiếp đã kết thúc." if s.status == "ENDED" else "Streamer đã tạm ngắt kết nối."
+                    })
+            finally:
+                db_conn.close()
+        except Exception:
+            pass
