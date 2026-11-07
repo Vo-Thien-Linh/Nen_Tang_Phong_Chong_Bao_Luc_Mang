@@ -105,22 +105,50 @@ def ensure_schema_migrations(eng):
                 conn.commit()
             else:
                 try:
-                    conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_recalled BOOLEAN DEFAULT FALSE"))
-                    conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT"))
-                    conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(20) DEFAULT 'text'"))
-                    conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS blocked_by UUID"))
-                    conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'direct'"))
-                    conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS name VARCHAR(100)"))
-                    conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
-                    conn.execute(text("ALTER TABLE conversations ALTER COLUMN user1_id DROP NOT NULL"))
-                    conn.execute(text("ALTER TABLE conversations ALTER COLUMN user2_id DROP NOT NULL"))
-                    conn.execute(text("ALTER TABLE conversations DROP CONSTRAINT IF EXISTS chk_conv_not_self"))
-                    conn.execute(text("ALTER TABLE conversations ADD CONSTRAINT chk_conv_not_self CHECK (type = 'group' OR (user1_id IS NOT NULL AND user2_id IS NOT NULL AND user1_id <> user2_id))"))
-                    conn.execute(text("DROP INDEX IF EXISTS idx_unique_conversation_pair"))
-                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_conversation_pair ON conversations (LEAST(user1_id, user2_id), GREATEST(user1_id, user2_id)) WHERE (type = 'direct' OR type IS NULL)"))
-                    conn.execute(text("ALTER TABLE messages ALTER COLUMN receiver_id DROP NOT NULL"))
-                    conn.execute(text("ALTER TABLE messages DROP CONSTRAINT IF EXISTS chk_not_self_message"))
-                    conn.execute(text("ALTER TABLE messages ADD CONSTRAINT chk_not_self_message CHECK (receiver_id IS NULL OR sender_id <> receiver_id)"))
+                    # Giới hạn thời gian chờ lock và truy vấn tối đa 2s để không bao giờ treo startup của backend
+                    try:
+                        conn.execute(text("SET lock_timeout = '2s'"))
+                        conn.execute(text("SET statement_timeout = '3s'"))
+                    except Exception:
+                        pass
+
+                    # Kiểm tra danh sách cột có sẵn trước để tránh lệnh ALTER TABLE chiếm ACCESS EXCLUSIVE lock
+                    conv_cols = [r[0] for r in conn.execute(text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'conversations'"
+                    )).fetchall()]
+
+                    msg_cols = [r[0] for r in conn.execute(text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'messages'"
+                    )).fetchall()]
+
+                    if msg_cols:
+                        if "is_recalled" not in msg_cols:
+                            conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_recalled BOOLEAN DEFAULT FALSE"))
+                        if "media_url" not in msg_cols:
+                            conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT"))
+                        if "media_type" not in msg_cols:
+                            conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(20) DEFAULT 'text'"))
+
+                    if conv_cols:
+                        if "blocked_by" not in conv_cols:
+                            conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS blocked_by UUID"))
+                        if "type" not in conv_cols:
+                            conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'direct'"))
+                        if "name" not in conv_cols:
+                            conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS name VARCHAR(100)"))
+                        if "avatar_url" not in conv_cols:
+                            conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
+                        if "type" not in conv_cols:
+                            conn.execute(text("ALTER TABLE conversations ALTER COLUMN user1_id DROP NOT NULL"))
+                            conn.execute(text("ALTER TABLE conversations ALTER COLUMN user2_id DROP NOT NULL"))
+                            conn.execute(text("ALTER TABLE conversations DROP CONSTRAINT IF EXISTS chk_conv_not_self"))
+                            conn.execute(text("ALTER TABLE conversations ADD CONSTRAINT chk_conv_not_self CHECK (type = 'group' OR (user1_id IS NOT NULL AND user2_id IS NOT NULL AND user1_id <> user2_id))"))
+                            conn.execute(text("DROP INDEX IF EXISTS idx_unique_conversation_pair"))
+                            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_conversation_pair ON conversations (LEAST(user1_id, user2_id), GREATEST(user1_id, user2_id)) WHERE (type = 'direct' OR type IS NULL)"))
+                            conn.execute(text("ALTER TABLE messages ALTER COLUMN receiver_id DROP NOT NULL"))
+                            conn.execute(text("ALTER TABLE messages DROP CONSTRAINT IF EXISTS chk_not_self_message"))
+                            conn.execute(text("ALTER TABLE messages ADD CONSTRAINT chk_not_self_message CHECK (receiver_id IS NULL OR sender_id <> receiver_id)"))
+
                     conn.execute(text("""
                         CREATE TABLE IF NOT EXISTS conversation_members (
                             id BIGSERIAL PRIMARY KEY,

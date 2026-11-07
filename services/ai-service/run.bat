@@ -5,3 +5,4 @@ if exist backend\.venv\Scripts\python.exe (
 ) else (
   python services\ai-service\main.py
 )
+pause

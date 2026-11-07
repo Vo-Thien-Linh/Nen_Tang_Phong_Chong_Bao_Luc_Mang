@@ -64,7 +64,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.POST_SERVICE_PORT || 5002;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Microservice 2: Post & Content Service] đang chạy tại http://localhost:${PORT}`);
 });
 

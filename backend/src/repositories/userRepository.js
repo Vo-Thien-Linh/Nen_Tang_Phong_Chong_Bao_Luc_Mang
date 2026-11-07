@@ -223,7 +223,9 @@ export function createUserRepository({ pool }) {
                 u.id AS author_id, u.full_name, u.username, u.avatar_url
          FROM comments c
          JOIN users u ON u.id = c.author_id
-         WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
+         WHERE c.post_id = ANY($1::bigint[])
+           AND c.is_hidden = false
+           AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
            AND c.image_moderation_status IS DISTINCT FROM 'rejected_final'
            AND (
              c.author_id = $2

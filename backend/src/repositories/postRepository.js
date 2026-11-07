@@ -259,7 +259,9 @@ export function createPostRepository({ pool }) {
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
-           WHERE c.post_id = $1 AND (c.is_hidden = false OR c.author_id = $2)
+           WHERE c.post_id = $1
+             AND c.is_hidden = false
+             AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
          ORDER BY c.created_at ASC`,
@@ -503,7 +505,9 @@ export function createPostRepository({ pool }) {
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
-           WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
+           WHERE c.post_id = ANY($1::bigint[])
+             AND c.is_hidden = false
+             AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
          ORDER BY c.created_at ASC`,

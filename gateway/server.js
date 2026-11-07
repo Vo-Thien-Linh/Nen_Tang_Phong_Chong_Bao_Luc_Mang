@@ -85,7 +85,7 @@ function findTarget(url) {
 async function checkServiceHealth(svc) {
   const start = Date.now();
   try {
-    const res = await fetch(svc.url, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(svc.url, { signal: AbortSignal.timeout(3000) });
     const latency = Date.now() - start;
     if (res.ok) {
       return { service: svc.name, port: svc.port, status: 'UP', latency: `${latency}ms` };
@@ -240,7 +240,7 @@ server.on('upgrade', (req, socket, head) => {
   });
 
   const requestPath = new URL(req.url, 'http://gateway.local').pathname;
-  if (!/^\/api(?:\/v1)?\/messages\/ws\//.test(requestPath)) {
+  if (!/^\/api(?:\/v1)?\/(?:messages|livestreams)\/ws\//.test(requestPath)) {
     socket.destroy();
     return;
   }
@@ -275,7 +275,7 @@ server.on('upgrade', (req, socket, head) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
   console.log(`[API GATEWAY] Đang chạy tại: http://localhost:${PORT}`);
   console.log(`Bảng tổng quan dịch vụ: http://localhost:${PORT}/api/gateway/routes`);

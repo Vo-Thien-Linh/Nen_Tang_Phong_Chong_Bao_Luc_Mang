@@ -10,11 +10,22 @@ export function incrementPostCountOnce(user, newPost, alreadyAdded) {
 
 export function appendCreatedComment(post, comment) {
   if (!post || !comment || (post.comments || []).some((item) => String(item.id) === String(comment.id))) return post;
-  const isHidden = Boolean(comment.is_hidden || comment.isHidden || comment.ai_status === 'hidden' || comment.aiStatus === 'hidden');
+  const isHidden = Boolean(
+    comment.is_hidden || comment.isHidden ||
+    comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' ||
+    comment.ai_label === 'Author Blacklist' || comment.aiLabel === 'Author Blacklist'
+  );
+  if (isHidden) {
+    return {
+      ...post,
+      comments: (post.comments || []).filter(c => !Boolean(c.is_hidden || c.isHidden || c.ai_status === 'hidden' || c.aiStatus === 'hidden' || c.ai_label === 'Author Blacklist' || c.aiLabel === 'Author Blacklist')),
+      commentsCount: Number(post.commentsCount || 0),
+    };
+  }
   return {
     ...post,
     comments: [...(post.comments || []), comment],
-    commentsCount: isHidden ? Number(post.commentsCount || 0) : Number(post.commentsCount || 0) + 1,
+    commentsCount: Number(post.commentsCount || 0) + 1,
   };
 }
 

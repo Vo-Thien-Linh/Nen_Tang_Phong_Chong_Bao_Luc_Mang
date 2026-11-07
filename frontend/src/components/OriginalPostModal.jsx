@@ -282,6 +282,21 @@ export default function OriginalPostModal({
         return;
       }
 
+      const isCommentHidden = Boolean(
+        res.isAuthorBlacklisted ||
+        res.data?.is_hidden || res.data?.isHidden ||
+        res.data?.ai_status === 'hidden' || res.data?.aiStatus === 'hidden' ||
+        res.data?.ai_label === 'Author Blacklist' || res.data?.aiLabel === 'Author Blacklist'
+      );
+
+      if (isCommentHidden) {
+        alert(res.message || "Bình luận chứa từ khóa cấm và đã bị ẩn hoàn toàn theo tiêu chuẩn cộng đồng.");
+        setCommentText('');
+        handleRemoveCommentImage();
+        setIsSubmittingComment(false);
+        return;
+      }
+
       const newComment = res.data || {
         id: `temp-${Date.now()}`,
         author: {
@@ -318,6 +333,16 @@ export default function OriginalPostModal({
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
+
+  const visibleComments = (comments || []).filter((item) => {
+    const isHidden = Boolean(
+      item.is_hidden || item.isHidden ||
+      item.ai_status === 'hidden' || item.aiStatus === 'hidden' ||
+      item.ai_label === 'Author Blacklist' || item.aiLabel === 'Author Blacklist'
+    );
+    const isRejectedFinal = (item.imageModeration?.status || item.image_moderation_status) === 'rejected_final';
+    return !isHidden && !isRejectedFinal;
+  });
 
   return createPortal(
     <div 
@@ -500,7 +525,7 @@ export default function OriginalPostModal({
               )}
             </div>
             <div className="flex items-center gap-3">
-              <span>{comments.length > 0 ? comments.length : (post.commentsCount || post.comments_count || 0)} bình luận</span>
+              <span>{visibleComments.length > 0 ? visibleComments.length : (post.commentsCount || post.comments_count || 0)} bình luận</span>
               <span>{localSharesCount || post.sharesCount || post.shares_count || 0} chia sẻ</span>
             </div>
           </div>
@@ -574,7 +599,7 @@ export default function OriginalPostModal({
           {/* Phần 4: Danh sách bình luận & Form nhập */}
           <div className="p-5 bg-slate-50/60 space-y-4">
             <h4 className="text-xs font-bold text-slate-700 tracking-wide uppercase">
-              Bình luận ({comments.length})
+              Bình luận ({visibleComments.length})
             </h4>
 
             {/* Form nhập bình luận mới */}
@@ -663,8 +688,8 @@ export default function OriginalPostModal({
 
             {/* Danh sách bình luận */}
             <div className="space-y-3 pt-1">
-              {comments && comments.length > 0 ? (
-                comments.filter((item) => (item.imageModeration?.status || item.image_moderation_status) !== 'rejected_final').map((cmt, idx) => {
+              {visibleComments && visibleComments.length > 0 ? (
+                visibleComments.map((cmt, idx) => {
                   const imageStatus = cmt.imageModeration?.status || cmt.image_moderation_status;
                   const isCommentAuthor = Boolean(currentUser?.id && String(currentUser.id) === String(cmt.author?.id || cmt.author_id));
                   const hideCommentImage = shouldHideContentForViewer({ isAuthor: isCommentAuthor, status: imageStatus, isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(imageStatus) });

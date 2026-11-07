@@ -92,6 +92,7 @@ def root():
         "version": settings.VERSION
     }
 
+@app.get("/health", tags=["Hệ thống"])
 @app.get("/api/health", tags=["Hệ thống"])
 def health_check():
     return {"status": "OK", "message": "Backend FastAPI đang hoạt động tốt trên cổng 8000!"}
