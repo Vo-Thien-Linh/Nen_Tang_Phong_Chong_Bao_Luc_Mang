@@ -680,6 +680,17 @@ export default function PostCard({
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
   const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
+  const visibleComments = (post.comments || []).filter((comment) => {
+    const isHidden = Boolean(
+      comment.is_hidden || comment.isHidden ||
+      comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' ||
+      comment.ai_label === 'Author Blacklist' || comment.aiLabel === 'Author Blacklist' ||
+      comment.imageModeration?.status === 'rejected_hold' || comment.image_moderation_status === 'rejected_hold'
+    );
+    const isRejectedFinal = (comment.imageModeration?.status || comment.image_moderation_status) === 'rejected_final';
+    return !isHidden && !isRejectedFinal;
+  });
+
   if (post.imageModeration?.status === 'rejected_final') return null;
 
   // Nếu bài viết bị ẩn cứng (Hate Speech hoặc Bạo lực)
@@ -1170,7 +1181,7 @@ export default function PostCard({
           </PortalPopover>
         </button>
         <div className="flex items-center gap-3">
-          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{post.comments?.length || 0} bình luận</span>
+          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{visibleComments.length} bình luận</span>
           <span>{localSharesCount} chia sẻ</span>
         </div>
       </div>
@@ -1452,9 +1463,9 @@ export default function PostCard({
 
           {/* Danh sách bình luận */}
           <div className="space-y-2.5 pt-1">
-            {post.comments && post.comments.length > 0 ? (
+            {visibleComments && visibleComments.length > 0 ? (
               // Sắp xếp: Comment bình thường lên trước, comment Toxic / NSFW (ẩn mềm) xếp ở cuối
-              [...(post.comments || [])].sort((a, b) => {
+              [...visibleComments].sort((a, b) => {
                 const aSoft = Boolean(a.is_soft_hidden || a.isSoftHidden || a.ai_label === 'Toxic' || a.aiLabel === 'Toxic' || a.image_label === 'NSFW' || a.imageLabel === 'NSFW' || a.imageModeration?.status === 'sensitive');
                 const bSoft = Boolean(b.is_soft_hidden || b.isSoftHidden || b.ai_label === 'Toxic' || b.aiLabel === 'Toxic' || b.image_label === 'NSFW' || b.imageLabel === 'NSFW' || b.imageModeration?.status === 'sensitive');
                 if (aSoft && !bSoft) return 1;

@@ -27,6 +27,15 @@ test('created comment appends and increments once', () => {
   assert.equal(appendCreatedComment({ ...post, comments: [...post.comments, comment] }, comment).commentsCount, 1);
 });
 
+test('appendCreatedComment completely excludes hidden comments and preserves count', () => {
+  const post = { id: 'p1', commentsCount: 2, comments: [{ id: 'c1' }, { id: 'c2' }] };
+  const hiddenComment = { id: 'c3', content: 'từ khóa cấm', is_hidden: true, ai_status: 'hidden' };
+  const res = appendCreatedComment(post, hiddenComment);
+  assert.equal(res.commentsCount, 2);
+  assert.equal(res.comments.length, 2);
+  assert.ok(!res.comments.some(c => c.id === 'c3'));
+});
+
 test('creation is blocked while a request is pending', () => {
   assert.equal(canStartCreation(false), true);
   assert.equal(canStartCreation(true), false);

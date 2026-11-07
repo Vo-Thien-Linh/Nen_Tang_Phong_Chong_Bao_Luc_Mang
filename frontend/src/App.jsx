@@ -1044,6 +1044,16 @@ export default function App() {
         }));
       }
       const savedComment = res.data || newComment;
+      const isCommentHidden = Boolean(
+        res.isAuthorBlacklisted ||
+        savedComment.is_hidden || savedComment.isHidden ||
+        savedComment.ai_status === 'hidden' || savedComment.aiStatus === 'hidden' ||
+        savedComment.ai_label === 'Author Blacklist' || savedComment.aiLabel === 'Author Blacklist'
+      );
+      if (isCommentHidden) {
+        // Bình luận vi phạm/chứa từ khóa cấm đã bị ẩn hoàn toàn, không hiển thị lên bài viết
+        return;
+      }
       setPosts(prev => prev.map(post => String(post.id) === String(postId)
         ? appendCreatedComment(post, savedComment)
         : post));
