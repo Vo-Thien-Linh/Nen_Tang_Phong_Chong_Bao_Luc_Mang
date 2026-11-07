@@ -60,7 +60,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.MODERATION_SERVICE_PORT || 5003;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Microservice 3: Moderation & Trust Service] đang chạy tại http://localhost:${PORT}`);
 });
 

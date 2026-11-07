@@ -20,34 +20,34 @@ for %%P in (5000 5001 5002 5003 5004 8000 8001) do (
 timeout /t 1 >nul
 
 echo [1/8] Khoi dong Platform API: Auth, Messages, Friends (Port 8000)...
-start "Platform API (Python :8000)" cmd /k "cd /d %~dp0backend && call run_backend.bat"
+start "Platform API (Python :8000)" cmd /k "cd /d ""%~dp0backend"" && call run_backend.bat"
 
 timeout /t 3 >nul
 
 echo [2/8] Khoi dong AI Inference Service (Port 8001)...
-start "AI Inference Service (Python :8001)" cmd /k "call %~dp0services\ai-service\run.bat"
+start "AI Inference Service (Python :8001)" cmd /k "call ""%~dp0services\ai-service\run.bat"""
 
-timeout /t 3 >nul
+timeout /t 2 >nul
 
 echo [3/8] Khoi dong User Service (Port 5001)...
-start "User Service (:5001)" cmd /k "set NODE_PATH=%~dp0backend\node_modules&& node services/user-service/server.js"
+start "User Service (:5001)" cmd /k "cd /d ""%~dp0"" && set ""NODE_PATH=%~dp0backend\node_modules;%~dp0node_modules"" && node services/user-service/server.js"
 
 echo [4/8] Khoi dong Social Content Service (Port 5002)...
-start "Post Service (:5002)" cmd /k "set NODE_PATH=%~dp0backend\node_modules&& set AI_SERVICE_URL=http://127.0.0.1:8001&& set FASTAPI_URL=http://127.0.0.1:8000&& node services/post-service/server.js"
+start "Post Service (:5002)" cmd /k "cd /d ""%~dp0"" && set ""NODE_PATH=%~dp0backend\node_modules;%~dp0node_modules"" && set ""AI_SERVICE_URL=http://127.0.0.1:8001"" && set ""FASTAPI_URL=http://127.0.0.1:8000"" && node services/post-service/server.js"
 
 echo [5/8] Khoi dong Moderation Service (Port 5003)...
-start "Moderation Service (:5003)" cmd /k "set NODE_PATH=%~dp0backend\node_modules&& node services/moderation-service/server.js"
+start "Moderation Service (:5003)" cmd /k "cd /d ""%~dp0"" && set ""NODE_PATH=%~dp0backend\node_modules;%~dp0node_modules"" && node services/moderation-service/server.js"
 
 echo [6/8] Khoi dong Realtime ^& Notification Service (Port 5004)...
-start "Notification Service (:5004)" cmd /k "set NODE_PATH=%~dp0backend\node_modules&& node services/notification-service/server.js"
+start "Notification Service (:5004)" cmd /k "cd /d ""%~dp0"" && set ""NODE_PATH=%~dp0backend\node_modules;%~dp0node_modules"" && node services/notification-service/server.js"
 
 timeout /t 2 >nul
 
 echo [7/8] Khoi dong API Gateway (Port 5000)...
-start "API Gateway (:5000)" cmd /k "node gateway/server.js"
+start "API Gateway (:5000)" cmd /k "cd /d ""%~dp0"" && set ""NODE_PATH=%~dp0backend\node_modules;%~dp0node_modules"" && node gateway/server.js"
 
 echo [8/8] Khoi dong Frontend React Vite (Port 5173)...
-start "Frontend React (:5173)" cmd /k "cd /d %~dp0frontend && npm run dev"
+start "Frontend React (:5173)" cmd /k "cd /d ""%~dp0frontend"" && npm run dev"
 
 echo.
 echo ===================================================================

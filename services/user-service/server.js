@@ -48,7 +48,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.USER_SERVICE_PORT || 5001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Microservice 1: User & Auth Service] đang chạy tại http://localhost:${PORT}`);
 });
 

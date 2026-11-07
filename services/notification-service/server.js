@@ -54,7 +54,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.NOTIFICATION_SERVICE_PORT || 5004;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Microservice 4: Notification & Realtime Service] đang chạy tại http://localhost:${PORT}`);
 });
 
