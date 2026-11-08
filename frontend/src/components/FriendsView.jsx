@@ -7,7 +7,7 @@ import { DEFAULT_AVATAR } from '../constants/defaults';
 export default function FriendsView({ onOpenChat, onOpenProfile }) {
   const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadingSections, setLoadingSections] = useState({ requests: true, friends: true, suggestions: true });
 
   // Danh sách lời mời kết bạn (Pending) - Mặc định rỗng, chỉ hiển thị lời mời thật từ DB
   const [friendRequests, setFriendRequests] = useState([]);
@@ -21,9 +21,12 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
   // Tải dữ liệu thật từ Backend API song song độc lập (không chặn nhau)
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
+    setLoadingSections({ requests: true, friends: true, suggestions: true });
+    const finishLoading = (section) => {
+      if (isMounted) setLoadingSections((prev) => ({ ...prev, [section]: false }));
+    };
 
-    const p1 = friendService.getFriendsList().then(friends => {
+    friendService.getFriendsList().then(friends => {
       if (!isMounted) return;
       if (friends && Array.isArray(friends)) {
         setFriendsList(friends.map(f => ({
@@ -34,9 +37,9 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           bio: f.bio
         })));
       }
-    }).catch(err => console.warn('Lỗi tải bạn bè:', err));
+    }).catch(err => console.warn('Lỗi tải bạn bè:', err)).finally(() => finishLoading('friends'));
 
-    const p2 = friendService.getFriendRequests().then(reqs => {
+    friendService.getFriendRequests().then(reqs => {
       if (!isMounted) return;
       if (reqs && Array.isArray(reqs)) {
         setFriendRequests(reqs.map(r => ({
@@ -52,9 +55,9 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           }
         })));
       }
-    }).catch(err => console.warn('Lỗi tải lời mời:', err));
+    }).catch(err => console.warn('Lỗi tải lời mời:', err)).finally(() => finishLoading('requests'));
 
-    const p3 = friendService.getFriendSuggestions().then(sugs => {
+    friendService.getFriendSuggestions().then(sugs => {
       if (!isMounted) return;
       if (sugs && Array.isArray(sugs) && sugs.length > 0) {
         setSuggestions(sugs.map(s => ({
@@ -67,11 +70,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           requestSent: s.request_sent || false
         })));
       }
-    }).catch(err => console.warn('Lỗi tải gợi ý:', err));
-
-    Promise.allSettled([p1, p2, p3]).finally(() => {
-      if (isMounted) setIsLoading(false);
-    });
+    }).catch(err => console.warn('Lỗi tải gợi ý:', err)).finally(() => finishLoading('suggestions'));
 
     return () => { isMounted = false; };
   }, []);
@@ -235,7 +234,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           {/* TAB 1: LỜI MỜI KẾT BẠN */}
           {activeTab === 'requests' && (
             <div>
-              {isLoading ? (
+              {loadingSections.requests ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4.5">
                   {[1, 2, 3, 4, 5, 6].map((i) => (
                     <div
@@ -341,7 +340,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
           {/* TAB 2: TẤT CẢ BẠN BÈ */}
           {activeTab === 'all' && (
             <div>
-              {isLoading ? (
+              {loadingSections.friends ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4.5">
                   {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                     <div
@@ -429,7 +428,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile }) {
                 </span>
               </div>
 
-              {isLoading ? (
+              {loadingSections.suggestions ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4.5">
                   {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                     <div

@@ -48,8 +48,17 @@ export function createAuthMiddleware({ userRepository }) {
         }
         userId = decoded.sub || decoded.user_id || decoded.id || null;
         if (!userId) throw authError();
-      } catch {
-        warnRejectedAuth('Bearer token không hợp lệ, hết hạn hoặc thiếu cấu hình secret');
+      } catch (error) {
+        const reason = error.name === 'TokenExpiredError'
+          ? 'Bearer token đã hết hạn'
+          : error.name === 'NotBeforeError'
+            ? 'Bearer token chưa có hiệu lực'
+            : error.name === 'JsonWebTokenError'
+              ? 'Bearer token sai định dạng hoặc chữ ký không khớp'
+              : error.message?.includes('JWT_SECRET_KEY')
+                ? 'JWT_SECRET_KEY chưa được cấu hình hợp lệ'
+                : 'Không thể xác thực Bearer token';
+        warnRejectedAuth(reason);
         throw authError();
       }
     }

@@ -187,10 +187,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (activeTab !== 'home') return;
     loadActiveLivestreams();
-    const interval = setInterval(loadActiveLivestreams, 8000);
+    const interval = setInterval(loadActiveLivestreams, 15000);
     return () => clearInterval(interval);
-  }, [loadActiveLivestreams]);
+  }, [activeTab, loadActiveLivestreams]);
 
   const handleOpenLiveStreamAction = () => {
     if (!currentUser) {
