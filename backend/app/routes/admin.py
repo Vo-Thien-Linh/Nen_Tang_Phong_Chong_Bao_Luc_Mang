@@ -1,6 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
+from sqlalchemy.orm import Session
+from ..database import get_db
+from ..models.user import User
+from .message import get_current_user_id
 
 router = APIRouter(prefix="", tags=["Quản trị & Báo cáo (Admin)"])
 
@@ -40,8 +44,20 @@ appeals_db = [
     }
 ]
 
+def require_roles(*allowed_roles):
+    def dependency(
+        current_user_id: str = Depends(get_current_user_id),
+        db: Session = Depends(get_db),
+    ):
+        user = db.query(User).filter(User.id == current_user_id).first()
+        if not user or str(user.role).lower() not in allowed_roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền thực hiện thao tác này")
+        return user
+    return dependency
+
+
 @router.get("/admin/stats")
-def get_admin_stats():
+def get_admin_stats(_user: User = Depends(require_roles("admin"))):
     return {
         "success": True,
         "data": {
@@ -61,9 +77,9 @@ def get_admin_stats():
     }
 
 @router.get("/reports")
-def get_reports():
+def get_reports(_user: User = Depends(require_roles("admin", "moderator"))):
     return {"success": True, "data": reports_db}
 
 @router.get("/appeals")
-def get_appeals():
+def get_appeals(_user: User = Depends(require_roles("admin", "moderator"))):
     return {"success": True, "data": appeals_db}

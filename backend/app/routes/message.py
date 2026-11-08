@@ -14,6 +14,8 @@ from ..schemas.message import (
     MessageItem,
     MessageSendRequest,
     ConversationItem,
+    CreateGroupRequest,
+    UpdateGroupRequest,
 )
 
 router = APIRouter(prefix="/messages", tags=["Chức năng Nhắn tin (Messaging)"])
@@ -22,8 +24,8 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(self, user_id: str, websocket: WebSocket, subprotocol: Optional[str] = None):
+        await websocket.accept(subprotocol=subprotocol)
         if user_id not in self.active_connections:
             self.active_connections[user_id] = set()
         self.active_connections[user_id].add(websocket)
@@ -56,9 +58,26 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+def get_websocket_bearer_token(websocket: WebSocket) -> Optional[str]:
+    """Read the bearer token from the browser WebSocket subprotocol handshake."""
+    offered_protocols = websocket.headers.get("sec-websocket-protocol", "").split(",")
+    for protocol in offered_protocols:
+        protocol = protocol.strip()
+        if protocol.startswith("bearer."):
+            token = protocol[len("bearer."):].strip()
+            return token or None
+    return None
+
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    await manager.connect(user_id, websocket)
+    token = get_websocket_bearer_token(websocket)
+    payload = decode_access_token(token) if token else None
+    token_user_id = str(payload.get("sub", "")) if payload else ""
+    if not token_user_id or token_user_id != str(user_id):
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
+
+    await manager.connect(user_id, websocket, subprotocol="nexussocial")
     try:
         while True:
             data = await websocket.receive_text()
@@ -94,7 +113,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                         })
                     else:
                         msg_payload["from_user_id"] = user_id
-                        if not msg_payload.get("caller_id"):
+                        if event_type == "CALL_REQUEST":
                             msg_payload["caller_id"] = user_id
                         await manager.send_to_user(str(target_user_id), msg_payload)
     except WebSocketDisconnect:
@@ -212,10 +231,70 @@ def get_or_create_conversation(
     }
 
 @router.post(
+    "/groups",
+    response_model=ConversationItem,
+    summary="Tạo nhóm trò chuyện mới",
+    description="Tạo cuộc trò chuyện nhóm với tối thiểu 3 thành viên"
+)
+async def create_group(
+    payload: CreateGroupRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    group = MessageService.create_group(current_user_id, payload, db)
+    recipients = MessageService.get_conversation_recipient_ids(group.id, current_user_id, db)
+    group_data = group.model_dump() if hasattr(group, "model_dump") else group.dict()
+    for r_id in recipients:
+        await manager.send_to_user(str(r_id), {
+            "type": "GROUP_CREATED",
+            "conversation_id": group.id,
+            "conversation": group_data
+        })
+    return group
+
+@router.put(
+    "/groups/{conversation_id}",
+    response_model=ConversationItem,
+    summary="Cập nhật thông tin nhóm trò chuyện (tên nhóm, ảnh đại diện)",
+    description="Cho phép thành viên cập nhật tên nhóm hoặc ảnh đại diện của nhóm"
+)
+async def update_group(
+    conversation_id: int,
+    payload: UpdateGroupRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    result = MessageService.update_group(conversation_id, current_user_id, payload, db)
+    updated_group = result["conversation"]
+    system_messages = result["system_messages"]
+
+    group_data = updated_group.model_dump() if hasattr(updated_group, "model_dump") else updated_group.dict()
+    recipients = MessageService.get_conversation_recipient_ids(conversation_id, current_user_id, db)
+    all_members = list(set(recipients + [str(current_user_id)]))
+
+    for u_id in all_members:
+        await manager.send_to_user(str(u_id), {
+            "type": "GROUP_UPDATED",
+            "conversation_id": conversation_id,
+            "conversation": group_data
+        })
+        for sm in system_messages:
+            sm_dict = sm.model_dump() if hasattr(sm, "model_dump") else sm.dict()
+            if sm_dict.get("created_at") and hasattr(sm_dict["created_at"], "isoformat"):
+                sm_dict["created_at"] = sm_dict["created_at"].isoformat()
+            await manager.send_to_user(str(u_id), {
+                "type": "NEW_MESSAGE",
+                "conversation_id": conversation_id,
+                "message": sm_dict
+            })
+
+    return updated_group
+
+@router.post(
     "/send",
     response_model=MessageItem,
     summary="Gửi tin nhắn mới",
-    description="Gửi tin nhắn cho người dùng khác, tự động tạo cuộc trò chuyện nếu chưa có"
+    description="Gửi tin nhắn cho người dùng khác hoặc gửi vào nhóm trò chuyện"
 )
 async def send_message(
     payload: MessageSendRequest,
@@ -228,26 +307,32 @@ async def send_message(
         content=payload.content,
         db=db,
         media_url=payload.media_url,
-        media_type=payload.media_type
+        media_type=payload.media_type,
+        conversation_id=payload.conversation_id
     )
     msg_dict = {
         "id": msg.id,
         "conversation_id": msg.conversation_id,
         "sender_id": str(msg.sender_id),
-        "receiver_id": str(msg.receiver_id),
+        "receiver_id": str(msg.receiver_id) if msg.receiver_id else None,
         "content": msg.content,
         "media_url": msg.media_url,
         "media_type": msg.media_type,
         "status": msg.status,
         "is_read": msg.is_read,
         "is_recalled": msg.is_recalled,
-        "created_at": msg.created_at.isoformat() if msg.created_at else None
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "sender_name": getattr(msg, "sender_name", None),
+        "sender_avatar": getattr(msg, "sender_avatar", None),
     }
-    await manager.send_to_user(str(payload.receiver_id), {
-        "type": "NEW_MESSAGE",
-        "conversation_id": msg.conversation_id,
-        "message": msg_dict
-    })
+
+    recipients = MessageService.get_conversation_recipient_ids(msg.conversation_id, current_user_id, db)
+    for r_id in recipients:
+        await manager.send_to_user(str(r_id), {
+            "type": "NEW_MESSAGE",
+            "conversation_id": msg.conversation_id,
+            "message": msg_dict
+        })
     await manager.send_to_user(str(current_user_id), {
         "type": "MESSAGE_SENT",
         "conversation_id": msg.conversation_id,
@@ -275,7 +360,9 @@ async def recall_message(
         "status": msg.status,
         "is_recalled": True
     }
-    await manager.send_to_user(str(msg.receiver_id), recall_payload)
+    recipients = MessageService.get_conversation_recipient_ids(msg.conversation_id, current_user_id, db)
+    for r_id in recipients:
+        await manager.send_to_user(str(r_id), recall_payload)
     await manager.send_to_user(str(current_user_id), recall_payload)
     return msg
 

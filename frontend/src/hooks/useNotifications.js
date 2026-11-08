@@ -25,7 +25,7 @@ const getStoredLocalNotifs = (userId) => {
     if (!Array.isArray(parsed)) return [];
     // Tự động dọn dẹp các thông báo mock cũ (notif-1 đến notif-5)
     const cleaned = parsed.filter(
-      (n) => n && n.id && !isLegacyMockNotificationId(n.id)
+      (n) => n && n.id && !isLegacyMockNotificationId(n.id) && String(n.recipientId || '') === String(userId)
     );
     if (cleaned.length !== parsed.length) {
       localStorage.setItem(`nexussocial_local_notifs_${userId}`, JSON.stringify(cleaned));
@@ -44,7 +44,7 @@ const saveStoredLocalNotifs = (userId, notifs) => {
         n &&
         n.id &&
         !isLegacyMockNotificationId(n.id) &&
-        isLocalNotificationId(n.id)
+        isLocalNotificationId(n.id) && String(n.recipientId || '') === String(userId)
     );
     localStorage.setItem(
       `nexussocial_local_notifs_${userId}`,
@@ -69,11 +69,17 @@ export function useNotifications({ currentUser, activeTab }) {
   const prevUnreadCountRef = useRef(unreadCount);
   const prevItemsRef = useRef(notifications);
   const activeUserIdRef = useRef(currentUser?.id || null);
+  const activeTabRef = useRef(activeTab);
+  const refreshRequestRef = useRef(0);
+  const loadedServerUserIdRef = useRef(null);
+  activeUserIdRef.current = currentUser?.id || null;
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     const userId = currentUser?.id || null;
     if (activeUserIdRef.current === userId) return;
     activeUserIdRef.current = userId;
+    loadedServerUserIdRef.current = null;
     const stored = getStoredLocalNotifs(userId);
     setNotifications(stored);
     const count = countUnreadNotificationItems(stored);
@@ -85,22 +91,27 @@ export function useNotifications({ currentUser, activeTab }) {
   // Hàm tải danh sách thông báo từ Backend (Luôn tải danh sách đầy đủ để các tabs hiển thị số lượng chính xác)
   const refreshNotifications = useCallback(
     async (showSpinner = false) => {
-      if (!currentUser?.id) return;
+      const userId = currentUser?.id;
+      if (!userId) return;
+      const requestId = ++refreshRequestRef.current;
       if (showSpinner) setIsLoading(true);
 
       try {
         const res = await fetchNotifications({
-          userId: currentUser.id,
+          userId,
           limit: 50,
           filter: 'all',
         });
 
+        if (requestId !== refreshRequestRef.current || String(activeUserIdRef.current || '') !== String(userId)) return;
         if (res.success && Array.isArray(res.data)) {
-          const storedLocals = getStoredLocalNotifs(currentUser.id);
+          const storedLocals = getStoredLocalNotifs(userId);
+          const isInitialServerLoad = String(loadedServerUserIdRef.current || '') !== String(userId);
 
           setNotifications((prev) => {
+            if (String(activeUserIdRef.current || '') !== String(userId)) return prev;
             const currentLocals = prev.filter(
-              (item) => isLocalNotificationId(item.id) && !isLegacyMockNotificationId(item.id)
+              (item) => isLocalNotificationId(item.id) && !isLegacyMockNotificationId(item.id) && String(item.recipientId || '') === String(userId)
             );
 
             // Kiểm tra xem có thông báo mới tinh chưa có ở danh sách trước không
@@ -110,7 +121,7 @@ export function useNotifications({ currentUser, activeTab }) {
                 (p) => String(p.id) === String(latestItem.id)
               );
               // Nếu có item mới xuất hiện và chưa đọc, kích hoạt Toast
-              if (!isAlreadyExisted && !latestItem.isRead && activeTab !== 'notifications') {
+              if (!isInitialServerLoad && !isAlreadyExisted && !latestItem.isRead && activeTabRef.current !== 'notifications') {
                 setToastNotification(latestItem);
               }
             }
@@ -119,9 +130,10 @@ export function useNotifications({ currentUser, activeTab }) {
             prevItemsRef.current = merged;
             return merged;
           });
+          loadedServerUserIdRef.current = userId;
 
-          if (typeof res.unreadCount === 'number') {
-            const storedLocals = getStoredLocalNotifs(currentUser.id);
+          if (String(activeUserIdRef.current || '') === String(userId) && typeof res.unreadCount === 'number') {
+            const storedLocals = getStoredLocalNotifs(userId);
             const mergedUnreadCount = countMergedUnreadNotifications(res.unreadCount, res.data, storedLocals);
             setUnreadCount(mergedUnreadCount);
             prevUnreadCountRef.current = mergedUnreadCount;
@@ -130,24 +142,23 @@ export function useNotifications({ currentUser, activeTab }) {
       } catch (err) {
         console.warn('Lỗi khi fetch notifications:', err.message);
       } finally {
-        if (showSpinner) setIsLoading(false);
+        if (showSpinner && requestId === refreshRequestRef.current) setIsLoading(false);
       }
     },
-    [currentUser?.id, activeTab]
+    [currentUser?.id]
   );
 
-  // Khi đăng nhập -> nạp local và tải danh sách từ server
+  // Khi đăng nhập -> nạp local và tải danh sách từ server (Không gộp prev từ tài khoản cũ)
   useEffect(() => {
     if (currentUser?.id) {
       const stored = getStoredLocalNotifs(currentUser.id);
-      if (stored.length > 0) {
-        setNotifications((prev) => {
-          const map = new Map();
-          [...stored, ...prev].forEach((item) => map.set(String(item.id), item));
-          return Array.from(map.values());
-        });
-      }
+      setNotifications(stored);
+      prevItemsRef.current = stored;
       refreshNotifications(true);
+    } else {
+      setNotifications([]);
+      setUnreadCount(0);
+      prevItemsRef.current = [];
     }
   }, [currentUser?.id, refreshNotifications]);
 
@@ -286,10 +297,18 @@ export function useNotifications({ currentUser, activeTab }) {
 
   // Thêm thông báo hệ thống / cảnh báo trực tiếp từ frontend (Report, Appeal, Admin action)
   const addLocalNotification = (notif) => {
+    const recipientId = notif.recipientId || currentUser?.id;
+    if (
+      !currentUser?.id ||
+      !recipientId ||
+      String(recipientId) !== String(currentUser.id) ||
+      String(activeUserIdRef.current || '') !== String(currentUser.id)
+    ) return false;
     const nowIso = new Date().toISOString();
     const newNotif = {
       ...notif,
       id: notif.id || `notif-${Date.now()}`,
+      recipientId,
       type: notif.type || 'system',
       user: notif.user || {
         id: 'system',
@@ -311,6 +330,7 @@ export function useNotifications({ currentUser, activeTab }) {
     });
     setUnreadCount((prev) => prev + 1);
     setToastNotification(newNotif);
+    return true;
   };
 
   return {

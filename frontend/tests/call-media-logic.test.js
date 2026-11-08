@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CALL_STATUS,
+  CALL_LOG_REASON,
   DEFAULT_ICE_SERVERS,
   formatCallDuration,
+  formatCallLogText,
   createCallSession,
   toggleMediaTrack,
   stopMediaStream
@@ -90,3 +92,36 @@ test('stopMediaStream: stops all tracks safely', () => {
   // Safe when stream is null or throws
   assert.doesNotThrow(() => stopMediaStream(null));
 });
+
+test('CALL_LOG_REASON: has all required call event types', () => {
+  assert.equal(CALL_LOG_REASON.DECLINED, 'declined');
+  assert.equal(CALL_LOG_REASON.MISSED, 'missed');
+  assert.equal(CALL_LOG_REASON.CANCELLED, 'cancelled');
+  assert.equal(CALL_LOG_REASON.COMPLETED, 'completed');
+  assert.equal(CALL_LOG_REASON.BUSY, 'busy');
+  assert.equal(CALL_LOG_REASON.OFFLINE, 'offline');
+});
+
+test('formatCallLogText: formats video and audio call messages correctly', () => {
+  // Declined
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'declined' }), 'Cuộc gọi video bị từ chối');
+  assert.equal(formatCallLogText({ callType: 'audio', reason: 'declined' }), 'Cuộc gọi thoại bị từ chối');
+
+  // Missed / no-answer
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'missed' }), 'Cuộc gọi video nhỡ');
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'no_answer' }), 'Cuộc gọi video nhỡ');
+  assert.equal(formatCallLogText({ callType: 'audio', reason: 'missed' }), 'Cuộc gọi thoại nhỡ');
+
+  // Cancelled
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'cancelled' }), 'Cuộc gọi video đã hủy');
+  assert.equal(formatCallLogText({ callType: 'audio', reason: 'cancelled' }), 'Cuộc gọi thoại đã hủy');
+
+  // Completed with duration
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'completed', duration: 75 }), 'Cuộc gọi video • 01:15');
+  assert.equal(formatCallLogText({ callType: 'audio', reason: 'completed', duration: 3665 }), 'Cuộc gọi thoại • 01:01:05');
+
+  // Busy and offline
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'busy' }), 'Cuộc gọi video • Người nhận bận');
+  assert.equal(formatCallLogText({ callType: 'video', reason: 'offline' }), 'Cuộc gọi video • Người nhận không trực tuyến');
+});
+

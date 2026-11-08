@@ -1,4 +1,7 @@
-const postSelect = `
+import { extractHashtags } from '../utils/hashtag.js';
+import { buildPostVisibilityPredicate } from './postVisibility.js';
+
+export const postSelect = `
   SELECT
     p.id,
     p.author_id,
@@ -126,6 +129,36 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
   });
 }
 
+async function runPostTransaction(pool, work) {
+  if (typeof pool.connect !== 'function') return work(pool);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function replacePostHashtags(db, postId, content, { clearExisting = true } = {}) {
+  const hashtags = extractHashtags(content);
+  if (!clearExisting && hashtags.length === 0) return;
+  await db.query('DELETE FROM post_hashtags WHERE post_id = $1', [postId]);
+  for (const { tag, displayTag } of hashtags) {
+    await db.query(
+      `INSERT INTO post_hashtags (post_id, tag, display_tag)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (post_id, tag) DO UPDATE SET display_tag = EXCLUDED.display_tag`,
+      [postId, tag, displayTag]
+    );
+  }
+}
+
 export function createPostRepository({ pool }) {
   return {
     pool,
@@ -138,21 +171,25 @@ export function createPostRepository({ pool }) {
                      : violenceScore >= 0.8 || imageModeration?.decision === 'rejected' ? 'Violence'
                      : 'Safe';
 
-      const result = await pool.query(
-        `INSERT INTO posts (author_id, content, image_url, privacy, image_moderation_status,
+      const result = await runPostTransaction(pool, async (db) => {
+        const insertResult = await db.query(
+          `INSERT INTO posts (author_id, content, image_url, privacy, image_moderation_status,
                             image_moderation_label, image_moderation_safe, image_moderation_nsfw,
                             image_moderation_violence, image_moderation_thresholds,
                             ai_label, ai_confidence, ai_status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING id`,
-        [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
-          imgLabel,
-          safeScore,
-          nsfwScore,
-          violenceScore,
-          imageModeration?.thresholds || null,
-          aiLabel, aiConfidence, aiStatus]
-      );
+          [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
+            imgLabel,
+            safeScore,
+            nsfwScore,
+            violenceScore,
+            imageModeration?.thresholds || null,
+            aiLabel, aiConfidence, aiStatus]
+        );
+        await replacePostHashtags(db, insertResult.rows[0].id, content, { clearExisting: false });
+        return insertResult;
+      });
 
       const inserted = result.rows[0];
       const post = await this.findById(inserted.id, authorId);
@@ -222,7 +259,9 @@ export function createPostRepository({ pool }) {
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
-           WHERE c.post_id = $1 AND (c.is_hidden = false OR c.author_id = $2)
+           WHERE c.post_id = $1
+             AND c.is_hidden = false
+             AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
          ORDER BY c.created_at ASC`,
@@ -301,14 +340,20 @@ export function createPostRepository({ pool }) {
         );
       }
 
-      const result = await pool.query(
-        `UPDATE posts
+      const result = await runPostTransaction(pool, async (db) => {
+        const updateResult = await db.query(
+          `UPDATE posts
          SET content = $3, image_url = $4${moderationFields}${aiFields}, edited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND author_id = $2
            AND COALESCE(image_moderation_status, '') NOT IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final')
          RETURNING id`,
-        values
-      );
+          values
+        );
+        if (updateResult.rows[0]) {
+          await replacePostHashtags(db, updateResult.rows[0].id, content);
+        }
+        return updateResult;
+      });
 
       if (!result.rows[0]) {
         const error = new Error('Bài viết không tồn tại');
@@ -414,14 +459,11 @@ export function createPostRepository({ pool }) {
 
     async findVisiblePosts({ viewerId }) {
       const params = [];
-      let visibilityWhere = `p.ai_status = 'approved'
-        AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`;
+      let visibilityWhere = buildPostVisibilityPredicate();
 
       if (viewerId) {
         params.push(viewerId);
-        visibilityWhere = `(p.ai_status = 'approved' OR p.author_id = $1)
-          AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')
-               OR (p.author_id = $1 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))`;
+        visibilityWhere = buildPostVisibilityPredicate('$1');
       }
 
       const result = await pool.query(
@@ -463,7 +505,9 @@ export function createPostRepository({ pool }) {
                 u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
-           WHERE c.post_id = ANY($1::bigint[]) AND (c.is_hidden = false OR c.author_id = $2)
+           WHERE c.post_id = ANY($1::bigint[])
+             AND c.is_hidden = false
+             AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
          ORDER BY c.created_at ASC`,

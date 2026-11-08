@@ -29,6 +29,7 @@ import SharePostModal from './SharePostModal';
 import OriginalPostModal from './OriginalPostModal';
 import PostReactionsModal from './PostReactionsModal';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
+import HashtagText from './HashtagText';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
@@ -679,6 +680,17 @@ export default function PostCard({
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: currentReaction });
   const reactionDetails = getSummaryReactions({ counts: reactionCounts, max: Number.POSITIVE_INFINITY });
 
+  const visibleComments = (post.comments || []).filter((comment) => {
+    const isHidden = Boolean(
+      comment.is_hidden || comment.isHidden ||
+      comment.ai_status === 'hidden' || comment.aiStatus === 'hidden' ||
+      comment.ai_label === 'Author Blacklist' || comment.aiLabel === 'Author Blacklist' ||
+      comment.imageModeration?.status === 'rejected_hold' || comment.image_moderation_status === 'rejected_hold'
+    );
+    const isRejectedFinal = (comment.imageModeration?.status || comment.image_moderation_status) === 'rejected_final';
+    return !isHidden && !isRejectedFinal;
+  });
+
   if (post.imageModeration?.status === 'rejected_final') return null;
 
   // Nếu bài viết bị ẩn cứng (Hate Speech hoặc Bạo lực)
@@ -686,7 +698,22 @@ export default function PostCard({
   const isPostAuthor = isAuthor;
   const canViewHiddenPost = isAuthor || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   if (post.ai_status === 'hidden' && !canViewHiddenPost) {
-    return null;
+    return (
+      <div 
+        id={`post-${post.id}`} 
+        className="bg-white dark:bg-slate-900 rounded-2xl border border-rose-200 dark:border-rose-900/40 p-6 mb-5 text-center shadow-xs"
+      >
+        <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mx-auto mb-3">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+          Nội dung này hiện không khả dụng
+        </h4>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
+          Bài viết đã bị Quản trị viên hoặc hệ thống kiểm duyệt AI xử lý ẩn do vi phạm Tiêu chuẩn cộng đồng ({post.ai_label || 'Ngôn từ không phù hợp / Bạo lực'}).
+        </p>
+      </div>
+    );
   }
   const isToxicText = (post.ai_label === 'Toxic' || post.aiLabel === 'Toxic' || post.aiStatus?.label === 'Toxic') && post.ai_status !== 'hidden';
   const postImageStatus = post.imageModeration?.status || post.image_moderation_status;
@@ -998,7 +1025,7 @@ export default function PostCard({
             )}
 
             <p className="text-slate-800 dark:text-slate-100 text-sm sm:text-base leading-relaxed whitespace-pre-line break-words">
-              {post.content}
+              <HashtagText text={post.content} />
             </p>
 
             {/* Tags */}
@@ -1078,7 +1105,7 @@ export default function PostCard({
               {/* Nội dung bài gốc */}
               {post.originalPost.content && (
                 <p className="px-3.5 pb-2 text-slate-700 leading-relaxed line-clamp-3">
-                  {post.originalPost.content}
+                  <HashtagText text={post.originalPost.content} />
                 </p>
               )}
               {/* Ảnh bài gốc */}
@@ -1154,7 +1181,7 @@ export default function PostCard({
           </PortalPopover>
         </button>
         <div className="flex items-center gap-3">
-          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{post.comments?.length || 0} bình luận</span>
+          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{visibleComments.length} bình luận</span>
           <span>{localSharesCount} chia sẻ</span>
         </div>
       </div>
@@ -1436,9 +1463,9 @@ export default function PostCard({
 
           {/* Danh sách bình luận */}
           <div className="space-y-2.5 pt-1">
-            {post.comments && post.comments.length > 0 ? (
+            {visibleComments && visibleComments.length > 0 ? (
               // Sắp xếp: Comment bình thường lên trước, comment Toxic / NSFW (ẩn mềm) xếp ở cuối
-              [...(post.comments || [])].sort((a, b) => {
+              [...visibleComments].sort((a, b) => {
                 const aSoft = Boolean(a.is_soft_hidden || a.isSoftHidden || a.ai_label === 'Toxic' || a.aiLabel === 'Toxic' || a.image_label === 'NSFW' || a.imageLabel === 'NSFW' || a.imageModeration?.status === 'sensitive');
                 const bSoft = Boolean(b.is_soft_hidden || b.isSoftHidden || b.ai_label === 'Toxic' || b.aiLabel === 'Toxic' || b.image_label === 'NSFW' || b.imageLabel === 'NSFW' || b.imageModeration?.status === 'sensitive');
                 if (aSoft && !bSoft) return 1;
@@ -1505,6 +1532,7 @@ export default function PostCard({
                           onClick={() => onOpenAppealModal && onOpenAppealModal({
                             targetType: 'comment',
                             targetId: comment.id,
+                            parentPostId: post.id,
                             targetAuthor: comment.author,
                             contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
                             imageUrl: comment.image || null,
@@ -1621,7 +1649,7 @@ export default function PostCard({
                           )}
                         </div>
                       </div>
-                      {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed">{comment.content}</p>}
+                      {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed"><HashtagText text={comment.content} /></p>}
 
                       {/* Hiển thị hình ảnh đính kèm (ẩn mềm chung đã được mở, không lồng thêm lớp blur thứ hai) */}
                       {comment.image && (
@@ -1661,6 +1689,7 @@ export default function PostCard({
                           onClick={() => onOpenReportModal && onOpenReportModal({
                             targetType: 'comment',
                             targetId: comment.id,
+                            parentPostId: post.id,
                             targetAuthor: comment.author,
                             contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
                             imageUrl: comment.image || null,

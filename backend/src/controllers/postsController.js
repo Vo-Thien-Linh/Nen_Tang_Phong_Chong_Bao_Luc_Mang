@@ -335,6 +335,11 @@ export function createPostsController({ postService, postRepository, imageModera
           }
         }
 
+        const DEFAULT_KEYWORDS = ['chó', 'ngu', 'rác rưởi', 'đồ khốn', 'mất dạy', 'óc chó', 'cút', 'giết', 'chém', 'đập'];
+        if (authorKeywords.length === 0 && postAuthorId && postRepository.pool) {
+          authorKeywords = DEFAULT_KEYWORDS;
+        }
+
         const isPostAuthor = req.user && postAuthorId && String(req.user.id) === String(postAuthorId);
         let matchedAuthorKeyword = null;
 
@@ -374,6 +379,21 @@ export function createPostsController({ postService, postRepository, imageModera
             isHidden: true,
             isSoftHidden: false,
           });
+
+          if (postRepository.pool) {
+            try {
+              await postRepository.pool.query(
+                `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+                 VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+                [
+                  req.user.id,
+                  req.user.id,
+                  `Bình luận của bạn đã tự động bị ẩn do chứa từ khóa cấm ("${matchedAuthorKeyword}").`,
+                  postId
+                ]
+              );
+            } catch (err) {}
+          }
 
           return res.status(200).json({
             success: true,

@@ -1,5 +1,6 @@
-// API Service kết nối Backend FastAPI (http://localhost:8000)
-const API_BASE_URL = `${import.meta.env.VITE_FASTAPI_URL || 'http://localhost:8000'}/api/v1/friends`;
+// Requests go through the API Gateway to the platform API.
+const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = `${API_ROOT}/api/v1/friends`;
 
 const hasValidToken = () => {
   const token = localStorage.getItem('nexussocial_token');

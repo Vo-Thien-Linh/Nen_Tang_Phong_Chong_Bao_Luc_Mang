@@ -37,6 +37,21 @@ export async function fetchPosts({ userId } = {}) {
   });
 }
 
+export async function fetchTrendingHashtags({ userId, limit = 5 } = {}) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return request(`/api/hashtags/trending?${query}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchHashtagPosts({ userId, tag, page = 1, limit = 20 } = {}) {
+  const encodedTag = encodeURIComponent(String(tag || '').replace(/^#/, ''));
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
+  return request(`/api/hashtags/${encodedTag}/posts?${query}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function fetchPostById({ postId, userId } = {}) {
   const cleanId = String(postId || '').replace(/^post-/, '');
   return request(`/api/posts/${cleanId}`, {
@@ -105,6 +120,9 @@ export async function uploadPostImage(file) {
 
   const response = await fetch(`${API_URL}/api/upload`, {
     method: 'POST',
+    headers: localStorage.getItem('nexussocial_token')
+      ? { Authorization: `Bearer ${localStorage.getItem('nexussocial_token')}` }
+      : {},
     body: formData,
   });
 
@@ -126,9 +144,13 @@ export async function uploadPostImage(file) {
 export async function previewPostImage(file, userId) {
   const formData = new FormData();
   formData.append('image', file);
+  const token = localStorage.getItem('nexussocial_token');
   const response = await fetch(`${API_URL}/api/posts/preview-image`, {
     method: 'POST',
-    headers: userId ? { 'x-user-id': userId } : {},
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(userId ? { 'x-user-id': userId } : {}),
+    },
     body: formData,
   });
   const data = await response.json().catch(() => ({}));
@@ -327,5 +349,79 @@ export async function createAiOverrideApi({ data, userId }) {
 export async function fetchUserTrustHistory(userId) {
   return request(`/api/users/${userId}/trust-history`, {
     headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+// =====================================================
+// STORIES APIS (Chức năng đăng tin 24h chuẩn Facebook)
+// =====================================================
+
+export async function uploadStoryMedia(file) {
+  const formData = new FormData();
+  formData.append('media', file);
+
+  const token = localStorage.getItem('nexussocial_token');
+  const response = await fetch(`${API_URL}/api/upload/story-media`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || data.error || 'Tải tệp đa phương tiện lên thất bại');
+  }
+
+  return {
+    url: data.url,
+    mediaType: data.mediaType || (file.type.startsWith('video/') ? 'video' : 'image'),
+  };
+}
+
+export async function fetchStories() {
+  return request('/api/stories/feed');
+}
+
+export async function createStoryApi({
+  storyType = 'image',
+  mediaUrl = null,
+  textContent = null,
+  backgroundStyle = null,
+  privacy = 'public',
+  forcePost = false,
+}) {
+  return request('/api/stories', {
+    method: 'POST',
+    body: JSON.stringify({
+      storyType,
+      mediaUrl,
+      textContent,
+      backgroundStyle,
+      privacy,
+      forcePost: Boolean(forcePost),
+    }),
+  });
+}
+
+export async function viewStoryApi(storyId) {
+  return request(`/api/stories/${storyId}/view`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchStoryViewersApi(storyId) {
+  return request(`/api/stories/${storyId}/viewers`);
+}
+
+export async function reactToStoryApi(storyId, reactionType = 'like') {
+  return request(`/api/stories/${storyId}/reactions`, {
+    method: 'POST',
+    body: JSON.stringify({ reactionType }),
+  });
+}
+
+export async function deleteStoryApi(storyId) {
+  return request(`/api/stories/${storyId}`, {
+    method: 'DELETE',
   });
 }

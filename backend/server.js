@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import pool, { testDbConnection } from './src/config/db.js';
 import { createUserRepository } from './src/repositories/userRepository.js';
+import { createPostRepository } from './src/repositories/postRepository.js';
 
 // Routers
 import { createPostReactionsRouter } from './src/routes/postReactionsRouter.js';
@@ -17,7 +18,8 @@ import { createAppealsRouter } from './src/routes/appealsRouter.js';
 import { createAdminRouter } from './src/routes/adminRouter.js';
 import { createUploadRouter } from './src/routes/uploadRouter.js';
 import { createRealtimeRouter } from './src/routes/realtimeRouter.js';
-
+import { createHashtagsRouter } from './src/routes/hashtagsRouter.js';
+import { createStoriesRouter } from './src/routes/storiesRouter.js';
 dotenv.config();
 
 const app = express();
@@ -57,9 +59,10 @@ app.get('/api/db-test', async (req, res) => {
 });
 
 // Gắn các Routers theo từng phân hệ chức năng
-app.use('/api/upload', createUploadRouter());
+app.use('/api/upload', createUploadRouter({ pool }));
 app.use('/api/posts', createPostReactionsRouter({ pool }));
 app.use('/api/posts', createPostsRouter({ pool }));
+app.use('/api/hashtags', createHashtagsRouter({ pool, postRepository: createPostRepository({ pool }) }));
 app.use('/api/users', createUsersRouter({ pool }));
 app.use('/api/notifications', createNotificationsRouter({ pool }));
 app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
@@ -68,6 +71,7 @@ app.use('/api/posts/preview-image', createImagePreviewRouter({ pool }));
 app.use('/api/reports', createReportsRouter({ pool, userRepository }));
 app.use('/api/appeals', createAppealsRouter({ pool, userRepository }));
 app.use('/api/admin', createAdminRouter({ pool, userRepository }));
+app.use('/api/stories', createStoriesRouter({ pool }));
 app.use('/api/realtime', createRealtimeRouter());
 
 // Middleware xử lý lỗi tập trung

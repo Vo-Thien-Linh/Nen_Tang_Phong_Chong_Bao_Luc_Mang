@@ -99,3 +99,28 @@ async def test_call_signaling_call_ended():
     delivered = await manager.send_to_user(receiver_id, end_msg)
     assert delivered is True
     receiver_ws.send_json.assert_called_once_with(end_msg)
+
+@pytest.mark.anyio
+async def test_call_signaling_call_declined_response():
+    manager = ConnectionManager()
+    caller_id = "caller-001"
+    callee_id = "callee-002"
+
+    caller_ws = AsyncMock()
+    callee_ws = AsyncMock()
+
+    await manager.connect(caller_id, caller_ws)
+    await manager.connect(callee_id, callee_ws)
+
+    # Callee declines call -> sends CALL_RESPONSE accepted=False
+    decline_response = {
+        "type": "CALL_RESPONSE",
+        "caller_id": caller_id,
+        "receiver_id": caller_id,
+        "accepted": False,
+        "reason": "declined"
+    }
+    delivered = await manager.send_to_user(caller_id, decline_response)
+    assert delivered is True
+    caller_ws.send_json.assert_called_with(decline_response)
+

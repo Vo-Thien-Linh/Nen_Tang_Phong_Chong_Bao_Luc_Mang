@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, UserPlus, Users, MessageCircle, 
-  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw
+  ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw,
+  Radio, Eye
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
 import InlineNotice from './InlineNotice';
-import { suggestedFriends, trendingTopics } from '../data/mockData';
+import StoryBar from './StoryBar';
+import CreateStoryModal from './CreateStoryModal';
+import StoryViewerModal from './StoryViewerModal';
+import { fetchStories, fetchTrendingHashtags } from '../api/client';
+import { suggestedFriends } from '../data/mockData';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
 
@@ -38,12 +43,82 @@ export default function HomeView({
   focusedPostTarget = null,
   isLoadingPosts = false,
   onRefreshFeed,
-  refreshKey = 0
+  refreshKey = 0,
+  activeStreams = [],
+  onWatchStream,
+  onOpenLiveStream
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
+  const [storyTrays, setStoryTrays] = useState([]);
+  const [isCreateStoryOpen, setIsCreateStoryOpen] = useState(false);
+  const [activeStoryTray, setActiveStoryTray] = useState(null);
+  const [trendingTopics, setTrendingTopics] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(false);
   const leftSidebarRef = useRef(null);
   const rightSidebarRef = useRef(null);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!currentUser?.id) {
+      setTrendingTopics([]);
+      return undefined;
+    }
+    setTrendingLoading(true);
+    fetchTrendingHashtags({ userId: currentUser.id })
+      .then((result) => {
+        if (mounted) setTrendingTopics(Array.isArray(result?.data) ? result.data : []);
+      })
+      .catch(() => {
+        if (mounted) setTrendingTopics([]);
+      })
+      .finally(() => {
+        if (mounted) setTrendingLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [currentUser?.id, refreshKey]);
+
+  const loadStories = async () => {
+    try {
+      const res = await fetchStories();
+      if (res?.success) {
+        setStoryTrays(res.data || []);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải danh sách tin:', err.message);
+    }
+  };
+
+  const handleStoryViewed = (storyId, authorId) => {
+    setStoryTrays(prevTrays => {
+      const updated = prevTrays.map(tray => {
+        if (String(tray.author?.id) === String(authorId)) {
+          const updatedStories = tray.stories.map(s => 
+            String(s.id) === String(storyId) ? { ...s, isViewed: true } : s
+          );
+          const hasUnviewed = updatedStories.some(s => !s.isViewed);
+          return {
+            ...tray,
+            hasUnviewedStories: hasUnviewed,
+            stories: updatedStories,
+          };
+        }
+        return tray;
+      });
+
+      return [...updated].sort((a, b) => {
+        if (a.hasUnviewedStories && !b.hasUnviewedStories) return -1;
+        if (!a.hasUnviewedStories && b.hasUnviewedStories) return 1;
+        if (a.isSelf && !b.isSelf) return -1;
+        if (!a.isSelf && b.isSelf) return 1;
+        return new Date(b.latestStoryTime) - new Date(a.latestStoryTime);
+      });
+    });
+  };
+
+  useEffect(() => {
+    loadStories();
+  }, [currentUser?.id, refreshKey]);
 
   // Ngăn cuộn lan (scroll leakage) sang bài viết ở giữa khi lăn chuột trên cột trái hoặc cột phải
   useEffect(() => {
@@ -380,6 +455,64 @@ export default function HomeView({
         {/* ================= BẢNG TIN TRUNG TÂM (MỞ RỘNG RỘNG RÃI, THOÁNG ĐÃNG) ================= */}
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
           
+          {/* Thanh Tin 24h (Story Bar) */}
+          <StoryBar
+            currentUser={currentUser}
+            storyTrays={storyTrays}
+            onOpenCreateStory={() => setIsCreateStoryOpen(true)}
+            onOpenStoryViewer={(tray) => setActiveStoryTray(tray)}
+            onRequireAuth={onRequireAuth}
+          />
+
+          {/* Thanh danh sách các phòng Livestream đang phát sóng THỰC TẾ từ CSDL */}
+          {activeStreams && activeStreams.length > 0 && (
+            <div className="bg-gradient-to-r from-rose-500/10 via-pink-500/10 to-indigo-500/10 border border-rose-200/70 dark:border-rose-900/40 rounded-2xl p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+                  </span>
+                  <span className="text-xs font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider">
+                    Đang phát trực tiếp ({activeStreams.length})
+                  </span>
+                </div>
+                <button
+                  onClick={onOpenLiveStream}
+                  className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer transition"
+                >
+                  <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  Phát trực tiếp
+                </button>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+                {activeStreams.map((s) => (
+                  <div
+                    key={s.id}
+                    onClick={() => onWatchStream && onWatchStream(s)}
+                    className="flex-shrink-0 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 shadow-2xs hover:shadow-md hover:border-rose-300 dark:hover:border-rose-700 transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center font-bold text-xs ring-2 ring-rose-500/50 shrink-0">
+                        {s.streamer_name?.charAt(0) || 'L'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{s.streamer_name}</p>
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <Eye className="w-3 h-3 text-rose-500" /> {s.viewer_count || 1} người xem
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate mb-1">{s.title}</p>
+                    <span className="inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] rounded-md font-medium">
+                      {s.category || 'Giao lưu'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Ô tạo bài viết mới */}
           <CreatePostCard 
             currentUser={currentUser} 
@@ -675,21 +808,25 @@ export default function HomeView({
             </h3>
 
             <div className="space-y-3">
-              {trendingTopics.map((topic, index) => (
+              {trendingLoading ? <p className="text-xs text-slate-400">Đang tải...</p> : trendingTopics.length === 0 ? (
+                <p className="text-xs text-slate-400">Chưa có chủ đề thịnh hành</p>
+              ) : trendingTopics.map((topic) => (
                 <div 
-                  key={index} 
+                  key={topic.tag} 
                   onClick={() => onSelectHashtag?.(topic.tag)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') onSelectHashtag?.(topic.tag);
+                  }}
                   className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-blue-50/60 transition duration-150"
                   title={`Lọc bài viết với ${topic.tag}`}
                 >
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{topic.category}</span>
+                    <span>#{topic.displayTag || topic.tag}</span>
                     <span className="text-[10px] text-blue-500 font-semibold group-hover:underline">Khám phá</span>
                   </div>
-                  <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition">
-                    {topic.tag}
-                  </p>
-                  <p className="text-[10px] text-slate-400">{topic.posts}</p>
+                  <p className="text-[10px] text-slate-400">{topic.postCount} bài viết</p>
                 </div>
               ))}
             </div>
@@ -704,6 +841,48 @@ export default function HomeView({
         </aside>
 
       </div>
+
+      {/* Modal Tạo Tin Mới */}
+      <CreateStoryModal
+        currentUser={currentUser}
+        isOpen={isCreateStoryOpen}
+        onClose={() => setIsCreateStoryOpen(false)}
+        onStoryCreated={() => {
+          loadStories();
+        }}
+      />
+
+      {/* Modal Xem Tin Toàn Màn Hình */}
+      {activeStoryTray && (
+        <StoryViewerModal
+          currentUser={currentUser}
+          tray={activeStoryTray}
+          isOpen={Boolean(activeStoryTray)}
+          onClose={() => {
+            setActiveStoryTray(null);
+            loadStories();
+          }}
+          onStoryViewed={handleStoryViewed}
+          onOpenReportModal={onOpenReportModal}
+          onStoryDeleted={() => {
+            loadStories();
+          }}
+          onNextTray={() => {
+            const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
+            if (idx >= 0 && idx < storyTrays.length - 1) {
+              setActiveStoryTray(storyTrays[idx + 1]);
+            } else {
+              setActiveStoryTray(null);
+            }
+          }}
+          onPrevTray={() => {
+            const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
+            if (idx > 0) {
+              setActiveStoryTray(storyTrays[idx - 1]);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

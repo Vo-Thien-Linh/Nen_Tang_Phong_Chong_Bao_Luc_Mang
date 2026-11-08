@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Phone,
   PhoneOff,
@@ -7,10 +7,13 @@ import {
   Mic,
   MicOff,
   User,
-  Volume2
+  Volume2,
+  Sparkles,
+  X
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { CALL_STATUS, formatCallDuration } from '../utils/callMediaLogic';
+import { CALL_FILTERS } from '../utils/faceFilterLogic';
 
 export default function VideoCallModal({
   callStatus = CALL_STATUS.IDLE,
@@ -21,14 +24,23 @@ export default function VideoCallModal({
   callDuration = 0,
   isMuted = false,
   isVideoOff = false,
+  activeFilterId = 'none',
   onAccept,
   onDecline,
   onEndCall,
   onToggleMic,
-  onToggleCamera
+  onToggleCamera,
+  onSelectFilter
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('all');
+
+  const displayedFilters = useMemo(() => {
+    if (filterCategory === 'all') return CALL_FILTERS;
+    return CALL_FILTERS.filter(f => f.category === 'all' || f.category === filterCategory);
+  }, [filterCategory]);
 
   // Gắn stream vào các thẻ video DOM
   useEffect(() => {
@@ -197,6 +209,84 @@ export default function VideoCallModal({
         )}
       </div>
 
+      {/* Drawer chọn Filter AR & Hiệu ứng khuôn mặt */}
+      {showFilterDrawer && callType === 'video' && !isVideoOff && (
+        <div className="absolute bottom-24 sm:bottom-28 inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[520px] bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl p-3 shadow-2xl z-30 animate-fadeIn">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>Hiệu ứng & Filter khuôn mặt</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setFilterCategory('all')}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition cursor-pointer ${
+                  filterCategory === 'all' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tất cả
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterCategory('ar')}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition cursor-pointer ${
+                  filterCategory === 'ar' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Khuôn mặt
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterCategory('color')}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition cursor-pointer ${
+                  filterCategory === 'color' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Màu sắc
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowFilterDrawer(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 ml-1 transition cursor-pointer"
+                title="Đóng bảng hiệu ứng"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Dải cuộn ngang các Filter */}
+          <div className="flex items-center gap-2 overflow-x-auto py-1.5 scrollbar-thin scrollbar-thumb-slate-700">
+            {displayedFilters.map((f) => {
+              const isSelected = (activeFilterId || 'none') === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => onSelectFilter && onSelectFilter(f.id)}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl shrink-0 min-w-[68px] transition cursor-pointer group ${
+                    isSelected
+                      ? 'bg-blue-600/30 border-2 border-blue-500 shadow-lg shadow-blue-500/30'
+                      : 'bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-600'
+                  }`}
+                  title={f.description}
+                >
+                  <span className="text-2xl group-hover:scale-110 transition-transform">
+                    {f.icon}
+                  </span>
+                  <span className={`text-[11px] font-medium truncate max-w-[60px] ${
+                    isSelected ? 'text-blue-300 font-semibold' : 'text-slate-300'
+                  }`}>
+                    {f.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Thanh công cụ điều khiển cuộc gọi phía dưới (Bottom Controls) */}
       <div className="p-4 sm:p-6 bg-gradient-to-t from-black/90 to-transparent flex items-center justify-center gap-4 sm:gap-6 z-10">
         {/* Nút Bật/Tắt Micro */}
@@ -236,6 +326,22 @@ export default function VideoCallModal({
             title={isVideoOff ? 'Bật Camera' : 'Tắt Camera'}
           >
             {isVideoOff ? <VideoOff className="w-5 h-5 sm:w-6 sm:h-6" /> : <Video className="w-5 h-5 sm:w-6 sm:h-6" />}
+          </button>
+        )}
+
+        {/* Nút Mở/Đóng Bộ lọc AR & Hiệu ứng */}
+        {callType === 'video' && !isVideoOff && (
+          <button
+            type="button"
+            onClick={() => setShowFilterDrawer(!showFilterDrawer)}
+            className={`p-3.5 sm:p-4 rounded-full transition cursor-pointer shadow-lg ${
+              showFilterDrawer || (activeFilterId && activeFilterId !== 'none')
+                ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold shadow-amber-500/30'
+                : 'bg-slate-800/80 hover:bg-slate-700 text-amber-300 border border-white/10'
+            }`}
+            title={showFilterDrawer ? 'Đóng bộ lọc' : 'Chọn Filter & Hiệu ứng'}
+          >
+            <Sparkles className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         )}
       </div>

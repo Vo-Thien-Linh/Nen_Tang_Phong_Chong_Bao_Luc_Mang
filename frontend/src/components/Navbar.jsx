@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Home, Bell, ShieldCheck, Users, MessageCircle, 
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
-  Sun, Moon
+  Sun, Moon, Radio
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
@@ -26,7 +26,8 @@ export default function Navbar({
   activeFilterQuery = '',
   onClearFilter,
   onRefreshHome,
-  isLoadingPosts = false
+  isLoadingPosts = false,
+  onOpenLiveStream
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef(null);
@@ -167,6 +168,17 @@ export default function Navbar({
               )}
             </div>
             <span className="hidden lg:inline whitespace-nowrap">Thông báo</span>
+          </button>
+
+          {/* Nút Tab Phát Trực Tiếp (Livestream) */}
+          <button
+            id="nav-livestream-btn"
+            onClick={onOpenLiveStream}
+            title="Phát trực tiếp an toàn (Phòng chống bạo lực mạng)"
+            className="h-10 flex items-center gap-1.5 px-3 rounded-xl text-xs sm:text-sm font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 transition duration-150 cursor-pointer whitespace-nowrap shrink-0 border border-rose-200/60 dark:border-rose-900/40"
+          >
+            <Radio className="w-4 h-4 text-rose-500 animate-pulse shrink-0" />
+            <span className="hidden sm:inline font-bold whitespace-nowrap">Trực tiếp</span>
           </button>
 
           {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin; User thường KHÔNG render trong DOM) */}

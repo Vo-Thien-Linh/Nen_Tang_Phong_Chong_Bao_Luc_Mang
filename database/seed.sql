@@ -149,12 +149,15 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 
--- 5. TẠO THÔNG BÁO MẪU
-INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id, is_read, created_at)
-VALUES 
-    ('a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 'like', 'đã thích bài viết của bạn: "Vừa hoàn thiện xong module mạng xã hội..."', 2, FALSE, NOW() - INTERVAL '15 minutes'),
-    ('a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003', 'comment', 'đã bình luận vào bài viết của bạn: "Xuất sắc luôn anh ơi..."', 2, FALSE, NOW() - INTERVAL '1 hour'),
-    ('a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 'like', 'đã thả tim vào ảnh đại diện mới của bạn.', 1, TRUE, NOW() - INTERVAL '1 day');
+-- Không tạo thông báo tương tác giả trong dữ liệu seed. Dọn những bản mẫu cũ
+-- đã được thêm bởi các lần chạy seed trước để không phát lại mỗi lần đồng bộ.
+DELETE FROM notifications
+WHERE recipient_id = 'a0000000-0000-0000-0000-000000000001'::uuid
+  AND content IN (
+      'đã thích bài viết của bạn: "Vừa hoàn thiện xong module mạng xã hội..."',
+      'đã bình luận vào bài viết của bạn: "Xuất sắc luôn anh ơi..."',
+      'đã thả tim vào ảnh đại diện mới của bạn.'
+  );
 
 
 -- ========================================================

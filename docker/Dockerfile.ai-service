@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
+    AI_SERVICE_PORT=8001
+WORKDIR /app
+
+COPY backend/requirements.txt ./backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
+COPY backend/app ./backend/app
+COPY backend/ml_models ./backend/ml_models
+COPY services/ai-service/main.py ./services/ai-service/main.py
+
+EXPOSE 8001
+CMD ["python", "services/ai-service/main.py"]

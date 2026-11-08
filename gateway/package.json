@@ -1,0 +1,11 @@
+{
+  "name": "api-gateway",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "API Gateway for NexusSocial Microservices",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+

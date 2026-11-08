@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
+import HashtagView from './components/HashtagView';
 import FriendsView from './components/FriendsView';
 import MessagesView from './components/MessagesView';
 import NotificationsView from './components/NotificationsView';
@@ -10,6 +11,7 @@ import AdminDashboardView from './components/AdminDashboardView';
 import ModeratorView from './components/ModeratorView';
 import SettingsView from './components/SettingsView';
 import PostDetailView from './components/PostDetailView';
+import StoryViewerModal from './components/StoryViewerModal';
 import { useNotifications } from './hooks/useNotifications';
 import AiModerationModal from './components/AiModerationModal';
 import { appendCreatedComment, incrementPostCountOnce, prependCreatedPost, replacePostComments } from './utils/creationFlowLogic';
@@ -17,6 +19,9 @@ import { handleRealtimeFeedEvent } from './utils/realtimeFeedLogic';
 import ReportModal from './components/ReportModal';
 import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
+import LiveStreamModal from './components/LiveStreamModal';
+import CreateLiveStreamModal from './components/CreateLiveStreamModal';
+import { livestreamService } from './services/livestreamService';
 import { authService } from './services/authService';
 import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rbac';
 import { 
@@ -34,7 +39,6 @@ import {
   updatePost, 
   deletePost, 
   sharePost, 
-  updateUserSanctionApi, 
   resolveReportApi,
   createReportApi,
   fetchReportsList,
@@ -42,11 +46,14 @@ import {
   createAppealApi,
   resolveAppealApi,
   fetchAiOverridesList,
-  createAiOverrideApi
+  createAiOverrideApi,
+  fetchStories
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
 import { closePostMenu, togglePostMenu } from './utils/menuLogic';
+import { normalizeHashtag } from './utils/hashtag.js';
+import { buildHashtagHash, parseHashtagHash } from './utils/hashtagRouteLogic';
 import {
   clearPostNotice,
   countVisiblePosts,
@@ -70,6 +77,7 @@ export default function App() {
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
   const [focusedPostTarget, setFocusedPostTarget] = useState(null);
@@ -130,6 +138,69 @@ export default function App() {
   const [aiOverrides, setAiOverrides] = useState(initialAiOverrides);
   const [usersList, setUsersList] = useState(initialUsersList);
 
+  // Quản lý trạng thái chức năng Livestream THẬT từ CSDL PostgreSQL/SQLite
+  const [isCreateLiveOpen, setIsCreateLiveOpen] = useState(false);
+  const [activeLiveSession, setActiveLiveSession] = useState(null);
+  const [liveStreamMode, setLiveStreamMode] = useState('view');
+  const [activeStreamsList, setActiveStreamsList] = useState([]);
+
+  // Tải danh sách các phòng Livestream đang phát sóng THỰC TẾ từ CSDL
+  const loadActiveLivestreams = useCallback(async () => {
+    try {
+      const list = await livestreamService.getActiveStreams();
+      if (Array.isArray(list)) {
+        setActiveStreamsList(list);
+      }
+    } catch (err) {
+      console.warn('Lỗi lấy danh sách livestream từ CSDL:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'home') return;
+    loadActiveLivestreams();
+    const interval = setInterval(loadActiveLivestreams, 15000);
+    return () => clearInterval(interval);
+  }, [activeTab, loadActiveLivestreams]);
+
+  const handleOpenLiveStreamAction = () => {
+    if (!currentUser) {
+      setAuthNoticeMessage('Vui lòng đăng nhập để bắt đầu phát livestream');
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsCreateLiveOpen(true);
+  };
+
+  const [liveStreamMedia, setLiveStreamMedia] = useState(null);
+
+  const handleCreateLiveStream = async (streamData, existingMediaStream = null) => {
+    const session = await livestreamService.createLiveStream(streamData);
+    if (existingMediaStream) {
+      setLiveStreamMedia(existingMediaStream);
+    }
+    setActiveLiveSession(session);
+    setLiveStreamMode('broadcast');
+    loadActiveLivestreams();
+  };
+
+  const handleWatchLiveStream = (streamSession) => {
+    setActiveLiveSession(streamSession);
+    const isStreamer = currentUser && String(streamSession?.streamer_id) === String(currentUser.id);
+    setLiveStreamMode(isStreamer ? 'broadcast' : 'view');
+  };
+
+  const handleEndLiveStream = async (sessionId) => {
+    try {
+      await livestreamService.endLiveStream(sessionId);
+    } catch (e) {
+      console.warn('Lỗi khi kết thúc live:', e);
+    }
+    setActiveLiveSession(null);
+    loadActiveLivestreams();
+  };
+
   // Tải dữ liệu kiểm duyệt THẬT từ CSDL PostgreSQL (reports, appeals, ai-overrides)
   const loadModerationData = useCallback(async () => {
     const effectiveUserId = currentUser?.id || configuredUserId;
@@ -168,6 +239,7 @@ export default function App() {
   const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [viewedProfileUser, setViewedProfileUser] = useState(null); // Xem trang cá nhân người khác
   const [homeSearchQuery, setHomeSearchQuery] = useState(''); // Bộ lọc tìm kiếm bài viết trang chủ
+  const [activeStoryViewerTarget, setActiveStoryViewerTarget] = useState(null); // Story viewer modal được mở từ thông báo
 
   // Kiểm tra phiên đăng nhập và mở màn hình đăng nhập đầu tiên khi vào trang nếu chưa có tài khoản
   useEffect(() => {
@@ -183,7 +255,9 @@ export default function App() {
     }
 
     // Xác thực token tươi mới với Backend FastAPI
-    authService.verifySession().then((verifiedUser) => {
+    authService.verifySession(token).then((verifiedUser) => {
+      // Bỏ qua phản hồi phiên cũ nếu người dùng đã đăng xuất hoặc đăng nhập tài khoản khác.
+      if (authService.getToken() !== token) return;
       if (verifiedUser) {
         setCurrentUser(verifiedUser);
       } else {
@@ -244,6 +318,9 @@ export default function App() {
     if (rawHash.startsWith('post-')) {
       initialHash = 'post';
       initialPostId = rawHash.replace('post-', '');
+    } else if (rawHash.startsWith('hashtag/')) {
+      initialHash = 'hashtag';
+      setSelectedHashtag(parseHashtagHash(rawHash));
     } else if (rawHash === 'post') {
       initialHash = 'post';
       initialPostId = sessionStorage.getItem('wings_viewed_post_id');
@@ -263,7 +340,7 @@ export default function App() {
     }
 
     if (!currentUser) {
-      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings') {
+      if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings' || initialHash === 'hashtag') {
         initialHash = 'home';
       }
       setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
@@ -292,6 +369,9 @@ export default function App() {
       if (targetTab.startsWith('post-')) {
         targetPostId = targetTab.replace('post-', '');
         targetTab = 'post';
+      } else if (targetTab.startsWith('hashtag/')) {
+        setSelectedHashtag(parseHashtagHash(targetTab));
+        targetTab = 'hashtag';
       } else if (targetTab === 'post' && !targetPostId) {
         targetPostId = sessionStorage.getItem('wings_viewed_post_id');
       }
@@ -316,7 +396,7 @@ export default function App() {
         setViewedPostDetail(null);
       }
 
-      if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation')) {
+      if (!currentUser && (targetTab === 'admin' || targetTab === 'moderation' || targetTab === 'hashtag')) {
         targetTab = 'home';
         setAuthNoticeMessage('Vui lòng đăng nhập để truy cập khu vực này');
         setAuthModalTab('login');
@@ -346,8 +426,12 @@ export default function App() {
   useEffect(() => {
     if (!currentUser?.id) return;
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const token = authService.getToken();
     fetch(`${API_URL}/api/users/${currentUser.id}/profile`, {
-      headers: { 'x-user-id': currentUser.id }
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'x-user-id': currentUser.id,
+      }
     })
       .then(res => res.json())
       .then(data => {
@@ -426,6 +510,14 @@ export default function App() {
     } else {
       window.history.pushState(stateObj, '', `#${effectiveTab}`);
     }
+  };
+
+  const handleOpenHashtag = (tag) => {
+    const normalized = normalizeHashtag(tag);
+    if (!normalized) return;
+    setSelectedHashtag(normalized);
+    setActiveTab('hashtag');
+    window.history.pushState({ tab: 'hashtag', hashtag: normalized }, '', buildHashtagHash(normalized));
   };
 
   // Cập nhật thông tin người dùng đồng bộ
@@ -633,6 +725,39 @@ export default function App() {
       } finally {
         setIsLoadingPosts(false);
       }
+    }
+  };
+
+  // Mở trình xem Story mục tiêu từ thông báo hoặc danh sách tin (chuyên nghiệp như Facebook)
+  const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
+    try {
+      let targetTray = tray;
+      if (!targetTray) {
+        const res = await fetchStories();
+        const allTrays = res?.data || [];
+        if (storyId) {
+          targetTray = allTrays.find((t) => t.stories?.some((s) => String(s.id) === String(storyId)));
+        }
+        if (!targetTray && userId) {
+          targetTray = allTrays.find((t) => String(t.author?.id) === String(userId));
+        }
+        if (!targetTray && currentUser?.id && !userId) {
+          targetTray = allTrays.find((t) => String(t.author?.id) === String(currentUser.id));
+        }
+        if (!targetTray && allTrays.length > 0 && !userId) {
+          targetTray = allTrays[0];
+        }
+      }
+      if (targetTray) {
+        setActiveStoryViewerTarget({
+          tray: targetTray,
+          initialStoryId: storyId ? String(storyId) : undefined,
+          initialShowViewers: Boolean(initialShowViewers),
+          targetViewerId: targetViewerId ? String(targetViewerId) : undefined,
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi mở Story Viewer:', err.message);
     }
   };
 
@@ -920,6 +1045,16 @@ export default function App() {
         }));
       }
       const savedComment = res.data || newComment;
+      const isCommentHidden = Boolean(
+        res.isAuthorBlacklisted ||
+        savedComment.is_hidden || savedComment.isHidden ||
+        savedComment.ai_status === 'hidden' || savedComment.aiStatus === 'hidden' ||
+        savedComment.ai_label === 'Author Blacklist' || savedComment.aiLabel === 'Author Blacklist'
+      );
+      if (isCommentHidden) {
+        // Bình luận vi phạm/chứa từ khóa cấm đã bị ẩn hoàn toàn, không hiển thị lên bài viết
+        return;
+      }
       setPosts(prev => prev.map(post => String(post.id) === String(postId)
         ? appendCreatedComment(post, savedComment)
         : post));
@@ -979,11 +1114,12 @@ export default function App() {
       console.warn('Lỗi gửi báo cáo lên API CSDL:', err.message);
     }
 
-    // Gửi thông báo hệ thống xác nhận cho người báo cáo
+    // Gửi thông báo hệ thống xác nhận cho người báo cáo (kèm trích đoạn bài viết để theo dõi)
     const notif = {
       id: `notif-${Date.now()}`,
       type: 'report_receipt',
       isReceipt: true,
+      recipientId: currentUser?.id,
       user: {
         name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
@@ -991,7 +1127,13 @@ export default function App() {
       content: `Báo cáo của bạn về nội dung của ${reportData.targetAuthor?.name || 'thành viên'} đã được tiếp nhận và chuyển đến Quản trị viên.`,
       createdAt: new Date().toISOString(),
       time: 'Vừa xong',
-      isRead: false
+      isRead: false,
+      targetPostId: reportData.targetType === 'post' ? reportData.targetId : reportData.parentPostId,
+      targetPost: {
+        id: String((reportData.targetType === 'post' ? reportData.targetId : reportData.parentPostId) || ''),
+        contentSnippet: reportData.contentExcerpt || reportData.targetExcerpt || 'Nội dung được báo cáo',
+        image: reportData.imageUrl || reportData.image || null
+      }
     };
     addLocalNotification(notif);
   };
@@ -1101,6 +1243,7 @@ export default function App() {
           addLocalNotification({
             id: `notif-admin-sanction-${Date.now()}`,
             type: 'ai_moderation',
+            recipientId: targetAuthorId,
             user: {
               id: 'admin_moderator',
               name: 'Thông báo hệ thống',
@@ -1109,11 +1252,13 @@ export default function App() {
             content: `Nội dung của bạn đã bị Quản trị viên gắn nhãn vi phạm (${newLabel}${newImageLabel ? ` / Ảnh: ${newImageLabel}` : ''}) sau khi xác minh báo cáo và đã bị ẩn. Bạn có thể gửi đơn kháng cáo nếu cho rằng quyết định này chưa chuẩn xác.`,
             time: 'Vừa xong',
             isRead: false,
-            targetPostId: report?.targetId,
+            targetPostId: report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId),
             targetPost: {
-              id: String(report?.targetId || ''),
-              contentSnippet: report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
-              image: report?.imageUrl || null
+              id: String(report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId) || ''),
+              contentSnippet: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden
+                ? 'Bài viết đã bị ẩn sau khi xem xét.'
+                : report?.targetPostExcerpt || report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
+              image: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden ? null : (report?.targetPostImage || report?.imageUrl || null)
             },
             aiStatus: {
               label: newLabel,
@@ -1122,10 +1267,11 @@ export default function App() {
             }
           });
         } else if (currentUser && reporterId && currentUser.id === reporterId) {
-          // Với người gửi báo cáo: Gửi thông báo cảm ơn phản hồi kết quả
+          // Với người gửi báo cáo: Gửi thông báo cảm ơn phản hồi kết quả kèm bài viết
           addLocalNotification({
             id: `notif-report-result-${Date.now()}`,
             type: 'system',
+            recipientId: reporterId,
             user: {
               id: 'system',
               name: 'Thông báo hệ thống',
@@ -1133,7 +1279,15 @@ export default function App() {
             },
             content: `Báo cáo của bạn về nội dung của ${report?.targetAuthor?.name || 'thành viên'} đã được Quản trị viên xử lý (${newLabel}). Cảm ơn bạn đã đóng góp xây dựng không gian văn minh!`,
             time: 'Vừa xong',
-            isRead: false
+            isRead: false,
+            targetPostId: report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId),
+            targetPost: {
+              id: String(report?.targetPostId || (report?.targetType === 'post' ? report?.targetId : report?.parentPostId) || ''),
+              contentSnippet: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden
+                ? 'Bài viết đã bị ẩn sau khi xem xét.'
+                : report?.targetPostExcerpt || report?.contentExcerpt || report?.targetExcerpt || 'Nội dung bị báo cáo',
+              image: ['Violence', 'Hate Speech'].includes(newLabel) || report?.targetPostIsHidden ? null : (report?.targetPostImage || report?.imageUrl || null)
+            }
           });
         }
 
@@ -1313,10 +1467,11 @@ export default function App() {
       console.warn('Lỗi gửi khiếu nại lên CSDL PostgreSQL:', err.message);
     }
 
-    // Thông báo cho user
+    // Thông báo cho user kèm trích đoạn nội dung khiếu nại
     const notif = {
       id: `notif-${Date.now()}`,
       type: 'system',
+      recipientId: currentUser?.id,
       user: {
         name: 'Thông báo hệ thống',
         avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
@@ -1324,7 +1479,15 @@ export default function App() {
       content: 'Đơn khiếu nại kiểm duyệt của bạn đã được gửi. Quản trị viên sẽ kiểm tra ngữ cảnh thủ công sớm nhất.',
       createdAt: new Date().toISOString(),
       time: 'Vừa xong',
-      isRead: false
+      isRead: false,
+      targetPostId: appealData.contentType === 'post' ? appealData.contentId : appealData.parentPostId,
+      targetPost: {
+        id: String((appealData.contentType === 'post' ? appealData.contentId : appealData.parentPostId) || ''),
+        contentSnippet: appealData.aiActionTaken === 'hide'
+          ? 'Bài viết đang bị ẩn trong lúc chờ xem xét kháng cáo.'
+          : (appealData.originalText ? appealData.originalText.slice(0, 70) : 'Nội dung khiếu nại'),
+        image: appealData.aiActionTaken === 'hide' ? null : (appealData.imageUrl || null)
+      }
     };
     addLocalNotification(notif);
   };
@@ -1406,15 +1569,6 @@ export default function App() {
           }
         } else {
           // Normal hoặc Toxic hoặc Hate Speech: Gỡ bỏ cooldown
-          try {
-            await updateUserSanctionApi({
-              targetUserId,
-              action: 'clear_cooldown'
-            });
-          } catch (err) {
-            console.error('Lỗi khi gỡ cooldown:', err);
-          }
-
           if (currentUser && currentUser.id === targetUserId) {
             setCurrentUser(prev => ({
               ...prev,
@@ -1446,13 +1600,14 @@ export default function App() {
       };
       setAiOverrides(prev => [newOverride, ...prev]);
 
-      // 4. Gửi thông báo
+      // 4. Gửi thông báo cho chính tác giả làm đơn khiếu nại (kèm xem lại bài viết)
       const notifMsg = newLabel === 'Normal'
         ? `Khiếu nại được chấp thuận! Nội dung "${(appeal.originalText || '').slice(0, 40)}..." đã được xác nhận an toàn (Normal), án phạt được gỡ bỏ ngay lập tức.`
         : `Nội dung của bạn sau khi xem xét lại được chuyển sang nhãn "${newLabel}".`;
       const apologyNotif = {
         id: `notif-${Date.now()}`,
         type: 'system',
+        recipientId: targetUserId,
         user: {
           name: 'Thông báo hệ thống',
           avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'
@@ -1460,9 +1615,21 @@ export default function App() {
         content: notifMsg,
         createdAt: new Date().toISOString(),
         time: 'Vừa xong',
-        isRead: false
+        isRead: false,
+        targetPostId: appeal.targetPostId || (appeal.contentType === 'post' ? appeal.contentId : appeal.parentPostId),
+        targetPost: {
+          id: String(appeal.targetPostId || (appeal.contentType === 'post' ? appeal.contentId : appeal.parentPostId) || ''),
+          contentSnippet: (['Violence', 'Hate Speech'].includes(newLabel) || (appeal.targetPostIsHidden && newLabel !== 'Normal'))
+            ? `Bài viết đã bị ẩn sau khi xem xét${appeal.targetPostLabel ? ` (${appeal.targetPostLabel})` : ''}.`
+            : (appeal.targetPostContent || appeal.originalText || '').slice(0, 70),
+          image: ['Violence', 'Hate Speech'].includes(newLabel) || (appeal.targetPostIsHidden && newLabel !== 'Normal')
+            ? null
+            : (appeal.targetPostImage || appeal.imageUrl || null)
+        }
       };
-      addLocalNotification(apologyNotif);
+      if (currentUser && targetUserId && currentUser.id === targetUserId) {
+        addLocalNotification(apologyNotif);
+      }
     } else {
       // Nếu từ chối khiếu nại (bác bỏ)
       if (appeal.contentType === 'comment') {
@@ -1500,7 +1667,6 @@ export default function App() {
         adminNotes,
         userId: currentUser?.id
       });
-      await loadModerationData();
       return res;
     } catch (err) {
       console.warn('Lỗi gọi resolveAppealApi:', err.message);
@@ -1643,6 +1809,7 @@ export default function App() {
         onClearFilter={() => setHomeSearchQuery('')}
         onRefreshHome={handleRefreshHome}
         isLoadingPosts={isLoadingPosts}
+        onOpenLiveStream={handleOpenLiveStreamAction}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -1677,15 +1844,39 @@ export default function App() {
             onDismissNotice={handleDismissPostNotice}
             searchQuery={homeSearchQuery}
             onClearSearch={() => setHomeSearchQuery('')}
-            onSelectHashtag={(tag) => {
-              setHomeSearchQuery(tag);
-              setActiveTab('home');
-            }}
+            onSelectHashtag={handleOpenHashtag}
             onSharePost={handleSharePost}
             focusedPostTarget={focusedPostTarget}
             isLoadingPosts={isLoadingPosts}
             onRefreshFeed={handleRefreshHome}
             refreshKey={feedRefreshKey}
+            activeStreams={activeStreamsList}
+            onWatchStream={handleWatchLiveStream}
+            onOpenLiveStream={handleOpenLiveStreamAction}
+          />
+        )}
+
+        {activeTab === 'hashtag' && selectedHashtag && (
+          <HashtagView
+            tag={selectedHashtag}
+            currentUser={currentUser}
+            allPosts={posts}
+            onBack={() => handleTabChange('home')}
+            onToggleLike={handleToggleLike}
+            onAddComment={handleAddComment}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenAppealModal={handleOpenAppealModal}
+            onRequireAuth={handleRequireAuth}
+            onRequireLogin={handleRequireLogin}
+            onOpenProfile={handleOpenUserProfile}
+            onEditPost={handleUpdatePost}
+            onDeletePost={handleDeleteOwnPost}
+            openPostMenuId={openPostMenuId}
+            onTogglePostMenu={handleTogglePostMenu}
+            onClosePostMenu={handleClosePostMenu}
+            onDismissNotice={handleDismissPostNotice}
+            onUpdatePost={handleUpdatePost}
+            onSharePost={handleSharePost}
           />
         )}
 
@@ -1740,6 +1931,7 @@ export default function App() {
             onOpenReportModal={handleOpenReportModal}
             onRequireAuth={handleRequireAuth}
             onOpenProfile={handleOpenUserProfile}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -1760,6 +1952,7 @@ export default function App() {
             activeFilter={notifFilter}
             onFilterChange={setNotifFilter}
             onViewPost={handleViewPost}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -1782,6 +1975,7 @@ export default function App() {
             onOpenAppealModal={handleOpenAppealModal}
             onEditPost={handleUpdatePost}
             onDeletePost={handleDeleteOwnPost}
+            onOpenStoryViewer={handleOpenStoryViewer}
           />
         )}
 
@@ -1902,6 +2096,28 @@ export default function App() {
             setToastNotification(null);
             return;
           }
+
+          const rawPayload = toastNotification?.payload || toastNotification?.snapshot;
+          const payload = typeof rawPayload === 'object' && rawPayload !== null
+            ? rawPayload
+            : (() => { try { return JSON.parse(rawPayload); } catch { return {}; } })();
+
+          const isStory = 
+            toastNotification?.type === 'story_reaction' || 
+            toastNotification?.type === 'story_view' ||
+            Boolean(payload?.isStory || payload?.storyId) ||
+            (toastNotification?.content && (toastNotification.content.includes('về tin của bạn') || toastNotification.content.includes('vào tin của bạn') || toastNotification.content.includes('xem tin của bạn')));
+
+          if (isStory) {
+            handleOpenStoryViewer({
+              storyId: payload.storyId || null,
+              initialShowViewers: true,
+              targetViewerId: payload.actorId || toastNotification?.actor_id || toastNotification?.user?.id,
+            });
+            setToastNotification(null);
+            return;
+          }
+
           const targetId = getNotificationNavigationTarget(toastNotification);
           if (targetId) {
             handleViewPost(targetId, {
@@ -1919,6 +2135,41 @@ export default function App() {
         }}
       />
 
+      {/* Modal Khởi tạo phòng phát trực tiếp */}
+      <CreateLiveStreamModal
+        isOpen={isCreateLiveOpen}
+        onClose={() => setIsCreateLiveOpen(false)}
+        onCreateStream={handleCreateLiveStream}
+      />
+
+      {/* Modal Xem & Phát Livestream Realtime có kiểm duyệt AI */}
+      <LiveStreamModal
+        isOpen={!!activeLiveSession}
+        mode={liveStreamMode}
+        session={activeLiveSession}
+        currentUser={currentUser}
+        initialStream={liveStreamMedia}
+        onClose={() => {
+          if (liveStreamMedia) {
+            try {
+              liveStreamMedia.getTracks().forEach(t => t.stop());
+            } catch (e) {}
+            setLiveStreamMedia(null);
+          }
+          setActiveLiveSession(null);
+        }}
+        onEndStream={(sessionId) => {
+          if (liveStreamMedia) {
+            try {
+              liveStreamMedia.getTracks().forEach(t => t.stop());
+            } catch (e) {}
+            setLiveStreamMedia(null);
+          }
+          handleEndLiveStream(sessionId);
+        }}
+      />
+
     </div>
   );
 }
+

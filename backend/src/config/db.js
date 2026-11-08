@@ -1,7 +1,14 @@
 import pkg from 'pg';
 import dotenv from 'dotenv';
 
-dotenv.config();
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+// Luon tim dung file .env tai thu muc backend/ bat ke chay tu dau (microservice hay monolith)
+const __dbFilename = fileURLToPath(import.meta.url);
+const __dbDirname = dirname(__dbFilename);
+dotenv.config({ path: resolve(__dbDirname, '../../.env') });
+dotenv.config(); // Fallback: thu them .env tai CWD
 
 const { Pool } = pkg;
 
@@ -10,12 +17,13 @@ const pool = new Pool({
   // Tự động gỡ bỏ dấu ngoặc vuông [ ] nếu vô tình giữ lại quanh password
   connectionString: process.env.DATABASE_URL?.replace(/:\s*\[([^\]]+)\]\s*@/, ':$1@'),
 
-  ssl: process.env.DATABASE_URL?.includes('localhost') 
+  // Supabase Pooler (port 6543) KHÔNG hỗ trợ SSL, chỉ Direct (port 5432) mới cần SSL
+  ssl: (process.env.DATABASE_URL?.includes('localhost') || process.env.DATABASE_URL?.includes(':6543')) 
     ? false 
-    : { rejectUnauthorized: false }, // Cho phép kết nối SSL bảo mật tới Supabase
+    : { rejectUnauthorized: false },
   connectionTimeoutMillis: 5000,     // Timeout kết nối 5 giây tránh treo vĩnh viễn trên CI
   idleTimeoutMillis: 10000,          // Giải phóng kết nối nhàn rỗi sau 10 giây
-  max: 10,                           // Giới hạn pool kết nối an toàn cho Supabase
+  max: 3,                            // Giới hạn pool kết nối nhỏ gọn (3/service) để không vượt quá giới hạn Supabase
   keepAlive: true,                   // Gửi TCP keep-alive để chống Supavisor đóng kết nối ngầm
   keepAliveInitialDelayMillis: 10000,
 });

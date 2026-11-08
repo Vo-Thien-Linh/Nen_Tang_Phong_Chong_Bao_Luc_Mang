@@ -8,12 +8,12 @@ from app.config import settings
 from app.database import engine, Base, SessionLocal
 from app.services.auth_service import seed_default_users
 from app.routes.auth import router as auth_router
-from app.routes.moderate import router as moderate_router
 from app.routes.admin import router as admin_router
 from app.routes.friend import router as friend_router
 from app.routes.settings import router as settings_router
 from app.routes.message import router as message_router
 from app.routes.search import router as search_router
+from app.routes.livestream import router as livestream_router
 
 # 1. Khởi tạo ứng dụng FastAPI với Swagger UI tài liệu tự động
 app = FastAPI(
@@ -70,7 +70,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # 5. Đăng ký các Routes
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api") # Hỗ trợ cả alias /api/auth
-app.include_router(moderate_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api")
 app.include_router(friend_router, prefix="/api/v1")
@@ -81,6 +80,8 @@ app.include_router(message_router, prefix="/api/v1")
 app.include_router(message_router, prefix="/api")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api")
+app.include_router(livestream_router, prefix="/api/v1")
+app.include_router(livestream_router, prefix="/api")
 
 @app.get("/", tags=["Hệ thống"])
 def root():
@@ -91,6 +92,7 @@ def root():
         "version": settings.VERSION
     }
 
+@app.get("/health", tags=["Hệ thống"])
 @app.get("/api/health", tags=["Hệ thống"])
 def health_check():
     return {"status": "OK", "message": "Backend FastAPI đang hoạt động tốt trên cổng 8000!"}
