@@ -16,7 +16,7 @@ export default function Navbar({
   currentUser, 
   onOpenAuthModal,
   onLogout,
-  unreadMessagesCount = 1,
+  unreadMessagesCount = 0,
   pendingModerationCount = 0,
   theme = 'light',
   onToggleTheme,
