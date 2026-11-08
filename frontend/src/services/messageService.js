@@ -241,5 +241,76 @@ export const messageService = {
       console.warn('Lỗi declineConversation:', err.message);
       return false;
     }
+  },
+
+  /**
+   * Lấy trạng thái cuộc gọi video nhóm hiện tại
+   */
+  async getGroupCallStatus(conversationId) {
+    if (!hasValidToken() || !conversationId) return null;
+    try {
+      const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/call-status`, {
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      console.warn('Lỗi getGroupCallStatus:', err.message);
+      return null;
+    }
+  },
+
+  /**
+   * Bắt đầu cuộc gọi nhóm qua REST API (đảm bảo đồng bộ ngay lập tức)
+   */
+  async startGroupCall(conversationId, callType = 'video') {
+    if (!hasValidToken() || !conversationId) return null;
+    try {
+      const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/start-call`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ call_type: callType })
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      console.warn('Lỗi startGroupCall:', err.message);
+      return null;
+    }
+  },
+
+  /**
+   * Tham gia cuộc gọi nhóm qua REST API
+   */
+  async joinGroupCall(conversationId) {
+    if (!hasValidToken() || !conversationId) return null;
+    try {
+      const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/join-call`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      console.warn('Lỗi joinGroupCall:', err.message);
+      return null;
+    }
+  },
+
+  /**
+   * Rời cuộc gọi nhóm qua REST API
+   */
+  async leaveGroupCall(conversationId) {
+    if (!hasValidToken() || !conversationId) return false;
+    try {
+      const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/leave-call`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('Lỗi leaveGroupCall:', err.message);
+      return false;
+    }
   }
 };

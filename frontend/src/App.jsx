@@ -23,6 +23,7 @@ import LiveStreamModal from './components/LiveStreamModal';
 import CreateLiveStreamModal from './components/CreateLiveStreamModal';
 import { livestreamService } from './services/livestreamService';
 import { authService } from './services/authService';
+import { messageService } from './services/messageService';
 import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rbac';
 import { 
   currentUser as initialUser, 
@@ -90,6 +91,7 @@ export default function App() {
       return 1;
     }
   }); // Bộ đếm xoay vòng đề xuất bài viết bảng tin (lưu session để F5 giữ nguyên bài)
+  const [hasVisitedMessages, setHasVisitedMessages] = useState(false);
   const createdPostIdsRef = useRef(new Set());
   const pendingCommentKeysRef = useRef(new Set());
   const [openPostMenuId, setOpenPostMenuId] = useState(null);
@@ -110,6 +112,34 @@ export default function App() {
     addLocalNotification,
   } = useNotifications({ currentUser, activeTab });
   
+  // Quản lý số lượng tin nhắn chưa đọc trên Navbar
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+    let isMounted = true;
+    const fetchUnread = async () => {
+      try {
+        const convs = await messageService.getConversations('accepted');
+        if (convs && isMounted) {
+          const total = convs.reduce((sum, c) => sum + (c.unread_count || c.unreadCount || 0), 0);
+          setUnreadMessagesCount(total);
+        }
+      } catch (err) {
+        // silent
+      }
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentUser?.id]);
+
   // Quản lý Chế độ Giao diện Sáng / Tối (Theme Mode)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('nexussocial_theme') || 'light';
@@ -466,6 +496,18 @@ export default function App() {
       })
       .catch(() => {});
   }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'messages' && currentUser) {
+      setHasVisitedMessages(true);
+    }
+  }, [activeTab, currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setHasVisitedMessages(false);
+    }
+  }, [currentUser]);
 
   // Xử lý Chuyển Tab có Auth Guard và Role Guard
   const handleTabChange = (tab, targetUser = null, replace = false) => {
@@ -1785,7 +1827,7 @@ export default function App() {
         activeTab={activeTab} 
         setActiveTab={handleTabChange}
         unreadCount={unreadCount}
-        unreadMessagesCount={1}
+        unreadMessagesCount={unreadMessagesCount}
         pendingModerationCount={pendingModerationCount}
         onOpenAiLab={() => setIsAiModalOpen(true)}
         currentUser={currentUser}
@@ -1921,18 +1963,21 @@ export default function App() {
           />
         )}
 
-        {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn) */}
-        {activeTab === 'messages' && (
-          <MessagesView 
-            currentUser={currentUser} 
-            initialChatUser={selectedChatUser}
-            initialChatUserId={selectedChatUserId} 
-            onOpenReportModal={handleOpenReportModal}
-            onRequireAuth={handleRequireAuth}
-            onOpenProfile={handleOpenUserProfile}
-            onOpenStoryViewer={handleOpenStoryViewer}
-          />
-        )}
+        {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn, giữ DOM để chuyển tab tức thì 0s) */}
+        <div className={activeTab === 'messages' ? 'h-full flex flex-col flex-1' : 'hidden'}>
+          {hasVisitedMessages && currentUser && (
+            <MessagesView 
+              currentUser={currentUser} 
+              initialChatUser={selectedChatUser}
+              initialChatUserId={selectedChatUserId} 
+              onOpenReportModal={handleOpenReportModal}
+              onRequireAuth={handleRequireAuth}
+              onOpenProfile={handleOpenUserProfile}
+              onOpenStoryViewer={handleOpenStoryViewer}
+              onUnreadCountChange={setUnreadMessagesCount}
+            />
+          )}
+        </div>
 
         {/* Tab 4: Thông báo */}
         {activeTab === 'notifications' && (

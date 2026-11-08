@@ -1,5 +1,6 @@
 from typing import List, Optional
 from datetime import datetime
+from collections import defaultdict
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, desc, func
 from fastapi import HTTPException, status
@@ -323,22 +324,23 @@ class MessageService:
 
     @staticmethod
     def get_conversation_recipient_ids(conversation_id: int, sender_id: str, db: Session) -> List[str]:
-        conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        conv = db.query(Conversation).filter(Conversation.id == int(conversation_id)).first()
         if not conv:
             return []
         if getattr(conv, "type", "direct") == "group":
             members = db.query(ConversationMember.user_id).filter(
-                ConversationMember.conversation_id == conversation_id,
-                ConversationMember.user_id != sender_id
+                ConversationMember.conversation_id == int(conversation_id)
             ).all()
-            return [str(m[0]) for m in members]
+            sender_str = str(sender_id).strip().lower() if sender_id else ""
+            return [str(m[0]) for m in members if str(m[0]).strip().lower() != sender_str]
         else:
-            partner_id = str(conv.user2_id) if str(conv.user1_id) == str(sender_id) else str(conv.user1_id)
+            partner_id = str(conv.user2_id) if str(conv.user1_id).strip().lower() == str(sender_id).strip().lower() else str(conv.user1_id)
             return [partner_id]
 
     @staticmethod
     def get_conversations(current_user_id: str, tab: Optional[str], db: Session) -> List[ConversationItem]:
-        # Tự động đảm bảo tất cả bạn bè chính thức (accepted) đều có cuộc trò chuyện sẵn sàng
+        # 1. Tự động đảm bảo tất cả bạn bè chính thức (accepted) đều có cuộc trò chuyện sẵn sàng
+        # Dùng batch query thay vì N queries lồng nhau để tối ưu tốc độ vượt trội
         try:
             accepted_friendships = db.query(Friendship).filter(
                 or_(
@@ -348,17 +350,23 @@ class MessageService:
                 Friendship.status == "accepted"
             ).all()
 
+            # Lấy tất cả cuộc trò chuyện trực tiếp hiện có của user trong 1 query duy nhất
+            existing_direct_convs = db.query(Conversation).filter(
+                or_(Conversation.user1_id == current_user_id, Conversation.user2_id == current_user_id),
+                or_(Conversation.type == "direct", Conversation.type == None)
+            ).all()
+
+            conv_by_partner = {}
+            for c in existing_direct_convs:
+                pid = str(c.user2_id) if str(c.user1_id) == str(current_user_id) else str(c.user1_id)
+                conv_by_partner[pid] = c
+
             has_new_conv = False
             for f in accepted_friendships:
                 partner_id = str(f.addressee_id) if str(f.requester_id) == str(current_user_id) else str(f.requester_id)
-                u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
-                existing_conv = db.query(Conversation).filter(
-                    or_(
-                        and_(Conversation.user1_id == u1, Conversation.user2_id == u2),
-                        and_(Conversation.user1_id == u2, Conversation.user2_id == u1)
-                    )
-                ).first()
+                existing_conv = conv_by_partner.get(partner_id)
                 if not existing_conv:
+                    u1, u2 = (current_user_id, partner_id) if str(current_user_id) < str(partner_id) else (partner_id, current_user_id)
                     new_conv = Conversation(
                         user1_id=u1,
                         user2_id=u2,
@@ -369,6 +377,7 @@ class MessageService:
                         updated_at=f.updated_at or func.now()
                     )
                     db.add(new_conv)
+                    conv_by_partner[partner_id] = new_conv
                     has_new_conv = True
                 elif existing_conv.status != "accepted" and existing_conv.status != "blocked":
                     existing_conv.status = "accepted"
@@ -379,7 +388,7 @@ class MessageService:
         except Exception as e:
             db.rollback()
 
-        # Lấy danh sách ID các nhóm mà current_user là thành viên
+        # 2. Lấy danh sách ID các nhóm mà current_user là thành viên
         group_member_rows = db.query(ConversationMember.conversation_id).filter(
             ConversationMember.user_id == current_user_id
         ).all()
@@ -415,15 +424,58 @@ class MessageService:
             )
 
         conversations = query.order_by(desc(Conversation.last_message_at)).all()
+        if not conversations:
+            return []
 
-        result = []
-        for c in conversations:
-            if getattr(c, "type", "direct") == "group":
-                members_query = db.query(ConversationMember, User).join(
-                    User, User.id == ConversationMember.user_id
-                ).filter(ConversationMember.conversation_id == c.id).all()
+        conv_ids = [c.id for c in conversations]
 
-                group_members = [
+        # 3. BATCH QUERY: Lấy tin nhắn mới nhất của TẤT CẢ các cuộc trò chuyện (1 query duy nhất)
+        subq = db.query(
+            func.max(Message.id)
+        ).filter(
+            Message.conversation_id.in_(conv_ids)
+        ).group_by(Message.conversation_id)
+
+        last_messages = db.query(Message).filter(Message.id.in_(subq)).all()
+        last_msg_map = {m.conversation_id: m for m in last_messages}
+
+        # 4. BATCH QUERY: Lấy số lượng tin nhắn chưa đọc cho TẤT CẢ các cuộc trò chuyện (1 query duy nhất)
+        unread_rows = db.query(
+            Message.conversation_id,
+            func.count(Message.id)
+        ).filter(
+            Message.conversation_id.in_(conv_ids),
+            Message.is_read == False,
+            Message.sender_id != current_user_id
+        ).group_by(Message.conversation_id).all()
+        unread_count_map = {r[0]: r[1] for r in unread_rows}
+
+        # 5. BATCH QUERY: Lấy thông tin partner_user cho tất cả cuộc trò chuyện trực tiếp (1 query duy nhất)
+        direct_convs = [c for c in conversations if getattr(c, "type", "direct") != "group"]
+        partner_ids = {
+            str(c.user2_id) if str(c.user1_id) == str(current_user_id) else str(c.user1_id)
+            for c in direct_convs
+        }
+        partner_users = db.query(User).filter(User.id.in_(list(partner_ids))).all() if partner_ids else []
+        partner_user_map = {str(u.id): u for u in partner_users}
+
+        # Tập hợp ID bạn bè từ accepted_friendships đã có từ bước 1 (0 round-trip)
+        friend_ids = {
+            str(f.addressee_id) if str(f.requester_id) == str(current_user_id) else str(f.requester_id)
+            for f in accepted_friendships
+        }
+
+        # 6. BATCH QUERY: Lấy thông tin thành viên của tất cả các nhóm (1 query duy nhất)
+        group_convs = [c for c in conversations if getattr(c, "type", "direct") == "group"]
+        group_ids = [c.id for c in group_convs]
+        group_members_map = defaultdict(list)
+        if group_ids:
+            members_rows = db.query(ConversationMember, User).join(
+                User, User.id == ConversationMember.user_id
+            ).filter(ConversationMember.conversation_id.in_(group_ids)).all()
+
+            for cm, u in members_rows:
+                group_members_map[cm.conversation_id].append(
                     ConversationPartner(
                         id=str(u.id),
                         name=u.full_name,
@@ -433,18 +485,16 @@ class MessageService:
                         is_online=True,
                         is_friend=True
                     )
-                    for _, u in members_query
-                ]
+                )
 
-                last_msg = db.query(Message).filter(
-                    Message.conversation_id == c.id
-                ).order_by(desc(Message.created_at)).first()
+        # 7. Xây dựng kết quả hoàn toàn trong bộ nhớ (0 database round-trip)
+        result = []
+        for c in conversations:
+            last_msg = last_msg_map.get(c.id)
+            unread_count = unread_count_map.get(c.id, 0)
 
-                unread_count = db.query(Message).filter(
-                    Message.conversation_id == c.id,
-                    Message.sender_id != current_user_id,
-                    Message.is_read == False
-                ).count()
+            if getattr(c, "type", "direct") == "group":
+                group_members = group_members_map.get(c.id, [])
 
                 last_msg_text = None
                 if last_msg:
@@ -459,8 +509,8 @@ class MessageService:
                     elif getattr(last_msg, "media_type", "") == "call_log":
                         last_msg_text = "[Cuộc gọi] " + (last_msg.content or "")
                     else:
-                        sender_user = next((u for _, u in members_query if str(u.id) == str(last_msg.sender_id)), None)
-                        prefix = "Bạn: " if str(last_msg.sender_id) == str(current_user_id) else (f"{sender_user.full_name.split()[-1]}: " if sender_user else "")
+                        sender_user = next((u for u in group_members if str(u.id) == str(last_msg.sender_id)), None)
+                        prefix = "Bạn: " if str(last_msg.sender_id) == str(current_user_id) else (f"{sender_user.name.split()[-1]}: " if sender_user else "")
                         last_msg_text = prefix + (last_msg.content or "")
 
                 result.append(ConversationItem(
@@ -483,31 +533,15 @@ class MessageService:
                 continue
 
             partner_id = str(c.user2_id) if str(c.user1_id) == str(current_user_id) else str(c.user1_id)
-            partner_user = db.query(User).filter(User.id == partner_id).first()
+            partner_user = partner_user_map.get(partner_id)
             if not partner_user:
                 continue
 
-            last_msg = db.query(Message).filter(
-                Message.conversation_id == c.id
-            ).order_by(desc(Message.created_at)).first()
-
-            is_friend = db.query(Friendship).filter(
-                or_(
-                    and_(Friendship.requester_id == current_user_id, Friendship.addressee_id == partner_id),
-                    and_(Friendship.requester_id == partner_id, Friendship.addressee_id == current_user_id)
-                ),
-                Friendship.status == "accepted"
-            ).first() is not None
+            is_friend = partner_id in friend_ids
 
             # Nếu KHÔNG PHẢI BẠN BÈ và KHÔNG CÓ TIN NHẮN THỰC TẾ và KHÔNG BỊ CHẶN -> Bỏ qua
             if not is_friend and not last_msg and c.status != "blocked":
                 continue
-
-            unread_count = db.query(Message).filter(
-                Message.conversation_id == c.id,
-                Message.receiver_id == current_user_id,
-                Message.is_read == False
-            ).count()
 
             partner_info = ConversationPartner(
                 id=str(partner_user.id),
