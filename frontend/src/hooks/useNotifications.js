@@ -69,9 +69,11 @@ export function useNotifications({ currentUser, activeTab }) {
   const prevUnreadCountRef = useRef(unreadCount);
   const prevItemsRef = useRef(notifications);
   const activeUserIdRef = useRef(currentUser?.id || null);
+  const activeTabRef = useRef(activeTab);
   const refreshRequestRef = useRef(0);
   const loadedServerUserIdRef = useRef(null);
   activeUserIdRef.current = currentUser?.id || null;
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     const userId = currentUser?.id || null;
@@ -119,7 +121,7 @@ export function useNotifications({ currentUser, activeTab }) {
                 (p) => String(p.id) === String(latestItem.id)
               );
               // Nếu có item mới xuất hiện và chưa đọc, kích hoạt Toast
-              if (!isInitialServerLoad && !isAlreadyExisted && !latestItem.isRead && activeTab !== 'notifications') {
+              if (!isInitialServerLoad && !isAlreadyExisted && !latestItem.isRead && activeTabRef.current !== 'notifications') {
                 setToastNotification(latestItem);
               }
             }
@@ -143,7 +145,7 @@ export function useNotifications({ currentUser, activeTab }) {
         if (showSpinner && requestId === refreshRequestRef.current) setIsLoading(false);
       }
     },
-    [currentUser?.id, activeTab]
+    [currentUser?.id]
   );
 
   // Khi đăng nhập -> nạp local và tải danh sách từ server (Không gộp prev từ tài khoản cũ)
