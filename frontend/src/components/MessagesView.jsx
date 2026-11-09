@@ -14,6 +14,7 @@ import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } fr
 import { fetchStories } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import CreateGroupModal from './CreateGroupModal';
+import GroupVideoCallModal from './GroupVideoCallModal';
 import {
   CALL_STATUS,
   CALL_LOG_REASON,
@@ -25,6 +26,7 @@ import {
   applyVideoTrackToPeer
 } from '../utils/callMediaLogic';
 import { FaceFilterManager } from '../utils/faceFilterLogic';
+import { MeshCallManager } from '../utils/meshCallManager';
 
 const EMOJI_CATEGORIES = [
   {
@@ -121,7 +123,8 @@ export default function MessagesView({
   onOpenReportModal, 
   onRequireAuth,
   onOpenProfile,
-  onOpenStoryViewer
+  onOpenStoryViewer,
+  onUnreadCountChange
 }) {
   if (!currentUser) {
     return (
@@ -209,6 +212,8 @@ export default function MessagesView({
   const [selectedFileAttachment, setSelectedFileAttachment] = useState(null); // { name, size, dataUrl }
   const [selectedImageModal, setSelectedImageModal] = useState(null);
   const [showAllMediaModal, setShowAllMediaModal] = useState(false);
+  const [recallingMessage, setRecallingMessage] = useState(null);
+  const [isRecalling, setIsRecalling] = useState(false);
   const [sidebarActiveTab, setSidebarActiveTab] = useState('media'); // 'media' | 'links'
   const [allMediaTab, setAllMediaTab] = useState('media');
   const fileInputRef = useRef(null);
@@ -228,7 +233,26 @@ export default function MessagesView({
   const [isWsConnected, setIsWsConnected] = useState(false);
   const [activeCallFilterId, setActiveCallFilterId] = useState('none');
 
+  // Trạng thái Cuộc gọi nhóm WebRTC (Group Video Call)
+  const [groupCallModalOpen, setGroupCallModalOpen] = useState(false);
+  const [groupCallConversationId, setGroupCallConversationId] = useState(null);
+  const [groupCallGroupName, setGroupCallGroupName] = useState('');
+  const [groupCallGroupAvatar, setGroupCallGroupAvatar] = useState(null);
+  const [groupCallParticipants, setGroupCallParticipants] = useState([]);
+  const [groupCallRemoteStreams, setGroupCallRemoteStreams] = useState({});
+  const [groupLocalStream, setGroupLocalStream] = useState(null);
+  const [groupCallDuration, setGroupCallDuration] = useState(0);
+  const [isGroupMuted, setIsGroupMuted] = useState(false);
+  const [isGroupVideoOff, setIsGroupVideoOff] = useState(false);
+  const [isGroupScreenSharing, setIsGroupScreenSharing] = useState(false);
+  const [groupScreenSharingUsers, setGroupScreenSharingUsers] = useState({});
+  const [groupActiveFilterId, setGroupActiveFilterId] = useState('none');
+  const [activeGroupCallsStatus, setActiveGroupCallsStatus] = useState({});
+  const [incomingGroupCall, setIncomingGroupCall] = useState(null);
+
+  const isGroupScreenSharingRef = useRef(false);
   const wsRef = useRef(null);
+  const wsMessageDispatcherRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
@@ -239,6 +263,12 @@ export default function MessagesView({
   const callTimeoutRef = useRef(null);
   const activeCallPartnerIdRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
+
+  const meshCallManagerRef = useRef(null);
+  const groupCallTimerRef = useRef(null);
+  const groupRawCameraStreamRef = useRef(null);
+  const groupFilterManagerRef = useRef(null);
+  const groupScreenStreamRef = useRef(null);
 
   // Đóng emoji picker khi click ra ngoài
   useEffect(() => {
@@ -347,6 +377,14 @@ export default function MessagesView({
     }
   }, [currentUser]);
 
+  // Thông báo số lượng tin nhắn chưa đọc lên component cha (Navbar)
+  useEffect(() => {
+    if (onUnreadCountChange) {
+      const total = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+      onUnreadCountChange(total);
+    }
+  }, [conversations, onUnreadCountChange]);
+
   // Tải tin nhắn của cuộc trò chuyện đang chọn từ CSDL
   const loadMessages = async (convId) => {
     if (!convId || !currentUser) return;
@@ -404,6 +442,58 @@ export default function MessagesView({
     }
   }, [selectedConversationId]);
 
+  // Đồng bộ trạng thái cuộc gọi nhóm khi mở hội thoại nhóm hoặc định kỳ
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    const conv = conversations.find(c => String(c.id) === String(selectedConversationId));
+    if (conv?.type !== 'group') return;
+
+    let isMounted = true;
+    const fetchStatus = async () => {
+      try {
+        const st = await messageService.getGroupCallStatus(selectedConversationId);
+        if (st && isMounted) {
+          setActiveGroupCallsStatus(prev => ({
+            ...prev,
+            [selectedConversationId]: st,
+            [String(selectedConversationId)]: st
+          }));
+        }
+      } catch (err) {
+        // silent
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedConversationId, conversations]);
+
+  // Quét trạng thái cuộc gọi của các nhóm song song không gây nghẽn luồng
+  useEffect(() => {
+    const groupConvs = conversations.filter(c => c.type === 'group');
+    if (!groupConvs.length) return;
+
+    Promise.allSettled(groupConvs.map(g => messageService.getGroupCallStatus(g.id)))
+      .then(results => {
+        const updates = {};
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled' && r.value) {
+            const gid = groupConvs[idx].id;
+            updates[gid] = r.value;
+            updates[String(gid)] = r.value;
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          setActiveGroupCallsStatus(prev => ({ ...prev, ...updates }));
+        }
+      })
+      .catch(() => {});
+  }, [conversations.length]);
+
   // 1. Kết nối Realtime WebSocket tới Backend FastAPI (Port 8000)
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -428,7 +518,7 @@ export default function MessagesView({
           }, 20000);
         };
 
-        ws.onmessage = async (event) => {
+        const handleWsMessage = async (event) => {
           if (event.data === 'pong') return;
           try {
             const data = JSON.parse(event.data);
@@ -725,11 +815,87 @@ export default function MessagesView({
                 callTimeoutRef.current = null;
               }
               cleanupCall();
+            } else if (data.type === 'GROUP_CALL_STATUS') {
+              const cId = data.conversation_id;
+              if (cId) {
+                const statusObj = {
+                  is_active: Boolean(data.is_active),
+                  participants_count: data.participants_count || 0,
+                  initiator_id: data.initiator_id,
+                  call_type: data.call_type || 'video'
+                };
+                setActiveGroupCallsStatus(prev => ({
+                  ...prev,
+                  [cId]: statusObj,
+                  [String(cId)]: statusObj
+                }));
+              }
+            } else if (data.type === 'GROUP_CALL_INVITE') {
+              if (!groupCallModalOpen && String(data.initiator_id) !== String(currentUser?.id)) {
+                setIncomingGroupCall({
+                  conversation_id: data.conversation_id,
+                  caller_name: data.caller_name || 'Thành viên',
+                  caller_avatar: data.caller_avatar,
+                  call_type: data.call_type || 'video',
+                  participants_count: data.participants_count || 1
+                });
+              }
+            } else if (data.type === 'GROUP_CALL_STARTED') {
+              if (data.room) {
+                setGroupCallParticipants(data.room.participants || []);
+              }
+            } else if (data.type === 'GROUP_CALL_ROOM_STATE') {
+              const existingParticipants = data.participants || [];
+              setGroupCallParticipants(existingParticipants);
+              if (meshCallManagerRef.current) {
+                for (const p of existingParticipants) {
+                  if (String(p.user_id) !== String(currentUser?.id)) {
+                    meshCallManagerRef.current.createPeer(p.user_id, true);
+                  }
+                }
+              }
+            } else if (data.type === 'GROUP_CALL_USER_JOINED') {
+              const newUser = data.user;
+              if (newUser && String(newUser.user_id) !== String(currentUser?.id)) {
+                setGroupCallParticipants(prev => {
+                  if (prev.some(p => String(p.user_id) === String(newUser.user_id))) return prev;
+                  return [...prev, newUser];
+                });
+                if (meshCallManagerRef.current) {
+                  meshCallManagerRef.current.createPeer(newUser.user_id, false);
+                  // Nếu bản thân đang chia sẻ màn hình, báo ngay cho thành viên mới gia nhập
+                  if (isGroupScreenSharingRef.current) {
+                    meshCallManagerRef.current.sendSignal(newUser.user_id, {
+                      type: 'SCREEN_SHARE_CHANGE',
+                      is_sharing: true
+                    });
+                  }
+                }
+              }
+            } else if (data.type === 'GROUP_CALL_USER_LEFT') {
+              const leftUserId = String(data.user_id);
+              setGroupCallParticipants(prev => prev.filter(p => String(p.user_id) !== leftUserId));
+              setGroupCallRemoteStreams(prev => {
+                const next = { ...prev };
+                delete next[leftUserId];
+                return next;
+              });
+              if (meshCallManagerRef.current) {
+                meshCallManagerRef.current.removePeer(leftUserId);
+              }
+            } else if (data.type === 'GROUP_CALL_SIGNAL') {
+              const fromUserId = data.from_user_id;
+              if (fromUserId && meshCallManagerRef.current) {
+                meshCallManagerRef.current.handleSignal(fromUserId, data.signal || data);
+              }
             }
           } catch (e) {
             console.warn('Lỗi xử lý WebSocket message:', e);
           }
         };
+
+        wsMessageDispatcherRef.current = handleWsMessage;
+        ws.onmessage = handleWsMessage;
 
         ws.onclose = () => {
           setIsWsConnected(false);
@@ -898,38 +1064,46 @@ export default function MessagesView({
     }
   };
 
+  // Đảm bảo WebSocket kết nối sẵn sàng trước khi gửi dữ liệu quan trọng
+  const ensureWebSocketReady = async () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      return true;
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return true;
+      }
+    }
+    try {
+      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const wsUrl = fastApiUrl.replace(/^http/, 'ws');
+      const newWs = createAuthenticatedRealtimeSocket(wsUrl, currentUser.id);
+      newWs.onmessage = (event) => wsMessageDispatcherRef.current?.(event);
+      wsRef.current = newWs;
+      return await new Promise((resolve) => {
+        newWs.onopen = () => {
+          setIsWsConnected(true);
+          resolve(true);
+        };
+        newWs.onerror = () => resolve(false);
+        newWs.onclose = () => resolve(false);
+        setTimeout(() => resolve(false), 2500);
+      });
+    } catch (e) {
+      console.warn('Lỗi kết nối lại WebSocket:', e);
+      return false;
+    }
+  };
+
   // Bắt đầu cuộc gọi (Audio hoặc Video)
   const startCall = async (type = 'video') => {
     const targetUser = currentConversation?.user;
     if (!targetUser?.id || !currentUser?.id || isBlocked) return;
 
     // Tự động thử kết nối lại nếu WebSocket chưa sẵn sàng
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
-        await new Promise((r) => setTimeout(r, 800));
-      }
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        try {
-          const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
-          const wsUrl = fastApiUrl.replace(/^http/, 'ws');
-          const newWs = createAuthenticatedRealtimeSocket(wsUrl, currentUser.id);
-          wsRef.current = newWs;
-          await new Promise((resolve) => {
-            newWs.onopen = () => {
-              setIsWsConnected(true);
-              resolve(true);
-            };
-            newWs.onerror = () => resolve(false);
-            newWs.onclose = () => resolve(false);
-            setTimeout(() => resolve(false), 2000);
-          });
-        } catch (e) {
-          console.warn('Lỗi kết nối lại WebSocket:', e);
-        }
-      }
-    }
-
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    const isWsReady = await ensureWebSocketReady();
+    if (!isWsReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       alert('Không thể thực hiện cuộc gọi: Chưa kết nối máy chủ thời gian thực (FastAPI Port 8000). Vui lòng đảm bảo Backend đang chạy và thử lại.');
       return;
     }
@@ -1126,6 +1300,473 @@ export default function MessagesView({
     }
   };
 
+  // =================== XỬ LÝ GỌI VIDEO NHÓM (GROUP VIDEO CALL) ===================
+  const handleLeaveGroupCall = () => {
+    const cId = groupCallConversationId;
+    if (cId) {
+      messageService.leaveGroupCall(cId);
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && cId) {
+      wsRef.current.send(JSON.stringify({
+        type: 'GROUP_CALL_LEAVE',
+        conversation_id: cId
+      }));
+    }
+
+    if (groupCallTimerRef.current) {
+      clearInterval(groupCallTimerRef.current);
+      groupCallTimerRef.current = null;
+    }
+
+    if (meshCallManagerRef.current) {
+      meshCallManagerRef.current.destroy();
+      meshCallManagerRef.current = null;
+    }
+
+    if (groupFilterManagerRef.current) {
+      groupFilterManagerRef.current.destroy();
+      groupFilterManagerRef.current = null;
+    }
+
+    if (groupScreenStreamRef.current) {
+      stopMediaStream(groupScreenStreamRef.current);
+      groupScreenStreamRef.current = null;
+    }
+
+    if (groupRawCameraStreamRef.current) {
+      stopMediaStream(groupRawCameraStreamRef.current);
+      groupRawCameraStreamRef.current = null;
+    }
+
+    if (groupLocalStream) {
+      stopMediaStream(groupLocalStream);
+      setGroupLocalStream(null);
+    }
+
+    setGroupCallModalOpen(false);
+    setGroupCallConversationId(null);
+    setGroupCallParticipants([]);
+    setGroupCallRemoteStreams({});
+    setGroupCallDuration(0);
+    setIsGroupMuted(false);
+    setIsGroupVideoOff(false);
+    setIsGroupScreenSharing(false);
+    isGroupScreenSharingRef.current = false;
+    setGroupScreenSharingUsers({});
+    setGroupActiveFilterId('none');
+  };
+
+  const startGroupCall = async (conversationId) => {
+    if (!conversationId) return;
+
+    // 1. Kiểm tra trạng thái hiện tại trên local: nếu đang có cuộc gọi thì chuyển ngay sang tham gia
+    const localStatus = activeGroupCallsStatus[conversationId] || activeGroupCallsStatus[String(conversationId)];
+    if (localStatus?.is_active && (localStatus.participants_count > 0 || localStatus.participants?.length > 0)) {
+      return joinGroupCall(conversationId);
+    }
+
+    // 2. Kiểm tra nhanh qua REST API để phòng trường hợp WebSocket hoặc Polling có độ trễ
+    try {
+      const remoteStatus = await messageService.getGroupCallStatus(conversationId);
+      if (remoteStatus?.is_active && remoteStatus.participants_count > 0) {
+        setActiveGroupCallsStatus(prev => ({
+          ...prev,
+          [conversationId]: remoteStatus,
+          [String(conversationId)]: remoteStatus
+        }));
+        return joinGroupCall(conversationId);
+      }
+    } catch (e) {
+      // Tiếp tục quy trình tạo mới nếu kiểm tra lỗi mạng
+    }
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert('Trình duyệt không hỗ trợ truy cập camera/mic.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      groupRawCameraStreamRef.current = stream;
+      setGroupLocalStream(stream);
+
+      const conv = conversations.find(c => String(c.id) === String(conversationId));
+      const groupName = conv?.name || conv?.user?.name || 'Nhóm chat';
+      const groupAvatar = conv?.avatar || conv?.user?.avatar || null;
+
+      setGroupCallConversationId(conversationId);
+      setGroupCallGroupName(groupName);
+      setGroupCallGroupAvatar(groupAvatar);
+      setGroupCallModalOpen(true);
+      setGroupCallDuration(0);
+      setIsGroupMuted(false);
+      setIsGroupVideoOff(false);
+      setIsGroupScreenSharing(false);
+
+      if (groupCallTimerRef.current) clearInterval(groupCallTimerRef.current);
+      groupCallTimerRef.current = setInterval(() => {
+        setGroupCallDuration(prev => prev + 1);
+      }, 1000);
+
+      // Cập nhật trạng thái ngay lập tức trên UI người khởi tạo
+      const initStatus = {
+        is_active: true,
+        participants_count: 1,
+        initiator_id: currentUser?.id,
+        call_type: 'video'
+      };
+      setActiveGroupCallsStatus(prev => ({
+        ...prev,
+        [conversationId]: initStatus,
+        [String(conversationId)]: initStatus
+      }));
+
+      // Khởi tạo Mesh Manager
+      const mesh = new MeshCallManager();
+      mesh.init({
+        localStream: stream,
+        onSignal: (toUserId, signal) => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: 'GROUP_CALL_SIGNAL',
+              conversation_id: conversationId,
+              to_user_id: toUserId,
+              signal
+            }));
+          }
+        },
+        onRemoteStream: (remoteUserId, rStream) => {
+          setGroupCallRemoteStreams(prev => ({
+            ...prev,
+            [String(remoteUserId)]: rStream
+          }));
+        },
+        onPeerLeft: (remoteUserId) => {
+          setGroupCallRemoteStreams(prev => {
+            const next = { ...prev };
+            delete next[String(remoteUserId)];
+            return next;
+          });
+        },
+        onScreenShareChange: (remoteUserId, isSharing) => {
+          setGroupScreenSharingUsers(prev => ({
+            ...prev,
+            [String(remoteUserId)]: isSharing
+          }));
+        }
+      });
+      meshCallManagerRef.current = mesh;
+
+      // 1. Đảm bảo WebSocket sẵn sàng truyền tín hiệu
+      await ensureWebSocketReady();
+
+      // 2. Lưu trạng thái phòng qua REST API và lấy danh sách thành viên hiện có (nếu có ai vừa tạo trước)
+      const startRes = await messageService.startGroupCall(conversationId, 'video');
+      if (startRes && startRes.existing_participants && startRes.existing_participants.length > 0) {
+        setGroupCallParticipants(startRes.participants || startRes.existing_participants);
+        for (const p of startRes.existing_participants) {
+          if (String(p.user_id) !== String(currentUser?.id)) {
+            mesh.createPeer(p.user_id, true);
+          }
+        }
+      }
+
+      // 3. Gửi tín hiệu WebSocket realtime
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'GROUP_CALL_START',
+          conversation_id: conversationId,
+          call_type: 'video',
+          caller_name: currentUser?.name || 'Thành viên',
+          caller_avatar: currentUser?.avatar || null
+        }));
+      }
+    } catch (err) {
+      console.warn('Lỗi bắt đầu cuộc gọi nhóm:', err);
+      alert('Không thể truy cập camera hoặc mic để gọi video nhóm.');
+    }
+  };
+
+  const joinGroupCall = async (conversationId) => {
+    if (!conversationId) return;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert('Trình duyệt không hỗ trợ truy cập camera/mic.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      groupRawCameraStreamRef.current = stream;
+      setGroupLocalStream(stream);
+
+      const conv = conversations.find(c => String(c.id) === String(conversationId));
+      const groupName = conv?.name || conv?.user?.name || 'Nhóm chat';
+      const groupAvatar = conv?.avatar || conv?.user?.avatar || null;
+
+      setGroupCallConversationId(conversationId);
+      setGroupCallGroupName(groupName);
+      setGroupCallGroupAvatar(groupAvatar);
+      setGroupCallModalOpen(true);
+      setGroupCallDuration(0);
+      setIsGroupMuted(false);
+      setIsGroupVideoOff(false);
+      setIsGroupScreenSharing(false);
+
+      if (groupCallTimerRef.current) clearInterval(groupCallTimerRef.current);
+      groupCallTimerRef.current = setInterval(() => {
+        setGroupCallDuration(prev => prev + 1);
+      }, 1000);
+
+      // Khởi tạo Mesh Manager
+      const mesh = new MeshCallManager();
+      mesh.init({
+        localStream: stream,
+        onSignal: (toUserId, signal) => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: 'GROUP_CALL_SIGNAL',
+              conversation_id: conversationId,
+              to_user_id: toUserId,
+              signal
+            }));
+          }
+        },
+        onRemoteStream: (remoteUserId, rStream) => {
+          setGroupCallRemoteStreams(prev => ({
+            ...prev,
+            [String(remoteUserId)]: rStream
+          }));
+        },
+        onPeerLeft: (remoteUserId) => {
+          setGroupCallRemoteStreams(prev => {
+            const next = { ...prev };
+            delete next[String(remoteUserId)];
+            return next;
+          });
+        },
+        onScreenShareChange: (remoteUserId, isSharing) => {
+          setGroupScreenSharingUsers(prev => ({
+            ...prev,
+            [String(remoteUserId)]: isSharing
+          }));
+        }
+      });
+      meshCallManagerRef.current = mesh;
+
+      // 1. Đảm bảo WebSocket kết nối sẵn sàng TRƯỚC KHI tạo peer và gửi Offer!
+      await ensureWebSocketReady();
+
+      // 2. Thêm thành viên vào phòng qua REST API
+      const joinRes = await messageService.joinGroupCall(conversationId);
+      if (joinRes && joinRes.participants) {
+        setGroupCallParticipants(joinRes.participants);
+        for (const p of joinRes.participants) {
+          if (String(p.user_id) !== String(currentUser?.id)) {
+            mesh.createPeer(p.user_id, true);
+          }
+        }
+      }
+
+      // 3. Gửi tín hiệu WebSocket realtime
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'GROUP_CALL_JOIN',
+          conversation_id: conversationId,
+          user_name: currentUser?.name || 'Thành viên',
+          user_avatar: currentUser?.avatar || null
+        }));
+      }
+    } catch (err) {
+      console.warn('Lỗi tham gia cuộc gọi nhóm:', err);
+      alert('Không thể truy cập camera hoặc mic để tham gia cuộc gọi nhóm.');
+    }
+  };
+
+  const handleStartOrJoinGroupCall = async (conversationId) => {
+    if (!conversationId) return;
+    const localStatus = activeGroupCallsStatus[conversationId] || activeGroupCallsStatus[String(conversationId)];
+    if (localStatus?.is_active) {
+      return joinGroupCall(conversationId);
+    }
+    try {
+      const remoteStatus = await messageService.getGroupCallStatus(conversationId);
+      if (remoteStatus?.is_active && remoteStatus.participants_count > 0) {
+        setActiveGroupCallsStatus(prev => ({
+          ...prev,
+          [conversationId]: remoteStatus,
+          [String(conversationId)]: remoteStatus
+        }));
+        return joinGroupCall(conversationId);
+      }
+    } catch (e) {
+      // Bỏ qua
+    }
+    return startGroupCall(conversationId);
+  };
+
+  const handleToggleGroupMic = () => {
+    const next = !isGroupMuted;
+    setIsGroupMuted(next);
+    toggleMediaTrack(groupLocalStream, 'audio', !next);
+    if (groupRawCameraStreamRef.current) {
+      toggleMediaTrack(groupRawCameraStreamRef.current, 'audio', !next);
+    }
+  };
+
+  const handleToggleGroupCamera = () => {
+    const next = !isGroupVideoOff;
+    setIsGroupVideoOff(next);
+    toggleMediaTrack(groupLocalStream, 'video', !next);
+    if (groupRawCameraStreamRef.current) {
+      toggleMediaTrack(groupRawCameraStreamRef.current, 'video', !next);
+    }
+  };
+
+  const handleToggleGroupScreenShare = async () => {
+    if (!isGroupScreenSharing) {
+      try {
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          alert('Trình duyệt của bạn không hỗ trợ chia sẻ màn hình');
+          return;
+        }
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        groupScreenStreamRef.current = screenStream;
+        const screenVideoTrack = screenStream.getVideoTracks()[0];
+
+        if (screenVideoTrack) {
+          screenVideoTrack.onended = () => {
+            handleToggleGroupScreenShare();
+          };
+
+          let combinedStream = screenStream;
+          if (groupLocalStream && typeof MediaStream !== 'undefined') {
+            combinedStream = new MediaStream([
+              screenVideoTrack,
+              ...groupLocalStream.getAudioTracks()
+            ]);
+          }
+
+          if (meshCallManagerRef.current) {
+            await meshCallManagerRef.current.replaceVideoTrack(screenVideoTrack);
+            meshCallManagerRef.current.setLocalStream(combinedStream);
+            meshCallManagerRef.current.broadcastSignal({
+              type: 'SCREEN_SHARE_CHANGE',
+              is_sharing: true
+            });
+          }
+
+          setGroupLocalStream(combinedStream);
+          isGroupScreenSharingRef.current = true;
+          setIsGroupScreenSharing(true);
+          setGroupScreenSharingUsers(prev => ({
+            ...prev,
+            [String(currentUser?.id)]: true
+          }));
+        }
+      } catch (err) {
+        console.warn('Lỗi khi chia sẻ màn hình trong nhóm:', err);
+      }
+    } else {
+      if (groupScreenStreamRef.current) {
+        stopMediaStream(groupScreenStreamRef.current);
+        groupScreenStreamRef.current = null;
+      }
+      isGroupScreenSharingRef.current = false;
+      setIsGroupScreenSharing(false);
+      setGroupScreenSharingUsers(prev => ({
+        ...prev,
+        [String(currentUser?.id)]: false
+      }));
+
+      const rawStream = groupRawCameraStreamRef.current;
+      const cameraVideoTrack = rawStream?.getVideoTracks ? rawStream.getVideoTracks()[0] : null;
+
+      if (cameraVideoTrack && meshCallManagerRef.current) {
+        await meshCallManagerRef.current.replaceVideoTrack(cameraVideoTrack);
+        if (rawStream) {
+          meshCallManagerRef.current.setLocalStream(rawStream);
+        }
+        meshCallManagerRef.current.broadcastSignal({
+          type: 'SCREEN_SHARE_CHANGE',
+          is_sharing: false
+        });
+      }
+      if (rawStream) {
+        setGroupLocalStream(rawStream);
+      }
+    }
+  };
+
+  const handleSelectGroupFilter = async (filterId) => {
+    setGroupActiveFilterId(filterId);
+    const rawStream = groupRawCameraStreamRef.current;
+    if (!rawStream) return;
+
+    if (filterId === 'none') {
+      if (groupFilterManagerRef.current) {
+        groupFilterManagerRef.current.setFilter('none');
+      }
+      const rawVideoTrack = rawStream.getVideoTracks ? rawStream.getVideoTracks()[0] : null;
+      if (rawVideoTrack && meshCallManagerRef.current) {
+        await meshCallManagerRef.current.replaceVideoTrack(rawVideoTrack);
+      }
+      setGroupLocalStream(rawStream);
+      return;
+    }
+
+    try {
+      if (!groupFilterManagerRef.current) {
+        const mgr = new FaceFilterManager();
+        await mgr.init(rawStream);
+        groupFilterManagerRef.current = mgr;
+      }
+      groupFilterManagerRef.current.setFilter(filterId);
+      const filteredStream = groupFilterManagerRef.current.getFilteredStream();
+      if (filteredStream) {
+        let combinedStream = filteredStream;
+        if (typeof MediaStream !== 'undefined') {
+          combinedStream = new MediaStream();
+          if (rawStream.getAudioTracks) {
+            rawStream.getAudioTracks().forEach(t => combinedStream.addTrack(t));
+          }
+          if (filteredStream.getVideoTracks) {
+            filteredStream.getVideoTracks().forEach(t => combinedStream.addTrack(t));
+          }
+        }
+
+        const filteredVideoTrack = filteredStream.getVideoTracks ? filteredStream.getVideoTracks()[0] : null;
+        if (filteredVideoTrack && meshCallManagerRef.current) {
+          await meshCallManagerRef.current.replaceVideoTrack(filteredVideoTrack);
+        }
+        setGroupLocalStream(combinedStream);
+      }
+    } catch (err) {
+      console.warn('Lỗi áp dụng filter trong cuộc gọi nhóm:', err);
+    }
+  };
+
+  // Tự động kiểm tra trạng thái cuộc gọi nhóm khi mở cuộc trò chuyện hoặc danh sách thay đổi
+  useEffect(() => {
+    if (!conversations?.length) return;
+    conversations.forEach(c => {
+      if (c.type === 'group' && c.id) {
+        messageService.getGroupCallStatus(c.id).then(status => {
+          if (status) {
+            setActiveGroupCallsStatus(prev => ({
+              ...prev,
+              [c.id]: status,
+              [String(c.id)]: status
+            }));
+          }
+        });
+      }
+    });
+  }, [conversations, selectedConversationId]);
+
   // 2. Polling dự phòng (fallback) để đồng bộ dữ liệu
   useEffect(() => {
     if (!currentUser) return;
@@ -1134,9 +1775,25 @@ export default function MessagesView({
       if (selectedConversationIdRef.current && !String(selectedConversationIdRef.current).startsWith('draft_')) {
         loadMessages(selectedConversationIdRef.current);
       }
-    }, 4000);
+      // Định kỳ cập nhật trạng thái cuộc gọi của các nhóm
+      if (Array.isArray(conversations)) {
+        conversations.forEach(c => {
+          if (c.type === 'group' && c.id) {
+            messageService.getGroupCallStatus(c.id).then(status => {
+              if (status) {
+                setActiveGroupCallsStatus(prev => ({
+                  ...prev,
+                  [c.id]: status,
+                  [String(c.id)]: status
+                }));
+              }
+            });
+          }
+        });
+      }
+    }, 3500);
     return () => clearInterval(interval);
-  }, [currentUser]);
+  }, [currentUser, conversations]);
 
   // Tự động chọn cuộc trò chuyện khi nhận initialChatUser hoặc initialChatUserId (từ Trang cá nhân hoặc Bạn bè)
   useEffect(() => {
@@ -1312,9 +1969,18 @@ export default function MessagesView({
     }
   };
 
-  // HÀNH ĐỘNG 3: Thu hồi tin nhắn đã gửi
-  const handleRecallMessage = async (msgId) => {
-    if (!window.confirm('Bạn có chắc chắn muốn thu hồi tin nhắn này không?')) return;
+  // HÀNH ĐỘNG 3: Thu hồi tin nhắn đã gửi (mở modal xác nhận chuyên nghiệp)
+  const handleRecallMessage = (msgOrId) => {
+    const target = typeof msgOrId === 'object' && msgOrId !== null
+      ? msgOrId
+      : activeMessages.find(m => String(m.id) === String(msgOrId)) || { id: msgOrId };
+    setRecallingMessage(target);
+  };
+
+  const handleConfirmRecall = async () => {
+    if (!recallingMessage) return;
+    const msgId = recallingMessage.id;
+    setIsRecalling(true);
     try {
       await messageService.recallMessage(msgId);
       setActiveMessages(prev => prev.map(m => 
@@ -1331,8 +1997,12 @@ export default function MessagesView({
         }
         return c;
       }));
+      setRecallingMessage(null);
     } catch (err) {
+      console.error("Lỗi thu hồi tin nhắn:", err);
       alert(err.message || 'Không thể thu hồi tin nhắn');
+    } finally {
+      setIsRecalling(false);
     }
   };
 
@@ -1944,18 +2614,43 @@ export default function MessagesView({
                               Nhóm
                             </span>
                           )}
+                          {conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active) && (
+                            <span className="shrink-0 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold flex items-center gap-1 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                              Đang gọi
+                            </span>
+                          )}
                         </h3>
                         <span className="text-[11px] text-slate-400 shrink-0 ml-1">
                           {conv.lastTime}
                         </span>
                       </div>
-                      <p className={'text-xs truncate ' + (conv.unreadCount > 0 ? 'font-bold text-slate-800' : 'text-slate-500')}>
-                        {conv.lastMessage}
+                      <p className={'text-xs truncate ' + (
+                        (conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active))
+                          ? 'text-emerald-600 font-bold'
+                          : conv.unreadCount > 0 ? 'font-bold text-slate-800' : 'text-slate-500'
+                      )}>
+                        {conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active)
+                          ? '🟢 Cuộc gọi video nhóm đang diễn ra • Bấm để vào'
+                          : conv.lastMessage}
                       </p>
                     </div>
 
-                    {/* Huy hiệu chưa đọc */}
-                    {conv.unreadCount > 0 && (
+                    {/* Nút Tham gia nhanh hoặc Huy hiệu chưa đọc */}
+                    {conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active) ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedConversationId(String(conv.id));
+                          joinGroupCall(conv.id);
+                        }}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-xs hover:scale-105 shrink-0 ml-1 cursor-pointer"
+                        title="Tham gia cuộc gọi nhóm ngay"
+                      >
+                        Vào gọi
+                      </button>
+                    ) : conv.unreadCount > 0 && (
                       <span className="w-5 h-5 bg-blue-600 text-white rounded-full text-[11px] font-bold flex items-center justify-center shrink-0">
                         {conv.unreadCount}
                       </span>
@@ -2094,14 +2789,41 @@ export default function MessagesView({
                     </>
                   )}
 
+                  {currentConversation.type === 'group' && (
+                    (activeGroupCallsStatus[currentConversation.id]?.is_active || activeGroupCallsStatus[String(currentConversation.id)]?.is_active) ? (
+                      <button
+                        type="button"
+                        onClick={() => joinGroupCall(currentConversation.id)}
+                        title="Tham gia cuộc gọi nhóm đang diễn ra"
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/30 animate-pulse cursor-pointer"
+                      >
+                        <Video className="w-4 h-4" />
+                        <span>Tham gia gọi ({(activeGroupCallsStatus[currentConversation.id] || activeGroupCallsStatus[String(currentConversation.id)])?.participants_count || 1})</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleStartOrJoinGroupCall(currentConversation.id)}
+                        title="Bắt đầu hoặc tham gia gọi video nhóm"
+                        className="p-2 hover:bg-emerald-50 hover:text-emerald-600 rounded-xl transition cursor-pointer text-emerald-600 flex items-center gap-1.5"
+                      >
+                        <Video className="w-4 h-4 sm:w-5 sm:h-5" />
+                        <span className="text-xs font-semibold hidden md:inline">Gọi nhóm</span>
+                      </button>
+                    )
+                  )}
+
                   {/* Nút Báo cáo cuộc trò chuyện */}
                   <button 
                     onClick={() => {
+                      const convAuthor = currentConversation.isGroup
+                        ? { name: currentConversation.name || 'Nhóm trò chuyện', username: 'group' }
+                        : (currentConversation.user || { name: 'Người dùng', username: 'user' });
                       onOpenReportModal && onOpenReportModal({
                         targetType: 'message',
                         targetId: currentConversation.id,
-                        targetAuthor: currentConversation.user,
-                        contentExcerpt: currentConversation.lastMessage || ('Cuộc trò chuyện với ' + currentConversation.user.name)
+                        targetAuthor: convAuthor,
+                        contentExcerpt: currentConversation.lastMessage || ('Cuộc trò chuyện với ' + (convAuthor.name || 'thành viên'))
                       });
                     }}
                     title="Báo cáo cuộc trò chuyện này vi phạm"
@@ -2137,6 +2859,35 @@ export default function MessagesView({
                   </button>
                 </div>
               </div>
+
+              {/* BANNER THÔNG BÁO CUỘC GỌI NHÓM ĐANG DIỄN RA */}
+              {currentConversation.type === 'group' && (activeGroupCallsStatus[currentConversation.id]?.is_active || activeGroupCallsStatus[String(currentConversation.id)]?.is_active) && !groupCallModalOpen && (
+                <div className="shrink-0 p-3.5 sm:px-6 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 border-b border-emerald-500/30 flex items-center justify-between gap-3 text-emerald-950 animate-fadeIn shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="relative flex h-3.5 w-3.5 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+                    </span>
+                    <div>
+                      <p className="text-xs sm:text-sm font-bold text-emerald-950 flex items-center gap-2">
+                        <span>Cuộc gọi video nhóm đang diễn ra</span>
+                      </p>
+                      <p className="text-[11px] sm:text-xs text-emerald-700 font-medium">
+                        {(activeGroupCallsStatus[currentConversation.id] || activeGroupCallsStatus[String(currentConversation.id)])?.participants_count || 1} người đang trong cuộc gọi • Nhấn để tham gia cùng nhóm
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => joinGroupCall(currentConversation.id)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition shadow-md shadow-emerald-600/30 hover:scale-105 cursor-pointer shrink-0"
+                  >
+                    <Video className="w-4 h-4" />
+                    <span>Tham gia ngay</span>
+                  </button>
+                </div>
+              )}
 
               {/* BANNER XÁC NHẬN TIN NHẮN CHỜ TỪ NGƯỜI LẠ (CHỈ BÊN NGƯỜI NHẬN MỚI CẦN XÁC NHẬN) */}
               {currentConversation.status === 'pending' && currentConversation.initiatedBy !== currentUser?.id && (
@@ -2241,11 +2992,11 @@ export default function MessagesView({
                 </div>
 
                 {/* Nhóm danh sách các tin nhắn */}
-                <div className="space-y-4 w-full">
-                  {activeMessages.map((msg) => {
+                <div className="flex flex-col w-full">
+                  {activeMessages.map((msg, idx) => {
                     if (msg.mediaType === 'system') {
                       return (
-                        <div key={msg.id} className="flex justify-center my-2 w-full">
+                        <div key={msg.id} className="flex justify-center my-3 w-full">
                           <div className="px-3.5 py-1.5 bg-slate-100 text-slate-500 text-xs rounded-full font-medium shadow-2xs border border-slate-200/60 max-w-md text-center">
                             {msg.text}
                           </div>
@@ -2253,15 +3004,41 @@ export default function MessagesView({
                       );
                     }
 
+                    const prevMsg = activeMessages[idx - 1];
+                    const nextMsg = activeMessages[idx + 1];
+
+                    const isSameSenderAsPrev = Boolean(
+                      prevMsg &&
+                      prevMsg.mediaType !== 'system' &&
+                      String(prevMsg.senderId) === String(msg.senderId) &&
+                      prevMsg.time === msg.time
+                    );
+
+                    const isSameSenderAsNext = Boolean(
+                      nextMsg &&
+                      nextMsg.mediaType !== 'system' &&
+                      String(nextMsg.senderId) === String(msg.senderId) &&
+                      Boolean(msg.time) &&
+                      nextMsg.time === msg.time
+                    );
+
                     const isMe = msg.senderId === 'current';
                     const isLastRead = isMe && String(msg.id) === lastReadMessageId;
                     const isGroup = currentConversation?.type === 'group';
                     const senderAvatar = (isGroup ? msg.senderAvatar : currentConversation.user?.avatar) || DEFAULT_AVATAR;
 
+                    const showTimestamp = !isSameSenderAsNext;
+                    const hasFooter = (showTimestamp && Boolean(msg.time)) ||
+                      msg.status === 'sending' ||
+                      msg.status === 'failed' ||
+                      ((msg.status === 'read' || !msg.status) && isLastRead);
+
+                    const itemMarginTop = idx === 0 ? 'mt-0' : isSameSenderAsPrev ? 'mt-1' : 'mt-3.5';
+
                     return (
                         <div
                           key={msg.id}
-                          className={'flex items-end gap-2.5 ' + (isMe ? 'justify-end' : 'justify-start')}
+                          className={'flex items-end gap-2.5 ' + itemMarginTop + (isMe ? ' justify-end' : ' justify-start')}
                         >
                           {!isMe && (
                             <img
@@ -2269,17 +3046,55 @@ export default function MessagesView({
                               alt=""
                               onClick={() => !isGroup && onOpenProfile && onOpenProfile(currentConversation.user)}
                               title={msg.senderName || currentConversation.user?.name || 'Người dùng'}
-                              className={`w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 ${!isGroup ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''} transition`}
+                              className={`w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 ${!isGroup ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''} transition ${isSameSenderAsNext ? 'opacity-0 pointer-events-none' : ''}`}
                             />
                           )}
 
                           <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative flex flex-col ' + (isMe ? 'items-end' : 'items-start')}>
-                            {!isMe && isGroup && msg.senderName && (
+                            {!isMe && isGroup && msg.senderName && !isSameSenderAsPrev && (
                               <span className="text-[11px] font-semibold text-slate-500 mb-1 px-1">
                                 {msg.senderName}
                               </span>
                             )}
-                            {/* Nội dung tin nhắn: Thu hồi hoặc Nhật ký cuộc gọi hoặc Hiển thị thường (ảnh + chữ + link) */}
+
+                            {/* Hàng ngang chứa tin nhắn và nút thao tác nhanh khi hover */}
+                            <div className={'flex items-center gap-1.5 group/bubble ' + (isMe ? 'flex-row' : 'flex-row-reverse')}>
+                              {/* Nút hành động hiển thị khi hover */}
+                              {isMe ? (
+                                !msg.isRecalled && msg.status !== 'sending' && msg.status !== 'failed' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRecallMessage(msg)}
+                                    title="Thu hồi tin nhắn này"
+                                    className="opacity-0 group-hover/bubble:opacity-100 text-slate-400 hover:text-rose-500 transition cursor-pointer p-1 text-[11px] flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg shrink-0"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span className="hidden sm:inline">Thu hồi</span>
+                                  </button>
+                                )
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const authorObj = currentConversation.isGroup
+                                      ? { name: msg.senderName || 'Thành viên nhóm', username: 'member' }
+                                      : (currentConversation.user || { name: 'Người dùng', username: 'user' });
+                                    onOpenReportModal && onOpenReportModal({
+                                      targetType: 'message',
+                                      targetId: msg.id,
+                                      targetAuthor: authorObj,
+                                      contentExcerpt: msg.text || (msg.mediaUrl ? '[Hình ảnh đính kèm]' : ''),
+                                      imageUrl: msg.mediaUrl || null
+                                    });
+                                  }}
+                                  title="Báo cáo tin nhắn này"
+                                  className="opacity-0 group-hover/bubble:opacity-100 text-slate-300 hover:text-rose-500 transition cursor-pointer p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                                >
+                                  <Flag className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {/* Nội dung tin nhắn: Thu hồi hoặc Nhật ký cuộc gọi hoặc Hiển thị thường (ảnh + chữ + link) */}
                             {msg.isRecalled ? (
                               <div
                                 className={
@@ -2292,56 +3107,97 @@ export default function MessagesView({
                                 <RotateCcw className="w-3.5 h-3.5 opacity-70 shrink-0" />
                                 <span>Tin nhắn đã được thu hồi</span>
                               </div>
-                            ) : msg.mediaType === 'call_log' ? (
-                              <div
-                                className={
-                                  'p-3 sm:p-3.5 rounded-2xl text-sm shadow-2xs border flex items-center gap-3 transition min-w-[240px] max-w-xs sm:max-w-sm ' +
-                                  (isMe
-                                    ? 'bg-blue-50/90 dark:bg-slate-800 border-blue-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-br-xs'
-                                    : 'bg-white dark:bg-slate-800 border-slate-200/90 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-xs')
-                                }
-                              >
+                            ) : msg.mediaType === 'call_log' ? (() => {
+                              const isGroup = currentConversation.type === 'group';
+                              const isMissed = msg.text?.includes('nhỡ');
+                              const isRejected = msg.text?.includes('từ chối');
+                              const isCancelled = msg.text?.includes('hủy');
+                              const isEnded = msg.text?.includes('kết thúc');
+
+                              const statusLabel = isMissed
+                                ? '• Cuộc gọi nhỡ'
+                                : isRejected
+                                  ? '• Bị từ chối'
+                                  : isCancelled
+                                    ? '• Đã hủy'
+                                    : isEnded
+                                      ? '• Đã kết thúc'
+                                      : isGroup
+                                        ? '• Cuộc gọi nhóm'
+                                        : '• Cuộc gọi';
+
+                              return (
                                 <div
                                   className={
-                                    'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ' +
-                                    (msg.text?.includes('nhỡ') || msg.text?.includes('từ chối')
-                                      ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400'
-                                      : msg.text?.includes('hủy')
-                                        ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400'
-                                        : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400')
+                                    'p-3 sm:p-3.5 rounded-2xl text-sm shadow-2xs border flex items-center gap-3 transition min-w-[240px] max-w-xs sm:max-w-sm ' +
+                                    (isMissed || isRejected
+                                      ? 'bg-rose-50/70 dark:bg-rose-950/20 border-rose-200/80 dark:border-rose-900/50 text-slate-800 dark:text-slate-100'
+                                      : isCancelled
+                                        ? 'bg-amber-50/70 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50 text-slate-800 dark:text-slate-100'
+                                        : isMe
+                                          ? 'bg-blue-50/90 dark:bg-slate-800 border-blue-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-br-xs'
+                                          : 'bg-white dark:bg-slate-800 border-slate-200/90 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-xs')
                                   }
                                 >
-                                  {msg.text?.includes('nhỡ') ? (
-                                    <PhoneMissed className="w-5 h-5" />
-                                  ) : msg.text?.includes('từ chối') || msg.text?.includes('hủy') ? (
-                                    <PhoneOff className="w-5 h-5" />
-                                  ) : msg.text?.includes('thoại') ? (
-                                    <Phone className="w-5 h-5" />
-                                  ) : (
-                                    <Video className="w-5 h-5" />
-                                  )}
-                                </div>
-
-                                <div className="flex-1 min-w-0 pr-1">
-                                  <div className="font-semibold text-xs sm:text-sm truncate">
-                                    {msg.text}
+                                  <div
+                                    className={
+                                      'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ' +
+                                      (isMissed || isRejected
+                                        ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400'
+                                        : isCancelled
+                                          ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400'
+                                          : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400')
+                                    }
+                                  >
+                                    {isGroup ? (
+                                      <Video className="w-5 h-5" />
+                                    ) : isMissed ? (
+                                      <PhoneMissed className="w-5 h-5" />
+                                    ) : isRejected || isCancelled ? (
+                                      <PhoneOff className="w-5 h-5" />
+                                    ) : msg.text?.includes('thoại') ? (
+                                      <Phone className="w-5 h-5" />
+                                    ) : (
+                                      <Video className="w-5 h-5" />
+                                    )}
                                   </div>
-                                  <div className="text-[11px] text-slate-400 mt-0.5">
-                                    {msg.time}
-                                  </div>
-                                </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => startCall(msg.text?.includes('thoại') ? 'audio' : 'video')}
-                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 transition shadow-xs cursor-pointer shrink-0 hover:scale-105 active:scale-95"
-                                  title="Gọi lại ngay"
-                                >
-                                  {msg.text?.includes('thoại') ? <Phone className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
-                                  <span>Gọi lại</span>
-                                </button>
-                              </div>
-                            ) : (
+                                  <div className="flex-1 min-w-0 pr-1">
+                                    <div className="font-semibold text-xs sm:text-sm truncate flex items-center gap-1.5">
+                                      <span className="truncate">{msg.text}</span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                                      <span>{msg.time}</span>
+                                      <span className={`font-medium ${
+                                        isMissed || isRejected
+                                          ? 'text-rose-600 dark:text-rose-400'
+                                          : isCancelled
+                                            ? 'text-amber-600 dark:text-amber-400'
+                                            : 'text-slate-500 dark:text-slate-400'
+                                      }`}>
+                                        {statusLabel}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isGroup) {
+                                        handleStartOrJoinGroupCall(currentConversation.id);
+                                      } else {
+                                        startCall(msg.text?.includes('thoại') ? 'audio' : 'video');
+                                      }
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white flex items-center gap-1 transition shadow-xs cursor-pointer shrink-0 hover:scale-105 active:scale-95 bg-blue-600 hover:bg-blue-700 shadow-blue-600/20"
+                                    title={isGroup ? 'Gọi nhóm lại' : 'Gọi lại ngay'}
+                                  >
+                                    <Video className="w-3.5 h-3.5" />
+                                    <span>Gọi lại</span>
+                                  </button>
+                                </div>
+                              );
+                            })() : (
                               <div
                                 className={
                                   'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
@@ -2395,103 +3251,79 @@ export default function MessagesView({
                                 )}
                               </div>
                             )}
-
-                            <div
-                              className={
-                                'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
-                                (isMe ? 'justify-end' : 'justify-start')
-                              }
-                            >
-                              <span>{msg.time}</span>
-                              {isMe ? (
-                                <div className="flex items-center gap-1.5">
-                                  {/* Trạng thái 1: Đang gửi */}
-                                  {msg.status === 'sending' && (
-                                    <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium animate-pulse" title="Đang gửi...">
-                                      <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                                      <span>Đang gửi...</span>
-                                    </span>
-                                  )}
-
-                                  {/* Trạng thái 2: Đã gửi */}
-                                  {msg.status === 'sent' && (
-                                    <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title="Đã gửi">
-                                      <Check className="w-3 h-3 text-slate-400" />
-                                      <span>Đã gửi</span>
-                                    </span>
-                                  )}
-
-                                  {/* Trạng thái 3: Đã nhận */}
-                                  {msg.status === 'delivered' && (
-                                    <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium" title="Đã nhận">
-                                      <CheckCheck className="w-3.5 h-3.5 text-slate-400" />
-                                      <span>Đã nhận</span>
-                                    </span>
-                                  )}
-
-                                  {/* Trạng thái 4: Đã xem */}
-                                  {(msg.status === 'read' || !msg.status) && isLastRead && (
-                                    <div 
-                                      className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
-                                      title={currentConversation.type === 'group' ? 'Đã xem' : `Đã xem bởi ${currentConversation.user?.name || ''}`}
-                                    >
-                                      <span>Đã xem</span>
-                                      {currentConversation.type !== 'group' && currentConversation.user?.avatar && (
-                                        <img
-                                          src={currentConversation.user.avatar}
-                                          alt={currentConversation.user?.name || ''}
-                                          className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
-                                        />
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* Nút Thu hồi tin nhắn dành cho người gửi */}
-                                  {!msg.isRecalled && msg.status !== 'sending' && msg.status !== 'failed' && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRecallMessage(msg.id)}
-                                      title="Thu hồi tin nhắn này"
-                                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition cursor-pointer p-0.5 text-[10px] flex items-center gap-0.5"
-                                    >
-                                      <RotateCcw className="w-3 h-3" />
-                                      <span>Thu hồi</span>
-                                    </button>
-                                  )}
-
-                                  {/* Trạng thái lỗi: Gửi thất bại kèm nút Gửi lại */}
-                                  {msg.status === 'failed' && (
-                                    <div className="flex items-center gap-1.5 text-rose-500 font-medium">
-                                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                      <span className="text-[10px]">Gửi thất bại</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRetryMessage(msg)}
-                                        className="ml-0.5 px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
-                                        title="Nhấn để gửi lại tin nhắn này"
-                                      >
-                                        <RotateCw className="w-2.5 h-2.5" /> Gửi lại
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    onOpenReportModal && onOpenReportModal({
-                                      targetType: 'message',
-                                      targetId: msg.id,
-                                      targetAuthor: currentConversation.user,
-                                      contentExcerpt: msg.text
-                                    });
-                                  }}
-                                  title="Báo cáo tin nhắn này"
-                                  className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition cursor-pointer p-0.5"
-                                >
-                                  <Flag className="w-3 h-3" />
-                                </button>
-                              )}
                             </div>
+
+                            {/* Thông tin chân tin nhắn (mốc thời gian, trạng thái gửi/xem) */}
+                            {hasFooter && (
+                              <div
+                                className={
+                                  'flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 ' +
+                                  (isMe ? 'justify-end' : 'justify-start')
+                                }
+                              >
+                                {showTimestamp && <span>{msg.time}</span>}
+                                {isMe && (
+                                  <div className="flex items-center gap-1.5">
+                                    {/* Trạng thái 1: Đang gửi */}
+                                    {msg.status === 'sending' && (
+                                      <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium animate-pulse" title="Đang gửi...">
+                                        <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                                        <span>Đang gửi...</span>
+                                      </span>
+                                    )}
+
+                                    {/* Trạng thái 2: Đã gửi */}
+                                    {showTimestamp && msg.status === 'sent' && (
+                                      <span className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title="Đã gửi">
+                                        <Check className="w-3 h-3 text-slate-400" />
+                                        <span>Đã gửi</span>
+                                      </span>
+                                    )}
+
+                                    {/* Trạng thái 3: Đã nhận */}
+                                    {showTimestamp && msg.status === 'delivered' && (
+                                      <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium" title="Đã nhận">
+                                        <CheckCheck className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Đã nhận</span>
+                                      </span>
+                                    )}
+
+                                    {/* Trạng thái 4: Đã xem */}
+                                    {(msg.status === 'read' || !msg.status) && isLastRead && (
+                                      <div 
+                                        className="flex items-center gap-1 text-[10px] text-blue-600 font-medium" 
+                                        title={currentConversation.type === 'group' ? 'Đã xem' : `Đã xem bởi ${currentConversation.user?.name || ''}`}
+                                      >
+                                        <span>Đã xem</span>
+                                        {currentConversation.type !== 'group' && currentConversation.user?.avatar && (
+                                          <img
+                                            src={currentConversation.user.avatar}
+                                            alt={currentConversation.user?.name || ''}
+                                            className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-blue-300 shadow-2xs"
+                                          />
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Trạng thái lỗi: Gửi thất bại kèm nút Gửi lại */}
+                                    {msg.status === 'failed' && (
+                                      <div className="flex items-center gap-1.5 text-rose-500 font-medium">
+                                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                        <span className="text-[10px]">Gửi thất bại</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRetryMessage(msg)}
+                                          className="ml-0.5 px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                          title="Nhấn để gửi lại tin nhắn này"
+                                        >
+                                          <RotateCw className="w-2.5 h-2.5" /> Gửi lại
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                     );
@@ -2899,11 +3731,14 @@ export default function MessagesView({
 
                 <button 
                   onClick={() => {
+                    const convAuthor = currentConversation.isGroup
+                      ? { name: currentConversation.name || 'Nhóm trò chuyện', username: 'group' }
+                      : (currentConversation.user || { name: 'Người dùng', username: 'user' });
                     onOpenReportModal && onOpenReportModal({
                       targetType: 'message',
                       targetId: currentConversation.id,
-                      targetAuthor: currentConversation.user,
-                      contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + (currentConversation.name || currentConversation.user?.name))
+                      targetAuthor: convAuthor,
+                      contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + (currentConversation.name || convAuthor.name))
                     });
                   }}
                   className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-rose-50 text-rose-600 transition cursor-pointer"
@@ -3304,6 +4139,169 @@ export default function MessagesView({
           onToggleCamera={handleToggleCamera}
           onSelectFilter={handleSelectCallFilter}
         />
+
+        {/* Modal Cuộc gọi Video Nhóm WebRTC (Group Video Call) */}
+        <GroupVideoCallModal
+          isOpen={groupCallModalOpen}
+          groupName={groupCallGroupName}
+          groupAvatar={groupCallGroupAvatar}
+          currentUser={currentUser}
+          localStream={groupLocalStream}
+          participants={groupCallParticipants}
+          remoteStreams={groupCallRemoteStreams}
+          callDuration={groupCallDuration}
+          isMuted={isGroupMuted}
+          isVideoOff={isGroupVideoOff}
+          isScreenSharing={isGroupScreenSharing}
+          screenSharingUsers={groupScreenSharingUsers}
+          activeFilterId={groupActiveFilterId}
+          onLeaveCall={handleLeaveGroupCall}
+          onToggleMic={handleToggleGroupMic}
+          onToggleCamera={handleToggleGroupCamera}
+          onToggleScreenShare={handleToggleGroupScreenShare}
+          onSelectFilter={handleSelectGroupFilter}
+        />
+
+        {/* Thông báo cuộc gọi nhóm đến dạng Popup Toast */}
+        {incomingGroupCall && !groupCallModalOpen && (
+          <div className="fixed top-5 right-5 sm:top-6 sm:right-6 z-[9999] bg-slate-900/98 backdrop-blur-2xl text-white border-2 border-emerald-500/60 p-4 rounded-3xl shadow-2xl flex items-center gap-4 max-w-sm animate-fadeIn ring-4 ring-emerald-500/20">
+            <img
+              src={incomingGroupCall.caller_avatar || DEFAULT_AVATAR}
+              alt={incomingGroupCall.caller_name}
+              className="w-12 h-12 rounded-full object-cover border-2 border-emerald-400 shadow-md shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Cuộc gọi video nhóm</span>
+              </p>
+              <h4 className="text-sm font-bold truncate text-white">{incomingGroupCall.caller_name} đang gọi...</h4>
+              <p className="text-[11px] text-slate-400 truncate">
+                {incomingGroupCall.participants_count || 1} người đang trong cuộc gọi
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIncomingGroupCall(null)}
+                className="p-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition cursor-pointer"
+                title="Bỏ qua"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const cId = incomingGroupCall.conversation_id;
+                  setIncomingGroupCall(null);
+                  joinGroupCall(cId);
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-emerald-600/40 hover:scale-105 cursor-pointer"
+              >
+                <Video className="w-4 h-4" />
+                <span>Tham gia</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Xác nhận Thu hồi Tin nhắn chuyên nghiệp */}
+        {recallingMessage && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn"
+            onClick={() => !isRecalling && setRecallingMessage(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-100 dark:border-slate-800 text-center relative animate-fadeIn scale-100 transition-all"
+            >
+              {/* Nút đóng góc trên */}
+              <button
+                type="button"
+                disabled={isRecalling}
+                onClick={() => setRecallingMessage(null)}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                aria-label="Đóng"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Icon & Tiêu đề */}
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-50 to-rose-100/80 dark:from-rose-950/40 dark:to-rose-900/30 border border-rose-200/80 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto mb-3.5 shadow-xs">
+                <RotateCcw className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                Thu hồi tin nhắn?
+              </h3>
+              <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-xs mx-auto">
+                Tin nhắn này sẽ được gỡ bỏ đối với tất cả thành viên trong cuộc trò chuyện.
+              </p>
+
+              {/* Xem trước nội dung tin nhắn sẽ thu hồi */}
+              <div className="mt-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 p-3 text-left">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
+                  Nội dung tin nhắn:
+                </p>
+                {recallingMessage.mediaType === 'call_log' ? (
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate flex items-center gap-1.5">
+                    <Video className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    <span className="truncate">{recallingMessage.text}</span>
+                  </p>
+                ) : recallingMessage.mediaType === 'file' ? (
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <span className="truncate">{recallingMessage.text || recallingMessage.fileName || 'Tệp đính kèm'}</span>
+                  </p>
+                ) : recallingMessage.mediaUrl ? (
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={recallingMessage.mediaUrl}
+                      alt="Preview"
+                      className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                    />
+                    <span className="text-xs text-slate-600 dark:text-slate-300 italic truncate">
+                      {recallingMessage.text || '[Hình ảnh đính kèm]'}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs font-medium text-slate-700 dark:text-slate-200 line-clamp-3 italic leading-relaxed">
+                    "{recallingMessage.text}"
+                  </p>
+                )}
+              </div>
+
+              {/* Hành động */}
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={isRecalling}
+                  onClick={() => setRecallingMessage(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={isRecalling}
+                  onClick={handleConfirmRecall}
+                  className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-xs font-bold text-white shadow-lg shadow-rose-600/25 transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isRecalling ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang thu hồi...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Thu hồi</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal Tạo nhóm chat mới */}
         <CreateGroupModal
