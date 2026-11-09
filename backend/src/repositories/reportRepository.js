@@ -1,6 +1,8 @@
 import { refundTrustPoints, applyTrustPenalty, calculateTrustDeduction } from '../services/trustScoreService.js';
 import { restoreReportedTextModeration } from '../services/reportDismissal.js';
 import { reportsStore, aiOverrideLogsStore } from './memoryStore.js';
+import { maskSensitiveData } from '../utils/privacyMask.js';
+import { moderateTextContent } from '../utils/textModerator.js';
 
 function normalizeReportImageLabel(lbl, status) {
   const s = String(lbl || '').toLowerCase();
@@ -24,12 +26,26 @@ export function createReportRepository({ pool }) {
           `;
           const result = await pool.query(q);
           return result.rows.map(row => {
-            const textContent = row.target_type === 'post' ? row.post_content : row.comment_content;
-            const img = row.target_type === 'post' ? row.post_image : row.comment_image;
-            const currentAiLabel = row.target_type === 'post' ? (row.post_ai_label || 'Normal') : (row.comment_ai_label || 'Normal');
+            const textContent = row.target_type === 'post' 
+              ? row.post_content 
+              : (row.target_type === 'message' 
+                  ? (row.content_excerpt || (row.message_content ? maskSensitiveData(row.message_content) : (row.details || ''))) 
+                  : row.comment_content);
+            const img = row.target_type === 'post' ? row.post_image : (row.target_type === 'message' ? null : row.comment_image);
+            const currentAiLabel = row.target_type === 'post' 
+              ? (row.post_ai_label || 'Normal') 
+              : (row.target_type === 'message' 
+                  ? (row.message_ai_label || 'Normal') 
+                  : (row.comment_ai_label || 'Normal'));
             const rawImgLabel = row.target_type === 'post' ? row.post_image_label : row.comment_image_label;
             const rawImgStatus = row.target_type === 'post' ? row.post_image_status : row.comment_image_status;
             const currentImageLabel = img ? normalizeReportImageLabel(rawImgLabel, rawImgStatus) : null;
+            const authorName = row.target_type === 'message' && !row.target_author_name
+              ? 'Người gửi tin nhắn'
+              : (row.target_author_name || 'Người dùng');
+            const authorUsername = row.target_type === 'message' && !row.target_author_username
+              ? 'sender'
+              : (row.target_author_username || 'user');
 
             return {
               id: String(row.id),
@@ -48,8 +64,8 @@ export function createReportRepository({ pool }) {
                 ? (row.post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.post_image_status))
                 : (row.parent_post_ai_status === 'hidden' || ['rejected_admin', 'rejected_final', 'rejected_hold'].includes(row.parent_post_image_status)),
               targetAuthor: {
-                name: row.target_author_name || 'Người dùng',
-                username: row.target_author_username || 'user'
+                name: authorName,
+                username: authorUsername
               },
               contentExcerpt: textContent || '',
               targetExcerpt: textContent || '',
@@ -84,6 +100,19 @@ export function createReportRepository({ pool }) {
      */
     async createReport({ reporterId, reporter, targetType, targetId, targetAuthor, contentExcerpt, reason, reasonLabel, details, targetModality }) {
       const modality = targetModality || 'both';
+      const isMessage = (targetType === 'message');
+      const sanitizedExcerpt = isMessage ? maskSensitiveData(contentExcerpt || '') : (contentExcerpt || '');
+
+      let predictedAi = { label: 'Normal', confidence: 0.95 };
+      try {
+        const modRes = await moderateTextContent(sanitizedExcerpt || details || '');
+        if (modRes?.label) {
+          predictedAi = { label: modRes.label, textLabel: modRes.label, confidence: modRes.confidence || 0.95 };
+        }
+      } catch {
+        // Fallback giữ nguyên
+      }
+
       if (pool) {
         try {
           let finalReporterId = reporterId;
@@ -98,15 +127,30 @@ export function createReportRepository({ pool }) {
               ? reason 
               : 'toxic';
 
-            const insertQuery = `
-              INSERT INTO reports (reporter_id, target_type, target_id, reason, details, status, target_modality)
-              VALUES ($1, $2, $3, $4, $5, 'pending', $6)
-              ON CONFLICT (reporter_id, target_type, target_id) 
-              DO UPDATE SET details = EXCLUDED.details, reason = EXCLUDED.reason, status = 'pending', target_modality = EXCLUDED.target_modality
-              RETURNING *
-            `;
-            const result = await pool.query(insertQuery, [finalReporterId, targetType || 'post', numTargetId, validReason, details || '', modality]);
-            const dbReport = result.rows[0];
+            let dbReport;
+            try {
+              const insertQueryWithExcerpt = `
+                INSERT INTO reports (reporter_id, target_type, target_id, reason, details, status, target_modality, content_excerpt)
+                VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
+                ON CONFLICT (reporter_id, target_type, target_id) 
+                DO UPDATE SET details = EXCLUDED.details, reason = EXCLUDED.reason, status = 'pending', target_modality = EXCLUDED.target_modality, content_excerpt = EXCLUDED.content_excerpt
+                RETURNING *
+              `;
+              const res = await pool.query(insertQueryWithExcerpt, [finalReporterId, targetType || 'post', numTargetId, validReason, details || '', modality, sanitizedExcerpt]);
+              dbReport = res.rows[0];
+            } catch (columnErr) {
+              // Fallback nếu CSDL chưa có cột content_excerpt
+              const insertQuery = `
+                INSERT INTO reports (reporter_id, target_type, target_id, reason, details, status, target_modality)
+                VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+                ON CONFLICT (reporter_id, target_type, target_id) 
+                DO UPDATE SET details = EXCLUDED.details, reason = EXCLUDED.reason, status = 'pending', target_modality = EXCLUDED.target_modality
+                RETURNING *
+              `;
+              const res = await pool.query(insertQuery, [finalReporterId, targetType || 'post', numTargetId, validReason, details || sanitizedExcerpt || '', modality]);
+              dbReport = res.rows[0];
+            }
+
             return {
               fromDb: true,
               data: {
@@ -115,8 +159,8 @@ export function createReportRepository({ pool }) {
                 targetType: dbReport.target_type,
                 targetId: String(dbReport.target_id),
                 targetAuthor: targetAuthor || { name: 'Người dùng' },
-                contentExcerpt: contentExcerpt || '',
-                targetExcerpt: contentExcerpt || '',
+                contentExcerpt: sanitizedExcerpt,
+                targetExcerpt: sanitizedExcerpt,
                 imageUrl: null,
                 targetModality: dbReport.target_modality || modality,
                 reason: dbReport.reason,
@@ -124,7 +168,7 @@ export function createReportRepository({ pool }) {
                 details: dbReport.details,
                 status: dbReport.status,
                 createdAt: 'Vừa xong',
-                aiStatus: { label: 'Normal', confidence: 0.95 }
+                aiStatus: predictedAi
               }
             };
           }
@@ -139,8 +183,8 @@ export function createReportRepository({ pool }) {
         targetType: targetType || 'post',
         targetId: targetId || 'target-id',
         targetAuthor: targetAuthor || { name: 'Người dùng vi phạm' },
-        contentExcerpt: contentExcerpt || 'Nội dung báo cáo...',
-        targetExcerpt: contentExcerpt || 'Nội dung báo cáo...',
+        contentExcerpt: sanitizedExcerpt || 'Nội dung báo cáo...',
+        targetExcerpt: sanitizedExcerpt || 'Nội dung báo cáo...',
         imageUrl: null,
         targetModality: modality,
         reason: reason || 'other',
@@ -149,7 +193,7 @@ export function createReportRepository({ pool }) {
         status: 'pending',
         adminNotes: '',
         createdAt: 'Vừa xong',
-        aiStatus: { label: 'Normal', confidence: 0.85 }
+        aiStatus: predictedAi
       };
 
       reportsStore.unshift(newReport);
@@ -355,6 +399,15 @@ export function createReportRepository({ pool }) {
                         [finalNewLabel, isHiddenVal, isSoftHiddenVal, commentAiStatus, dbRep.target_id]
                       );
                     }
+                  } else if (dbRep.target_type === 'message') {
+                    try {
+                      await pool.query(
+                        `UPDATE messages SET is_recalled = TRUE, status = 'recalled' WHERE id = $1`,
+                        [dbRep.target_id]
+                      );
+                    } catch (mErr) {
+                      console.warn('Lỗi thu hồi tin nhắn trong CSDL:', mErr.message);
+                    }
                   }
 
                   if (isViolence && targetAuthorId) {
@@ -386,9 +439,11 @@ export function createReportRepository({ pool }) {
                       [targetAuthorId]
                     );
 
-                    const notifMsg = finalNewLabel === 'Hate Speech'
-                      ? 'Nội dung của bạn bị báo cáo vi phạm Ngôn từ thù ghét (Hate Speech) và đã bị ẩn.'
-                      : 'Nội dung của bạn bị báo cáo vi phạm tiêu chuẩn cộng đồng và đã bị giới hạn hiển thị.';
+                    const notifMsg = dbRep.target_type === 'message'
+                      ? `Tin nhắn của bạn bị báo cáo vi phạm tiêu chuẩn cộng đồng (${finalNewLabel}) và đã bị thu hồi.`
+                      : (finalNewLabel === 'Hate Speech'
+                          ? 'Nội dung của bạn bị báo cáo vi phạm Ngôn từ thù ghét (Hate Speech) và đã bị ẩn.'
+                          : 'Nội dung của bạn bị báo cáo vi phạm tiêu chuẩn cộng đồng và đã bị giới hạn hiển thị.');
                     await pool.query(
                       `INSERT INTO notifications (recipient_id, actor_id, type, content, is_read, target_post_id)
                        VALUES ($1, $2, 'system', $3, FALSE, $4)`,

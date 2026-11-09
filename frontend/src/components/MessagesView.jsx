@@ -2816,11 +2816,14 @@ export default function MessagesView({
                   {/* Nút Báo cáo cuộc trò chuyện */}
                   <button 
                     onClick={() => {
+                      const convAuthor = currentConversation.isGroup
+                        ? { name: currentConversation.name || 'Nhóm trò chuyện', username: 'group' }
+                        : (currentConversation.user || { name: 'Người dùng', username: 'user' });
                       onOpenReportModal && onOpenReportModal({
                         targetType: 'message',
                         targetId: currentConversation.id,
-                        targetAuthor: currentConversation.user,
-                        contentExcerpt: currentConversation.lastMessage || ('Cuộc trò chuyện với ' + currentConversation.user.name)
+                        targetAuthor: convAuthor,
+                        contentExcerpt: currentConversation.lastMessage || ('Cuộc trò chuyện với ' + (convAuthor.name || 'thành viên'))
                       });
                     }}
                     title="Báo cáo cuộc trò chuyện này vi phạm"
@@ -3073,11 +3076,15 @@ export default function MessagesView({
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    const authorObj = currentConversation.isGroup
+                                      ? { name: msg.senderName || 'Thành viên nhóm', username: 'member' }
+                                      : (currentConversation.user || { name: 'Người dùng', username: 'user' });
                                     onOpenReportModal && onOpenReportModal({
                                       targetType: 'message',
                                       targetId: msg.id,
-                                      targetAuthor: currentConversation.user,
-                                      contentExcerpt: msg.text
+                                      targetAuthor: authorObj,
+                                      contentExcerpt: msg.text || (msg.mediaUrl ? '[Hình ảnh đính kèm]' : ''),
+                                      imageUrl: msg.mediaUrl || null
                                     });
                                   }}
                                   title="Báo cáo tin nhắn này"
@@ -3724,11 +3731,14 @@ export default function MessagesView({
 
                 <button 
                   onClick={() => {
+                    const convAuthor = currentConversation.isGroup
+                      ? { name: currentConversation.name || 'Nhóm trò chuyện', username: 'group' }
+                      : (currentConversation.user || { name: 'Người dùng', username: 'user' });
                     onOpenReportModal && onOpenReportModal({
                       targetType: 'message',
                       targetId: currentConversation.id,
-                      targetAuthor: currentConversation.user,
-                      contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + (currentConversation.name || currentConversation.user?.name))
+                      targetAuthor: convAuthor,
+                      contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + (currentConversation.name || convAuthor.name))
                     });
                   }}
                   className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-rose-50 text-rose-600 transition cursor-pointer"
