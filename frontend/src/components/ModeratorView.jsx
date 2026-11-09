@@ -5,7 +5,8 @@ import {
   XCircle, Clock, ShieldAlert, Check, X,
   User, RefreshCw, Eye, Scale, Sparkles,
   FileSpreadsheet, Download, AlertCircle,
-  ChevronLeft, ChevronRight, SlidersHorizontal
+  ChevronLeft, ChevronRight, SlidersHorizontal,
+  ShieldCheck, Lock
 } from 'lucide-react';
 import { ExportCustomizerModal } from './ExportCustomizerModal';
 import VerifiedBadge from './VerifiedBadge';
@@ -729,6 +730,28 @@ export default function ModeratorView({
                 <p className="text-xs text-slate-500 mt-0.5">Xử lý báo cáo từ thành viên: Báo cáo sai (giữ nguyên nhãn), Báo cáo đúng (gán lại nhãn Toxic, Hate Speech, Violence).</p>
               </div>
               <div className="flex items-center gap-2.5">
+                {onRefresh && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsRefreshing(true);
+                      try {
+                        await onRefresh();
+                        setToast({ type: 'success', message: 'Đã cập nhật danh sách báo cáo mới nhất!' });
+                      } catch {
+                        setToast({ type: 'error', message: 'Lỗi tải lại danh sách báo cáo.' });
+                      } finally {
+                        setIsRefreshing(false);
+                      }
+                    }}
+                    disabled={isRefreshing}
+                    className="h-8 px-3 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                    title="Tải lại danh sách báo cáo mới nhất từ hệ thống"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+                    <span>Làm mới</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => exportOverrideLogsToCSV(aiOverrides)}
@@ -758,17 +781,32 @@ export default function ModeratorView({
               <div className="divide-y divide-slate-100 mt-4">
                 {reports.map(report => (
                   <div key={report.id} className="py-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
+                        {report.targetType === 'message' && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <MessageSquare className="w-3 h-3" />
+                            Tin nhắn riêng tư
+                          </span>
+                        )}
                         <span className="font-semibold text-slate-900">{report.reporter?.name || 'Người dùng'}</span>
                         <span className="text-slate-500">báo cáo vi phạm:</span>
-                        <span className="font-medium text-rose-600">{report.reason || 'Nội dung không phù hợp'}</span>
+                        <span className="font-medium text-rose-600">{report.reasonLabel || report.reason || 'Nội dung không phù hợp'}</span>
+                        {report.targetAuthor?.name && (
+                          <span className="text-slate-400">của <strong className="text-slate-700 font-semibold">{report.targetAuthor.name}</strong></span>
+                        )}
                       </div>
                       <span className="text-[11px] text-slate-400">{report.createdAt || 'Vừa xong'}</span>
                     </div>
-                    {(report.targetExcerpt || report.imageUrl) && (
-                      <div className="p-3 bg-slate-50 rounded text-xs text-slate-700 italic border border-slate-200">
-                        {report.targetExcerpt && <p>"{report.targetExcerpt}"</p>}
+                    {(report.targetExcerpt || report.contentExcerpt || report.imageUrl || report.targetType === 'message') && (
+                      <div className="p-3 bg-slate-50 rounded text-xs text-slate-700 italic border border-slate-200 space-y-1.5">
+                        <p>"{report.targetExcerpt || report.contentExcerpt || '[Nội dung tin nhắn đính kèm]'}"</p>
+                        {report.targetType === 'message' && (
+                          <div className="pt-1.5 border-t border-slate-200/60 flex items-center gap-1 text-[11px] text-emerald-700 not-italic font-medium">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Đã bảo vệ quyền riêng tư: Cô lập trích đoạn &amp; che dữ liệu cá nhân nhạy cảm (PII)</span>
+                          </div>
+                        )}
                         {report.imageUrl && (
                           <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
                             <img

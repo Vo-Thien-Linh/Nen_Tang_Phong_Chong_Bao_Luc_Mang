@@ -1,6 +1,10 @@
 import { useState } from 'react';
-import { X, ShieldAlert, AlertTriangle, Send, CheckCircle2, MessageSquare, FileText, Image as ImageIcon } from 'lucide-react';
+import { 
+  X, ShieldAlert, AlertTriangle, Send, CheckCircle2, 
+  MessageSquare, FileText, Image as ImageIcon, ShieldCheck, Lock 
+} from 'lucide-react';
 import { REPORT_REASONS } from '../data/mockData';
+import { maskSensitiveData, hasSensitiveData, detectSensitiveDataTypes } from '../utils/privacyMask';
 
 export default function ReportModal({ isOpen, onClose, target, currentUser, onSubmitReport }) {
   const [selectedReason, setSelectedReason] = useState('toxic');
@@ -10,7 +14,13 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
 
   if (!isOpen || !target) return null;
 
+  const isMessage = target.targetType === 'message';
   const hasImage = Boolean(target.imageUrl || target.image);
+  const detectedPiiTypes = isMessage ? detectSensitiveDataTypes(target.contentExcerpt || '') : [];
+  // Tin nhắn luôn luôn được tự động làm mờ thông tin cá nhân nhạy cảm
+  const displayExcerpt = isMessage 
+    ? maskSensitiveData(target.contentExcerpt || '') 
+    : (target.contentExcerpt || '');
 
   // Lọc lý do phù hợp theo phạm vi báo cáo người dùng chọn
   const availableReasons = REPORT_REASONS.filter(reason => {
@@ -36,6 +46,9 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
   const handleSubmit = (e) => {
     e.preventDefault();
     const reasonObj = availableReasons.find(r => r.id === selectedReason) || availableReasons[0] || REPORT_REASONS[0];
+    const finalExcerpt = isMessage 
+      ? maskSensitiveData(target.contentExcerpt || '') 
+      : (target.contentExcerpt || '');
 
     const reportData = {
       id: `rep-${Date.now()}`,
@@ -48,8 +61,8 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
       targetId: target.targetId,
       parentPostId: target.parentPostId || null,
       targetAuthor: target.targetAuthor || { name: 'Người dùng', username: 'user' },
-      contentExcerpt: target.contentExcerpt || '',
-      targetExcerpt: target.contentExcerpt || '',
+      contentExcerpt: finalExcerpt,
+      targetExcerpt: finalExcerpt,
       imageUrl: target.imageUrl || target.image || null,
       targetModality: hasImage ? targetModality : 'text',
       target_modality: hasImage ? targetModality : 'text',
@@ -59,7 +72,9 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
       status: 'pending',
       adminNotes: '',
       createdAt: 'Vừa xong',
-      aiStatus: target.aiStatus || { label: 'Pending Review', confidence: 0.90 }
+      aiStatus: target.aiStatus || { label: 'Pending Review', confidence: 0.90 },
+      isPrivacyProtected: isMessage,
+      piiMasked: isMessage && maskPII
     };
 
     onSubmitReport(reportData);
@@ -132,6 +147,41 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               
+              {/* Thông báo quyền riêng tư tin nhắn (Privacy Shield) */}
+              {isMessage && (
+                <div className="p-3.5 bg-gradient-to-br from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200/90 rounded-2xl space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 border border-emerald-500/20">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        <span>Bảo vệ quyền riêng tư tin nhắn</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold">Cô lập an toàn</span>
+                      </h4>
+                      <p className="text-[11px] text-emerald-800/90 leading-relaxed mt-0.5">
+                        Chỉ tin nhắn bạn chọn dưới đây được gửi tới Ban Quản Trị để thẩm định vi phạm. 
+                        Toàn bộ nội dung khác trong cuộc trò chuyện của bạn <strong>hoàn toàn được giữ bí mật 100%</strong>.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tự động làm mờ PII nhạy cảm (Luôn luôn kích hoạt) */}
+                  <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-emerald-900 font-semibold text-xs">
+                      <Lock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Thông tin cá nhân quan trọng (Số điện thoại, Email, Thẻ/CCCD) luôn được tự động làm mờ</span>
+                    </div>
+
+                    {detectedPiiTypes.length > 0 && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-950 font-medium border border-emerald-300">
+                        Đã che: {detectedPiiTypes.join(', ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Preview nội dung bị báo cáo */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500">
@@ -139,10 +189,18 @@ export default function ReportModal({ isOpen, onClose, target, currentUser, onSu
                     {target.targetType === 'message' ? <MessageSquare className="w-3.5 h-3.5 text-blue-500" /> : <FileText className="w-3.5 h-3.5 text-blue-500" />}
                     Tác giả: {target.targetAuthor?.name || 'Ẩn danh'}
                   </span>
-                  <span className="text-[11px] text-slate-400">@{target.targetAuthor?.username || 'user'}</span>
+                  <div className="flex items-center gap-2">
+                    {isMessage && (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5" />
+                        Đã che PII
+                      </span>
+                    )}
+                    <span className="text-[11px] text-slate-400">@{target.targetAuthor?.username || 'user'}</span>
+                  </div>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-700 italic bg-white p-2.5 rounded-xl border border-slate-200 line-clamp-3">
-                  "{target.contentExcerpt || '[Không có nội dung văn bản]'}"
+                  "{displayExcerpt || '[Không có nội dung văn bản]'}"
                 </p>
                 {hasImage && (
                   <div className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-200 not-italic">
