@@ -7,6 +7,6 @@ test('feed hides friends posts from strangers', () => {
     viewerId: 'stranger', authorId: 'author', privacy: 'friends', friendshipStatus: 'pending',
   }), false);
   const sql = buildPostVisibilityPredicate('$1');
-  assert.match(sql, /f\.status = 'accepted'/);
+  assert.match(sql, /f\."status" = 'accepted'/);
   assert.match(sql, /COALESCE\(p\.privacy, 'public'\)/);
 });
