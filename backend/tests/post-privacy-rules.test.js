@@ -207,3 +207,12 @@ test('post response carries privacy when the row contains it', () => {
   });
   assert.equal(response.privacy, 'friends');
 });
+
+test('shared post response preserves an unavailable original id', () => {
+  const response = mapPostToResponse({
+    id: 2, author_id: 'sharer', content: 'shared', original_post_id: 99,
+    created_at: new Date(), full_name: 'Sharer', username: 'sharer',
+  });
+  assert.equal(response.originalPost, null);
+  assert.equal(response.originalPostId, '99');
+});
