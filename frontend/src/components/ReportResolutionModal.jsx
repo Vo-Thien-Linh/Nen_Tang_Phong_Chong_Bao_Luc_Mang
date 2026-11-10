@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   X, AlertTriangle, CheckCircle, ShieldAlert, 
   HelpCircle, Sparkles, ArrowRight, Image as ImageIcon,
-  Check, FileText, Info, ShieldCheck
+  Check, FileText, Info, ShieldCheck, MessageSquare, Lock
 } from 'lucide-react';
 
 /**
@@ -142,16 +142,25 @@ export default function ReportResolutionModal({
   // Kiểu xử lý ẩn nội dung & án phạt dự kiến
   const isViolenceTriggered = selectedTextLabel === 'Violence' || (hasImage && selectedImageLabel === 'Violence');
   const isFullyClean = selectedTextLabel === 'Normal' && (!hasImage || selectedImageLabel === 'Clean');
+  const isMessage = report?.targetType === 'message';
 
   let previewSanctionText = '';
   if (isFullyClean) {
-    previewSanctionText = 'Khôi phục hiển thị công khai & gỡ bỏ toàn bộ án phạt (Normal / Clean)';
+    previewSanctionText = isMessage 
+      ? 'Xác nhận tin nhắn an toàn & giữ nguyên trong cuộc trò chuyện (Normal)'
+      : 'Khôi phục hiển thị công khai & gỡ bỏ toàn bộ án phạt (Normal / Clean)';
   } else if (isViolenceTriggered) {
-    previewSanctionText = 'Ẩn bài viết/bình luận & áp dụng án phạt Cooldown 10 phút cho tài khoản tác giả';
+    previewSanctionText = isMessage
+      ? 'Thu hồi tin nhắn vi phạm khỏi cuộc trò chuyện & áp dụng án phạt Cooldown 10 phút cho người gửi'
+      : 'Ẩn bài viết/bình luận & áp dụng án phạt Cooldown 10 phút cho tài khoản tác giả';
   } else if (selectedTextLabel === 'Hate Speech') {
-    previewSanctionText = 'Ẩn cứng nội dung vi phạm tiêu chuẩn nghiêm trọng về ngôn từ thù địch (Hate Speech)';
+    previewSanctionText = isMessage
+      ? 'Thu hồi tin nhắn vi phạm nghiêm trọng (Hate Speech) & trừ điểm uy tín người gửi'
+      : 'Ẩn cứng nội dung vi phạm tiêu chuẩn nghiêm trọng về ngôn từ thù địch (Hate Speech)';
   } else {
-    previewSanctionText = 'Ẩn nội dung vi phạm tiêu chuẩn cộng đồng (Toxic / NSFW)';
+    previewSanctionText = isMessage
+      ? 'Thu hồi tin nhắn vi phạm tiêu chuẩn cộng đồng khỏi cuộc trò chuyện & trừ điểm uy tín'
+      : 'Ẩn nội dung vi phạm tiêu chuẩn cộng đồng (Toxic / NSFW)';
   }
 
   const handleSubmit = (e) => {
@@ -273,8 +282,8 @@ export default function ReportResolutionModal({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="font-semibold text-slate-800 flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-slate-500" />
-                  Nội dung bị gắn cờ:
+                  {isMessage ? <MessageSquare className="w-3.5 h-3.5 text-emerald-600" /> : <FileText className="w-3.5 h-3.5 text-slate-500" />}
+                  <span>{isMessage ? 'Nội dung tin nhắn báo cáo (Đã cô lập & bảo vệ):' : 'Nội dung bị gắn cờ:'}</span>
                 </span>
                 <div className="flex items-center gap-2 text-[11px]">
                   <div className="flex items-center gap-1">
@@ -298,6 +307,17 @@ export default function ReportResolutionModal({
               {(report.contentExcerpt || report.targetExcerpt) && (
                 <div className="p-3 bg-white rounded-md border border-slate-200 text-slate-900 font-medium leading-relaxed">
                   "{report.contentExcerpt || report.targetExcerpt}"
+                </div>
+              )}
+
+              {/* Thông báo bảo vệ quyền riêng tư tin nhắn đối với Kiểm duyệt viên */}
+              {isMessage && (
+                <div className="mt-2 p-2.5 rounded-md bg-emerald-50/80 border border-emerald-200 flex items-start gap-2 text-[11px] text-emerald-800">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <strong className="text-emerald-950 font-bold">Bảo vệ quyền riêng tư 100%: </strong>
+                    Chỉ trích đoạn tin nhắn trên được người dùng đính kèm vào báo cáo. Kiểm duyệt viên không được cấp quyền truy cập vào các tin nhắn cá nhân khác hoặc toàn bộ lịch sử cuộc trò chuyện.
+                  </div>
                 </div>
               )}
 

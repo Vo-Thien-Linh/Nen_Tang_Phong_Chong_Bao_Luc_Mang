@@ -5,7 +5,8 @@ import {
   XCircle, Clock, ShieldAlert, Check, X,
   User, RefreshCw, Eye, Scale, Sparkles,
   FileSpreadsheet, Download, AlertCircle,
-  ChevronLeft, ChevronRight, SlidersHorizontal
+  ChevronLeft, ChevronRight, SlidersHorizontal,
+  ShieldCheck, Lock
 } from 'lucide-react';
 import { ExportCustomizerModal } from './ExportCustomizerModal';
 import VerifiedBadge from './VerifiedBadge';
@@ -15,7 +16,6 @@ import { exportOverrideLogsToExcel, exportOverrideLogsToCSV } from '../utils/exp
 import { fetchPendingImageModeration, fetchImageAppealQueue, reviewImageModeration } from '../api/client';
 import { applyImageReviewQueueResult, getImageReviewFailure, getImageReviewLoadFailure } from '../utils/imageModerationReviewLogic';
 import ImageModerationQueue from './ImageModerationQueue';
-import { useTranslation } from '../utils/i18n';
 
 /**
  * Khu vực Kiểm duyệt nội dung (Moderator View)
@@ -38,7 +38,6 @@ export default function ModeratorView({
   currentUser,
   onRefresh
 }) {
-  const { t, isEn } = useTranslation();
   const [activeTab, setActiveTab] = useState('appeals'); // 'reports' | 'appeals' | 'hidden-content' | 'overrides'
   const [appealFilter, setAppealFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
   const [appealTypeFilter, setAppealTypeFilter] = useState('all'); // 'all' | 'post' | 'comment'
@@ -273,17 +272,13 @@ export default function ModeratorView({
                 className="h-8 px-2.5 rounded-md border border-slate-200 hover:bg-slate-50 text-xs text-slate-700 flex items-center gap-1.5 transition cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Back to Admin' : 'Về trang quản trị'}</span>
+                <span>Về trang quản trị</span>
               </button>
             )}
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              {isEn ? 'Moderation Area' : 'Khu vực kiểm duyệt'}
-            </h1>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Khu vực kiểm duyệt</h1>
           </div>
           <p className="text-sm text-slate-600 mt-1">
-            {isEn 
-              ? 'Process violation reports, resolve appeals, and monitor hidden content.'
-              : 'Xử lý báo cáo vi phạm, giải quyết khiếu nại minh oan và giám sát nội dung bị ẩn.'}
+            Xử lý báo cáo vi phạm, giải quyết khiếu nại minh oan và giám sát nội dung bị ẩn.
           </p>
         </div>
 
@@ -295,10 +290,10 @@ export default function ModeratorView({
               onClick={handleManualRefresh}
               disabled={isRefreshing}
               className="h-9 px-3 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60 shrink-0"
-              title={isEn ? "Reload all latest data from PostgreSQL database" : "Tải lại toàn bộ dữ liệu mới nhất từ CSDL PostgreSQL"}
+              title="Tải lại toàn bộ dữ liệu mới nhất từ CSDL PostgreSQL"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>{isRefreshing ? (isEn ? 'Loading...' : 'Đang tải...') : (isEn ? 'Refresh DB' : 'Làm mới CSDL')}</span>
+              <span>{isRefreshing ? 'Đang tải...' : 'Làm mới CSDL'}</span>
             </button>
           )}
 
@@ -308,7 +303,7 @@ export default function ModeratorView({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={isEn ? "Search by content, author..." : "Tìm theo nội dung, tác giả..."}
+              placeholder="Tìm theo nội dung, tác giả..."
               className="w-full h-9 pl-9 pr-3 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 transition"
             />
           </div>
@@ -321,14 +316,14 @@ export default function ModeratorView({
           onClick={() => setActiveTab('image-review')}
           className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${activeTab === 'image-review' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
         >
-          <Eye className="w-4 h-4" /><span>{isEn ? 'Image Review' : 'Duyệt ảnh'}</span>
+          <Eye className="w-4 h-4" /><span>Duyệt ảnh</span>
           {imageReviewItems.length > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{imageReviewItems.length}</span>}
         </button>
         <button
           onClick={() => setActiveTab('image-appeals')}
           className={`h-9 px-4 text-xs font-medium border-b-2 transition cursor-pointer flex items-center gap-2 ${activeTab === 'image-appeals' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
         >
-          <Scale className="w-4 h-4" /><span>{isEn ? 'Image Appeals' : 'Duyệt khiếu nại'}</span>
+          <Scale className="w-4 h-4" /><span>Duyệt khiếu nại</span>
           {imageAppealItems.length > 0 && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{imageAppealItems.length}</span>}
         </button>
         <button
@@ -340,7 +335,7 @@ export default function ModeratorView({
           }`}
         >
           <FileText className="w-4 h-4" />
-          <span>{isEn ? 'Appeals' : 'Khiếu nại'}</span>
+          <span>Khiếu nại</span>
           {pendingAppealsCount > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white">
               {pendingAppealsCount}
@@ -357,7 +352,7 @@ export default function ModeratorView({
           }`}
         >
           <AlertTriangle className="w-4 h-4" />
-          <span>{isEn ? 'Reports' : 'Báo cáo'}</span>
+          <span>Báo cáo</span>
           {reports.filter(r => r.status === 'pending').length > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white">
               {reports.filter(r => r.status === 'pending').length}
@@ -374,7 +369,7 @@ export default function ModeratorView({
           }`}
         >
           <EyeOff className="w-4 h-4" />
-          <span>{isEn ? 'Hidden Content' : 'Nội dung bị ẩn'}</span>
+          <span>Nội dung bị ẩn</span>
           {(hiddenPosts.length + hiddenComments.length) > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-200 text-slate-700">
               {hiddenPosts.length + hiddenComments.length}
@@ -391,7 +386,7 @@ export default function ModeratorView({
           }`}
         >
           <FileSpreadsheet className="w-4 h-4" />
-          <span>{isEn ? 'Audit Log & Export' : 'Nhật ký gán nhãn & Xuất file'}</span>
+          <span>Nhật ký gán nhãn &amp; Xuất file</span>
           {aiOverrides.length > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
               {aiOverrides.length}
@@ -428,18 +423,14 @@ export default function ModeratorView({
           <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">
-                  {isEn ? 'Appeals List' : 'Danh sách khiếu nại'}
-                </h2>
+                <h2 className="text-base font-semibold text-slate-900">Danh sách khiếu nại</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {isEn 
-                    ? 'Review member appeals: Accept (relabel & pardon), Reject (keep violation status).'
-                    : 'Xử lý khiếu nại từ thành viên: Chấp nhận khiếu nại (đổi nhãn & gỡ phạt), Từ chối khiếu nại (giữ nguyên nhãn và hình phạt).'}
+                  Xử lý khiếu nại từ thành viên: Chấp nhận khiếu nại (đổi nhãn &amp; gỡ phạt), Từ chối khiếu nại (giữ nguyên nhãn và hình phạt).
                 </p>
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="text-xs text-slate-500 font-medium">
-                  {isEn ? `${appeals.length} appeals (${pendingAppealsCount} pending)` : `${appeals.length} khiếu nại (${pendingAppealsCount} chờ xử lý)`}
+                  {appeals.length} khiếu nại ({pendingAppealsCount} chờ xử lý)
                 </span>
               </div>
             </div>
@@ -457,7 +448,7 @@ export default function ModeratorView({
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {isEn ? 'All' : 'Tất cả'} ({appeals.length})
+                  Tất cả ({appeals.length})
                 </button>
                 <button
                   type="button"
@@ -468,7 +459,7 @@ export default function ModeratorView({
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {isEn ? 'Pending' : 'Chờ xử lý'} ({pendingAppealsCount})
+                  Chờ xử lý ({pendingAppealsCount})
                 </button>
                 <button
                   type="button"
@@ -479,7 +470,7 @@ export default function ModeratorView({
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {isEn ? 'Accepted' : 'Đã chấp nhận'} ({appeals.filter(a => a.status === 'approved').length})
+                  Đã chấp nhận ({appeals.filter(a => a.status === 'approved').length})
                 </button>
                 <button
                   type="button"
@@ -490,7 +481,7 @@ export default function ModeratorView({
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {isEn ? 'Rejected' : 'Đã từ chối'} ({appeals.filter(a => a.status === 'rejected').length})
+                  Đã từ chối ({appeals.filter(a => a.status === 'rejected').length})
                 </button>
               </div>
 
@@ -501,9 +492,9 @@ export default function ModeratorView({
                   onChange={(e) => { setAppealTypeFilter(e.target.value); setAppealCurrentPage(1); }}
                   className="h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
                 >
-                  <option value="all">{isEn ? 'All content types' : 'Tất cả loại nội dung'}</option>
-                  <option value="post">{isEn ? 'Posts' : 'Bài viết'}</option>
-                  <option value="comment">{isEn ? 'Comments' : 'Bình luận'}</option>
+                  <option value="all">Tất cả loại nội dung</option>
+                  <option value="post">Bài viết</option>
+                  <option value="comment">Bình luận</option>
                 </select>
 
                 <select
@@ -511,11 +502,11 @@ export default function ModeratorView({
                   onChange={(e) => { setAppealLabelFilter(e.target.value); setAppealCurrentPage(1); }}
                   className="h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
                 >
-                  <option value="all">{isEn ? 'All current labels' : 'Tất cả nhãn hiện tại'}</option>
-                  <option value="Toxic">{isEn ? 'Toxic' : 'Độc hại (Toxic)'}</option>
-                  <option value="Hate Speech">{isEn ? 'Hate Speech' : 'Thù địch (Hate Speech)'}</option>
-                  <option value="Violence">{isEn ? 'Violence' : 'Bạo lực (Violence)'}</option>
-                  <option value="Normal">{isEn ? 'Normal' : 'Bình thường (Normal)'}</option>
+                  <option value="all">Tất cả nhãn hiện tại</option>
+                  <option value="Toxic">Độc hại (Toxic)</option>
+                  <option value="Hate Speech">Thù địch (Hate Speech)</option>
+                  <option value="Violence">Bạo lực (Violence)</option>
+                  <option value="Normal">Bình thường (Normal)</option>
                 </select>
 
                 {(appealFilter !== 'all' || appealTypeFilter !== 'all' || appealLabelFilter !== 'all' || searchQuery.trim()) && (
@@ -530,7 +521,7 @@ export default function ModeratorView({
                     }}
                     className="h-8 px-2.5 text-xs text-slate-500 hover:text-slate-800 transition underline cursor-pointer"
                   >
-                    {isEn ? 'Reset filters' : 'Đặt lại bộ lọc'}
+                    Đặt lại bộ lọc
                   </button>
                 )}
               </div>
@@ -578,18 +569,18 @@ export default function ModeratorView({
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
                       <tr>
-                        <th className="py-3 px-4 w-72">{isEn ? 'Appeal Content' : 'Nội dung khiếu nại'}</th>
-                        <th className="py-3 px-3 w-28">{isEn ? 'Type' : 'Loại'}</th>
-                        <th className="py-3 px-3 w-36">{isEn ? 'Current Label' : 'Nhãn hiện tại'}</th>
-                        <th className="py-3 px-3 w-44">{isEn ? 'Appellant' : 'Người khiếu nại'}</th>
-                        <th className="py-3 px-3 w-36">{isEn ? 'Date' : 'Ngày gửi'}</th>
-                        <th className="py-3 px-3 w-32">{isEn ? 'Status' : 'Trạng thái'}</th>
-                        <th className="py-3 px-4 text-right w-36">{isEn ? 'Action' : 'Thao tác'}</th>
+                        <th className="py-3 px-4 w-72">Nội dung khiếu nại</th>
+                        <th className="py-3 px-3 w-28">Loại</th>
+                        <th className="py-3 px-3 w-36">Nhãn hiện tại</th>
+                        <th className="py-3 px-3 w-44">Người khiếu nại</th>
+                        <th className="py-3 px-3 w-36">Ngày gửi</th>
+                        <th className="py-3 px-3 w-32">Trạng thái</th>
+                        <th className="py-3 px-4 text-right w-36">Thao tác</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    <tbody className="divide-y divide-slate-100 bg-white">
                       {paginatedAppeals.map((appeal) => (
-                        <tr key={appeal.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/70 transition">
+                        <tr key={appeal.id} className="hover:bg-slate-50/80 transition">
                           <td className="py-3 px-4">
                             <div className="flex items-start gap-2.5">
                               {appeal.imageUrl && (
@@ -602,11 +593,11 @@ export default function ModeratorView({
                               )}
                               <div className="min-w-0 flex-1">
                                 <p className="text-slate-900 font-medium line-clamp-2 leading-relaxed">
-                                  "{appeal.originalText || (isEn ? '[No text content]' : '[Không có nội dung văn bản]')}"
+                                  "{appeal.originalText || '[Không có nội dung văn bản]'}"
                                 </p>
                                 {appeal.appealReason && (
                                   <p className="text-slate-500 text-[11px] line-clamp-1 mt-0.5 italic">
-                                    {isEn ? 'Reason: ' : 'Giải trình: '}{appeal.appealReason}
+                                    Giải trình: {appeal.appealReason}
                                   </p>
                                 )}
                               </div>
@@ -614,7 +605,7 @@ export default function ModeratorView({
                           </td>
                           <td className="py-3 px-3">
                             <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                              {appeal.contentType === 'comment' ? (isEn ? 'Comment' : 'Bình luận') : (isEn ? 'Post' : 'Bài viết')}
+                              {appeal.contentType === 'comment' ? 'Bình luận' : 'Bài viết'}
                             </span>
                           </td>
                           <td className="py-3 px-3">
@@ -630,31 +621,31 @@ export default function ModeratorView({
                                 className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
                               />
                               <div className="min-w-0">
-                                <p className="font-semibold text-slate-900 truncate">{appeal.user?.name || (isEn ? 'User' : 'Người dùng')}</p>
+                                <p className="font-semibold text-slate-900 truncate">{appeal.user?.name || 'Người dùng'}</p>
                                 <p className="text-slate-400 text-[11px] truncate">@{appeal.user?.username || 'user'}</p>
                               </div>
                             </div>
                           </td>
                           <td className="py-3 px-3 text-slate-500 text-[11px]">
-                            {appeal.createdAt || (isEn ? 'Just now' : 'Vừa xong')}
+                            {appeal.createdAt || 'Vừa xong'}
                           </td>
                           <td className="py-3 px-3">
                             {appeal.status === 'pending' && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                                 <Clock className="w-3 h-3" />
-                                <span>{isEn ? 'Pending' : 'Chờ xử lý'}</span>
+                                <span>Chờ xử lý</span>
                               </span>
                             )}
                             {appeal.status === 'approved' && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                                 <CheckCircle2 className="w-3 h-3" />
-                                <span>{isEn ? 'Accepted' : 'Đã chấp nhận'}</span>
+                                <span>Đã chấp nhận</span>
                               </span>
                             )}
                             {appeal.status === 'rejected' && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
                                 <XCircle className="w-3 h-3" />
-                                <span>{isEn ? 'Rejected' : 'Đã từ chối'}</span>
+                                <span>Đã từ chối</span>
                               </span>
                             )}
                           </td>
@@ -666,7 +657,7 @@ export default function ModeratorView({
                                 className="h-8 px-3 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold transition cursor-pointer inline-flex items-center gap-1 shadow-xs"
                               >
                                 <Scale className="w-3.5 h-3.5" />
-                                <span>{isEn ? 'Resolve appeal' : 'Xử lý khiếu nại'}</span>
+                                <span>Xử lý khiếu nại</span>
                               </button>
                             ) : (
                               <button
@@ -675,7 +666,7 @@ export default function ModeratorView({
                                 className="h-8 px-2.5 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium transition cursor-pointer inline-flex items-center gap-1"
                               >
                                 <Eye className="w-3.5 h-3.5 text-slate-500" />
-                                <span>{isEn ? 'View details' : 'Xem chi tiết'}</span>
+                                <span>Xem chi tiết</span>
                               </button>
                             )}
                           </td>
@@ -739,6 +730,28 @@ export default function ModeratorView({
                 <p className="text-xs text-slate-500 mt-0.5">Xử lý báo cáo từ thành viên: Báo cáo sai (giữ nguyên nhãn), Báo cáo đúng (gán lại nhãn Toxic, Hate Speech, Violence).</p>
               </div>
               <div className="flex items-center gap-2.5">
+                {onRefresh && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsRefreshing(true);
+                      try {
+                        await onRefresh();
+                        setToast({ type: 'success', message: 'Đã cập nhật danh sách báo cáo mới nhất!' });
+                      } catch {
+                        setToast({ type: 'error', message: 'Lỗi tải lại danh sách báo cáo.' });
+                      } finally {
+                        setIsRefreshing(false);
+                      }
+                    }}
+                    disabled={isRefreshing}
+                    className="h-8 px-3 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                    title="Tải lại danh sách báo cáo mới nhất từ hệ thống"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+                    <span>Làm mới</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => exportOverrideLogsToCSV(aiOverrides)}
@@ -768,17 +781,32 @@ export default function ModeratorView({
               <div className="divide-y divide-slate-100 mt-4">
                 {reports.map(report => (
                   <div key={report.id} className="py-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
+                        {report.targetType === 'message' && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <MessageSquare className="w-3 h-3" />
+                            Tin nhắn riêng tư
+                          </span>
+                        )}
                         <span className="font-semibold text-slate-900">{report.reporter?.name || 'Người dùng'}</span>
                         <span className="text-slate-500">báo cáo vi phạm:</span>
-                        <span className="font-medium text-rose-600">{report.reason || 'Nội dung không phù hợp'}</span>
+                        <span className="font-medium text-rose-600">{report.reasonLabel || report.reason || 'Nội dung không phù hợp'}</span>
+                        {report.targetAuthor?.name && (
+                          <span className="text-slate-400">của <strong className="text-slate-700 font-semibold">{report.targetAuthor.name}</strong></span>
+                        )}
                       </div>
                       <span className="text-[11px] text-slate-400">{report.createdAt || 'Vừa xong'}</span>
                     </div>
-                    {(report.targetExcerpt || report.imageUrl) && (
-                      <div className="p-3 bg-slate-50 rounded text-xs text-slate-700 italic border border-slate-200">
-                        {report.targetExcerpt && <p>"{report.targetExcerpt}"</p>}
+                    {(report.targetExcerpt || report.contentExcerpt || report.imageUrl || report.targetType === 'message') && (
+                      <div className="p-3 bg-slate-50 rounded text-xs text-slate-700 italic border border-slate-200 space-y-1.5">
+                        <p>"{report.targetExcerpt || report.contentExcerpt || '[Nội dung tin nhắn đính kèm]'}"</p>
+                        {report.targetType === 'message' && (
+                          <div className="pt-1.5 border-t border-slate-200/60 flex items-center gap-1 text-[11px] text-emerald-700 not-italic font-medium">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Đã bảo vệ quyền riêng tư: Cô lập trích đoạn &amp; che dữ liệu cá nhân nhạy cảm (PII)</span>
+                          </div>
+                        )}
                         {report.imageUrl && (
                           <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center gap-2 not-italic">
                             <img
@@ -1190,7 +1218,7 @@ export default function ModeratorView({
                         const originalIndex = aiOverrides.indexOf(log);
                         const isChecked = selectedOverrideIndices.has(originalIndex >= 0 ? originalIndex : index);
                         return (
-                          <tr key={log.id || index} className={`transition ${isChecked ? 'bg-emerald-50/20 dark:bg-emerald-950/30 hover:bg-emerald-50/40 dark:hover:bg-emerald-900/40' : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/70'}`}>
+                          <tr key={log.id || index} className={`transition ${isChecked ? 'bg-emerald-50/20 hover:bg-emerald-50/40' : 'hover:bg-slate-50/70'}`}>
                             <td className="py-3 px-3 text-center">
                               <input
                                 type="checkbox"
