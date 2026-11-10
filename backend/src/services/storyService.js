@@ -328,22 +328,51 @@ export function createStoryService({
       if (String(story.author_id) !== String(user.id) && storyRepository.pool) {
         try {
           const actorName = user.name || user.full_name || 'Người dùng';
-          await storyRepository.pool.query(
-            `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
-             VALUES ($1, $2, 'story_reaction', $3, $4)`,
-            [
-              story.author_id,
-              user.id,
-              `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
-              JSON.stringify({
-                storyId: String(storyId),
-                reactionType,
-                actorId: user.id,
-                actorName,
-                isStory: true,
-              }),
-            ]
+          const payloadObj = {
+            storyId: String(storyId),
+            reactionType,
+            actorId: user.id,
+            actorName,
+            isStory: true,
+          };
+
+          // Kiểm tra xem đã có thông báo cảm xúc của người này cho tin này chưa (tránh spam nhiều thông báo)
+          const existingNotif = await storyRepository.pool.query(
+            `SELECT id FROM notifications 
+             WHERE recipient_id = $1 
+               AND actor_id = $2 
+               AND type = 'story_reaction' 
+               AND payload->>'storyId' = $3
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [story.author_id, user.id, String(storyId)]
           );
+
+          if (existingNotif.rows.length > 0) {
+            // Cập nhật thông báo đã có thay vì tạo thêm thông báo mới
+            await storyRepository.pool.query(
+              `UPDATE notifications 
+               SET content = $1, payload = $2, is_read = FALSE, created_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [
+                `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
+                JSON.stringify(payloadObj),
+                existingNotif.rows[0].id,
+              ]
+            );
+          } else {
+            // Thêm mới nếu chưa từng có thông báo cho tin này
+            await storyRepository.pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
+               VALUES ($1, $2, 'story_reaction', $3, $4)`,
+              [
+                story.author_id,
+                user.id,
+                `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
+                JSON.stringify(payloadObj),
+              ]
+            );
+          }
         } catch (notifErr) {
           console.warn('Lỗi gửi notification thả reaction tin:', notifErr.message);
         }
