@@ -223,12 +223,7 @@ export function createPostRepository({ pool }) {
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1
-           AND (
-             p.image_moderation_status IS NULL
-             OR p.image_moderation_status IN ('safe', 'sensitive')
-             OR (p.author_id = $2
-                 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'))
-           )`,
+           AND ${buildPostVisibilityPredicate('$2')}`,
         [cleanId, viewerId]
       );
 
@@ -278,9 +273,8 @@ export function createPostRepository({ pool }) {
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
-           WHERE p.id = $1 AND p.ai_status = 'approved'
-             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
-          [post.original_post_id]
+           WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}`,
+          [post.original_post_id, viewerId]
         );
         post.original_post = originalResult.rows[0] || null;
       }
@@ -528,9 +522,8 @@ export function createPostRepository({ pool }) {
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
-           WHERE p.id = ANY($1::bigint[]) AND p.ai_status = 'approved'
-             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
-          [originalPostIds]
+           WHERE p.id = ANY($1::bigint[]) AND ${buildPostVisibilityPredicate('$2')}`,
+          [originalPostIds, viewerId]
         );
         const originalPostMap = new Map(originalPostsResult.rows.map((op) => [Number(op.id), op]));
         return posts.map((p) => ({
