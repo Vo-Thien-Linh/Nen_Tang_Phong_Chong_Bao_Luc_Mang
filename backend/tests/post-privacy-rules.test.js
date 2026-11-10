@@ -7,3 +7,9 @@ test('public post is visible to everyone', () => {
     viewerId: 'viewer', authorId: 'author', privacy: 'public', friendshipStatus: null,
   }), true);
 });
+
+test('single post returns not found for unauthorized viewer', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'stranger', authorId: 'author', privacy: 'only_me', friendshipStatus: 'accepted',
+  }), false);
+});
