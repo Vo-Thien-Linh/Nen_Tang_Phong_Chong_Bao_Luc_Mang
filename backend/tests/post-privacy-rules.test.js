@@ -20,6 +20,15 @@ test('single post returns not found for unauthorized viewer', () => {
   }), false);
 });
 
+test('blocked user cannot see the author post', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'blocked-user', authorId: 'author', privacy: 'public', blocked: true,
+  }), false);
+  assert.equal(canViewerSeePost({
+    viewerId: 'author', authorId: 'author', privacy: 'public', blocked: true,
+  }), true);
+});
+
 test('hashtag list hides friends and only me posts from strangers', async () => {
   const queries = [];
   const pool = { query: async (text) => {
