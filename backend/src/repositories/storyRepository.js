@@ -113,6 +113,31 @@ export function createStoryRepository({ pool }) {
 
       const story = rows[0];
 
+      // Kiểm tra quyền riêng tư (Privacy) & kiểm duyệt nếu người xem không phải tác giả
+      if (String(story.author_id) !== String(viewerId)) {
+        if (story.ai_status === 'hidden') {
+          return null;
+        }
+        if (story.media_moderation_status && !['safe', 'sensitive'].includes(story.media_moderation_status)) {
+          return null;
+        }
+        if (story.privacy === 'private') {
+          return null;
+        }
+        if (story.privacy === 'friends') {
+          if (!viewerId) return null;
+          const friendCheck = await pool.query(
+            `SELECT 1 FROM friendships 
+             WHERE status = 'accepted' 
+               AND ((requester_id = $1 AND addressee_id = $2) OR (addressee_id = $1 AND requester_id = $2))`,
+            [story.author_id, viewerId]
+          );
+          if (friendCheck.rows.length === 0) {
+            return null;
+          }
+        }
+      }
+
       let isViewed = false;
       let myReaction = null;
 
@@ -188,7 +213,24 @@ export function createStoryRepository({ pool }) {
         WHERE s.expires_at > CURRENT_TIMESTAMP
           AND s.is_deleted = FALSE
           AND s.is_archived = FALSE
-          AND (s.author_id = $1 OR s.ai_status != 'hidden')
+          AND (
+            s.author_id = $1
+            OR (
+              s.ai_status != 'hidden'
+              AND (s.media_moderation_status IS NULL OR s.media_moderation_status IN ('safe', 'sensitive'))
+              AND (
+                s.privacy = 'public'
+                OR (
+                  s.privacy = 'friends' AND $1 IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM friendships f
+                    WHERE f.status = 'accepted'
+                      AND ((f.requester_id = s.author_id AND f.addressee_id = $1)
+                        OR (f.addressee_id = s.author_id AND f.requester_id = $1))
+                  )
+                )
+              )
+            )
+          )
         ORDER BY s.created_at ASC
       `;
 

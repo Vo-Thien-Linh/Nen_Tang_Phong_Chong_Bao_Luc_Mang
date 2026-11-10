@@ -784,7 +784,7 @@ export default function StoryViewerModal({
                   style={{
                     left: `${currentStory.backgroundStyle?.timePos?.x ?? 50}%`,
                     top: `${currentStory.backgroundStyle?.timePos?.y ?? 16}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: `translate(-50%, -50%) scale(${currentStory.backgroundStyle?.timeScale || 1})`,
                   }}
                 >
                   <Clock className="w-3.5 h-3.5 text-blue-300" />
@@ -852,7 +852,7 @@ export default function StoryViewerModal({
                   style={{
                     left: `${currentStory.backgroundStyle?.timePos?.x ?? 50}%`,
                     top: `${currentStory.backgroundStyle?.timePos?.y ?? 16}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: `translate(-50%, -50%) scale(${currentStory.backgroundStyle?.timeScale || 1})`,
                   }}
                 >
                   <Clock className="w-3.5 h-3.5 text-blue-300" />
