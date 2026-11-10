@@ -58,3 +58,8 @@ test('shared post shows a placeholder when its original is unavailable', () => {
   assert.match(postCardSource, /post\.originalPostId && !post\.originalPost/);
   assert.match(postCardSource, /N\\u1ed9i dung g\\u1ed1c kh\\u00f4ng kh\\u1ea3 d\\u1ee5ng/);
 });
+
+test('hashtag view has no subtitle about public posts', () => {
+  const hashtagSource = fs.readFileSync(new URL('../src/components/HashtagView.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(hashtagSource, /Bài viết công khai có hashtag này/);
+});
