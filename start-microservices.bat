@@ -11,7 +11,7 @@ set "NODE_PATH=%~dp0backend\node_modules;%~dp0node_modules"
 :: Buoc 0: Giai phong cac cong cu neu con tien trinh chay ngam
 :: ---------------------------------------------------------------
 echo [0/8] Dang giai phong cac cong dang su dung (neu co)...
-for %%P in (5000 5001 5002 5003 5004 8000 8001) do (
+for %%P in (5000 5001 5002 5003 5004 5173 8000 8001) do (
     for /f "tokens=5" %%a in ('netstat -aon ^| findstr :%%P ^| findstr LISTENING') do (
         echo       Giai phong cong %%P - PID: %%a
         taskkill /F /PID %%a >nul 2>&1

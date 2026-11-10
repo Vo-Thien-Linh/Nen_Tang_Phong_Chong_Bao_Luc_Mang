@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { Plus, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import { useTranslation } from '../utils/i18n';
 
 export default function StoryBar({
   currentUser,
@@ -9,6 +10,7 @@ export default function StoryBar({
   onOpenStoryViewer,
   onRequireAuth,
 }) {
+  const { t } = useTranslation();
   const scrollContainerRef = useRef(null);
 
   const handleScroll = (direction) => {
@@ -62,7 +64,7 @@ export default function StoryBar({
               <Plus className="w-4 h-4 stroke-[3]" />
             </div>
             <span className="text-xs font-bold text-slate-900 dark:text-white mt-2">
-              Tạo tin
+              {t("story.create_story")}
             </span>
           </div>
         </div>
@@ -198,7 +200,7 @@ export default function StoryBar({
                 {/* Tên Tác giả ở góc dưới */}
                 <div className="absolute bottom-2.5 inset-x-2 z-10">
                   <span className="text-xs font-semibold text-white drop-shadow-md truncate block">
-                    {tray.isSelf ? 'Tin của bạn' : tray.author?.name}
+                    {tray.isSelf ? t("story.your_story") : tray.author?.name}
                   </span>
                 </div>
               </div>

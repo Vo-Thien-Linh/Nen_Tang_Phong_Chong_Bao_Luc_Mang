@@ -8,17 +8,26 @@ import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
 import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
+import { useTranslation } from '../utils/i18n';
 
 const getInitialDefaultPrivacy = () => {
+  try {
+    const raw = localStorage.getItem('nexussocial_user_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.post_default_privacy) return normalizePostPrivacy(parsed.post_default_privacy);
+    }
+  } catch {}
   return 'public';
 };
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
+  const { t, isEn } = useTranslation();
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
-  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy && getInitialDefaultPrivacy() || getInitialDefaultPrivacy()));
+  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy()));
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,6 +45,27 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     hashtagHighlightRef.current.scrollTop = event.currentTarget.scrollTop;
     hashtagHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
   };
+
+  useEffect(() => {
+    const defaultPriv = currentUser?.settings?.post_default_privacy;
+    if (defaultPriv) {
+      setPrivacy(normalizePostPrivacy(defaultPriv));
+    }
+
+    const handlePrivacyUpdate = (e) => {
+      const updatedPrivacy = e?.detail?.post_default_privacy;
+      if (updatedPrivacy) {
+        setPrivacy(normalizePostPrivacy(updatedPrivacy));
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('nexussocial_privacy_updated', handlePrivacyUpdate);
+      return () => {
+        window.removeEventListener('nexussocial_privacy_updated', handlePrivacyUpdate);
+      };
+    }
+  }, [currentUser?.settings?.post_default_privacy]);
 
   // Trạng thái xử phạt / cấm đăng bài
   const isBanned = currentUser?.status === 'banned';
