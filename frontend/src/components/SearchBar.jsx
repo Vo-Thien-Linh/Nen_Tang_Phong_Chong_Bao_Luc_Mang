@@ -89,7 +89,7 @@ export default function SearchBar({
             commentsCount: p.commentsCount || (p.comments || []).length || 0,
             author: {
               id: p.author?.id,
-              name: p.author?.name || 'Thành viên WINGS',
+              name: p.author?.name || (isEn ? 'WINGS Member' : 'Thành viên WINGS'),
               username: p.author?.username || 'user',
               avatar: p.author?.avatar || DEFAULT_AVATAR
             }
@@ -275,8 +275,8 @@ export default function SearchBar({
                         </div>
 
                         {user.is_friend && (
-                          <span className="px-2 py-0.5 text-[10px] font-bold text-blue-600 bg-blue-50 rounded-md border border-blue-200 shrink-0 ml-2">
-                            Bạn bè
+                          <span className="px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 rounded-md border border-blue-200 dark:border-blue-800 shrink-0 ml-2">
+                            {isEn ? 'Friend' : 'Bạn bè'}
                           </span>
                         )}
                       </div>

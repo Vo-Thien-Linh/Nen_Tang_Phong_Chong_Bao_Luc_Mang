@@ -1179,36 +1179,36 @@ export default function ProfileView({
 
                 {/* Bio từ DB */}
                 <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {activeUser.bio || <span className="text-slate-400 dark:text-slate-500 italic">Chưa có giới thiệu bản thân</span>}
+                  {activeUser.bio || <span className="text-slate-400 dark:text-slate-500 italic">{isEn ? 'No bio yet' : 'Chưa có giới thiệu bản thân'}</span>}
                 </p>
 
                 {/* Danh sách thông tin chi tiết */}
                 <div className="space-y-3 pt-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                   <div className="flex items-center gap-3">
                     <MapPin className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>Sống ở <strong>{activeUser.location || 'Chưa cập nhật'}</strong></span>
+                    <span>{isEn ? 'Lives in ' : 'Sống ở '}<strong>{activeUser.location || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong></span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <HomeIcon className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>Từ <strong>{activeUser.hometown || 'Chưa cập nhật'}</strong></span>
+                    <span>{isEn ? 'From ' : 'Từ '}<strong>{activeUser.hometown || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong></span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <Heart className="w-5 h-5 text-rose-500 shrink-0" />
                     <span>
-                      Tình trạng: <strong>{activeUser.relationship || activeUser.relationship_status || 'Chưa cập nhật'}</strong>
+                      {isEn ? 'Relationship: ' : 'Tình trạng: '}<strong>{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong>
                     </span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <Briefcase className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>Làm việc tại <strong>TechVN</strong></span>
+                    <span>{isEn ? 'Works at ' : 'Làm việc tại '}<strong>TechVN</strong></span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <Calendar className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>Tham gia từ {activeUser.joinedDate || 'Tháng 10, 2026'}</span>
+                    <span>{isEn ? 'Joined ' : 'Tham gia từ '}{activeUser.joinedDate || (isEn ? 'October, 2026' : 'Tháng 10, 2026')}</span>
                   </div>
 
                   {/* Hiển thị Email theo quyền riêng tư */}
@@ -1258,7 +1258,7 @@ export default function ProfileView({
                       className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
-                      <span>Chỉnh sửa chi tiết</span>
+                      <span>{isEn ? 'Edit details' : 'Chỉnh sửa chi tiết'}</span>
                     </button>
                   </div>
                 )}
@@ -1267,7 +1267,7 @@ export default function ProfileView({
               {/* Box 2: Giáo dục */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Giáo dục</h2>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Education' : 'Giáo dục'}</h2>
                   {isOwnProfile && (
                     <button 
                       onClick={() => setIsEditProfileOpen(true)}
@@ -1283,8 +1283,8 @@ export default function ProfileView({
                     <GraduationCap className="w-6 h-6 text-slate-700 dark:text-slate-300" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{activeUser.highSchool || activeUser.high_school || 'Chưa cập nhật'}</h4>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">Trường cấp 3</p>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{activeUser.highSchool || activeUser.high_school || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h4>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'High School' : 'Trường cấp 3'}</p>
                   </div>
                 </div>
 
@@ -1293,8 +1293,8 @@ export default function ProfileView({
                     <GraduationCap className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{activeUser.education || 'Chưa cập nhật'}</h4>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">Đại học / Chuyên ngành</p>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{activeUser.education || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h4>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'College / University' : 'Đại học / Chuyên ngành'}</p>
                   </div>
                 </div>
                 {isOwnProfile && (
@@ -1303,7 +1303,7 @@ export default function ProfileView({
                     className="w-full mt-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-slate-200/60 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-500 transition cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
-                    <span>Cập nhật thông tin giáo dục</span>
+                    <span>{isEn ? 'Update education info' : 'Cập nhật thông tin giáo dục'}</span>
                   </button>
                 )}
               </div>
@@ -1312,7 +1312,7 @@ export default function ProfileView({
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Ảnh</h2>
+                    <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Photos' : 'Ảnh'}</h2>
                     <p className="text-xs text-slate-400 dark:text-slate-500">{displayPhotos.length} {isEn ? 'photos' : 'ảnh'}</p>
                   </div>
                   <button 
@@ -1377,7 +1377,7 @@ export default function ProfileView({
                       </p>
                     </div>
                   )) : (
-                    <div className="col-span-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500">Chưa có bạn bè nào</div>
+                    <div className="col-span-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500">{isEn ? 'No friends yet' : 'Chưa có bạn bè nào'}</div>
                   )}
                 </div>
               </div>
@@ -1410,14 +1410,14 @@ export default function ProfileView({
               {/* Box 2: Header "Bài viết" & Chuyển đổi Danh sách / Lưới */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Bài viết ({userPosts.length})</h3>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Posts' : 'Bài viết'} ({userPosts.length})</h3>
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => alert("Mở bộ lọc bài viết")}
+                      onClick={() => alert(isEn ? "Open post filters" : "Mở bộ lọc bài viết")}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
-                      <span>Bộ lọc</span>
+                      <span>{isEn ? 'Filters' : 'Bộ lọc'}</span>
                     </button>
                   </div>
                 </div>
@@ -1432,7 +1432,7 @@ export default function ProfileView({
                     }`}
                   >
                     <List className="w-4 h-4" />
-                    <span>Chế độ xem danh sách</span>
+                    <span>{isEn ? 'List view' : 'Chế độ xem danh sách'}</span>
                   </button>
 
                   <button
@@ -1444,7 +1444,7 @@ export default function ProfileView({
                     }`}
                   >
                     <Grid3X3 className="w-4 h-4" />
-                    <span>Chế độ xem lưới</span>
+                    <span>{isEn ? 'Grid view' : 'Chế độ xem lưới'}</span>
                   </button>
                 </div>
               </div>
@@ -1490,7 +1490,7 @@ export default function ProfileView({
                     ))
                   ) : (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500">
-                      <p className="text-sm font-semibold">Chưa có bài viết nào.</p>
+                      <p className="text-sm font-semibold">{isEn ? 'No posts yet.' : 'Chưa có bài viết nào.'}</p>
                     </div>
                   )}
                 </div>
@@ -1511,8 +1511,8 @@ export default function ProfileView({
                             isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(post.imageModeration?.status || post.image_moderation_status),
                           }) && (
                             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
-                              <span className="text-xs font-semibold">Nội dung nhạy cảm</span>
-                              <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</span>
+                              <span className="text-xs font-semibold">{isEn ? 'Sensitive content' : 'Nội dung nhạy cảm'}</span>
+                              <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">{isEn ? 'View' : 'Xem'}</span>
                             </div>
                           )}
                           <img 
@@ -1586,14 +1586,14 @@ export default function ProfileView({
                 {aboutSubTab === 'overview' && (
                   <div className="space-y-5 animate-fade-in">
                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">Tổng quan thông tin</h4>
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Information Overview' : 'Tổng quan thông tin'}</h4>
                       {isOwnProfile && (
                         <button 
                           onClick={() => setIsEditProfileOpen(true)}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
@@ -1602,8 +1602,8 @@ export default function ProfileView({
                       <div className="flex items-start gap-3">
                         <Briefcase className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Làm việc tại <strong>TechVN</strong></p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Kỹ sư phần mềm & Kiểm duyệt nội dung AI</p>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{isEn ? 'Works at ' : 'Làm việc tại '}<strong>TechVN</strong></p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Software Engineer & AI Content Moderation' : 'Kỹ sư phần mềm & Kiểm duyệt nội dung AI'}</p>
                         </div>
                       </div>
 
@@ -1611,9 +1611,9 @@ export default function ProfileView({
                         <GraduationCap className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                            {activeUser.education ? <>Từng học tại <strong>{activeUser.education}</strong></> : 'Chưa cập nhật trường đại học'}
+                            {activeUser.education ? <>{isEn ? 'Studied at ' : 'Từng học tại '}<strong>{activeUser.education}</strong></> : (isEn ? 'University not specified' : 'Chưa cập nhật trường đại học')}
                           </p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Đại học / Chuyên ngành</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'College / University' : 'Đại học / Chuyên ngành'}</p>
                         </div>
                       </div>
 
@@ -1621,9 +1621,9 @@ export default function ProfileView({
                         <GraduationCap className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                            {activeUser.highSchool || activeUser.high_school ? <>Từng học tại <strong>{activeUser.highSchool || activeUser.high_school}</strong></> : 'Chưa cập nhật trường cấp 3'}
+                            {activeUser.highSchool || activeUser.high_school ? <>{isEn ? 'Studied at ' : 'Từng học tại '}<strong>{activeUser.highSchool || activeUser.high_school}</strong></> : (isEn ? 'High school not specified' : 'Chưa cập nhật trường cấp 3')}
                           </p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Trường THPT</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'High School' : 'Trường THPT'}</p>
                         </div>
                       </div>
 
@@ -1631,9 +1631,9 @@ export default function ProfileView({
                         <MapPin className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                            {activeUser.location ? <>Sống tại <strong>{activeUser.location}</strong></> : 'Chưa cập nhật nơi ở'}
+                            {activeUser.location ? <>{isEn ? 'Lives in ' : 'Sống tại '}<strong>{activeUser.location}</strong></> : (isEn ? 'Location not specified' : 'Chưa cập nhật nơi ở')}
                           </p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Nơi ở hiện tại</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Current City' : 'Nơi ở hiện tại'}</p>
                         </div>
                       </div>
 
@@ -1641,9 +1641,9 @@ export default function ProfileView({
                         <HomeIcon className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                            {activeUser.hometown ? <>Đến từ <strong>{activeUser.hometown}</strong></> : 'Chưa cập nhật quê quán'}
+                            {activeUser.hometown ? <>{isEn ? 'From ' : 'Đến từ '}<strong>{activeUser.hometown}</strong></> : (isEn ? 'Hometown not specified' : 'Chưa cập nhật quê quán')}
                           </p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Quê quán</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Hometown' : 'Quê quán'}</p>
                         </div>
                       </div>
 
@@ -1651,7 +1651,7 @@ export default function ProfileView({
                         <Heart className="w-5 h-5 text-rose-500 mt-0.5" />
                         <div>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                            Tình trạng mối quan hệ: <strong>{activeUser.relationship || activeUser.relationship_status || 'Chưa cập nhật'}</strong>
+                            {isEn ? 'Relationship status: ' : 'Tình trạng mối quan hệ: '}<strong>{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong>
                           </p>
                         </div>
                       </div>
@@ -1663,34 +1663,34 @@ export default function ProfileView({
                 {aboutSubTab === 'work_edu' && (
                   <div className="space-y-5 animate-fade-in">
                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">Công việc và học vấn</h4>
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Work and Education' : 'Công việc và học vấn'}</h4>
                       {isOwnProfile && (
                         <button 
                           onClick={() => setIsEditProfileOpen(true)}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
 
                     <div className="space-y-4">
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
-                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Nơi làm việc</span>
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'Workplace' : 'Nơi làm việc'}</span>
                         <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">TechVN Corporation</h5>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Kỹ sư hệ thống & Phát triển mô hình mạng xã hội</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Systems Engineer & Social Media AI Platform Developer' : 'Kỹ sư hệ thống & Phát triển mô hình mạng xã hội'}</p>
                       </div>
 
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
-                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Đại học</span>
-                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.education || 'Chưa cập nhật'}</h5>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Chuyên ngành Công nghệ thông tin</p>
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'College / University' : 'Đại học'}</span>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.education || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Information Technology Major' : 'Chuyên ngành Công nghệ thông tin'}</p>
                       </div>
 
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
-                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Trường THPT</span>
-                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.highSchool || activeUser.high_school || 'Chưa cập nhật'}</h5>
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'High School' : 'Trường THPT'}</span>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.highSchool || activeUser.high_school || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
                       </div>
                     </div>
                   </div>
@@ -1700,14 +1700,14 @@ export default function ProfileView({
                 {aboutSubTab === 'places' && (
                   <div className="space-y-5 animate-fade-in">
                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">Nơi từng sống</h4>
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Places Lived' : 'Nơi từng sống'}</h4>
                       {isOwnProfile && (
                         <button 
                           onClick={() => setIsEditProfileOpen(true)}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
@@ -1716,16 +1716,16 @@ export default function ProfileView({
                       <div className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                         <MapPin className="w-6 h-6 text-blue-600 dark:text-blue-400 mt-1" />
                         <div>
-                          <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.location || 'Chưa cập nhật'}</h5>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Thành phố hiện tại</p>
+                          <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.location || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Current City' : 'Thành phố hiện tại'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
                         <HomeIcon className="w-6 h-6 text-indigo-600 dark:text-indigo-400 mt-1" />
                         <div>
-                          <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.hometown || 'Chưa cập nhật'}</h5>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">Quê quán</p>
+                          <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.hometown || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Hometown' : 'Quê quán'}</p>
                         </div>
                       </div>
                     </div>
@@ -1736,12 +1736,12 @@ export default function ProfileView({
                 {aboutSubTab === 'contact' && (
                   <div className="space-y-5 animate-fade-in">
                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">Thông tin liên hệ & Cơ bản</h4>
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Contact & Basic Info' : 'Thông tin liên hệ & Cơ bản'}</h4>
                     </div>
 
                     <div className="space-y-3.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                       <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
-                        <span className="font-semibold text-slate-500 dark:text-slate-400">Tên người dùng</span>
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Username' : 'Tên người dùng'}</span>
                         <span className="font-bold text-slate-900 dark:text-slate-100">@{activeUser.username}</span>
                       </div>
 
@@ -1752,14 +1752,14 @@ export default function ProfileView({
 
                       {activeUser.phone && (
                         <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
-                          <span className="font-semibold text-slate-500 dark:text-slate-400">Số điện thoại</span>
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Phone number' : 'Số điện thoại'}</span>
                           <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">{activeUser.phone}</span>
                         </div>
                       )}
 
                       <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
-                        <span className="font-semibold text-slate-500 dark:text-slate-400">Ngày tham gia hệ thống</span>
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{activeUser.joinedDate || 'Tháng 10, 2026'}</span>
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Joined WINGS' : 'Ngày tham gia hệ thống'}</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{activeUser.joinedDate || (isEn ? 'October, 2026' : 'Tháng 10, 2026')}</span>
                       </div>
                     </div>
                   </div>
@@ -1769,14 +1769,14 @@ export default function ProfileView({
                 {aboutSubTab === 'family' && (
                   <div className="space-y-5 animate-fade-in">
                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">Mối quan hệ</h4>
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Relationships' : 'Mối quan hệ'}</h4>
                       {isOwnProfile && (
                         <button 
                           onClick={() => setIsEditProfileOpen(true)}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
@@ -1786,8 +1786,8 @@ export default function ProfileView({
                         <Heart className="w-6 h-6" />
                       </div>
                       <div>
-                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.relationship || activeUser.relationship_status || 'Độc thân'}</h5>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">Tình trạng mối quan hệ</p>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Single' : 'Độc thân')}</h5>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Relationship status' : 'Tình trạng mối quan hệ'}</p>
                       </div>
                     </div>
                   </div>
@@ -1816,7 +1816,7 @@ export default function ProfileView({
                   type="text"
                   value={friendsSearchQuery}
                   onChange={(e) => setFriendsSearchQuery(e.target.value)}
-                  placeholder="Tìm kiếm bạn bè..."
+                  placeholder={isEn ? "Search friends..." : "Tìm kiếm bạn bè..."}
                   className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-100 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-850 border border-transparent focus:border-blue-400 dark:focus:border-blue-500 rounded-xl outline-none transition text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
                 />
               </div>
@@ -1828,7 +1828,7 @@ export default function ProfileView({
                 {filteredFriends.map((friend) => (
                   <div 
                     key={friend.id} 
-                    className="p-3.5 bg-slate-50 dark:bg-slate-850 hover:bg-slate-100/70 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-750 rounded-2xl flex items-center justify-between gap-3 transition group"
+                    className="p-3.5 bg-slate-50 dark:bg-slate-850 hover:bg-slate-100/70 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-755 rounded-2xl flex items-center justify-between gap-3 transition group"
                   >
                     <div 
                       onClick={() => onOpenUserProfile && onOpenUserProfile(friend)}
@@ -1859,14 +1859,14 @@ export default function ProfileView({
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => onOpenChat && onOpenChat(friend)}
-                        title="Nhắn tin"
+                        title={isEn ? "Message" : "Nhắn tin"}
                         className="p-2 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-600 dark:hover:bg-blue-600 text-blue-600 dark:text-blue-400 hover:text-white dark:hover:text-white rounded-xl transition cursor-pointer"
                       >
                         <MessageCircle className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => onOpenUserProfile && onOpenUserProfile(friend)}
-                        title="Xem trang cá nhân"
+                        title={isEn ? "View profile" : "Xem trang cá nhân"}
                         className="p-2 bg-slate-200 dark:bg-slate-750 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl transition cursor-pointer"
                       >
                         <Eye className="w-4 h-4" />
@@ -1893,11 +1893,11 @@ export default function ProfileView({
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-5 sm:p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">Ảnh của bạn</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Toàn bộ ảnh được tải lên từ các bài viết trong cơ sở dữ liệu</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">{isEn ? 'Your Photos' : 'Ảnh của bạn'}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{isEn ? 'All photos uploaded from posts stored in the database' : 'Toàn bộ ảnh được tải lên từ các bài viết trong cơ sở dữ liệu'}</p>
               </div>
               <span className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
-                {displayPhotos.length} ảnh
+                {displayPhotos.length} {isEn ? 'photos' : 'ảnh'}
               </span>
             </div>
 
@@ -1929,9 +1929,9 @@ export default function ProfileView({
             <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
               <Video className="w-7 h-7" />
             </div>
-            <h3 className="text-base font-black text-slate-900 dark:text-slate-100">Chưa có thước phim Reels nào</h3>
+            <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'No Reels available yet' : 'Chưa có thước phim Reels nào'}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-              Các video và thước phim ngắn bạn chia sẻ sẽ xuất hiện ở đây để bạn bè cùng theo dõi.
+              {isEn ? 'Videos and short reels you share will appear here for your friends to watch.' : 'Các video và thước phim ngắn bạn chia sẻ sẽ xuất hiện ở đây để bạn bè cùng theo dõi.'}
             </p>
           </div>
         )}

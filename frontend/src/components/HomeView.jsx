@@ -534,10 +534,10 @@ export default function HomeView({
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-bold truncate">
-                    Bộ lọc tìm kiếm: <span className="text-blue-700 underline decoration-blue-300 underline-offset-2">"{searchQuery}"</span>
+                    {t('home.search_filter_title')} <span className="text-blue-700 underline decoration-blue-300 underline-offset-2">"{searchQuery}"</span>
                   </p>
                   <p className="text-[11px] text-blue-700/80">
-                    Tìm thấy {visiblePostCount} bài viết phù hợp
+                    {t('home.posts_found', { count: visiblePostCount })}
                   </p>
                 </div>
               </div>
@@ -576,7 +576,7 @@ export default function HomeView({
                 <button
                   onClick={onRefreshFeed}
                   disabled={isLoadingPosts}
-                  title="Làm mới bảng tin"
+                  title={t('home.refresh_title')}
                   className="flex items-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer text-[11px] font-semibold"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPosts ? 'animate-spin text-blue-600' : ''}`} />
@@ -584,7 +584,7 @@ export default function HomeView({
                 </button>
               )}
               <span className="text-[11px] text-slate-400 font-normal">
-                {visiblePostCount} bài viết
+                {visiblePostCount} {isEn ? 'posts' : 'bài viết'}
               </span>
             </div>
           </div>
@@ -682,9 +682,13 @@ export default function HomeView({
                   <Search className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-slate-800">Không tìm thấy bài viết nào</h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                    Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">{isEn ? 'No posts found' : 'Không tìm thấy bài viết nào'}</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                    {isEn ? (
+                      <>No posts matched the keyword <span className="font-semibold text-blue-600">"{searchQuery}"</span>. You can try searching for different keywords or clear the filter.</>
+                    ) : (
+                      <>Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.</>
+                    )}
                   </p>
                 </div>
                 <button
@@ -692,12 +696,12 @@ export default function HomeView({
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
-                  <span>Xóa bộ lọc & Xem tất cả bài viết</span>
+                  <span>{isEn ? 'Clear filter & View all posts' : 'Xóa bộ lọc & Xem tất cả bài viết'}</span>
                 </button>
               </div>
             ) : (
-              <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-400 text-sm">
-                Chưa có bài viết nào trong mục này.
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-400 text-sm">
+                {isEn ? 'No posts in this section yet.' : 'Chưa có bài viết nào trong mục này.'}
               </div>
             )}
           </div>
@@ -754,7 +758,7 @@ export default function HomeView({
                         {mutualCount > 0 ? (
                           <div 
                             className="flex items-center gap-1.5 mt-0.5"
-                            title={`Bạn bè chung trong danh sách: ${mutualList.map(f => f.name).join(', ')}`}
+                            title={isEn ? `Mutual friends in list: ${mutualList.map(f => f.name).join(', ')}` : `Bạn bè chung trong danh sách: ${mutualList.map(f => f.name).join(', ')}`}
                           >
                             {/* Avatar thu nhỏ xếp chồng của bạn chung */}
                             <div className="flex -space-x-1.5 overflow-hidden shrink-0">
@@ -824,7 +828,7 @@ export default function HomeView({
                     if (event.key === 'Enter' || event.key === ' ') onSelectHashtag?.(topic.tag);
                   }}
                   className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition duration-150"
-                  title={`Lọc bài viết với ${topic.tag}`}
+                  title={isEn ? `Filter posts by ${topic.tag}` : `Lọc bài viết với ${topic.tag}`}
                 >
                   <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
                     <span>#{topic.displayTag || topic.tag}</span>
