@@ -7,13 +7,13 @@ import {
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
   UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert,
-  ShieldCheck, ExternalLink, Mail, Phone
+  ShieldCheck, ExternalLink, Mail, Phone, Trash2, Bookmark
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
 import { settingsService } from '../services/settingsService';
-import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories } from '../api/client';
+import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchSavedPostsApi } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
@@ -55,16 +55,42 @@ export default function ProfileView({
   onEditPost,
   onDeletePost,
   onSharePost,
-  onOpenStoryViewer
+  onOpenStoryViewer,
+  onToggleSave,
+  initialTab = 'all'
 }) {
   const { t, isEn } = useTranslation();
   const targetUserId = viewedUser?.id || currentUser?.id;
   const isOwnProfile = !viewedUser || (currentUser && String(viewedUser.id) === String(currentUser.id));
 
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels'
+  const [activeTab, setActiveTab] = useState(initialTab || 'all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels' | 'saved'
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
   const [aboutSubTab, setAboutSubTab] = useState('overview'); // 'overview' | 'work_edu' | 'places' | 'contact' | 'family'
   const [friendsSearchQuery, setFriendsSearchQuery] = useState('');
+
+  // ── State bài viết đã lưu (Bookmarks) ───────────────────────
+  const [savedPosts, setSavedPosts] = useState([]);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab === 'saved' && isOwnProfile && currentUser?.id) {
+      setIsLoadingSaved(true);
+      fetchSavedPostsApi()
+        .then((res) => {
+          if (res?.success && Array.isArray(res.data)) {
+            setSavedPosts(res.data);
+          }
+        })
+        .catch((err) => console.warn('Lỗi lấy bài viết đã lưu:', err.message))
+        .finally(() => setIsLoadingSaved(false));
+    }
+  }, [activeTab, isOwnProfile, currentUser?.id]);
 
   // ── State dữ liệu từ Database API ───────────────────────────
   const [profileData, setProfileData] = useState(null);
@@ -729,6 +755,20 @@ export default function ProfileView({
     onEditPost?.(postId, changes);
   };
 
+  const handleToggleSavePost = (postId, nextSaved) => {
+    setSavedPosts((prev) => {
+      if (!nextSaved) {
+        return prev.filter((p) => String(p.id) !== String(postId));
+      }
+      return prev.map((p) => (String(p.id) === String(postId) ? { ...p, isSaved: true } : p));
+    });
+    setProfilePosts((prev) => {
+      if (!prev) return prev;
+      return prev.map((p) => (String(p.id) === String(postId) ? { ...p, isSaved: nextSaved } : p));
+    });
+    onToggleSave?.(postId, nextSaved);
+  };
+
   return (
     <div className="bg-slate-100 dark:bg-slate-950 min-h-screen pb-16 transition-colors duration-200">
 
@@ -1145,6 +1185,25 @@ export default function ProfileView({
               >
                 Reels
               </button>
+
+              {isOwnProfile && (
+                <button
+                  onClick={() => setActiveTab('saved')}
+                  className={`py-3.5 px-4 border-b-4 transition cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'saved' 
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                      : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Bookmark className="w-4 h-4" />
+                  <span>{isEn ? 'Saved' : 'Đã lưu'}</span>
+                  {savedPosts.length > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                      {savedPosts.length}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1485,6 +1544,7 @@ export default function ProfileView({
                         onUpdatePost={handleProfilePostUpdate}
                         onDeletePost={onDeletePost}
                         onSharePost={onSharePost}
+                        onToggleSave={handleToggleSavePost}
                         allPosts={posts}
                       />
                     ))
@@ -1936,6 +1996,66 @@ export default function ProfileView({
           </div>
         )}
 
+        {/* ── TAB 6: ĐÃ LƯU (BÀI VIẾT ĐÃ LƯU) ───────────────────────── */}
+        {activeTab === 'saved' && isOwnProfile && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-4 sm:p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                  <Bookmark className="w-5 h-5 fill-current" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Saved Posts' : 'Bài viết đã lưu'}</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Only you can see your saved posts' : 'Chỉ bạn mới có thể nhìn thấy danh sách bài viết đã lưu'}</p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                {savedPosts.length} {isEn ? 'posts' : 'bài viết'}
+              </span>
+            </div>
+
+            {isLoadingSaved ? (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800">
+                <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-2" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Loading saved posts...' : 'Đang tải các bài viết đã lưu...'}</p>
+              </div>
+            ) : savedPosts.length > 0 ? (
+              <div className="space-y-4">
+                {savedPosts.map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    currentUser={currentUser}
+                    onToggleLike={onToggleLike}
+                    onAddComment={onAddComment}
+                    onOpenReportModal={onOpenReportModal}
+                    onOpenAppealModal={onOpenAppealModal}
+                    onRequireAuth={onRequireAuth}
+                    onRequireLogin={onRequireAuth}
+                    onOpenProfile={onOpenUserProfile}
+                    onEditPost={onEditPost}
+                    onUpdatePost={handleProfilePostUpdate}
+                    onDeletePost={onDeletePost}
+                    onSharePost={onSharePost}
+                    onToggleSave={handleToggleSavePost}
+                    allPosts={posts}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-12 text-center space-y-3">
+                <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                  <Bookmark className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'No saved posts yet' : 'Chưa có bài viết nào được lưu'}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                  {isEn ? 'Click the bookmark icon at the bottom right of any post to save it and review it here.' : 'Nhấn vào biểu tượng lưu ở góc dưới bên phải bất kỳ bài viết nào để lưu lại và xem lại tại đây.'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* ================= MODAL CHỈNH SỬA TRANG CÁ NHÂN ================= */}
@@ -2015,6 +2135,37 @@ export default function ProfileView({
                   </p>
                 </div>
               </button>
+
+              {/* Lựa chọn 3: Xóa ảnh đại diện quay về mặc định (chỉ dành cho chủ tài khoản) */}
+              {isOwnProfile && activeUser?.avatar && activeUser.avatar !== DEFAULT_AVATAR && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowAvatarMenu(false);
+                    try {
+                      await handleSaveProfileModal({ avatar_url: DEFAULT_AVATAR });
+                      setFriendActionToast(isEn ? '✓ Reset profile picture to default!' : '✓ Đã đặt lại ảnh đại diện mặc định thành công!');
+                      setTimeout(() => setFriendActionToast(''), 3000);
+                    } catch (e) {
+                      setFriendActionToast(e.message);
+                      setTimeout(() => setFriendActionToast(''), 3000);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3.5 p-3 rounded-2xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer text-left group"
+                >
+                  <div className="w-11 h-11 rounded-full bg-rose-50 dark:bg-rose-950/50 group-hover:bg-rose-100 transition shrink-0 flex items-center justify-center text-rose-600">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-rose-600 transition">
+                      {isEn ? 'Remove profile picture' : 'Xóa ảnh đại diện'}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {isEn ? 'Revert to default system avatar' : 'Quay về ảnh đại diện mặc định của hệ thống'}
+                    </p>
+                  </div>
+                </button>
+              )}
             </div>
 
             <button

@@ -112,16 +112,82 @@ export default function NotificationsView({
   const interactionCount = notifications.filter((n) => isInteractionType(n.type)).length;
   const systemCount = notifications.filter((n) => isSystemType(n.type)).length;
 
-  const getNotifIconBadge = (type) => {
+  const getNotifIconBadge = (type, payload = {}) => {
+    const reactionType = payload?.reactionType || payload?.reaction || null;
+
     switch (type) {
       case 'like':
       case 'reaction':
-      case 'story_reaction':
+      case 'story_reaction': {
+        const typesList = Array.isArray(payload?.reactionTypes) && payload.reactionTypes.length > 0
+          ? payload.reactionTypes
+          : (reactionType ? [reactionType] : ['love']);
+
+        const emojiMap = {
+          wow: '😮',
+          haha: '😄',
+          sad: '😢',
+          angry: '😡',
+          like: '👍',
+          love: '❤️',
+        };
+
+        if (typesList.length > 1) {
+          return (
+            <div className="flex items-center -space-x-1.5 select-none" title={`Đã bày tỏ: ${typesList.map(t => emojiMap[t] || '❤️').join(' ')}`}>
+              {typesList.slice(-2).map((t, idx) => (
+                <div 
+                  key={idx} 
+                  className="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none"
+                >
+                  {emojiMap[t] || '❤️'}
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        if (reactionType === 'wow') {
+          return (
+            <div className="w-5 h-5 rounded-full bg-amber-400 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none select-none" title="Ngạc nhiên (Wow)">
+              😮
+            </div>
+          );
+        }
+        if (reactionType === 'haha') {
+          return (
+            <div className="w-5 h-5 rounded-full bg-amber-400 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none select-none" title="Haha">
+              😄
+            </div>
+          );
+        }
+        if (reactionType === 'sad') {
+          return (
+            <div className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none select-none" title="Buồn (Sad)">
+              😢
+            </div>
+          );
+        }
+        if (reactionType === 'angry') {
+          return (
+            <div className="w-5 h-5 rounded-full bg-orange-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none select-none" title="Phẫn nộ (Angry)">
+              😡
+            </div>
+          );
+        }
+        if (reactionType === 'like') {
+          return (
+            <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none select-none" title="Thích (Like)">
+              👍
+            </div>
+          );
+        }
         return (
-          <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs">
+          <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs" title="Yêu thích (Love)">
             <Heart className="w-3 h-3 fill-white" />
           </div>
         );
+      }
       case 'comment':
         return (
           <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs">
@@ -298,6 +364,12 @@ export default function NotificationsView({
               const actorDisplayName = isEn && (actor.name === 'Thông báo hệ thống' || actor.id === 'system')
                 ? 'System Notification'
                 : actor.name;
+
+              const rawItemPayload = item.payload || item.snapshot;
+              const itemPayload = typeof rawItemPayload === 'object' && rawItemPayload !== null
+                ? rawItemPayload
+                : (() => { try { return JSON.parse(rawItemPayload); } catch { return {}; } })();
+
               return (
                 <div
                   key={item.id}
@@ -362,7 +434,7 @@ export default function NotificationsView({
                       className="w-11 h-11 sm:w-12 sm:h-12 rounded-full object-cover ring-2 ring-white dark:ring-slate-800 shadow-xs cursor-pointer hover:opacity-90 transition"
                     />
                     <div className="absolute -bottom-1 -right-1">
-                      {getNotifIconBadge(item.type)}
+                      {getNotifIconBadge(item.type, itemPayload)}
                     </div>
                   </div>
 

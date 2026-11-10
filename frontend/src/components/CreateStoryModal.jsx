@@ -67,6 +67,7 @@ function exportEditedImage(file, {
   hasTimeSticker = false, 
   timeText = '',
   timePos = { x: 50, y: 16 },
+  timeScale = 1,
   textPos = { x: 50, y: 50 },
   textScale = 1,
 }) {
@@ -104,13 +105,14 @@ function exportEditedImage(file, {
         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
         ctx.restore();
 
-        // Vẽ nhãn thời gian theo đúng tọa độ người dùng kéo thả
+        // Vẽ nhãn thời gian theo đúng tọa độ và tỷ lệ người dùng kéo thả
         if (hasTimeSticker && timeText) {
           ctx.save();
-          ctx.font = 'bold 42px system-ui, sans-serif';
+          const calculatedTimeSize = Math.round(42 * (timeScale || 1));
+          ctx.font = `bold ${calculatedTimeSize}px system-ui, sans-serif`;
           const textMetrics = ctx.measureText(timeText);
-          const boxW = textMetrics.width + 56;
-          const boxH = 68;
+          const boxW = Math.round(textMetrics.width + 56 * (timeScale || 1));
+          const boxH = Math.round(68 * (timeScale || 1));
 
           const targetCenterX = (timePos.x / 100) * canvasWidth;
           const targetCenterY = (timePos.y / 100) * canvasHeight;
@@ -120,10 +122,10 @@ function exportEditedImage(file, {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
           if (ctx.roundRect) {
             ctx.beginPath();
-            ctx.roundRect(boxX, boxY, boxW, boxH, 34);
+            ctx.roundRect(boxX, boxY, boxW, boxH, Math.round(34 * (timeScale || 1)));
             ctx.fill();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = Math.max(2, Math.round(3 * (timeScale || 1)));
             ctx.stroke();
           } else {
             ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -219,8 +221,9 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [altText, setAltText] = useState('');
   const [isAddingAltText, setIsAddingAltText] = useState(false);
 
-  // Vị trí kéo thả (Tọa độ phần trăm 0% -> 100%) & Kích cỡ chữ (0.6x -> 2.5x)
+  // Vị trí kéo thả (Tọa độ phần trăm 0% -> 100%) & Kích cỡ chữ / nhãn (0.3x -> 5.0x)
   const [timePos, setTimePos] = useState({ x: 50, y: 16 });
+  const [timeScale, setTimeScale] = useState(1);
   const [textPos, setTextPos] = useState({ x: 50, y: 50 });
   const [textScale, setTextScale] = useState(1);
   const [isResizing, setIsResizing] = useState(false);
@@ -282,6 +285,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setAltText('');
     setIsAddingAltText(false);
     setTimePos({ x: 50, y: 16 });
+    setTimeScale(1);
     setTextPos({ x: 50, y: 50 });
     setTextScale(1);
     setIsResizing(false);
@@ -359,7 +363,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       const currentDist = Math.hypot(moveEvent.clientX - centerX, moveEvent.clientY - centerY);
       const ratio = currentDist / minInitDist;
       let newScale = initialScale * ratio;
-      newScale = Math.min(2.5, Math.max(0.6, parseFloat(newScale.toFixed(2))));
+      newScale = Math.min(5.0, Math.max(0.3, parseFloat(newScale.toFixed(2))));
       setTextScale(newScale);
     };
 
@@ -435,6 +439,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             hasTimeSticker,
             timeText: currentTimeText,
             timePos,
+            timeScale,
             textPos,
             textScale,
           });
@@ -462,6 +467,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           hasTimeSticker,
           timeText: currentTimeText,
           timePos,
+          timeScale,
           overlayText: overlayText.trim() || null,
           textPos,
           textScale,
@@ -637,7 +643,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
               </div>
             </div>
 
-            {/* Thông tin tác giả */}
+            {/* Thông tin tác giả & Tag đối tượng xem tin */}
             <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
               <img
                 src={userAvatar}
@@ -646,9 +652,62 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
               />
               <div className="min-w-0">
                 <p className="font-bold text-sm text-slate-900 dark:text-white truncate">{userName}</p>
-                <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  <Globe className="w-3 h-3" />
-                  <span>{PRIVACY_OPTIONS.find(p => p.id === privacy)?.label}</span>
+                <div className="relative inline-block mt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivacyMenu(!showPrivacyMenu)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer border border-slate-200 dark:border-slate-700"
+                    title="Nhấn để thay đổi đối tượng xem tin"
+                  >
+                    {(() => {
+                      const opt = PRIVACY_OPTIONS.find(p => p.id === privacy) || PRIVACY_OPTIONS[0];
+                      const Icon = opt.icon;
+                      return (
+                        <>
+                          <Icon className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          <span>{opt.label}</span>
+                          <ChevronDown className="w-3 h-3 text-slate-400" />
+                        </>
+                      );
+                    })()}
+                  </button>
+
+                  {/* Popover Quyền riêng tư ngay dưới Tag */}
+                  {showPrivacyMenu && (
+                    <div className="absolute left-0 top-8 w-64 p-2 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 animate-scale-up">
+                      <p className="px-3 py-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        Đối tượng xem tin
+                      </p>
+                      {PRIVACY_OPTIONS.map((opt) => {
+                        const Icon = opt.icon;
+                        const isSelected = privacy === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setPrivacy(opt.id);
+                              setShowPrivacyMenu(false);
+                            }}
+                            className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition cursor-pointer ${
+                              isSelected 
+                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold' 
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-800 dark:text-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <Icon className="w-4 h-4 text-slate-500" />
+                              <div>
+                                <p className="text-xs font-medium">{opt.label}</p>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">{opt.desc}</p>
+                              </div>
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-blue-600" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -778,7 +837,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setTextScale((s) => Math.max(0.6, parseFloat((s - 0.1).toFixed(2))))}
+                        onClick={() => setTextScale((s) => Math.max(0.3, parseFloat((s - 0.1).toFixed(2))))}
                         className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                         title="Giảm cỡ chữ"
                       >
@@ -786,8 +845,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       </button>
                       <input
                         type="range"
-                        min="0.6"
-                        max="2.5"
+                        min="0.3"
+                        max="5.0"
                         step="0.05"
                         value={textScale}
                         onChange={(e) => setTextScale(parseFloat(e.target.value))}
@@ -795,7 +854,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       />
                       <button
                         type="button"
-                        onClick={() => setTextScale((s) => Math.min(2.5, parseFloat((s + 0.1).toFixed(2))))}
+                        onClick={() => setTextScale((s) => Math.min(5.0, parseFloat((s + 0.1).toFixed(2))))}
                         className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                         title="Tăng cỡ chữ"
                       >
@@ -932,7 +991,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => setTextScale((s) => Math.max(0.6, parseFloat((s - 0.1).toFixed(2))))}
+                              onClick={() => setTextScale((s) => Math.max(0.3, parseFloat((s - 0.1).toFixed(2))))}
                               className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                               title="Giảm cỡ chữ"
                             >
@@ -940,8 +999,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                             </button>
                             <input
                               type="range"
-                              min="0.6"
-                              max="2.5"
+                              min="0.3"
+                              max="5.0"
                               step="0.05"
                               value={textScale}
                               onChange={(e) => setTextScale(parseFloat(e.target.value))}
@@ -949,7 +1008,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                             />
                             <button
                               type="button"
-                              onClick={() => setTextScale((s) => Math.min(2.5, parseFloat((s + 0.1).toFixed(2))))}
+                              onClick={() => setTextScale((s) => Math.min(5.0, parseFloat((s + 0.1).toFixed(2))))}
                               className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                               title="Tăng cỡ chữ"
                             >
@@ -962,25 +1021,77 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                   </div>
 
                   {/* Mục 2: Thêm thời gian (Timestamp Sticker) */}
-                  <button
-                    type="button"
-                    onClick={() => setHasTimeSticker(!hasTimeSticker)}
-                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
-                      hasTimeSticker 
-                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400' 
-                        : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Clock className="w-5 h-5 text-slate-500" />
-                      <span className="text-sm font-semibold">Thêm thời gian</span>
-                    </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setHasTimeSticker(!hasTimeSticker)}
+                      className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
+                        hasTimeSticker 
+                          ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400' 
+                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Clock className="w-5 h-5 text-slate-500" />
+                        <span className="text-sm font-semibold">Thêm thời gian</span>
+                      </div>
+                      {hasTimeSticker && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">
+                          {currentTimeText || 'Bật'}
+                        </span>
+                      )}
+                    </button>
+
                     {hasTimeSticker && (
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">
-                        {currentTimeText || 'Bật'}
-                      </span>
+                      <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2 animate-fade-in">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">Kích cỡ giờ</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md">
+                              {Math.round(timeScale * 100)}%
+                            </span>
+                            {timeScale !== 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setTimeScale(1)}
+                                className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                title="Đặt lại 100%"
+                              >
+                                Đặt lại
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTimeScale((t) => Math.max(0.5, parseFloat((t - 0.1).toFixed(2))))}
+                            className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                            title="Thu nhỏ nhãn giờ"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                          <input
+                            type="range"
+                            min="0.5"
+                            max="3.0"
+                            step="0.05"
+                            value={timeScale}
+                            onChange={(e) => setTimeScale(parseFloat(e.target.value))}
+                            className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setTimeScale((t) => Math.min(3.0, parseFloat((t + 0.1).toFixed(2))))}
+                            className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                            title="Phóng to nhãn giờ"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     )}
-                  </button>
+                  </div>
 
                   {/* Mục 3: Văn bản thay thế (Alt Text / Chú thích ảnh) */}
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -1266,7 +1377,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                         style={{
                           left: `${timePos.x}%`,
                           top: `${timePos.y}%`,
-                          transform: 'translate(-50%, -50%)',
+                          transform: `translate(-50%, -50%) scale(${timeScale})`,
                         }}
                         title="Kéo thả để di chuyển vị trí giờ"
                       >

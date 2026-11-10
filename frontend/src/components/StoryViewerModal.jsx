@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, EyeOff, Trash2, Heart, 
@@ -17,6 +17,32 @@ const REACTION_ICONS = [
   { type: 'sad', label: 'Buồn', emoji: '😢' },
   { type: 'angry', label: 'Phẫn nộ', emoji: '😡' },
 ];
+
+function getViewerReactionsSummary(viewer) {
+  let list = [];
+  if (Array.isArray(viewer?.reactions) && viewer.reactions.length > 0) {
+    list = viewer.reactions.map((r) => (typeof r === 'string' ? r : r.type)).filter(Boolean);
+  } else if (viewer?.reaction_type) {
+    list = [viewer.reaction_type];
+  }
+  if (list.length === 0) return [];
+
+  // Nhóm theo loại cảm xúc và giữ nguyên thứ tự xuất hiện
+  const map = new Map();
+  for (const type of list) {
+    map.set(type, (map.get(type) || 0) + 1);
+  }
+
+  return Array.from(map.entries()).map(([type, count]) => {
+    const iconObj = REACTION_ICONS.find((r) => r.type === type);
+    return {
+      type,
+      emoji: iconObj?.emoji || '❤️',
+      label: iconObj?.label || type,
+      count,
+    };
+  });
+}
 
 export default function StoryViewerModal({ 
   currentUser, 
@@ -42,6 +68,26 @@ export default function StoryViewerModal({
   const [isLoadingViewers, setIsLoadingViewers] = useState(false);
   const [myReaction, setMyReaction] = useState(null);
   const [revealedStoryIds, setRevealedStoryIds] = useState({});
+
+  // Tổng hợp tất cả cảm xúc của tin đang xem (Facebook Story summary)
+  const totalReactionsBreakdown = useMemo(() => {
+    const counts = {};
+    for (const v of viewersList) {
+      const summary = getViewerReactionsSummary(v);
+      for (const item of summary) {
+        counts[item.type] = (counts[item.type] || 0) + item.count;
+      }
+    }
+    return Object.entries(counts).map(([type, total]) => {
+      const iconObj = REACTION_ICONS.find((r) => r.type === type);
+      return {
+        type,
+        emoji: iconObj?.emoji || '❤️',
+        label: iconObj?.label || type,
+        total,
+      };
+    });
+  }, [viewersList]);
 
   // Hiệu ứng hạt Reaction bay lượn mượt mà (Facebook style)
   const [floatingParticles, setFloatingParticles] = useState([]);
@@ -366,6 +412,24 @@ export default function StoryViewerModal({
 
     try {
       await reactToStoryApi(currentStory.id, reactionType);
+      if (currentUser?.id) {
+        setViewersList((prev) => {
+          return prev.map((v) => {
+            if (String(v.viewer_id) === String(currentUser.id)) {
+              const currentReactions = Array.isArray(v.reactions)
+                ? [...v.reactions]
+                : (v.reaction_type ? [{ type: v.reaction_type }] : []);
+              currentReactions.push({ type: reactionType, created_at: new Date().toISOString() });
+              return {
+                ...v,
+                reaction_type: reactionType,
+                reactions: currentReactions,
+              };
+            }
+            return v;
+          });
+        });
+      }
     } catch (err) {
       console.warn('Lỗi thả reaction:', err.message);
     }
@@ -784,7 +848,7 @@ export default function StoryViewerModal({
                   style={{
                     left: `${currentStory.backgroundStyle?.timePos?.x ?? 50}%`,
                     top: `${currentStory.backgroundStyle?.timePos?.y ?? 16}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: `translate(-50%, -50%) scale(${currentStory.backgroundStyle?.timeScale || 1})`,
                   }}
                 >
                   <Clock className="w-3.5 h-3.5 text-blue-300" />
@@ -852,7 +916,7 @@ export default function StoryViewerModal({
                   style={{
                     left: `${currentStory.backgroundStyle?.timePos?.x ?? 50}%`,
                     top: `${currentStory.backgroundStyle?.timePos?.y ?? 16}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: `translate(-50%, -50%) scale(${currentStory.backgroundStyle?.timeScale || 1})`,
                   }}
                 >
                   <Clock className="w-3.5 h-3.5 text-blue-300" />
@@ -1090,17 +1154,38 @@ export default function StoryViewerModal({
         {/* Modal Xem danh sách người đã xem (Chỉ tác giả) */}
         {showViewers && (
           <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col p-6 text-white animate-slide-up">
-            <div className="flex items-center justify-between pb-4 border-b border-white/10">
-              <h3 className="font-bold text-base flex items-center gap-2">
-                <Eye className="w-5 h-5 text-blue-400" />
-                <span>Người xem tin ({viewersList.length})</span>
-              </h3>
-              <button 
-                onClick={() => { setShowViewers(false); setIsPaused(false); }}
-                className="p-1 rounded-full hover:bg-white/10 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+            <div className="flex flex-col gap-2.5 pb-4 border-b border-white/10">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-blue-400" />
+                  <span>Người xem tin ({viewersList.length})</span>
+                </h3>
+                <button 
+                  onClick={() => { setShowViewers(false); setIsPaused(false); }}
+                  className="p-1 rounded-full hover:bg-white/10 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Tóm tắt tất cả các loại cảm xúc trên tin (Facebook Story style) */}
+              {totalReactionsBreakdown.length > 0 && (
+                <div className="flex items-center gap-2 pt-1 text-xs">
+                  <span className="text-white/60">Cảm xúc:</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {totalReactionsBreakdown.map((r) => (
+                      <span 
+                        key={r.type} 
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-xs select-none shadow-xs hover:bg-white/15 transition"
+                        title={`${r.label}: ${r.total} lượt`}
+                      >
+                        <span className="text-sm leading-none">{r.emoji}</span>
+                        <span className="font-bold text-white/90">{r.total}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto py-4 space-y-3">
@@ -1163,13 +1248,33 @@ export default function StoryViewerModal({
                           </p>
                         </div>
                       </div>
-                      {v.reaction_type && (
-                        <div className="flex items-center gap-1">
-                          <span className={`text-2xl transition drop-shadow-md ${isTarget ? 'scale-125 animate-pulse' : 'hover:scale-125'}`}>
-                            {REACTION_ICONS.find(r => r.type === v.reaction_type)?.emoji}
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const reactionsSummary = getViewerReactionsSummary(v);
+                        if (reactionsSummary.length === 0) return null;
+
+                        return (
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end pl-2">
+                            {reactionsSummary.map((item) => (
+                              <div
+                                key={item.type}
+                                className={`relative inline-flex items-center justify-center p-1 rounded-full bg-white/10 dark:bg-white/5 border border-white/15 transition-all duration-200 ${
+                                  isTarget ? 'scale-110 ring-2 ring-blue-400 animate-pulse' : 'hover:scale-125'
+                                }`}
+                                title={`${item.label}${item.count > 1 ? `: ${item.count} lượt` : ''}`}
+                              >
+                                <span className="text-xl sm:text-2xl leading-none select-none drop-shadow">
+                                  {item.emoji}
+                                </span>
+                                {item.count > 1 && (
+                                  <span className="absolute -bottom-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center border border-slate-900 shadow-xs leading-none">
+                                    {item.count}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })

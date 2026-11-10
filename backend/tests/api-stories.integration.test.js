@@ -63,8 +63,7 @@ test('Integration Test: Full lifecycle of Stories (Create, Moderation, Feed 24h,
         story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         reaction_type VARCHAR(20) NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        UNIQUE(story_id, user_id)
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
   } catch (migrationErr) {

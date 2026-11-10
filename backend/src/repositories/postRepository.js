@@ -1,6 +1,27 @@
 import { extractHashtags } from '../utils/hashtag.js';
 import { buildPostVisibilityPredicate } from './postVisibility.js';
 
+let savedPostsTableEnsured = false;
+async function ensureSavedPostsTable(pool) {
+  if (savedPostsTableEnsured || !pool || typeof pool.query !== 'function') return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS saved_posts (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_user_saved_post UNIQUE (user_id, post_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_saved_posts_user_id ON saved_posts(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_saved_posts_post_id ON saved_posts(post_id);
+    `);
+    savedPostsTableEnsured = true;
+  } catch (err) {
+    // silently continue
+  }
+}
+
 export const postSelect = `
   SELECT
     p.id,
@@ -42,7 +63,7 @@ const emptyReactionCounts = () => ({
   angry: 0,
 });
 
-function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [], commentRows = []) {
+function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [], commentRows = [], savedPostIds = new Set()) {
   const reactionDataByPost = new Map();
   const commentsByPost = new Map();
 
@@ -124,6 +145,7 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
       reaction_counts: reactionData?.counts || emptyReactionCounts(),
       total_reactions: reactionData?.total || 0,
       my_reaction: reactionData?.myReaction || null,
+      is_saved: savedPostIds.has(pid) || Boolean(post.is_saved),
       comments: sortedComments,
     };
   });
@@ -273,7 +295,25 @@ export function createPostRepository({ pool }) {
         [cleanId, viewerId]
       );
 
-      const post = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentResult.rows)[0];
+      let isSaved = false;
+      if (viewerId) {
+        await ensureSavedPostsTable(pool);
+        try {
+          const savedResult = await pool.query(
+            `SELECT 1 FROM saved_posts WHERE user_id = $1 AND post_id = $2`,
+            [viewerId, cleanId]
+          );
+          isSaved = savedResult.rows.length > 0;
+        } catch {}
+      }
+
+      const post = attachReactionAndCommentsData(
+        result.rows,
+        countResult.rows,
+        myReactionResult.rows,
+        commentResult.rows,
+        isSaved ? new Set([cleanId]) : new Set()
+      )[0];
 
       // Nếu là bài chia sẻ, lấy thêm thông tin bài gốc
       if (post && post.original_post_id) {
@@ -535,7 +575,19 @@ export function createPostRepository({ pool }) {
         [postIds, viewerId]
       );
 
-      const posts = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows);
+      let savedPostIds = new Set();
+      if (viewerId) {
+        await ensureSavedPostsTable(pool);
+        try {
+          const savedResult = await pool.query(
+            `SELECT post_id FROM saved_posts WHERE user_id = $1 AND post_id = ANY($2::bigint[])`,
+            [viewerId, postIds]
+          );
+          savedPostIds = new Set(savedResult.rows.map((r) => Number(r.post_id)));
+        } catch {}
+      }
+
+      const posts = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows, savedPostIds);
 
       // Lấy thông tin bài gốc cho các bài chia sẻ
       const originalPostIds = posts
@@ -604,6 +656,127 @@ export function createPostRepository({ pool }) {
       } finally {
         client.release();
       }
+    },
+
+    async toggleSavePost({ userId, postId }) {
+      if (!userId) {
+        const error = new Error('Bạn cần đăng nhập để lưu bài viết');
+        error.statusCode = 401;
+        throw error;
+      }
+      const cleanId = Number(String(postId).replace(/^post-/, ''));
+      if (Number.isNaN(cleanId)) {
+        const error = new Error('ID bài viết không hợp lệ');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await ensureSavedPostsTable(pool);
+
+      const checkRes = await pool.query(
+        `SELECT id FROM saved_posts WHERE user_id = $1 AND post_id = $2`,
+        [userId, cleanId]
+      );
+
+      if (checkRes.rows.length > 0) {
+        await pool.query(
+          `DELETE FROM saved_posts WHERE user_id = $1 AND post_id = $2`,
+          [userId, cleanId]
+        );
+        return { isSaved: false, postId: String(cleanId) };
+      } else {
+        await pool.query(
+          `INSERT INTO saved_posts (user_id, post_id, created_at)
+           VALUES ($1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (user_id, post_id) DO NOTHING`,
+          [userId, cleanId]
+        );
+        return { isSaved: true, postId: String(cleanId) };
+      }
+    },
+
+    async getSavedPosts({ userId }) {
+      if (!userId) return [];
+      await ensureSavedPostsTable(pool);
+
+      const result = await pool.query(
+        `${postSelect}
+         JOIN saved_posts sp ON sp.post_id = p.id
+         WHERE sp.user_id = $1
+           AND p.ai_status != 'hidden'
+           AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive') OR p.author_id = $1)
+         ORDER BY sp.created_at DESC`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) return [];
+      const postIds = result.rows.map((p) => p.id);
+
+      const countResult = await pool.query(
+        `SELECT post_id, reaction_type, COUNT(*)::int AS count
+         FROM post_reactions
+         WHERE post_id = ANY($1::bigint[])
+         GROUP BY post_id, reaction_type`,
+        [postIds]
+      );
+
+      const myReactionResult = await pool.query(
+        `SELECT post_id, reaction_type
+         FROM post_reactions
+         WHERE user_id = $1 AND post_id = ANY($2::bigint[])`,
+        [userId, postIds]
+      );
+
+      const commentsResult = await pool.query(
+        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
+                c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
+                c.image_moderation_violence, c.image_moderation_thresholds,
+                c.image_moderation_appealed_at,
+                c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
+         FROM comments c
+         JOIN users u ON u.id = c.author_id
+         WHERE c.post_id = ANY($1::bigint[])
+           AND c.is_hidden = false
+           AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
+           AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
+                OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
+         ORDER BY c.created_at ASC`,
+        [postIds, userId]
+      );
+
+      const savedSet = new Set(postIds.map(Number));
+      const posts = attachReactionAndCommentsData(
+        result.rows,
+        countResult.rows,
+        myReactionResult.rows,
+        commentsResult.rows,
+        savedSet
+      );
+
+      const originalPostIds = posts
+        .filter((p) => p.original_post_id)
+        .map((p) => p.original_post_id);
+
+      if (originalPostIds.length > 0) {
+        const originalPostsResult = await pool.query(
+          `SELECT p.id, p.content, p.image_url, p.created_at, p.ai_status,
+                  p.likes_count, p.comments_count, p.shares_count,
+                  u.id AS author_id, u.full_name, u.username, u.avatar_url
+           FROM posts p
+           JOIN users u ON u.id = p.author_id
+           WHERE p.id = ANY($1::bigint[]) AND p.ai_status = 'approved'
+             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
+          [originalPostIds]
+        );
+        const originalPostMap = new Map(originalPostsResult.rows.map((op) => [Number(op.id), op]));
+        return posts.map((p) => ({
+          ...p,
+          original_post: p.original_post_id ? (originalPostMap.get(Number(p.original_post_id)) || null) : null,
+        }));
+      }
+
+      return posts;
     },
   };
 }

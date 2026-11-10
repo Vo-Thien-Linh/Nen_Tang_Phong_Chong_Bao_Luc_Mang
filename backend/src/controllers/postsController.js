@@ -86,6 +86,7 @@ export function mapPostToResponse(post, viewerId = null) {
     totalReactions: Number(post.total_reactions || post.likes_count || 0),
     myReaction: post.my_reaction || null,
     sharesCount: post.shares_count || 0,
+    isSaved: Boolean(post.is_saved || post.isSaved),
     comments: (post.comments || []).map((c) => ({
       id: String(c.id),
       author: {
@@ -676,6 +677,38 @@ export function createPostsController({ postService, postRepository, imageModera
           success: true,
           message: 'Chia sẻ bài viết thành công',
           data: mappedSharedPost,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async toggleSavePost(req, res, next) {
+      try {
+        const { postId } = req.params;
+        const result = await postRepository.toggleSavePost({
+          userId: req.user.id,
+          postId,
+        });
+        return res.status(200).json({
+          success: true,
+          isSaved: result.isSaved,
+          message: result.isSaved ? 'Đã lưu bài viết vào mục Yêu thích' : 'Đã bỏ lưu bài viết',
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async getSavedPosts(req, res, next) {
+      try {
+        const posts = await postRepository.getSavedPosts({
+          userId: req.user.id,
+        });
+        const mapped = posts.map((p) => mapPostToResponse(p, req.user.id));
+        return res.status(200).json({
+          success: true,
+          data: mapped,
         });
       } catch (error) {
         next(error);

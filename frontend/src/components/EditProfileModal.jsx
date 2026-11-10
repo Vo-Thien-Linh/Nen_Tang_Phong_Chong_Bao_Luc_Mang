@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   X, Camera, Save, Loader2, MapPin, Home, GraduationCap, 
-  Heart, Sparkles, CheckCircle2, User, UploadCloud, AlertCircle, Check
+  Heart, Sparkles, CheckCircle2, User, UploadCloud, AlertCircle, Check, Trash2
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
@@ -280,6 +280,22 @@ export default function EditProfileModal({
                     >
                       {showAvatarUrlInput ? "Ẩn link URL" : "Dán link ảnh"}
                     </button>
+
+                    {formData.avatar_url && formData.avatar_url !== DEFAULT_AVATAR && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChange('avatar_url', DEFAULT_AVATAR);
+                          setAvatarUploadSuccess(false);
+                          setUploadError('');
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition cursor-pointer"
+                        title="Xóa ảnh đại diện và quay về ảnh đại diện mặc định"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Xóa ảnh (về mặc định)</span>
+                      </button>
+                    )}
                   </div>
 
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">

@@ -78,6 +78,7 @@ export default function App() {
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [profileInitialTab, setProfileInitialTab] = useState('all');
   const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
@@ -511,7 +512,7 @@ export default function App() {
   }, [currentUser]);
 
   // Xử lý Chuyển Tab có Auth Guard và Role Guard
-  const handleTabChange = (tab, targetUser = null, replace = false) => {
+  const handleTabChange = (tab, targetUser = null, replace = false, subTab = 'all') => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
       const msg = tab === 'admin' || tab === 'moderation'
         ? "Vui lòng đăng nhập để truy cập khu vực này"
@@ -535,8 +536,10 @@ export default function App() {
 
     if (effectiveTab === 'profile') {
       setViewedProfileUser(targetUser || null);
+      setProfileInitialTab(subTab || 'all');
     } else {
       setViewedProfileUser(null);
+      setProfileInitialTab('all');
     }
     if (effectiveTab !== 'post') {
       setViewedPostDetail(null);
@@ -1033,6 +1036,16 @@ export default function App() {
     if (newSharedPost) {
       setPosts((prev) => [newSharedPost, ...prev]);
     }
+  };
+
+  // Lưu / Bỏ lưu bài viết yêu thích (đồng bộ trạng thái trên toàn hệ thống)
+  const handleToggleSavePost = (postId, nextSaved) => {
+    setPosts((previous) => previous.map((post) => {
+      if (String(post.id) === String(postId)) {
+        return { ...post, isSaved: nextSaved };
+      }
+      return post;
+    }));
   };
 
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
@@ -1897,6 +1910,7 @@ export default function App() {
             activeStreams={activeStreamsList}
             onWatchStream={handleWatchLiveStream}
             onOpenLiveStream={handleOpenLiveStreamAction}
+            onToggleSave={handleToggleSavePost}
           />
         )}
 
@@ -1955,6 +1969,7 @@ export default function App() {
             onClosePostMenu={handleClosePostMenu}
             onDismissNotice={handleDismissPostNotice}
             onSharePost={handleSharePost}
+            onToggleSave={handleToggleSavePost}
           />
         )}
 
@@ -2023,6 +2038,8 @@ export default function App() {
             onEditPost={handleUpdatePost}
             onDeletePost={handleDeleteOwnPost}
             onOpenStoryViewer={handleOpenStoryViewer}
+            initialTab={profileInitialTab}
+            onToggleSave={handleToggleSavePost}
           />
         )}
 
