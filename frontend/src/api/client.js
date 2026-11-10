@@ -121,6 +121,12 @@ export async function updatePostReaction({ userId, postId, type, action }) {
   });
 }
 
+export async function fetchPostReactions({ userId, postId }) {
+  return request(`/api/posts/${postId}/reactions`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
 export async function uploadPostImage(file) {
   const formData = new FormData();
   formData.append('image', file);

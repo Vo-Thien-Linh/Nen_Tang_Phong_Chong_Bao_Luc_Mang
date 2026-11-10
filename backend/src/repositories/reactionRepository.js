@@ -141,40 +141,35 @@ export function createReactionRepository({ pool }) {
     },
 
     async getPostReactions({ postId, viewerId }) {
-      try {
-        const cleanId = Number(String(postId).replace(/^post-/, ''));
-        if (Number.isNaN(cleanId)) return [];
+      const cleanId = Number(String(postId).replace(/^post-/, ''));
+      if (Number.isNaN(cleanId)) return [];
 
-        const visiblePost = await pool.query(
-          `SELECT p.id FROM posts p WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}`,
-          [cleanId, viewerId || null]
-        );
-        if (!visiblePost.rows[0]) {
-          const error = new Error('\u0042\u00e0i vi\u1ebft kh\u00f4ng t\u1ed3n t\u1ea1i');
-          error.statusCode = 404;
-          throw error;
-        }
-
-        const result = await pool.query(
-          `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
-           FROM post_reactions pr
-           JOIN users u ON pr.user_id = u.id
-           WHERE pr.post_id = $1
-           ORDER BY pr.created_at DESC`,
-          [cleanId]
-        );
-        return result.rows.map(r => ({
-          userId: r.id,
-          name: r.name,
-          avatar: r.avatar,
-          username: r.username,
-          reactionType: r.reaction_type,
-          createdAt: r.created_at
-        }));
-      } catch (err) {
-        if (err?.statusCode === 404) throw err;
-        return [];
+      const visiblePost = await pool.query(
+        `SELECT p.id FROM posts p WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}`,
+        [cleanId, viewerId || null]
+      );
+      if (!visiblePost.rows[0]) {
+        const error = new Error('\u0042\u00e0i vi\u1ebft kh\u00f4ng t\u1ed3n t\u1ea1i');
+        error.statusCode = 404;
+        throw error;
       }
+
+      const result = await pool.query(
+        `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
+         FROM post_reactions pr
+         JOIN users u ON pr.user_id = u.id
+         WHERE pr.post_id = $1
+         ORDER BY pr.created_at DESC`,
+        [cleanId]
+      );
+      return result.rows.map(r => ({
+        userId: r.id,
+        name: r.name,
+        avatar: r.avatar,
+        username: r.username,
+        reactionType: r.reaction_type,
+        createdAt: r.created_at
+      }));
     },
   };
 }
