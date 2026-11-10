@@ -46,9 +46,9 @@ export function buildPostVisibilityPredicate(viewerParam = null, { publicOnly = 
 
   const friendshipPredicate = `EXISTS (
     SELECT 1 FROM friendships f
-    WHERE f.status = 'accepted'
-      AND ((f.requester_id = ${column('author_id')} AND f.addressee_id = ${viewerParam})
-        OR (f.addressee_id = ${column('author_id')} AND f.requester_id = ${viewerParam}))
+    WHERE f."status" = 'accepted'
+      AND ((f."requester_id" = ${column('author_id')} AND f."addressee_id" = ${viewerParam})
+        OR (f."addressee_id" = ${column('author_id')} AND f."requester_id" = ${viewerParam}))
   )`;
   const privacyPredicate = `(
     ${column('author_id')} = ${viewerParam}

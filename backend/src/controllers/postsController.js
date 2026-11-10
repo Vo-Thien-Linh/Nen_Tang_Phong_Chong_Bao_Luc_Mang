@@ -60,7 +60,7 @@ export function mapPostToResponse(post, viewerId = null) {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
-    privacy: post.privacy || 'public',
+    ...(Object.prototype.hasOwnProperty.call(post, 'privacy') ? { privacy: post.privacy || 'public' } : {}),
     imageModeration,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,

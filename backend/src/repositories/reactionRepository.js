@@ -150,7 +150,7 @@ export function createReactionRepository({ pool }) {
           [cleanId, viewerId || null]
         );
         if (!visiblePost.rows[0]) {
-          const error = new Error('BÃ i viáº¿t khÃ´ng tá»“n táº¡i');
+          const error = new Error('\u0042\u00e0i vi\u1ebft kh\u00f4ng t\u1ed3n t\u1ea1i');
           error.statusCode = 404;
           throw error;
         }

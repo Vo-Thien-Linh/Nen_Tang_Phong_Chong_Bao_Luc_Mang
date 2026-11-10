@@ -1300,7 +1300,7 @@ export default function PostCard({
         <button
           onClick={handleShare}
           disabled={Boolean(post.privacy && post.privacy !== 'public')}
-          title={post.privacy && post.privacy !== 'public' ? 'Chá»‰ bÃ i viáº¿t cÃ´ng khai má»›i cÃ³ thá»ƒ chia sáº»' : undefined}
+          title={post.privacy && post.privacy !== 'public' ? "Ch\u1ec9 b\u00e0i vi\u1ebft c\u00f4ng khai m\u1edbi c\u00f3 th\u1ec3 chia s\u1ebb" : undefined}
           className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Share2 className="w-4 h-4 text-slate-500" />

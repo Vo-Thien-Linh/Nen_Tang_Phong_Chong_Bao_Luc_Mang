@@ -46,6 +46,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      const privacyWasProvided = privacy !== undefined && privacy !== null && privacy !== '';
       let requestedPrivacy = privacy;
       if (requestedPrivacy === undefined || requestedPrivacy === null || requestedPrivacy === '') {
         requestedPrivacy = 'public';
@@ -62,7 +63,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         }
       }
       if (!['public', 'friends', 'only_me', 'private'].includes(requestedPrivacy)) {
-        const error = new Error('Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡');
+        const error = new Error('\u0051\u0075y\u1ec1n ri\u00eang t\u01b0 kh\u00f4ng h\u1ee3p l\u1ec7');
         error.statusCode = 400;
         throw error;
       }
@@ -123,7 +124,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           authorId: user.id,
           content: normalizedContent,
           imageUrl: normalizeText(imageUrl) || null,
-          privacy: requestedPrivacy,
+          ...(privacyWasProvided || requestedPrivacy !== 'public' ? { privacy: requestedPrivacy } : {}),
           createdAt: clock(),
           aiStatus: 'hidden',
           aiLabel: harmonized.finalLabel,
@@ -179,7 +180,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
-        privacy: requestedPrivacy,
+        ...(privacyWasProvided || requestedPrivacy !== 'public' ? { privacy: requestedPrivacy } : {}),
         createdAt: clock(),
       };
       if (harmonized.aiStatus && harmonized.aiStatus !== 'approved') {
@@ -308,7 +309,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       let requestedPrivacy = privacy;
       if (requestedPrivacy !== undefined) {
         if (!['public', 'friends', 'only_me', 'private'].includes(requestedPrivacy)) {
-          const error = new Error('Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡');
+          const error = new Error('\u0051\u0075y\u1ec1n ri\u00eang t\u01b0 kh\u00f4ng h\u1ee3p l\u1ec7');
           error.statusCode = 400;
           throw error;
         }
@@ -572,7 +573,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       if (normalizePostPrivacy(originalPost.privacy) !== 'public') {
-        const error = new Error('BÃ i viáº¿t nÃ y khÃ´ng thá»ƒ chia sáº»');
+        const error = new Error('\u0042\u00e0i vi\u1ebft n\u00e0y kh\u00f4ng th\u1ec3 chia s\u1ebb');
         error.statusCode = 403;
         throw error;
       }

@@ -171,7 +171,8 @@ export function createPostRepository({ pool }) {
       );
       return result.rows.map((row) => row.user_id);
     },
-    async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public', aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
+    async createPost({ authorId, content, imageUrl, imageModeration, privacy, aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
+      const storedPrivacy = privacy ?? 'public';
       const imgScores = imageModeration?.scores || imageModeration?.images?.[0]?.scores || {};
       const safeScore = imgScores.safe ?? null;
       const nsfwScore = imgScores.nsfw ?? null;
@@ -188,7 +189,7 @@ export function createPostRepository({ pool }) {
                             ai_label, ai_confidence, ai_status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING id`,
-          [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
+          [authorId, content, imageUrl, storedPrivacy, imageModeration?.decision || null,
             imgLabel,
             safeScore,
             nsfwScore,
@@ -212,7 +213,7 @@ export function createPostRepository({ pool }) {
         author_id: authorId,
         content,
         image_url: imageUrl,
-        privacy,
+        ...(privacy !== undefined ? { privacy: storedPrivacy } : {}),
         image_moderation_status: imageModeration?.decision || null,
         image_moderation_safe: imageModeration?.images?.[0]?.scores?.safe || null,
         image_moderation_nsfw: imageModeration?.images?.[0]?.scores?.nsfw || null,
@@ -377,7 +378,7 @@ export function createPostRepository({ pool }) {
         [postId, authorId, privacy]
       );
       if (!result.rows[0]) {
-        const error = new Error('BÃ i viáº¿t khÃ´ng tá»“n táº¡i');
+        const error = new Error('\u0042\u00e0i vi\u1ebft kh\u00f4ng t\u1ed3n t\u1ea1i');
         error.statusCode = 404;
         throw error;
       }
