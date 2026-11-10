@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, Query, Header
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, desc
+from sqlalchemy import or_, and_, desc, func
 from typing import Optional, List, Dict, Any
 
 from ..database import get_db
 from ..utils.security import decode_access_token
 from ..models.user import User
 from ..models.post import Post
+from ..models.friendship import Friendship
 from ..services.friend_service import FriendService
 
 router = APIRouter(prefix="/search", tags=["Chức năng Tìm kiếm (Search)"])
@@ -72,9 +73,25 @@ def search_all(
     # 2. Tìm kiếm bài viết
     if type in ["all", "posts"]:
         try:
+            if current_user_id:
+                accepted_friend = db.query(Friendship.id).filter(
+                    Friendship.status == "accepted",
+                    or_(
+                        and_(Friendship.requester_id == Post.author_id, Friendship.addressee_id == current_user_id),
+                        and_(Friendship.addressee_id == Post.author_id, Friendship.requester_id == current_user_id),
+                    ),
+                ).exists()
+                privacy_filter = or_(
+                    Post.author_id == current_user_id,
+                    func.coalesce(Post.privacy, "public") == "public",
+                    and_(func.coalesce(Post.privacy, "public") == "friends", accepted_friend),
+                )
+            else:
+                privacy_filter = func.coalesce(Post.privacy, "public") == "public"
             post_query = db.query(Post).filter(
                 Post.content.ilike(f"%{keyword}%"),
-                Post.ai_status != "hidden"
+                Post.ai_status != "hidden",
+                privacy_filter,
             ).order_by(desc(Post.created_at)).limit(limit)
 
             matched_posts = post_query.all()
