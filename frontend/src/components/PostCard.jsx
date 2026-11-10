@@ -810,7 +810,7 @@ export default function PostCard({
               )}
               <span>•</span>
               <span aria-label={getPostPrivacyLabel(post.privacy)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
-                post.privacy === 'private' ? 'Chỉ mình tôi' :
+                normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                 post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
               }>
                 {normalizePostPrivacy(post.privacy) === 'only_me' ? (
@@ -821,7 +821,7 @@ export default function PostCard({
                   <Globe className="w-3 h-3 text-blue-500" />
                 )}
                 <span>
-                  {post.privacy === 'private' ? 'Chỉ mình tôi' :
+                  {normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                    post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'}
                 </span>
               </span>
