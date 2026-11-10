@@ -266,7 +266,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       return post;
     },
 
-    async editPost({ user, postId, content, imageUrl, forcePost }) {
+    async editPost({ user, postId, content, imageUrl, privacy, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để tiếp tục');
         error.statusCode = 401;
@@ -305,11 +305,29 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      let requestedPrivacy = privacy;
+      if (requestedPrivacy !== undefined) {
+        if (!['public', 'friends', 'only_me', 'private'].includes(requestedPrivacy)) {
+          const error = new Error('Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡');
+          error.statusCode = 400;
+          throw error;
+        }
+        requestedPrivacy = normalizePostPrivacy(requestedPrivacy);
+      }
+
       const normalizedContent = normalizeText(content);
       if (!normalizedContent) {
         const error = new Error('Nội dung không được để trống');
         error.statusCode = 400;
         throw error;
+      }
+
+      const sameContent = normalizedContent === normalizeText(existingPost.content);
+      const sameImage = normalizeImageUrl(imageUrl) === normalizeImageUrl(existingPost.image_url);
+      const currentPrivacy = normalizePostPrivacy(existingPost.privacy);
+      if (requestedPrivacy !== undefined && sameContent && sameImage && requestedPrivacy !== currentPrivacy
+          && typeof postRepository.updatePostPrivacy === 'function') {
+        return postRepository.updatePostPrivacy({ postId, authorId: user.id, privacy: requestedPrivacy });
       }
 
       const textMod = await moderateTextContent(normalizedContent);
@@ -457,6 +475,11 @@ export function createPostService({ postRepository, moderationHook, imageModerat
             ? { imageModeration: { decision: null, label: null, images: [], thresholds: null } }
             : {}),
       });
+
+      if (requestedPrivacy !== undefined && requestedPrivacy !== currentPrivacy
+          && typeof postRepository.updatePostPrivacy === 'function') {
+        return postRepository.updatePostPrivacy({ postId, authorId: user.id, privacy: requestedPrivacy });
+      }
 
       // Trừ điểm uy tín khi chỉnh sửa vi phạm (chỉ trừ phần chênh lệch nếu nhãn mới nặng hơn)
       const prevDeduction = calculateTrustDeduction(

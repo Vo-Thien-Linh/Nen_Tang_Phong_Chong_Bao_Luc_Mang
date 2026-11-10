@@ -985,6 +985,7 @@ export default function App() {
         postId,
         content: changes.content,
         imageUrl: changes.imageUrl,
+        privacy: changes.privacy,
         forcePost: changes.forcePost,
       });
 

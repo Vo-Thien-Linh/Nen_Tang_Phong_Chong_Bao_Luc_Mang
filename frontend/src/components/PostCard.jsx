@@ -641,9 +641,9 @@ export default function PostCard({
     onSharePost?.(result?.data);
   };
 
-  const handleSaveEdit = async ({ content, imageUrl, forcePost }) => {
+  const handleSaveEdit = async ({ content, imageUrl, privacy, forcePost }) => {
     setPostError('');
-    const updatedPost = await onEditPost(post.id, { content, imageUrl, forcePost });
+    const updatedPost = await onEditPost(post.id, { content, imageUrl, privacy, forcePost });
     if (!updatedPost?.nudge) {
       setShowEditModal(false);
     }

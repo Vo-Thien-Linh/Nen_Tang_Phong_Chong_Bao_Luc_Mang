@@ -367,6 +367,23 @@ export function createPostRepository({ pool }) {
       return this.findById(result.rows[0].id, authorId);
     },
 
+    async updatePostPrivacy({ postId, authorId, privacy }) {
+      const result = await pool.query(
+        `UPDATE posts
+         SET privacy = $3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND author_id = $2
+           AND COALESCE(image_moderation_status, '') NOT IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final')
+         RETURNING id`,
+        [postId, authorId, privacy]
+      );
+      if (!result.rows[0]) {
+        const error = new Error('BÃ i viáº¿t khÃ´ng tá»“n táº¡i');
+        error.statusCode = 404;
+        throw error;
+      }
+      return this.findById(result.rows[0].id, authorId);
+    },
+
     async deletePost({ postId, authorId }) {
       const client = await pool.connect();
 

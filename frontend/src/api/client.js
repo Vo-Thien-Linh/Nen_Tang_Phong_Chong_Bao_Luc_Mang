@@ -67,18 +67,18 @@ export async function createPost({ userId, content, imageUrl, privacy = 'public'
   });
 }
 
-export async function updatePost({ userId, postId, content, imageUrl, forcePost }) {
+export async function updatePost({ userId, postId, content, imageUrl, privacy, forcePost }) {
   if (forcePost) {
     return request(`/api/posts/${postId}`, {
       method: 'PUT',
       headers: userId ? { 'x-user-id': userId } : {},
-      body: JSON.stringify({ content, imageUrl, forcePost: true }),
+      body: JSON.stringify({ content, imageUrl, privacy, forcePost: true }),
     });
   }
   return request(`/api/posts/${postId}`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl }),
+    body: JSON.stringify({ content, imageUrl, privacy }),
   });
 }
 
