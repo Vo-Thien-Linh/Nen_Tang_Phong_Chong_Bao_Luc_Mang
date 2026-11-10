@@ -164,6 +164,7 @@ export function createUserRepository({ pool }) {
            orig_p.id AS orig_id,
            orig_p.content AS orig_content,
            orig_p.image_url AS orig_image_url,
+           orig_p.privacy AS orig_privacy,
            orig_p.created_at AS orig_created_at,
            orig_p.likes_count AS orig_likes_count,
            orig_p.comments_count AS orig_comments_count,
