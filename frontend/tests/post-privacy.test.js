@@ -27,3 +27,8 @@ test('composer normalizes the legacy private default', () => {
   const composerSource = fs.readFileSync(new URL('../src/components/CreatePostCard.jsx', import.meta.url), 'utf8');
   assert.match(composerSource, /normalizePostPrivacy\(currentUser\?\.settings\?\.post_default_privacy/);
 });
+
+test('only me privacy renders its own label', () => {
+  const postCardSource = fs.readFileSync(new URL('../src/components/PostCard.jsx', import.meta.url), 'utf8');
+  assert.match(postCardSource, /normalizePostPrivacy\(post\.privacy\) === 'only_me' \? 'Chỉ mình tôi'/);
+});
