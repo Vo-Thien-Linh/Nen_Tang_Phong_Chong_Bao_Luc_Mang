@@ -616,6 +616,7 @@ export default function PostCard({
   };
 
   const handleShare = () => {
+    if (post.privacy && !['public'].includes(post.privacy)) return;
     if (!currentUser?.id) {
       if (onRequireAuth) {
         onRequireAuth('Vui lòng đăng nhập để chia sẻ bài viết');
@@ -1297,7 +1298,9 @@ export default function PostCard({
 
         <button
           onClick={handleShare}
-          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer"
+          disabled={Boolean(post.privacy && post.privacy !== 'public')}
+          title={post.privacy && post.privacy !== 'public' ? 'Chá»‰ bÃ i viáº¿t cÃ´ng khai má»›i cÃ³ thá»ƒ chia sáº»' : undefined}
+          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Share2 className="w-4 h-4 text-slate-500" />
           <span>Chia sẻ</span>

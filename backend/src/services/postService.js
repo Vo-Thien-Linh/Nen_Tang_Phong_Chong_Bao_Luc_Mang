@@ -1,6 +1,7 @@
 import { calculateTrustDeduction, applyTrustPenalty } from './trustScoreService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
+import { normalizePostPrivacy } from '../repositories/postVisibility.js';
 
 export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const holdViolent = (result) => result?.decision === 'rejected'
@@ -515,6 +516,12 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       if (!originalPost) {
         const error = new Error('Bài viết gốc không tồn tại');
         error.statusCode = 404;
+        throw error;
+      }
+
+      if (normalizePostPrivacy(originalPost.privacy) !== 'public') {
+        const error = new Error('BÃ i viáº¿t nÃ y khÃ´ng thá»ƒ chia sáº»');
+        error.statusCode = 403;
         throw error;
       }
 
