@@ -16,3 +16,9 @@ test('privacy label for each value', () => {
   assert.equal(getPostPrivacyLabel('only_me'), 'Chỉ mình tôi');
   assert.equal(normalizePostPrivacy('private'), 'only_me');
 });
+
+test('other viewers see the privacy badge only for visible posts', () => {
+  const postCardSource = fs.readFileSync(new URL('../src/components/PostCard.jsx', import.meta.url), 'utf8');
+  assert.match(postCardSource, /getPostPrivacyLabel\(post\.privacy\)/);
+  assert.match(postCardSource, /normalizePostPrivacy\(post\.privacy\) === 'only_me'/);
+});
