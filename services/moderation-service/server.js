@@ -11,6 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
 import pool from '../../backend/src/config/db.js';
 import { createUserRepository } from '../../backend/src/repositories/userRepository.js';
 import { createReportsRouter } from './src/routes/reportsRouter.js';
+import { createPostRepository } from '../../backend/src/repositories/postRepository.js';
 import { createAppealsRouter } from './src/routes/appealsRouter.js';
 import { createAdminRouter } from './src/routes/adminRouter.js';
 import { createImageModerationRouter } from './src/routes/imageModerationRouter.js';
@@ -45,7 +46,7 @@ app.get('/api/health', (_req, res) => {
 
 // Mount Routes
 app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
-app.use('/api/reports', createReportsRouter({ pool, userRepository }));
+app.use('/api/reports', createReportsRouter({ pool, userRepository, postRepository: createPostRepository({ pool }) }));
 app.use('/api/appeals', createAppealsRouter({ pool, userRepository }));
 app.use('/api/admin', createAdminRouter({ pool, userRepository }));
 

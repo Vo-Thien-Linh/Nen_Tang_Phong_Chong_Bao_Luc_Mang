@@ -68,7 +68,7 @@ app.use('/api/notifications', createNotificationsRouter({ pool }));
 app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
 app.use('/api/posts', createModerationAppealRouter({ pool }));
 app.use('/api/posts/preview-image', createImagePreviewRouter({ pool }));
-app.use('/api/reports', createReportsRouter({ pool, userRepository }));
+app.use('/api/reports', createReportsRouter({ pool, userRepository, postRepository: createPostRepository({ pool }) }));
 app.use('/api/appeals', createAppealsRouter({ pool, userRepository }));
 app.use('/api/admin', createAdminRouter({ pool, userRepository }));
 app.use('/api/stories', createStoriesRouter({ pool }));
