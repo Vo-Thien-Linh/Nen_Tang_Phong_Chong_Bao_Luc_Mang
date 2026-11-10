@@ -7,6 +7,7 @@ import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
+import { normalizePostPrivacy } from '../utils/postPrivacy';
 
 const getInitialDefaultPrivacy = () => {
   try {
@@ -24,7 +25,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
-  const [privacy, setPrivacy] = useState(() => currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy());
+  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy()));
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,7 +46,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
 
   useEffect(() => {
     const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
-    setPrivacy(defaultPriv);
+    setPrivacy(normalizePostPrivacy(defaultPriv));
   }, [currentUser?.settings?.post_default_privacy]);
 
   // Trạng thái xử phạt / cấm đăng bài
