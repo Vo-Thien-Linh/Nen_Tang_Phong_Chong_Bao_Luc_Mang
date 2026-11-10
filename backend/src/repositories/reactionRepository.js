@@ -1,3 +1,5 @@
+import { buildPostVisibilityPredicate } from './postVisibility.js';
+
 const emptyCounts = () => ({
   like: 0,
   love: 0,
@@ -25,11 +27,10 @@ export function createReactionRepository({ pool }) {
 
         const postResult = await client.query(
           `SELECT id, author_id, likes_count
-           FROM posts
-           WHERE id = $1 AND ai_status = 'approved'
-             AND (image_moderation_status IS NULL OR image_moderation_status IN ('safe', 'sensitive'))
+           FROM posts p
+           WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}
            FOR UPDATE`,
-          [postId]
+          [postId, userId]
         );
 
         const post = postResult.rows[0];
@@ -139,10 +140,20 @@ export function createReactionRepository({ pool }) {
       }
     },
 
-    async getPostReactions({ postId }) {
+    async getPostReactions({ postId, viewerId }) {
       try {
         const cleanId = Number(String(postId).replace(/^post-/, ''));
         if (Number.isNaN(cleanId)) return [];
+
+        const visiblePost = await pool.query(
+          `SELECT p.id FROM posts p WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}`,
+          [cleanId, viewerId || null]
+        );
+        if (!visiblePost.rows[0]) {
+          const error = new Error('BÃ i viáº¿t khÃ´ng tá»“n táº¡i');
+          error.statusCode = 404;
+          throw error;
+        }
 
         const result = await pool.query(
           `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
