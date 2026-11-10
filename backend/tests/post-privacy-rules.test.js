@@ -32,6 +32,12 @@ test('single post returns not found for unauthorized viewer', () => {
   }), false);
 });
 
+test('only me post is visible to its author', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'author', authorId: 'author', privacy: 'only_me', friendshipStatus: null,
+  }), true);
+});
+
 test('blocked user cannot see the author post', () => {
   assert.equal(canViewerSeePost({
     viewerId: 'blocked-user', authorId: 'author', privacy: 'public', blocked: true,
