@@ -47,6 +47,21 @@ test('only me post is never broadcast to another viewer', () => {
   }
 });
 
+test('friends post is broadcast only to friends', () => {
+  const friend = { writes: [], write(chunk) { this.writes.push(chunk); } };
+  const stranger = { writes: [], write(chunk) { this.writes.push(chunk); } };
+  realtimeService.addClient(friend, 'friend');
+  realtimeService.addClient(stranger, 'stranger');
+  try {
+    realtimeService.broadcast({ type: 'POST_CREATED', audienceUserIds: ['author', 'friend'], post: { id: '2' } });
+    assert.equal(friend.writes.length, 1);
+    assert.equal(stranger.writes.length, 0);
+  } finally {
+    realtimeService.removeClient(friend);
+    realtimeService.removeClient(stranger);
+  }
+});
+
 test('sharing a non public post is rejected', async () => {
   const service = createPostService({
     postRepository: {
