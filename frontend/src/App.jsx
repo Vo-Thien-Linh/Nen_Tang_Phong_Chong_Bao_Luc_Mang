@@ -921,7 +921,7 @@ export default function App() {
       if (isHardHiddenPost(p)) return false;
       const authorId = String(p.author_id || p.author?.id || '');
       if (authorId && blockedIds.has(authorId)) return false;
-      if (p.privacy === 'private' && authorId !== String(currentUser?.id)) return false;
+      if ((p.privacy === 'private' || p.privacy === 'only_me') && authorId !== String(currentUser?.id)) return false;
       return true;
     });
   };

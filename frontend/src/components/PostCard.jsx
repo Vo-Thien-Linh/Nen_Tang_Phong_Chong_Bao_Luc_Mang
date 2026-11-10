@@ -22,6 +22,7 @@ import { getModerationNoticeText, moderationViolationNotice } from '../utils/mod
 import { canSubmitImageAppeal, shouldHideContentForViewer, shouldShowPostAiLabel } from '../utils/imageModerationReviewLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
+import { getPostPrivacyLabel, normalizePostPrivacy } from '../utils/postPrivacy';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
 import VerifiedBadge from './VerifiedBadge';
@@ -808,11 +809,11 @@ export default function PostCard({
                 </>
               )}
               <span>•</span>
-              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
+              <span aria-label={getPostPrivacyLabel(post.privacy)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
                 post.privacy === 'private' ? 'Chỉ mình tôi' :
                 post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
               }>
-                {post.privacy === 'private' ? (
+                {normalizePostPrivacy(post.privacy) === 'only_me' ? (
                   <Lock className="w-3 h-3 text-rose-500" />
                 ) : post.privacy === 'friends' ? (
                   <Users className="w-3.5 h-3.5 text-amber-500" />

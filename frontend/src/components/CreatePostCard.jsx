@@ -419,9 +419,10 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                   <option value="public">Công khai</option>
                   <option value="friends">Bạn bè</option>
                   <option value="private">Chỉ mình tôi</option>
+                  <option value="only_me">Chá»‰ mÃ¬nh tÃ´i</option>
                 </select>
                 <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">
-                  {privacy === 'private' ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
+                  {(privacy === 'private' || privacy === 'only_me') ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
                    privacy === 'friends' ? <Users className="w-3.5 h-3.5 text-amber-500" /> :
                    <Globe className="w-3.5 h-3.5 text-blue-500" />}
                 </div>
