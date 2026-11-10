@@ -20,6 +20,12 @@ test('friends post is visible to an accepted friend', () => {
   }), true);
 });
 
+test('friends post is hidden from a pending friend request', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'pending', authorId: 'author', privacy: 'friends', friendshipStatus: 'pending',
+  }), false);
+});
+
 test('single post returns not found for unauthorized viewer', () => {
   assert.equal(canViewerSeePost({
     viewerId: 'stranger', authorId: 'author', privacy: 'only_me', friendshipStatus: 'accepted',
