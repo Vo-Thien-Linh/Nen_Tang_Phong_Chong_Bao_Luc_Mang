@@ -3,13 +3,17 @@ import { createAuthMiddleware } from '../../../../backend/src/middleware/auth.js
 import { createUserRepository } from '../../../../backend/src/repositories/userRepository.js';
 import { createReportRepository } from '../../../../backend/src/repositories/reportRepository.js';
 import { createReportsController } from '../../../../backend/src/controllers/reportsController.js';
+import { createPostRepository } from '../../../../backend/src/repositories/postRepository.js';
 
-export function createReportsRouter({ pool, userRepository }) {
+export function createReportsRouter({ pool, userRepository, postRepository }) {
   const router = express.Router();
   const userRepo = userRepository || createUserRepository({ pool });
   const { requireAuth, requireRole } = createAuthMiddleware({ userRepository: userRepo });
   const reportRepository = createReportRepository({ pool });
-  const reportsController = createReportsController({ reportRepository });
+  const reportsController = createReportsController({
+    reportRepository,
+    postRepository: postRepository || createPostRepository({ pool }),
+  });
 
   /**
    * GET /api/reports

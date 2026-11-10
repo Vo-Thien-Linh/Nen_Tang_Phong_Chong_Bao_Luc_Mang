@@ -6,27 +6,28 @@ import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
-import { useTranslation } from '../utils/i18n';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
+import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
+import { useTranslation } from '../utils/i18n';
 
 const getInitialDefaultPrivacy = () => {
   try {
     const raw = localStorage.getItem('nexussocial_user_settings');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.post_default_privacy) return parsed.post_default_privacy;
+      if (parsed.post_default_privacy) return normalizePostPrivacy(parsed.post_default_privacy);
     }
   } catch {}
   return 'public';
 };
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
-  const { t } = useTranslation();
+  const { t, isEn } = useTranslation();
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
-  const [privacy, setPrivacy] = useState(() => currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy());
+  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy()));
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,13 +47,15 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   };
 
   useEffect(() => {
-    const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
-    setPrivacy(defaultPriv);
+    const defaultPriv = currentUser?.settings?.post_default_privacy;
+    if (defaultPriv) {
+      setPrivacy(normalizePostPrivacy(defaultPriv));
+    }
 
     const handlePrivacyUpdate = (e) => {
       const updatedPrivacy = e?.detail?.post_default_privacy;
       if (updatedPrivacy) {
-        setPrivacy(updatedPrivacy);
+        setPrivacy(normalizePostPrivacy(updatedPrivacy));
       }
     };
 
@@ -328,8 +331,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 : isCooldown 
                 ? `🚫 Bạn đang bị cấm đăng bài và bình luận (Gỡ phạt sau: ${remainingTimeStr || 'Đang đếm...'})` 
                 : currentUser 
-                ? t('create_post.placeholder', { name: currentUser.name || currentUser.full_name || currentUser.username || 'Friend' }) 
-                : t('create_post.placeholder_guest')
+                ? `${currentUser.name || currentUser.full_name || currentUser.username || 'Bạn'} ơi, bạn đang nghĩ gì thế?` 
+                : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."
             }
             className={`relative w-full resize-none bg-transparent p-3 text-transparent caret-slate-800 placeholder-slate-400 selection:bg-blue-200 selection:text-transparent hover:bg-transparent focus:bg-transparent rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm leading-normal transition duration-150 ${
               (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''
@@ -410,14 +413,14 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 } ${(isBanned || isCooldown) ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 <Image className="w-4 h-4 text-emerald-500" />
-                <span>{t("create_post.photo_video")}</span>
+                <span>Ảnh / Media</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleCheckSafety}
                 disabled={isBanned || isCooldown || isAiChecking || !content.trim()}
-                title={t("create_post.feeling")}
+                title="Kiểm tra độc hại qua mô hình AI trước khi đăng"
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-4 h-4 text-blue-500" />
@@ -432,12 +435,12 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                   className="appearance-none pl-7 pr-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 transition cursor-pointer outline-none focus:ring-2 focus:ring-blue-400"
                   title="Quyền riêng tư bài viết"
                 >
-                  <option value="public">{t("create_post.privacy_public")}</option>
-                  <option value="friends">{t("create_post.privacy_friends")}</option>
-                  <option value="private">{t("create_post.privacy_private")}</option>
+                  {POST_PRIVACY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
                 <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">
-                  {privacy === 'private' ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
+                  {(privacy === 'private' || privacy === 'only_me') ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
                    privacy === 'friends' ? <Users className="w-3.5 h-3.5 text-amber-500" /> :
                    <Globe className="w-3.5 h-3.5 text-blue-500" />}
                 </div>
@@ -450,7 +453,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               disabled={isBanned || isCooldown || isSubmitting || isUploadingImage || !content.trim()}
               className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 cursor-pointer"
             >
-              <span>{isUploadingImage ? t('create_post.uploading') : isSubmitting ? t('create_post.submitting') : t('create_post.submit')}</span>
+              <span>{isUploadingImage ? 'Đang tải ảnh...' : isSubmitting ? 'Đang đăng...' : 'Đăng bài'}</span>
               <Send className="w-3.5 h-3.5" />
             </button>
           </div>

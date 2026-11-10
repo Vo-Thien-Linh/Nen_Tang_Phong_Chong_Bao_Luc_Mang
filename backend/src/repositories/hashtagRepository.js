@@ -64,7 +64,7 @@ export function createHashtagRepository({ pool, postRepository }) {
          FROM post_hashtags h
          JOIN posts p ON p.id = h.post_id
          WHERE h.tag = ${tagParam}
-           AND ${buildPostVisibilityPredicate(viewerParam, { publicOnly: true })}
+           AND ${buildPostVisibilityPredicate(viewerParam)}
          ORDER BY p.created_at DESC
          LIMIT ${limitParam} OFFSET ${offsetParam}`,
         params

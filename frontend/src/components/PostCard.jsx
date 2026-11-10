@@ -22,6 +22,7 @@ import { getModerationNoticeText, moderationViolationNotice } from '../utils/mod
 import { canSubmitImageAppeal, shouldHideContentForViewer, shouldShowPostAiLabel } from '../utils/imageModerationReviewLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
+import { getPostPrivacyLabel, normalizePostPrivacy } from '../utils/postPrivacy';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
 import VerifiedBadge from './VerifiedBadge';
@@ -31,7 +32,6 @@ import PostReactionsModal from './PostReactionsModal';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import HashtagText from './HashtagText';
 import { formatRelativeTime } from '../utils/timeAgo';
-import { useTranslation } from '../utils/i18n';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
   const popoverRef = useRef(null);
@@ -132,7 +132,6 @@ export default function PostCard({
   targetActor = null,
   targetCommentId = null
 }) {
-  const { t, isEn } = useTranslation();
   const [showComments, setShowComments] = useState(false);
   const [highlightedCommentId, setHighlightedCommentId] = useState(null);
   const [commentText, setCommentText] = useState('');
@@ -618,6 +617,7 @@ export default function PostCard({
   };
 
   const handleShare = () => {
+    if (post.privacy && !['public'].includes(post.privacy)) return;
     if (!currentUser?.id) {
       if (onRequireAuth) {
         onRequireAuth('Vui lòng đăng nhập để chia sẻ bài viết');
@@ -642,9 +642,9 @@ export default function PostCard({
     onSharePost?.(result?.data);
   };
 
-  const handleSaveEdit = async ({ content, imageUrl, forcePost }) => {
+  const handleSaveEdit = async ({ content, imageUrl, privacy, forcePost }) => {
     setPostError('');
-    const updatedPost = await onEditPost(post.id, { content, imageUrl, forcePost });
+    const updatedPost = await onEditPost(post.id, { content, imageUrl, privacy, forcePost });
     if (!updatedPost?.nudge) {
       setShowEditModal(false);
     }
@@ -809,11 +809,11 @@ export default function PostCard({
                 </>
               )}
               <span>•</span>
-              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
-                post.privacy === 'private' ? 'Chỉ mình tôi' :
+              <span aria-label={getPostPrivacyLabel(post.privacy)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
+                normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                 post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
               }>
-                {post.privacy === 'private' ? (
+                {normalizePostPrivacy(post.privacy) === 'only_me' ? (
                   <Lock className="w-3 h-3 text-rose-500" />
                 ) : post.privacy === 'friends' ? (
                   <Users className="w-3.5 h-3.5 text-amber-500" />
@@ -821,7 +821,7 @@ export default function PostCard({
                   <Globe className="w-3 h-3 text-blue-500" />
                 )}
                 <span>
-                  {post.privacy === 'private' ? 'Chỉ mình tôi' :
+                  {normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                    post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'}
                 </span>
               </span>
@@ -869,7 +869,7 @@ export default function PostCard({
                     className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-semibold transition cursor-pointer"
                   >
                     <Pencil className="w-4 h-4" />
-                    <span>{t('post.edit')}</span>
+                    <span>Chỉnh sửa bài viết</span>
                   </button>
                 )}
                 {allowDelete && (
@@ -886,7 +886,7 @@ export default function PostCard({
                     className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>{t('post.delete')}</span>
+                    <span>Xóa bài viết</span>
                   </button>
                 )}
 
@@ -932,7 +932,7 @@ export default function PostCard({
                   className={`w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 ${allowReport ? 'flex' : 'hidden'} items-center gap-2 font-semibold transition cursor-pointer`}
                 >
                   <ShieldAlert className="w-4 h-4" />
-                  <span>{t('post.report')}</span>
+                  <span>Báo cáo bài viết này</span>
                 </button>
               </div>
             )}
@@ -1058,6 +1058,11 @@ export default function PostCard({
       )}
 
       {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
+      {post.originalPostId && !post.originalPost && (
+        <div className="mx-4 sm:mx-5 mb-3 mt-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs font-medium text-slate-500">
+          {'N\u1ed9i dung g\u1ed1c kh\u00f4ng kh\u1ea3 d\u1ee5ng'}
+        </div>
+      )}
       {Boolean(post.originalPost) && (
         <div className="mx-4 sm:mx-5 mb-3 mt-1">
           {(post.originalPost?.author || post.originalPost?.id || post.originalPost?.content) && !post.originalPost?.isDeleted ? (
@@ -1183,8 +1188,8 @@ export default function PostCard({
           </PortalPopover>
         </button>
         <div className="flex items-center gap-3">
-          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{visibleComments.length} {t('post.comments_count')}</span>
-          <span>{localSharesCount} {t('post.shares_count')}</span>
+          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{visibleComments.length} bình luận</span>
+          <span>{localSharesCount} chia sẻ</span>
         </div>
       </div>
 
@@ -1278,7 +1283,7 @@ export default function PostCard({
             ) : (
               <>
                 <ThumbsUp className="w-4 h-4 text-slate-500" />
-                <span>{t('post.like')}</span>
+                <span>Thích</span>
               </>
             )}
           </button>
@@ -1294,15 +1299,17 @@ export default function PostCard({
           title={isCooldown ? `Đang bị khóa bình luận (${cooldownRemainingStr || 'Đang đếm...'})` : undefined}
         >
           <MessageCircle className={`w-4 h-4 ${isCooldown ? 'text-amber-600' : 'text-slate-500'}`} />
-          <span>{isCooldown ? (isEn ? 'View comments (Locked)' : 'Xem bình luận (Đang bị khóa)') : t('post.comment')}</span>
+          <span>{isCooldown ? 'Xem bình luận (Đang bị khóa)' : 'Bình luận'}</span>
         </button>
 
         <button
           onClick={handleShare}
-          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer"
+          disabled={Boolean(post.privacy && post.privacy !== 'public')}
+          title={post.privacy && post.privacy !== 'public' ? "Ch\u1ec9 b\u00e0i vi\u1ebft c\u00f4ng khai m\u1edbi c\u00f3 th\u1ec3 chia s\u1ebb" : undefined}
+          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Share2 className="w-4 h-4 text-slate-500" />
-          <span>{t('post.share')}</span>
+          <span>Chia sẻ</span>
         </button>
 
         <button
@@ -1408,8 +1415,8 @@ export default function PostCard({
                       : isCooldown
                       ? `🚫 Bạn đang bị cấm bình luận • Gỡ phạt sau: ${cooldownRemainingStr || 'Đang đếm...'}`
                       : currentUser
-                      ? t("post.write_comment")
-                      : t("create_post.placeholder_guest")
+                      ? "Viết bình luận công khai..."
+                      : "Đăng nhập để viết bình luận..."
                   }
                   className={`w-full pl-3 pr-16 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 ${
                     (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''
@@ -1717,6 +1724,7 @@ export default function PostCard({
       )}
 
       <EditPostModal
+        key={`${post.id}-${post.privacy || 'public'}`}
         post={post}
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}

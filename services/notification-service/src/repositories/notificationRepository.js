@@ -1,3 +1,5 @@
+import { buildPostVisibilityPredicate } from '../../../../backend/src/repositories/postVisibility.js';
+
 export function createNotificationRepository({ pool }) {
   const demoNotificationFilter = `
     AND n.content NOT IN (
@@ -44,7 +46,9 @@ export function createNotificationRepository({ pool }) {
         FROM notifications n
         LEFT JOIN users u ON u.id = n.actor_id
         LEFT JOIN posts p ON p.id = n.target_post_id
-        WHERE n.recipient_id = $1 ${filterCondition} ${demoNotificationFilter}
+        WHERE n.recipient_id = $1
+          AND (n.target_post_id IS NULL OR ${buildPostVisibilityPredicate('$1')})
+          ${filterCondition} ${demoNotificationFilter}
         ORDER BY n.created_at DESC
         LIMIT $2 OFFSET $3
       `;
@@ -58,7 +62,9 @@ export function createNotificationRepository({ pool }) {
         `SELECT COUNT(*)::int AS count
          FROM notifications n
          LEFT JOIN posts p ON p.id = n.target_post_id
-         WHERE n.recipient_id = $1 AND n.is_read = FALSE ${demoNotificationFilter}`,
+         WHERE n.recipient_id = $1 AND n.is_read = FALSE
+           AND (n.target_post_id IS NULL OR ${buildPostVisibilityPredicate('$1')})
+           ${demoNotificationFilter}`,
         [recipientId]
       );
       return result.rows[0]?.count || 0;

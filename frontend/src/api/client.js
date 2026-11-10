@@ -67,18 +67,25 @@ export async function createPost({ userId, content, imageUrl, privacy = 'public'
   });
 }
 
-export async function updatePost({ userId, postId, content, imageUrl, forcePost }) {
+export async function updatePost({ userId, postId, content, imageUrl, privacy, forcePost }) {
   if (forcePost) {
     return request(`/api/posts/${postId}`, {
       method: 'PUT',
       headers: userId ? { 'x-user-id': userId } : {},
-      body: JSON.stringify({ content, imageUrl, forcePost: true }),
+      body: JSON.stringify({ content, imageUrl, privacy, forcePost: true }),
+    });
+  }
+  if (privacy === undefined) {
+    return request(`/api/posts/${postId}`, {
+      method: 'PUT',
+      headers: userId ? { 'x-user-id': userId } : {},
+      body: JSON.stringify({ content, imageUrl }),
     });
   }
   return request(`/api/posts/${postId}`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl }),
+    body: JSON.stringify({ content, imageUrl, privacy }),
   });
 }
 
@@ -111,6 +118,12 @@ export async function updatePostReaction({ userId, postId, type, action }) {
       type: type || null,
       action: resolvedAction,
     }),
+  });
+}
+
+export async function fetchPostReactions({ userId, postId }) {
+  return request(`/api/posts/${postId}/reactions`, {
+    headers: userId ? { 'x-user-id': userId } : {},
   });
 }
 
