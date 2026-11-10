@@ -4,6 +4,7 @@ import { canViewerSeePost } from '../src/repositories/postVisibility.js';
 import { createHashtagRepository } from '../src/repositories/hashtagRepository.js';
 import { realtimeService } from '../src/services/realtimeService.js';
 import { createPostService } from '../src/services/postService.js';
+import fs from 'node:fs';
 
 test('public post is visible to everyone', () => {
   assert.equal(canViewerSeePost({
@@ -105,4 +106,10 @@ test('author can change privacy without marking the post edited', async () => {
   const result = await service.editPost({ user: { id: 'author' }, postId: 1, content: 'hello', imageUrl: null, privacy: 'friends' });
   assert.equal(privacyUpdate.privacy, 'friends');
   assert.equal(result.edited_at, null);
+});
+
+test('search uses accepted friendship privacy rules', () => {
+  const source = fs.readFileSync(new URL('../app/routes/search.py', import.meta.url), 'utf8');
+  assert.match(source, /Friendship\.status == "accepted"/);
+  assert.match(source, /func\.coalesce\(Post\.privacy, "public"\)/);
 });
