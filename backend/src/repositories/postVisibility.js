@@ -13,6 +13,7 @@ export function canViewerSeePost({
   authorId,
   privacy,
   friendshipStatus = null,
+  blocked = false,
   aiStatus = 'approved',
   imageModerationStatus = null,
 }) {
@@ -23,6 +24,7 @@ export function canViewerSeePost({
     || (isAuthor && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(imageModerationStatus));
   if (!moderationVisible) return false;
   if (isAuthor) return true;
+  if (blocked) return false;
 
   const normalizedPrivacy = normalizePostPrivacy(privacy);
   if (normalizedPrivacy === 'public') return true;
@@ -55,7 +57,13 @@ export function buildPostVisibilityPredicate(viewerParam = null, { publicOnly = 
     OR COALESCE(${column('privacy')}, 'public') = 'public'
     OR (COALESCE(${column('privacy')}, 'public') = 'friends' AND ${friendshipPredicate})
   )`;
-  return `(${aiPredicate}) AND ${imagePredicate} AND ${privacyPredicate}`;
+  const blockedPredicate = `NOT EXISTS (
+    SELECT 1 FROM friendships blocked_f
+    WHERE blocked_f."status" = 'blocked'
+      AND ((blocked_f."requester_id" = ${column('author_id')} AND blocked_f."addressee_id" = ${viewerParam})
+        OR (blocked_f."addressee_id" = ${column('author_id')} AND blocked_f."requester_id" = ${viewerParam}))
+  )`;
+  return `(${aiPredicate}) AND ${imagePredicate} AND (${column('author_id')} = ${viewerParam} OR (${blockedPredicate} AND ${privacyPredicate}))`;
 }
 
 export const publishedPostPredicate = `p.ai_status = 'approved' AND ${publishedImagePredicate}`;
