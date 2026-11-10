@@ -16,6 +16,7 @@ test('privacy options contain each choice once', () => {
 test('legacy private value selects only me', () => {
   assert.equal(normalizePostPrivacy('private'), 'only_me');
   assert.match(modalSource, /value=\{privacy === 'private' \? 'only_me' : privacy\}/);
+  assert.match(modalSource, /privacy: normalizePostPrivacy\(privacy\)/);
 });
 
 test('only me and private map to the same label', () => {
