@@ -1,9 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { getPostPrivacyLabel, normalizePostPrivacy } from '../src/utils/postPrivacy.js';
+import { getPostPrivacyLabel, normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../src/utils/postPrivacy.js';
 
 const modalSource = fs.readFileSync(new URL('../src/components/EditPostModal.jsx', import.meta.url), 'utf8');
+
+test('privacy options contain each choice once', () => {
+  assert.deepEqual(POST_PRIVACY_OPTIONS.map((option) => option.value), ['public', 'friends', 'only_me']);
+  assert.equal(new Set(POST_PRIVACY_OPTIONS.map((option) => option.label)).size, 3);
+  const composerSource = fs.readFileSync(new URL('../src/components/CreatePostCard.jsx', import.meta.url), 'utf8');
+  assert.match(composerSource, /POST_PRIVACY_OPTIONS\.map/);
+  assert.match(modalSource, /POST_PRIVACY_OPTIONS\.map/);
+});
 
 test('edit modal preselects the current privacy', () => {
   assert.match(modalSource, /useState\(post\?\.privacy \|\| 'public'\)/);
