@@ -13,6 +13,11 @@ test('privacy options contain each choice once', () => {
   assert.match(modalSource, /POST_PRIVACY_OPTIONS\.map/);
 });
 
+test('legacy private value selects only me', () => {
+  assert.equal(normalizePostPrivacy('private'), 'only_me');
+  assert.match(modalSource, /value=\{privacy === 'private' \? 'only_me' : privacy\}/);
+});
+
 test('edit modal preselects the current privacy', () => {
   assert.match(modalSource, /useState\(post\?\.privacy \|\| 'public'\)/);
   assert.match(modalSource, /<select value=\{privacy === 'private' \? 'only_me' : privacy\}/);
