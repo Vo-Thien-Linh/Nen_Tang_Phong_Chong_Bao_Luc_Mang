@@ -1,7 +1,7 @@
 import { transitionImageModeration } from './imageModerationState.js';
 import { imageReviewNotification } from './moderationNotificationText.js';
 
-const TABLE_BY_TYPE = { post: 'posts', comment: 'comments' };
+const TABLE_BY_TYPE = { post: 'posts', comment: 'comments', story: 'stories' };
 const DECISION_LABEL = { safe: 'Safe', nsfw: 'NSFW', violence: 'Violence' };
 const reviewNotFoundMessage = 'Không tìm thấy mục cần duyệt';
 const conflictMessage = 'Mục này đã được xử lý hoặc không còn tồn tại';
@@ -9,15 +9,24 @@ const appealedMessage = 'Bạn đã khiếu nại mục này';
 
 export async function appealImageModeration({ pool, contentType, contentId, authorId, clock = () => new Date() }) {
   const table = TABLE_BY_TYPE[contentType];
+  const isStory = contentType === 'story';
   const parentPostColumn = contentType === 'comment' ? 'post_id, ' : '';
+  const statusField = isStory ? 'media_moderation_status' : 'image_moderation_status';
+  const safeField = isStory ? 'media_moderation_safe' : 'image_moderation_safe';
+  const nsfwField = isStory ? 'media_moderation_nsfw' : 'image_moderation_nsfw';
+  const violenceField = isStory ? 'media_moderation_violence' : 'image_moderation_violence';
+  const thresholdsField = isStory ? 'media_moderation_thresholds' : 'image_moderation_thresholds';
+  const appealedAtField = isStory ? 'media_moderation_appealed_at' : 'image_moderation_appealed_at';
+  const contentField = isStory ? 'text_content AS content' : 'content';
+
   if (!table) return { ok: false, statusCode: 400, message: 'Loại nội dung không hợp lệ' };
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT id, author_id, ${parentPostColumn}content, image_moderation_status,
-              image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
-              image_moderation_thresholds, image_moderation_appealed_at
+      `SELECT id, author_id, ${parentPostColumn}${contentField}, ${statusField} AS image_moderation_status,
+              ${safeField} AS image_moderation_safe, ${nsfwField} AS image_moderation_nsfw, ${violenceField} AS image_moderation_violence,
+              ${thresholdsField} AS image_moderation_thresholds, ${appealedAtField} AS image_moderation_appealed_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
       [contentId]
     );
@@ -40,9 +49,9 @@ export async function appealImageModeration({ pool, contentType, contentId, auth
     const appealedAt = now;
     const updated = await client.query(
       `UPDATE ${table}
-       SET image_moderation_status = 'appeal_pending', image_moderation_appealed_at = $3
-       WHERE id = $1 AND author_id = $2 AND image_moderation_status = $4
-         AND image_moderation_appealed_at IS NULL
+       SET ${statusField} = 'appeal_pending', ${appealedAtField} = $3
+       WHERE id = $1 AND author_id = $2 AND ${statusField} = $4
+         AND ${appealedAtField} IS NULL
        RETURNING id`,
       [contentId, authorId, appealedAt, transition.previousStatus]
     );
@@ -76,8 +85,20 @@ export async function appealImageModeration({ pool, contentType, contentId, auth
 
 export async function reviewImageModeration({ pool, contentType, contentId, stage, decision, reviewerId, clock = () => new Date() }) {
   const table = TABLE_BY_TYPE[contentType];
+  const isStory = contentType === 'story';
   const parentPostColumn = contentType === 'comment' ? 'post_id, ' : '';
   const hiddenColumn = contentType === 'comment' ? 'is_hidden, ' : '';
+  const statusField = isStory ? 'media_moderation_status' : 'image_moderation_status';
+  const reviewedByField = isStory ? 'media_moderation_reviewed_by' : 'image_moderation_reviewed_by';
+  const reviewedAtField = isStory ? 'media_moderation_reviewed_at' : 'image_moderation_reviewed_at';
+  const safeField = isStory ? 'media_moderation_safe' : 'image_moderation_safe';
+  const nsfwField = isStory ? 'media_moderation_nsfw' : 'image_moderation_nsfw';
+  const violenceField = isStory ? 'media_moderation_violence' : 'image_moderation_violence';
+  const thresholdsField = isStory ? 'media_moderation_thresholds' : 'image_moderation_thresholds';
+  const appealedAtField = isStory ? 'media_moderation_appealed_at' : 'image_moderation_appealed_at';
+  const contentField = isStory ? 'text_content AS content' : 'content';
+  const imageField = isStory ? 'media_url AS image_url' : 'image_url';
+
   if (!table || !['first', 'final'].includes(stage)) return { ok: false, statusCode: 400, message: 'Yêu cầu không hợp lệ' };
   if (!Object.hasOwn(DECISION_LABEL, decision)) return { ok: false, statusCode: 400, message: 'Nhãn quyết định không hợp lệ' };
   const expectedStatus = stage === 'first' ? 'pending_review' : 'appeal_pending';
@@ -85,9 +106,9 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT id, author_id, ${parentPostColumn}content, image_url, created_at, ${hiddenColumn}image_moderation_status,
-              image_moderation_safe, image_moderation_nsfw, image_moderation_violence,
-              image_moderation_thresholds, image_moderation_appealed_at
+      `SELECT id, author_id, ${parentPostColumn}${contentField}, ${imageField}, created_at, ${hiddenColumn}${statusField} AS image_moderation_status,
+              ${safeField} AS image_moderation_safe, ${nsfwField} AS image_moderation_nsfw, ${violenceField} AS image_moderation_violence,
+              ${thresholdsField} AS image_moderation_thresholds, ${appealedAtField} AS image_moderation_appealed_at
        FROM ${table} WHERE id = $1 FOR UPDATE`,
       [contentId]
     );
@@ -108,11 +129,11 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
     const reviewedAt = clock();
     const updated = await client.query(
       `UPDATE ${table}
-       SET image_moderation_status = $1,
-           image_moderation_reviewed_by = $2,
-           image_moderation_reviewed_at = $3
-       WHERE id = $4 AND image_moderation_status = $5
-       RETURNING id, author_id, image_moderation_status`,
+       SET ${statusField} = $1,
+           ${reviewedByField} = $2,
+           ${reviewedAtField} = $3
+       WHERE id = $4 AND ${statusField} = $5
+       RETURNING id, author_id, ${statusField} AS image_moderation_status`,
       [transition.nextStatus, reviewerId, reviewedAt, contentId, expectedStatus]
     );
     if (!updated.rows[0]) {
@@ -150,7 +171,7 @@ export async function reviewImageModeration({ pool, contentType, contentId, stag
     await client.query(
       `INSERT INTO notifications (recipient_id, type, content, target_post_id, payload)
        VALUES ($1, 'system', $2, $3, $4::jsonb)`,
-      [item.author_id, imageReviewNotification(contentType, stage, decision), contentType === 'post' ? item.id : item.post_id, JSON.stringify(removalSnapshot)]
+      [item.author_id, imageReviewNotification(contentType, stage, decision), contentType === 'post' ? item.id : (contentType === 'comment' ? item.post_id : null), JSON.stringify(removalSnapshot)]
     );
     await client.query('COMMIT');
     return { ok: true, data: { id: String(item.id), type: contentType, postId: contentType === 'comment' ? String(item.post_id) : undefined, status: transition.nextStatus, decision, published: transition.visibleToOthers, reviewedAt } };
