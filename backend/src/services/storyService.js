@@ -328,9 +328,13 @@ export function createStoryService({
       if (String(story.author_id) !== String(user.id) && storyRepository.pool) {
         try {
           const actorName = user.name || user.full_name || 'Người dùng';
+          const allReactions = result?.reactions || [reactionType];
+          const distinctReactionTypes = [...new Set(allReactions)];
+
           const payloadObj = {
             storyId: String(storyId),
             reactionType,
+            reactionTypes: distinctReactionTypes,
             actorId: user.id,
             actorName,
             isStory: true,

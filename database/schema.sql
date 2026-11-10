@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS reports (
     reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     target_type VARCHAR(20) NOT NULL, -- 'post', 'comment', 'message'
     target_id BIGINT NOT NULL,        -- id của post, comment, hoặc message
+    content_excerpt TEXT,             -- Trích đoạn nội dung bị báo cáo (đã làm mờ PII nếu là tin nhắn)
     reason VARCHAR(50) NOT NULL,      -- 'toxic', 'hate_speech', 'violence', 'harassment', 'spam', 'misinformation', 'other'
     details TEXT,                     -- Mô tả chi tiết lý do báo cáo
     status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending' (chờ duyệt), 'resolved_violation' (xác nhận vi phạm), 'dismissed' (bác bỏ báo cáo)
@@ -437,6 +438,7 @@ ALTER TABLE comments ADD COLUMN IF NOT EXISTS ai_status VARCHAR(20) DEFAULT 'app
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS moderation_expires_at TIMESTAMPTZ;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS payload JSONB;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS target_modality VARCHAR(20) DEFAULT 'both';
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS content_excerpt TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_posts_original_post ON posts(original_post_id);
 CREATE INDEX IF NOT EXISTS idx_posts_moderation_expiry ON posts(moderation_expires_at) WHERE image_moderation_status = 'rejected_hold';
@@ -510,8 +512,7 @@ CREATE TABLE IF NOT EXISTS story_reactions (
     story_id BIGINT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_story_reaction UNIQUE (story_id, user_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_story_reactions_story_id ON story_reactions(story_id);
 
@@ -559,14 +560,19 @@ SELECT r.id, r.reporter_id, r.target_type, r.target_id, r.reason, r.details, r.s
        c.content AS comment_content, c.image_url AS comment_image,
        c.ai_label AS comment_ai_label, c.image_moderation_label AS comment_image_label,
        c.image_moderation_status AS comment_image_status,
-       author.full_name AS target_author_name, author.username AS target_author_username
+       COALESCE(author.full_name, msg_author.full_name) AS target_author_name, 
+       COALESCE(author.username, msg_author.username) AS target_author_username,
+       m.content AS message_content,
+       r.content_excerpt
 FROM reports r
 LEFT JOIN users reporter ON reporter.id = r.reporter_id
 LEFT JOIN posts p ON r.target_type = 'post' AND r.target_id = p.id
 LEFT JOIN comments c ON r.target_type = 'comment' AND r.target_id = c.id
+LEFT JOIN messages m ON r.target_type = 'message' AND r.target_id = m.id
 LEFT JOIN posts parent_post ON r.target_type = 'comment' AND c.post_id = parent_post.id
 LEFT JOIN users author ON ((r.target_type = 'post' AND p.author_id = author.id) OR
-                           (r.target_type = 'comment' AND c.author_id = author.id));
+                           (r.target_type = 'comment' AND c.author_id = author.id))
+LEFT JOIN users msg_author ON (r.target_type = 'message' AND m.sender_id = msg_author.id);
 
 CREATE OR REPLACE VIEW moderation_appeal_read_model AS
 SELECT a.id, a.user_id, a.content_type, a.content_id, a.original_text,

@@ -1,3 +1,17 @@
+let dropConstraintAttempted = false;
+async function dropUniqueStoryReactionConstraint(pool) {
+  if (dropConstraintAttempted || !pool || typeof pool.query !== 'function') return;
+  try {
+    await pool.query(`
+      ALTER TABLE story_reactions DROP CONSTRAINT IF EXISTS unique_story_reaction;
+      ALTER TABLE story_reactions DROP CONSTRAINT IF EXISTS story_reactions_story_id_user_id_key;
+    `);
+    dropConstraintAttempted = true;
+  } catch (err) {
+    // bỏ qua nếu mock pool hoặc không có quyền
+  }
+}
+
 export function createStoryRepository({ pool }) {
   const storySelect = `
     SELECT
@@ -149,12 +163,13 @@ export function createStoryRepository({ pool }) {
         isViewed = viewRes.rows.length > 0;
 
         const reactRes = await pool.query(
-          'SELECT reaction_type FROM story_reactions WHERE story_id = $1 AND user_id = $2',
+          'SELECT reaction_type FROM story_reactions WHERE story_id = $1 AND user_id = $2 ORDER BY created_at ASC',
           [storyId, viewerId]
         );
         if (reactRes.rows.length > 0) {
-          myReaction = reactRes.rows[0].reaction_type;
+          myReaction = reactRes.rows[reactRes.rows.length - 1].reaction_type;
         }
+        story.my_reactions = reactRes.rows.map(r => r.reaction_type);
       }
 
       const isToxic = story.ai_label === 'Toxic' || story.ai_status === 'sensitive';
@@ -173,6 +188,7 @@ export function createStoryRepository({ pool }) {
         isHardHidden,
         is_viewed: isViewed,
         my_reaction: myReaction,
+        my_reactions: story.my_reactions || (myReaction ? [myReaction] : []),
       };
     },
 
@@ -209,7 +225,13 @@ export function createStoryRepository({ pool }) {
         FROM stories s
         JOIN users u ON u.id = s.author_id
         LEFT JOIN story_views sv ON sv.story_id = s.id AND sv.viewer_id = $1
-        LEFT JOIN story_reactions sr ON sr.story_id = s.id AND sr.user_id = $1
+        LEFT JOIN (
+          SELECT story_id, 
+                 (array_agg(reaction_type ORDER BY created_at DESC))[1] AS reaction_type
+          FROM story_reactions
+          WHERE user_id = $1
+          GROUP BY story_id
+        ) sr ON sr.story_id = s.id
         WHERE s.expires_at > CURRENT_TIMESTAMP
           AND s.is_deleted = FALSE
           AND s.is_archived = FALSE
@@ -390,10 +412,25 @@ export function createStoryRepository({ pool }) {
           u.full_name,
           u.avatar_url,
           u.is_verified,
-          sr.reaction_type
+          sr_agg.reaction_type,
+          COALESCE(sr_agg.reactions, '[]'::json) AS reactions
         FROM story_views sv
         JOIN users u ON u.id = sv.viewer_id
-        LEFT JOIN story_reactions sr ON sr.story_id = sv.story_id AND sr.user_id = sv.viewer_id
+        LEFT JOIN (
+          SELECT
+            story_id,
+            user_id,
+            (array_agg(reaction_type ORDER BY created_at DESC))[1] AS reaction_type,
+            json_agg(
+              json_build_object(
+                'type', reaction_type,
+                'created_at', created_at
+              ) ORDER BY created_at ASC
+            ) AS reactions
+          FROM story_reactions
+          WHERE story_id = $1
+          GROUP BY story_id, user_id
+        ) sr_agg ON sr_agg.story_id = sv.story_id AND sr_agg.user_id = sv.viewer_id
         WHERE sv.story_id = $1 AND sv.viewer_id != $2
         ORDER BY sv.viewed_at DESC
       `;
@@ -407,14 +444,28 @@ export function createStoryRepository({ pool }) {
         throw new Error(`Loại cảm xúc không hợp lệ: ${reactionType}`);
       }
 
-      const upsertQuery = `
-        INSERT INTO story_reactions (story_id, user_id, reaction_type, created_at)
-        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-        ON CONFLICT (story_id, user_id)
-        DO UPDATE SET reaction_type = EXCLUDED.reaction_type, created_at = CURRENT_TIMESTAMP
-        RETURNING id, reaction_type
-      `;
-      const res = await pool.query(upsertQuery, [storyId, userId, reactionType]);
+      await dropUniqueStoryReactionConstraint(pool);
+
+      let res;
+      try {
+        // Cho phép lưu nhiều lần thả cảm xúc hoặc nhiều loại cảm xúc như Facebook Story
+        res = await pool.query(
+          `INSERT INTO story_reactions (story_id, user_id, reaction_type, created_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+           RETURNING id, reaction_type`,
+          [storyId, userId, reactionType]
+        );
+      } catch (insertErr) {
+        // Dự phòng trường hợp DB còn ràng buộc UNIQUE (story_id, user_id)
+        res = await pool.query(
+          `INSERT INTO story_reactions (story_id, user_id, reaction_type, created_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+           ON CONFLICT (story_id, user_id)
+           DO UPDATE SET reaction_type = EXCLUDED.reaction_type, created_at = CURRENT_TIMESTAMP
+           RETURNING id, reaction_type`,
+          [storyId, userId, reactionType]
+        );
+      }
 
       // Tự động ghi nhận lượt xem nếu chưa có để đảm bảo hiển thị đầy đủ trong danh sách người xem tin
       try {
@@ -434,8 +485,21 @@ export function createStoryRepository({ pool }) {
         [totalReactions, storyId]
       );
 
+      // Lấy toàn bộ danh sách reaction của người này trên tin
+      let myReactions = [reactionType];
+      try {
+        const reactionsRes = await pool.query(
+          `SELECT reaction_type FROM story_reactions WHERE story_id = $1 AND user_id = $2 ORDER BY created_at ASC`,
+          [storyId, userId]
+        );
+        if (reactionsRes.rows.length > 0) {
+          myReactions = reactionsRes.rows.map(r => r.reaction_type);
+        }
+      } catch {}
+
       return {
         reactionType: res.rows[0]?.reaction_type,
+        reactions: myReactions,
         reactionsCount: totalReactions,
       };
     },

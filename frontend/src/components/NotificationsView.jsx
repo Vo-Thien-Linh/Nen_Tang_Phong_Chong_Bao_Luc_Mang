@@ -117,6 +117,34 @@ export default function NotificationsView({
       case 'like':
       case 'reaction':
       case 'story_reaction': {
+        const typesList = Array.isArray(payload?.reactionTypes) && payload.reactionTypes.length > 0
+          ? payload.reactionTypes
+          : (reactionType ? [reactionType] : ['love']);
+
+        const emojiMap = {
+          wow: '😮',
+          haha: '😄',
+          sad: '😢',
+          angry: '😡',
+          like: '👍',
+          love: '❤️',
+        };
+
+        if (typesList.length > 1) {
+          return (
+            <div className="flex items-center -space-x-1.5 select-none" title={`Đã bày tỏ: ${typesList.map(t => emojiMap[t] || '❤️').join(' ')}`}>
+              {typesList.slice(-2).map((t, idx) => (
+                <div 
+                  key={idx} 
+                  className="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none"
+                >
+                  {emojiMap[t] || '❤️'}
+                </div>
+              ))}
+            </div>
+          );
+        }
+
         if (reactionType === 'wow') {
           return (
             <div className="w-5 h-5 rounded-full bg-amber-400 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs text-[11px] leading-none select-none" title="Ngạc nhiên (Wow)">
