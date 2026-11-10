@@ -10,13 +10,6 @@ import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
 import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
 
 const getInitialDefaultPrivacy = () => {
-  try {
-    const raw = localStorage.getItem('nexussocial_user_settings');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.post_default_privacy) return parsed.post_default_privacy;
-    }
-  } catch {}
   return 'public';
 };
 
@@ -25,7 +18,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
-  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy()));
+  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy && getInitialDefaultPrivacy() || getInitialDefaultPrivacy()));
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -43,11 +36,6 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     hashtagHighlightRef.current.scrollTop = event.currentTarget.scrollTop;
     hashtagHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
   };
-
-  useEffect(() => {
-    const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
-    setPrivacy(normalizePostPrivacy(defaultPriv));
-  }, [currentUser?.settings?.post_default_privacy]);
 
   // Trạng thái xử phạt / cấm đăng bài
   const isBanned = currentUser?.status === 'banned';
