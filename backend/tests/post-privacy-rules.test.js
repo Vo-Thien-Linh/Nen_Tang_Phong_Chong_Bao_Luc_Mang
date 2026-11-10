@@ -14,6 +14,12 @@ test('public post is visible to everyone', () => {
   }), true);
 });
 
+test('null privacy is treated as public', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'viewer', authorId: 'author', privacy: null, friendshipStatus: null,
+  }), true);
+});
+
 test('friends post is visible to an accepted friend', () => {
   assert.equal(canViewerSeePost({
     viewerId: 'friend', authorId: 'author', privacy: 'friends', friendshipStatus: 'accepted',
