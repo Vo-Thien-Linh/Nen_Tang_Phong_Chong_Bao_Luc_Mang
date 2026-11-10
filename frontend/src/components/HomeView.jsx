@@ -14,6 +14,7 @@ import { fetchStories, fetchTrendingHashtags } from '../api/client';
 import { suggestedFriends } from '../data/mockData';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
+import { useTranslation } from '../utils/i18n';
 
 export default function HomeView({ 
   currentUser, 
@@ -48,6 +49,7 @@ export default function HomeView({
   onWatchStream,
   onOpenLiveStream
 }) {
+  const { t, isEn } = useTranslation();
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
   const [storyTrays, setStoryTrays] = useState([]);
@@ -337,10 +339,10 @@ export default function HomeView({
           
           {/* Card Thông tin tài khoản người dùng hoặc Khách */}
           {currentUser ? (
-            <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs space-y-3.5">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
               <div 
                 onClick={() => setActiveTab && setActiveTab('profile')}
-                className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
               >
                 <img 
                   src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
@@ -348,23 +350,23 @@ export default function HomeView({
                   className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
                 />
                 <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-800 truncate hover:text-blue-600 transition">
-                    {currentUser.name || currentUser.full_name || currentUser.username || 'Người dùng'}
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate hover:text-blue-600 transition">
+                    {currentUser.name || currentUser.full_name || currentUser.username || (isEn ? 'User' : 'Người dùng')}
                   </h3>
-                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700 bg-blue-50 border border-blue-200 rounded uppercase">
+                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded uppercase">
                     {currentUser.role || 'USER'}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
-                <div className="p-2 bg-slate-50 rounded-xl">
-                  <p className="text-sm font-black text-slate-800">{countVisiblePosts(mainFeedPosts.filter(p => p.author?.id === currentUser?.id))}</p>
-                  <p className="text-[10px] text-slate-400 font-medium">Bài viết</p>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  <p className="text-sm font-black text-slate-800 dark:text-slate-100">{countVisiblePosts(mainFeedPosts.filter(p => p.author?.id === currentUser?.id))}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">{isEn ? 'Posts' : 'Bài viết'}</p>
                 </div>
-                <div className="p-2 bg-slate-50 rounded-xl">
-                  <p className="text-sm font-black text-slate-800">{currentUser.friendsCount || 128}</p>
-                  <p className="text-[10px] text-slate-400 font-medium">Bạn bè</p>
+                <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  <p className="text-sm font-black text-slate-800 dark:text-slate-100">{currentUser.friendsCount || 128}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">{isEn ? 'Friends' : 'Bạn bè'}</p>
                 </div>
               </div>
             </div>
@@ -372,70 +374,70 @@ export default function HomeView({
             <div className="bg-gradient-to-br from-blue-900 via-blue-800 to-slate-900 text-white rounded-2xl p-4 shadow-md space-y-3">
               <div className="flex items-center gap-2 text-blue-200 font-bold text-xs uppercase tracking-wider">
                 <Sparkles className="w-4 h-4 text-blue-300" />
-                <span>Chào mừng bạn!</span>
+                <span>{isEn ? 'Welcome!' : 'Chào mừng bạn!'}</span>
               </div>
               <p className="text-xs text-slate-200 leading-relaxed">
-                Đăng nhập để đăng bài, tương tác với bạn bè và trải nghiệm tính năng kiểm duyệt AI thông minh.
+                {isEn ? 'Log in to post, interact with friends, and experience smart AI moderation.' : 'Đăng nhập để đăng bài, tương tác với bạn bè và trải nghiệm tính năng kiểm duyệt AI thông minh.'}
               </p>
               <div className="pt-1 flex flex-col gap-2">
                 <button
                   onClick={() => onOpenAuthModal && onOpenAuthModal('login')}
                   className="w-full py-2 bg-white text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
                 >
-                  Đăng nhập ngay
+                  {isEn ? 'Log in now' : 'Đăng nhập ngay'}
                 </button>
                 <button
                   onClick={() => onOpenAuthModal && onOpenAuthModal('register')}
                   className="w-full py-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
-                  Tạo tài khoản mới
+                  {isEn ? 'Create new account' : 'Tạo tài khoản mới'}
                 </button>
               </div>
             </div>
           )}
 
           {/* Menu Lối tắt tính năng */}
-          <div className="bg-white rounded-2xl p-3 border border-slate-200/90 shadow-2xs space-y-1">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-1">
             <button
               onClick={() => setActiveTab && setActiveTab('profile')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <User className="w-4 h-4 text-blue-600" />
-              <span>Trang cá nhân</span>
+              <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{t('nav.profile')}</span>
             </button>
 
             <button
               onClick={() => setActiveTab && setActiveTab('friends')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <Users className="w-4 h-4 text-blue-600" />
-              <span>Bạn bè & Kết nối</span>
+              <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{isEn ? 'Friends & Connections' : 'Bạn bè & Kết nối'}</span>
             </button>
 
             <button
               onClick={() => setActiveTab && setActiveTab('messages')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <MessageCircle className="w-4 h-4 text-blue-600" />
-              <span>Hộp thư Tin nhắn</span>
+              <MessageCircle className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{t('nav.messages')}</span>
             </button>
 
             {isAdmin && (
               <button
                 onClick={() => setActiveTab && setActiveTab('admin')}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition cursor-pointer"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer"
               >
-                <LayoutDashboard className="w-4 h-4 text-blue-600" />
+                <LayoutDashboard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Admin Dashboard</span>
               </button>
             )}
 
             <button
               onClick={onOpenAiLab}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <ShieldCheck className="w-4 h-4 text-blue-600" />
-              <span>Thử nghiệm AI Lab</span>
+              <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{isEn ? 'AI Lab Test' : 'Thử nghiệm AI Lab'}</span>
             </button>
           </div>
 
@@ -446,7 +448,9 @@ export default function HomeView({
               <span className="text-xs font-black text-blue-300 uppercase tracking-wider">AI Shield Active</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
-              Mô hình PhoBERT đang bảo vệ nền tảng, tự động gắn nhãn và chặn lọc nội dung độc hại thời gian thực.
+              {isEn 
+                ? 'PhoBERT model is protecting the platform, automatically labeling and filtering harmful content in real time.'
+                : 'Mô hình PhoBERT đang bảo vệ nền tảng, tự động gắn nhãn và chặn lọc nội dung độc hại thời gian thực.'}
             </p>
           </div>
 
@@ -542,7 +546,7 @@ export default function HomeView({
                 className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-blue-100/50 text-blue-700 text-xs font-bold rounded-xl border border-blue-200/70 shadow-2xs transition cursor-pointer shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
-                <span>Xóa bộ lọc</span>
+                <span>{t('home.clear_filter')}</span>
               </button>
             </div>
           )}
@@ -556,7 +560,7 @@ export default function HomeView({
                   feedFilter === 'forYou' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Dành cho bạn
+                {t('home.for_you')}
               </button>
               <button
                 onClick={() => setFeedFilter('following')}
@@ -564,7 +568,7 @@ export default function HomeView({
                   feedFilter === 'following' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Đang theo dõi
+                {t('home.following')}
               </button>
             </div>
             <div className="flex items-center gap-2.5">
@@ -576,7 +580,7 @@ export default function HomeView({
                   className="flex items-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer text-[11px] font-semibold"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPosts ? 'animate-spin text-blue-600' : ''}`} />
-                  <span className="hidden sm:inline">Làm mới</span>
+                  <span className="hidden sm:inline">{t('home.refresh')}</span>
                 </button>
               )}
               <span className="text-[11px] text-slate-400 font-normal">
@@ -707,20 +711,20 @@ export default function HomeView({
         >
           
           {/* Gợi ý kết bạn */}
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             <div className="flex items-center justify-between mb-3.5">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <UserPlus className="w-4 h-4 text-blue-500" />
-                  <span>Gợi ý kết bạn</span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <UserPlus className="w-4 h-4 text-blue-500 dark:text-blue-400" />
+                  <span>{t('home.suggested_friends')}</span>
                 </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">Ưu tiên người có nhiều bạn chung</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{isEn ? 'Prioritized by mutual friends' : 'Ưu tiên người có nhiều bạn chung'}</p>
               </div>
               <button
                 onClick={() => setActiveTab && setActiveTab('friends')}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline cursor-pointer"
               >
-                Xem tất cả
+                {t('home.see_all_suggestions')}
               </button>
             </div>
 
@@ -736,12 +740,12 @@ export default function HomeView({
                         src={friend.avatar} 
                         alt={friend.name} 
                         onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
-                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
+                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                       />
                       <div className="min-w-0 flex-1">
                         <p 
                           onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
-                          className="text-xs font-bold text-slate-800 truncate hover:text-blue-600 cursor-pointer"
+                          className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                         >
                           {friend.name}
                         </p>
@@ -760,25 +764,25 @@ export default function HomeView({
                                   src={mf.avatar}
                                   alt={mf.name}
                                   title={mf.name}
-                                  className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-white"
+                                  className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-white dark:ring-slate-900"
                                 />
                               ))}
                             </div>
 
                             {/* Tên hiển thị bạn chung lần lượt */}
-                            <p className="text-[10px] text-slate-500 truncate leading-tight">
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-tight">
                               {mutualCount === 1 ? (
-                                <>Bạn chung: <span className="font-semibold text-slate-700">{mutualList[0].name}</span></>
+                                <>{isEn ? 'Mutual: ' : 'Bạn chung: '}<span className="font-semibold text-slate-700 dark:text-slate-300">{mutualList[0].name}</span></>
                               ) : mutualCount === 2 ? (
-                                <>Bạn chung: <span className="font-semibold text-slate-700">{mutualList[0].name}</span>, <span className="font-semibold text-slate-700">{mutualList[1].name}</span></>
+                                <>{isEn ? 'Mutual: ' : 'Bạn chung: '}<span className="font-semibold text-slate-700 dark:text-slate-300">{mutualList[0].name}</span>, <span className="font-semibold text-slate-700 dark:text-slate-300">{mutualList[1].name}</span></>
                               ) : (
-                                <><span className="font-bold text-blue-600">{mutualCount} bạn chung</span> ({mutualList[0].name}, {mutualList[1].name}...)</>
+                                <><span className="font-bold text-blue-600 dark:text-blue-400">{mutualCount} {isEn ? 'mutual' : 'bạn chung'}</span> ({mutualList[0].name}, {mutualList[1].name}...)</>
                               )}
                             </p>
                           </div>
                         ) : (
-                          <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                            Gợi ý dành cho bạn
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                            {isEn ? 'Suggested for you' : 'Gợi ý dành cho bạn'}
                           </p>
                         )}
                       </div>
@@ -788,11 +792,11 @@ export default function HomeView({
                       onClick={() => toggleFollowFriend(friend.id)}
                       className={`px-2.5 py-1 text-xs font-semibold rounded-lg shrink-0 transition cursor-pointer ${
                         friend.requestSent 
-                          ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                           : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs hover:shadow-xs'
                       }`}
                     >
-                      {friend.requestSent ? 'Đã gửi' : 'Kết bạn'}
+                      {friend.requestSent ? (isEn ? 'Sent' : 'Đã gửi') : (isEn ? 'Add' : 'Kết bạn')}
                     </button>
                   </div>
                 );
@@ -801,15 +805,15 @@ export default function HomeView({
           </div>
 
           {/* Chủ đề thịnh hành */}
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-rose-500" />
-              <span>Chủ đề thịnh hành</span>
+              <span>{t('home.trending_topics')}</span>
             </h3>
 
             <div className="space-y-3">
-              {trendingLoading ? <p className="text-xs text-slate-400">Đang tải...</p> : trendingTopics.length === 0 ? (
-                <p className="text-xs text-slate-400">Chưa có chủ đề thịnh hành</p>
+              {trendingLoading ? <p className="text-xs text-slate-400">{isEn ? 'Loading...' : 'Đang tải...'}</p> : trendingTopics.length === 0 ? (
+                <p className="text-xs text-slate-400">{t('home.no_trending')}</p>
               ) : trendingTopics.map((topic) => (
                 <div 
                   key={topic.tag} 
@@ -819,14 +823,14 @@ export default function HomeView({
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') onSelectHashtag?.(topic.tag);
                   }}
-                  className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-blue-50/60 transition duration-150"
+                  className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition duration-150"
                   title={`Lọc bài viết với ${topic.tag}`}
                 >
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
                     <span>#{topic.displayTag || topic.tag}</span>
-                    <span className="text-[10px] text-blue-500 font-semibold group-hover:underline">Khám phá</span>
+                    <span className="text-[10px] text-blue-500 dark:text-blue-400 font-semibold group-hover:underline">{isEn ? 'Explore' : 'Khám phá'}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400">{topic.postCount} bài viết</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">{topic.postCount} {isEn ? 'posts' : 'bài viết'}</p>
                 </div>
               ))}
             </div>

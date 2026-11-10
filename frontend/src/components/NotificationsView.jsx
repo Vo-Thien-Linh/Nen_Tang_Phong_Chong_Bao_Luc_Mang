@@ -5,6 +5,7 @@ import {
   Trash2, RefreshCw, Eye, Sparkles, Filter, ChevronRight, Inbox, Scale, Lock
 } from 'lucide-react';
 import { getNotificationNavigationTarget, getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
+import { useTranslation, translateNotificationText } from '../utils/i18n';
 
 export default function NotificationsView({ 
   notifications = [], 
@@ -23,6 +24,7 @@ export default function NotificationsView({
   activeFilter = 'all',
   onFilterChange,
 }) {
+  const { t, isEn } = useTranslation();
   const [internalFilter, setInternalFilter] = useState('all');
   const currentFilter = onFilterChange ? activeFilter : internalFilter;
 
@@ -35,14 +37,14 @@ export default function NotificationsView({
 
   // Tính toán thời gian tương đối động dựa trên timestamp thật của thông báo
   const formatNotificationTime = (item) => {
-    if (!item) return 'Vừa xong';
+    if (!item) return isEn ? 'Just now' : 'Vừa xong';
 
     // 1. Kiểm tra timestamp ISO từ CSDL hoặc LocalStorage (createdAt / created_at)
     const rawTime = item.createdAt || item.created_at || item.createdAtIso;
     if (rawTime) {
       const parsedDate = new Date(rawTime);
       if (!isNaN(parsedDate.getTime())) {
-        return formatRelativeTime(parsedDate);
+        return formatRelativeTime(parsedDate, isEn);
       }
     }
 
@@ -52,17 +54,17 @@ export default function NotificationsView({
       if (match) {
         const tsNum = parseInt(match[0], 10);
         if (!isNaN(tsNum) && tsNum > 1600000000000) {
-          return formatRelativeTime(new Date(tsNum));
+          return formatRelativeTime(new Date(tsNum), isEn);
         }
       }
     }
 
     // 3. Nếu item.time đã là relative time có sẵn từ Backend (ví dụ '11 phút trước', '2 giờ trước')
-    if (item.time && item.time !== 'Vừa xong') {
-      return item.time;
+    if (item.time) {
+      return formatRelativeTime(item.time, isEn);
     }
 
-    return 'Vừa xong';
+    return isEn ? 'Just now' : 'Vừa xong';
   };
 
   const handleFilterClick = (filterKey) => {
@@ -167,16 +169,16 @@ export default function NotificationsView({
                 <Bell className="w-5 h-5" />
               </div>
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                Thông báo
+                {t('notifications.title')}
               </h1>
               {unreadCount > 0 && (
                 <span className="px-2.5 py-0.5 text-xs font-bold bg-rose-500 text-white rounded-full animate-pulse shadow-xs shadow-rose-500/30">
-                  {unreadCount} mới
+                  {unreadCount} {isEn ? 'new' : 'mới'}
                 </span>
               )}
             </div>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 pl-1">
-              Cập nhật tương tác bài viết, thông báo bạn bè và cảnh báo kiểm duyệt AI
+              {t('notifications.subtitle')}
             </p>
           </div>
 
@@ -186,10 +188,10 @@ export default function NotificationsView({
               <button
                 onClick={onMarkAllAsRead}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 rounded-xl transition cursor-pointer border border-blue-200/60 dark:border-blue-800/60"
-                title="Đánh dấu đã đọc tất cả"
+                title={isEn ? "Mark all as read" : "Đánh dấu đã đọc tất cả"}
               >
                 <CheckCheck className="w-3.5 h-3.5" />
-                <span>Đã đọc tất cả</span>
+                <span>{isEn ? 'Mark all as read' : 'Đã đọc tất cả'}</span>
               </button>
             )}
 
@@ -197,10 +199,10 @@ export default function NotificationsView({
               <button
                 onClick={onClearReadNotifications}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
-                title="Xóa các thông báo đã đọc"
+                title={isEn ? "Clear read notifications" : "Xóa các thông báo đã đọc"}
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Dọn dẹp đã đọc</span>
+                <span className="hidden sm:inline">{isEn ? 'Clear read' : 'Dọn dẹp đã đọc'}</span>
               </button>
             )}
 
@@ -208,7 +210,7 @@ export default function NotificationsView({
               <button
                 onClick={onRefresh}
                 className={`p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer ${isLoading ? 'animate-spin text-blue-600' : ''}`}
-                title="Làm mới thông báo"
+                title={isEn ? "Refresh notifications" : "Làm mới thông báo"}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
@@ -219,10 +221,10 @@ export default function NotificationsView({
         {/* Bộ lọc tabs hiện đại */}
         <div className="px-5 sm:px-6 py-2.5 bg-slate-50/70 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none text-xs font-semibold">
           {[
-            { key: 'all', label: 'Tất cả', count: notifications.length },
-            { key: 'unread', label: 'Chưa đọc', count: unreadCount },
-            { key: 'interaction', label: 'Tương tác', count: interactionCount },
-            { key: 'system', label: 'Hệ thống & AI', count: systemCount },
+            { key: 'all', label: isEn ? 'All' : 'Tất cả', count: notifications.length },
+            { key: 'unread', label: isEn ? 'Unread' : 'Chưa đọc', count: unreadCount },
+            { key: 'interaction', label: isEn ? 'Interactions' : 'Tương tác', count: interactionCount },
+            { key: 'system', label: isEn ? 'System & AI' : 'Hệ thống & AI', count: systemCount },
           ].map((tab) => {
             const isActive = currentFilter === tab.key;
             return (
@@ -285,14 +287,17 @@ export default function NotificationsView({
               const actor = isSystemOrModeration
                 ? {
                     id: 'system',
-                    name: 'Thông báo hệ thống',
+                    name: isEn ? 'System Notification' : 'Thông báo hệ thống',
                     avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
                   }
                 : (item.user || {
                     id: 'system',
-                    name: 'Thông báo hệ thống',
+                    name: isEn ? 'System Notification' : 'Thông báo hệ thống',
                     avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
                   });
+              const actorDisplayName = isEn && (actor.name === 'Thông báo hệ thống' || actor.id === 'system')
+                ? 'System Notification'
+                : actor.name;
               return (
                 <div
                   key={item.id}
@@ -373,9 +378,11 @@ export default function NotificationsView({
                         }}
                         className="text-slate-900 dark:text-white font-bold hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition"
                       >
-                        {actor.name}
+                        {actorDisplayName}
                       </strong>{' '}
-                      <span className="text-slate-600 dark:text-slate-300">{item.content}</span>
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {translateNotificationText(item.content, isEn)}
+                      </span>
                     </div>
 
                     {/* Preview bài viết liên quan nếu có */}
@@ -385,7 +392,7 @@ export default function NotificationsView({
                         {snapshotPreview.images.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {snapshotPreview.images.map((imageUrl) => (
-                              <img key={imageUrl} src={imageUrl} alt="Nội dung đã bị xóa" className="h-16 w-16 rounded-lg object-cover" />
+                              <img key={imageUrl} src={imageUrl} alt={isEn ? "Content removed" : "Nội dung đã bị xóa"} className="h-16 w-16 rounded-lg object-cover" />
                             ))}
                           </div>
                         )}
@@ -416,10 +423,10 @@ export default function NotificationsView({
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 italic">
-                            &ldquo;{item.targetPost?.contentSnippet || 'Xem chi tiết bài viết'}&rdquo;
+                            &ldquo;{item.targetPost?.contentSnippet || (isEn ? 'View post details' : 'Xem chi tiết bài viết')}&rdquo;
                           </p>
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 group-hover/post:underline mt-0.5">
-                            Xem bài viết <ChevronRight className="w-3 h-3" />
+                            {isEn ? 'View post' : 'Xem bài viết'} <ChevronRight className="w-3 h-3" />
                           </span>
                         </div>
                       </div>
@@ -522,7 +529,7 @@ export default function NotificationsView({
                               className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-semibold shadow-2xs transition cursor-pointer"
                             >
                               <Scale className="w-3.5 h-3.5" />
-                              <span>Gửi kháng cáo</span>
+                              <span>{isEn ? 'Submit appeal' : 'Gửi kháng cáo'}</span>
                             </button>
                           </div>
                         );
@@ -538,7 +545,7 @@ export default function NotificationsView({
                       </span>
                       {!item.isRead && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400">
-                          · Chưa đọc
+                          · {isEn ? 'Unread' : 'Chưa đọc'}
                         </span>
                       )}
                     </div>
@@ -554,8 +561,8 @@ export default function NotificationsView({
                         e.stopPropagation();
                         onDeleteNotification(item.id);
                       }}
-                      title="Xóa thông báo này"
-                      className="opacity-0 group-hover:opacity-100 p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition duration-150"
+                      title={isEn ? "Delete this notification" : "Xóa thông báo này"}
+                      className="opacity-0 group-hover:opacity-100 p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition duration-150 cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -570,7 +577,7 @@ export default function NotificationsView({
                 <Inbox className="w-8 h-8 stroke-[1.5]" />
               </div>
               <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                Chưa có thông báo nào
+                {t('notifications.empty_title')}
               </h3>
               <p className="text-xs sm:text-sm text-slate-400 dark:text-slate-500 max-w-sm mx-auto mt-1">
                 {currentFilter === 'unread'

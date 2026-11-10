@@ -6,6 +6,7 @@ import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
+import { useTranslation } from '../utils/i18n';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
 
 const getInitialDefaultPrivacy = () => {
@@ -20,6 +21,7 @@ const getInitialDefaultPrivacy = () => {
 };
 
 export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
+  const { t } = useTranslation();
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
@@ -46,6 +48,20 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   useEffect(() => {
     const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
     setPrivacy(defaultPriv);
+
+    const handlePrivacyUpdate = (e) => {
+      const updatedPrivacy = e?.detail?.post_default_privacy;
+      if (updatedPrivacy) {
+        setPrivacy(updatedPrivacy);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('nexussocial_privacy_updated', handlePrivacyUpdate);
+      return () => {
+        window.removeEventListener('nexussocial_privacy_updated', handlePrivacyUpdate);
+      };
+    }
   }, [currentUser?.settings?.post_default_privacy]);
 
   // Trạng thái xử phạt / cấm đăng bài
@@ -312,8 +328,8 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 : isCooldown 
                 ? `🚫 Bạn đang bị cấm đăng bài và bình luận (Gỡ phạt sau: ${remainingTimeStr || 'Đang đếm...'})` 
                 : currentUser 
-                ? `${currentUser.name || currentUser.full_name || currentUser.username || 'Bạn'} ơi, bạn đang nghĩ gì thế?` 
-                : "Đăng nhập để chia sẻ bài viết cùng cộng đồng..."
+                ? t('create_post.placeholder', { name: currentUser.name || currentUser.full_name || currentUser.username || 'Friend' }) 
+                : t('create_post.placeholder_guest')
             }
             className={`relative w-full resize-none bg-transparent p-3 text-transparent caret-slate-800 placeholder-slate-400 selection:bg-blue-200 selection:text-transparent hover:bg-transparent focus:bg-transparent rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-3 focus:ring-blue-100 outline-none text-sm leading-normal transition duration-150 ${
               (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''
@@ -394,14 +410,14 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 } ${(isBanned || isCooldown) ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 <Image className="w-4 h-4 text-emerald-500" />
-                <span>Ảnh / Media</span>
+                <span>{t("create_post.photo_video")}</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleCheckSafety}
                 disabled={isBanned || isCooldown || isAiChecking || !content.trim()}
-                title="Kiểm tra độc hại qua mô hình AI trước khi đăng"
+                title={t("create_post.feeling")}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-4 h-4 text-blue-500" />
@@ -416,9 +432,9 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                   className="appearance-none pl-7 pr-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 transition cursor-pointer outline-none focus:ring-2 focus:ring-blue-400"
                   title="Quyền riêng tư bài viết"
                 >
-                  <option value="public">Công khai</option>
-                  <option value="friends">Bạn bè</option>
-                  <option value="private">Chỉ mình tôi</option>
+                  <option value="public">{t("create_post.privacy_public")}</option>
+                  <option value="friends">{t("create_post.privacy_friends")}</option>
+                  <option value="private">{t("create_post.privacy_private")}</option>
                 </select>
                 <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">
                   {privacy === 'private' ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
@@ -434,7 +450,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               disabled={isBanned || isCooldown || isSubmitting || isUploadingImage || !content.trim()}
               className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 cursor-pointer"
             >
-              <span>{isUploadingImage ? 'Đang tải ảnh...' : isSubmitting ? 'Đang đăng...' : 'Đăng bài'}</span>
+              <span>{isUploadingImage ? t('create_post.uploading') : isSubmitting ? t('create_post.submitting') : t('create_post.submit')}</span>
               <Send className="w-3.5 h-3.5" />
             </button>
           </div>

@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Radio, Video, VideoOff, Mic, MicOff, X, Sparkles, ShieldCheck } from 'lucide-react';
+import { useTranslation } from '../utils/i18n';
 
 export default function CreateLiveStreamModal({
   isOpen = false,
   onClose,
   onCreateStream
 }) {
+  const { t, isEn } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('Giao lưu');
+  const [category, setCategory] = useState(isEn ? 'Casual Chat' : 'Giao lưu');
   const [previewStream, setPreviewStream] = useState(null);
   const [isCameraActive, setIsCameraActive] = useState(true);
   const [isMicActive, setIsMicActive] = useState(true);
@@ -24,7 +26,7 @@ export default function CreateLiveStreamModal({
     if (isOpen) {
       setTitle('');
       setDescription('');
-      setCategory('Giao lưu');
+      setCategory(isEn ? 'Casual Chat' : 'Giao lưu');
       setErrorMessage('');
 
       // Khởi động preview camera với tiered fallback
@@ -103,7 +105,7 @@ export default function CreateLiveStreamModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim() || title.trim().length < 3) {
-      setErrorMessage('Tiêu đề buổi live phải có ít nhất 3 ký tự.');
+      setErrorMessage(isEn ? 'Live stream title must have at least 3 characters.' : 'Tiêu đề buổi live phải có ít nhất 3 ký tự.');
       return;
     }
     setErrorMessage('');
@@ -141,8 +143,8 @@ export default function CreateLiveStreamModal({
             <Radio className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">Khởi tạo buổi phát trực tiếp</h3>
-            <p className="text-xs text-slate-400">Kết nối và giao lưu an toàn với cộng đồng</p>
+            <h3 className="text-lg font-bold text-white">{t('livestream.start_title')}</h3>
+            <p className="text-xs text-slate-400">{t('livestream.start_subtitle')}</p>
           </div>
         </div>
 
@@ -165,12 +167,12 @@ export default function CreateLiveStreamModal({
           ) : (
             <div className="text-center text-slate-500 text-xs">
               <Video className="w-8 h-8 mx-auto mb-1 text-slate-600" />
-              Camera chưa kết nối hoặc chưa được cấp quyền
+              {t('livestream.camera_unconnected')}
             </div>
           )}
           <div className="absolute bottom-2 left-2 px-2.5 py-1 bg-black/60 backdrop-blur-md rounded-full text-[11px] text-emerald-400 border border-white/10 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Bảo vệ chống bạo lực mạng kích hoạt
+            {t('livestream.cyberbullying_active')}
           </div>
         </div>
 
@@ -183,14 +185,14 @@ export default function CreateLiveStreamModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Tiêu đề phát trực tiếp <span className="text-rose-400">*</span>
+              {t('livestream.stream_title')} <span className="text-rose-400">*</span>
             </label>
             <input
               id="input-livestream-title"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="VD: Cùng tâm sự và chia sẻ kiến thức tích cực..."
+              placeholder={t('livestream.stream_title_placeholder')}
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
               required
             />
@@ -198,27 +200,27 @@ export default function CreateLiveStreamModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Chủ đề</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">{t('livestream.category')}</label>
               <select
                 id="select-livestream-category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="Giao lưu">Giao lưu / Trò chuyện</option>
-                <option value="Học tập">Học tập & Chia sẻ</option>
-                <option value="Tâm sự an toàn">Tâm sự an toàn</option>
-                <option value="Giải trí lành mạnh">Giải trí lành mạnh</option>
+                <option value="Giao lưu">{t('livestream.category_chat')}</option>
+                <option value="Học tập">{t('livestream.category_study')}</option>
+                <option value="Tâm sự an toàn">{t('livestream.category_safe_talk')}</option>
+                <option value="Giải trí lành mạnh">{t('livestream.category_entertainment')}</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Mô tả (tùy chọn)</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">{t('livestream.description')}</label>
               <input
                 id="input-livestream-desc"
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Mô tả ngắn gọn..."
+                placeholder={t('livestream.description_placeholder')}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
               />
             </div>
@@ -229,9 +231,9 @@ export default function CreateLiveStreamModal({
               id="btn-cancel-create-livestream"
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition"
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
             >
-              Hủy
+              {isEn ? 'Cancel' : 'Hủy'}
             </button>
             <button
               id="btn-submit-create-livestream"
@@ -240,7 +242,7 @@ export default function CreateLiveStreamModal({
               className="px-6 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white flex items-center gap-2 transition shadow-lg shadow-rose-600/30 cursor-pointer"
             >
               <Radio className="w-4 h-4" />
-              {isLoading ? 'Đang tạo...' : 'Bắt đầu phát trực tiếp'}
+              {isLoading ? t('livestream.starting') : t('livestream.start_btn')}
             </button>
           </div>
         </form>

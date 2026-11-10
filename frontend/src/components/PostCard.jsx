@@ -31,6 +31,7 @@ import PostReactionsModal from './PostReactionsModal';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import HashtagText from './HashtagText';
 import { formatRelativeTime } from '../utils/timeAgo';
+import { useTranslation } from '../utils/i18n';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
   const popoverRef = useRef(null);
@@ -131,6 +132,7 @@ export default function PostCard({
   targetActor = null,
   targetCommentId = null
 }) {
+  const { t, isEn } = useTranslation();
   const [showComments, setShowComments] = useState(false);
   const [highlightedCommentId, setHighlightedCommentId] = useState(null);
   const [commentText, setCommentText] = useState('');
@@ -867,7 +869,7 @@ export default function PostCard({
                     className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-semibold transition cursor-pointer"
                   >
                     <Pencil className="w-4 h-4" />
-                    <span>Chỉnh sửa bài viết</span>
+                    <span>{t('post.edit')}</span>
                   </button>
                 )}
                 {allowDelete && (
@@ -884,7 +886,7 @@ export default function PostCard({
                     className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>Xóa bài viết</span>
+                    <span>{t('post.delete')}</span>
                   </button>
                 )}
 
@@ -930,7 +932,7 @@ export default function PostCard({
                   className={`w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 ${allowReport ? 'flex' : 'hidden'} items-center gap-2 font-semibold transition cursor-pointer`}
                 >
                   <ShieldAlert className="w-4 h-4" />
-                  <span>Báo cáo bài viết này</span>
+                  <span>{t('post.report')}</span>
                 </button>
               </div>
             )}
@@ -1181,8 +1183,8 @@ export default function PostCard({
           </PortalPopover>
         </button>
         <div className="flex items-center gap-3">
-          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{visibleComments.length} bình luận</span>
-          <span>{localSharesCount} chia sẻ</span>
+          <span onClick={() => setShowComments(!showComments)} className="cursor-pointer hover:underline">{visibleComments.length} {t('post.comments_count')}</span>
+          <span>{localSharesCount} {t('post.shares_count')}</span>
         </div>
       </div>
 
@@ -1276,7 +1278,7 @@ export default function PostCard({
             ) : (
               <>
                 <ThumbsUp className="w-4 h-4 text-slate-500" />
-                <span>Thích</span>
+                <span>{t('post.like')}</span>
               </>
             )}
           </button>
@@ -1292,7 +1294,7 @@ export default function PostCard({
           title={isCooldown ? `Đang bị khóa bình luận (${cooldownRemainingStr || 'Đang đếm...'})` : undefined}
         >
           <MessageCircle className={`w-4 h-4 ${isCooldown ? 'text-amber-600' : 'text-slate-500'}`} />
-          <span>{isCooldown ? 'Xem bình luận (Đang bị khóa)' : 'Bình luận'}</span>
+          <span>{isCooldown ? (isEn ? 'View comments (Locked)' : 'Xem bình luận (Đang bị khóa)') : t('post.comment')}</span>
         </button>
 
         <button
@@ -1300,7 +1302,7 @@ export default function PostCard({
           className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer"
         >
           <Share2 className="w-4 h-4 text-slate-500" />
-          <span>Chia sẻ</span>
+          <span>{t('post.share')}</span>
         </button>
 
         <button
@@ -1406,8 +1408,8 @@ export default function PostCard({
                       : isCooldown
                       ? `🚫 Bạn đang bị cấm bình luận • Gỡ phạt sau: ${cooldownRemainingStr || 'Đang đếm...'}`
                       : currentUser
-                      ? "Viết bình luận công khai..."
-                      : "Đăng nhập để viết bình luận..."
+                      ? t("post.write_comment")
+                      : t("create_post.placeholder_guest")
                   }
                   className={`w-full pl-3 pr-16 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 ${
                     (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''

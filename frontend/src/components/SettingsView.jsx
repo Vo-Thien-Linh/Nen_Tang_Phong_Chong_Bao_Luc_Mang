@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   ShieldCheck, ShieldAlert, User, Lock, Eye, EyeOff, Bell, Palette, 
-  UserX, CheckCircle2, AlertTriangle, Save, Sparkles, KeyRound, 
+  UserX, UserPlus, Users, CheckCircle2, AlertTriangle, Save, Sparkles, KeyRound, 
   Smartphone, Mail, MapPin, GraduationCap, Heart, HelpCircle, 
   Trash2, Plus, Sliders, Moon, Sun, Globe, RefreshCw, AlertCircle,
   Volume2
@@ -10,6 +10,7 @@ import { settingsService } from '../services/settingsService';
 import { playNotificationSound } from '../utils/soundUtil';
 import { profileService } from '../services/profileService';
 import { fetchUserTrustHistory } from '../api/client';
+import { useTranslation } from '../utils/i18n';
 
 export default function SettingsView({ 
   currentUser, 
@@ -18,6 +19,7 @@ export default function SettingsView({
   onSetTheme, 
   onToggleTheme 
 }) {
+  const { t, language: i18nLang, setLanguage, isEn } = useTranslation();
   const [activeSubTab, setActiveSubTab] = useState('safety');
   const [trustScore, setTrustScore] = useState(currentUser?.trustScore ?? currentUser?.trust_score ?? 100);
   const [trustTier, setTrustTier] = useState('good');
@@ -86,11 +88,9 @@ export default function SettingsView({
     new_password: '',
     confirm_password: ''
   });
-  const [showPasswords, setShowPasswords] = useState({
-    old: false,
-    new: false,
-    confirm: false
-  });
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Danh sách từ khóa cá nhân dạng mảng
   const [keywordList, setKeywordList] = useState([]);
@@ -279,20 +279,22 @@ export default function SettingsView({
   const handleSavePrivacy = async () => {
     setLoading(true);
     try {
-      await settingsService.updatePrivacy({
-        post_default_privacy: settings.post_default_privacy,
-        who_can_send_friend_requests: settings.who_can_send_friend_requests,
-        who_can_message: settings.who_can_message,
-        show_email: settings.show_email,
-        show_phone: settings.show_phone
-      });
+      const payload = {
+        post_default_privacy: settings.post_default_privacy || 'public',
+        who_can_send_friend_requests: settings.who_can_send_friend_requests || 'everyone',
+        who_can_message: settings.who_can_message || 'everyone',
+        show_email: Boolean(settings.show_email),
+        show_phone: Boolean(settings.show_phone)
+      };
+
+      await settingsService.updatePrivacy(payload);
       if (onUpdateUser) {
         onUpdateUser({
+          show_email: Boolean(settings.show_email),
+          show_phone: Boolean(settings.show_phone),
           settings: {
             ...settings,
-            post_default_privacy: settings.post_default_privacy,
-            show_email: settings.show_email,
-            show_phone: settings.show_phone,
+            ...payload
           }
         });
       }
@@ -350,13 +352,13 @@ export default function SettingsView({
   };
 
   const navItems = [
-    { id: 'safety', label: 'Từ Khóa & An Toàn', icon: ShieldCheck },
-    { id: 'profile', label: 'Hồ Sơ & Tài Khoản', icon: User },
-    { id: 'security', label: 'Mật Khẩu & Bảo Mật', icon: Lock },
-    { id: 'privacy', label: 'Quyền Riêng Tư', icon: Eye },
-    { id: 'blocked', label: 'Danh Sách Chặn', icon: UserX, count: blockedUsers.length },
-    { id: 'notifications', label: 'Thông Báo', icon: Bell },
-    { id: 'appearance', label: 'Giao Diện', icon: Palette }
+    { id: 'safety', label: t('settings.tab.safety'), icon: ShieldCheck },
+    { id: 'profile', label: t('settings.tab.profile'), icon: User },
+    { id: 'security', label: t('settings.tab.security'), icon: Lock },
+    { id: 'privacy', label: t('settings.tab.privacy'), icon: Eye },
+    { id: 'blocked', label: t('settings.tab.blocked'), icon: UserX, count: blockedUsers.length },
+    { id: 'notifications', label: t('settings.tab.notifications'), icon: Bell },
+    { id: 'appearance', label: t('settings.tab.appearance'), icon: Palette }
   ];
 
   return (
@@ -370,18 +372,18 @@ export default function SettingsView({
             <Sparkles className="w-3.5 h-3.5 animate-spin" />
             <span>NexusSocial Security & Customization</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Trung Tâm Cài Đặt & Quyền Riêng Tư</h1>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">{t('settings.title')}</h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl">
-            Tùy biến tài khoản, danh sách từ khóa cấm, kiểm soát quyền riêng tư và bảo mật tối ưu.
+            {t('settings.subtitle')}
           </p>
         </div>
         <div className="relative z-10 flex items-center gap-3 shrink-0">
           <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/15 flex items-center gap-3">
             <div className="w-3.5 h-3.5 rounded-full bg-emerald-400" />
             <div className="text-left">
-              <p className="text-[11px] text-slate-300 font-medium">Bộ Lọc Từ Khóa</p>
+              <p className="text-[11px] text-slate-300 font-medium">{isEn ? 'Keyword Filter' : 'Bộ Lọc Từ Khóa'}</p>
               <p className="text-xs font-bold text-white">
-                {keywordList.length} từ khóa
+                {t('safety.keywords_count', { count: keywordList.length })}
               </p>
             </div>
           </div>
@@ -409,9 +411,9 @@ export default function SettingsView({
         
         {/* Sidebar Tabs */}
         <div className="lg:col-span-4 xl:col-span-3">
-          <div className="bg-white rounded-3xl p-3 shadow-sm border border-slate-200/80 sticky top-24 space-y-1">
-            <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Danh mục cài đặt
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-3 shadow-sm border border-slate-200/80 dark:border-slate-800 sticky top-24 space-y-1">
+            <div className="px-3 py-2 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+              {t('settings.categories')}
             </div>
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -423,23 +425,23 @@ export default function SettingsView({
                   className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs sm:text-sm font-bold transition duration-200 cursor-pointer ${
                     isActive 
                       ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20' 
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                    <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${isActive ? 'text-white' : 'text-slate-400 dark:text-slate-500'}`} />
                     <span>{item.label}</span>
                   </div>
                   {item.badge && (
                     <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600 border border-blue-200'
+                      isActive ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
                     }`}>
                       {item.badge}
                     </span>
                   )}
                   {item.count !== undefined && item.count > 0 && (
                     <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                      isActive ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                     }`}>
                       {item.count}
                     </span>
@@ -457,14 +459,14 @@ export default function SettingsView({
           {/* TAB 1: BỘ LỌC TỪ KHÓA & AN TOÀN NỘI DUNG */}
           {/* ======================================================== */}
           {activeSubTab === 'safety' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-8 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-blue-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-8 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 mb-1">
                   <ShieldCheck className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Danh Sách Từ Khóa Cấm & An Toàn</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('safety.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Thiết lập danh sách các từ ngữ cấm để tự động ngăn chặn công kích và bình luận độc hại hướng về bạn.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('safety.subtitle')}
                 </p>
               </div>
 
@@ -472,13 +474,13 @@ export default function SettingsView({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Danh Sách Từ Khóa Cấm Cá Nhân (Keyword Blacklist)</h3>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">{t('safety.blacklist_title')}</h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Bình luận hoặc tin nhắn chứa những từ khóa này sẽ bị chặn ngay lập tức.
+                      {t('safety.blacklist_desc')}
                     </p>
                   </div>
                   <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-                    {keywordList.length} từ khóa
+                    {t('safety.keywords_count', { count: keywordList.length })}
                   </span>
                 </div>
 
@@ -489,7 +491,7 @@ export default function SettingsView({
                     value={newKeywordInput}
                     onChange={(e) => setNewKeywordInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddKeyword(); } }}
-                    placeholder="Nhập từ hoặc cụm từ bạn muốn chặn rồi ấn Thêm..."
+                    placeholder={t("safety.input_placeholder")}
                     className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white"
                   />
                   <button 
@@ -498,14 +500,14 @@ export default function SettingsView({
                     className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Thêm</span>
+                    <span>{t("safety.add_btn")}</span>
                   </button>
                 </div>
 
                 {/* Danh sách các tag từ khóa hiện tại */}
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 min-h-[90px] flex flex-wrap gap-2 items-center">
                   {keywordList.length === 0 ? (
-                    <span className="text-xs text-slate-400 italic">Chưa có từ khóa nào trong danh sách.</span>
+                    <span className="text-xs text-slate-400 italic">{t('safety.empty_keywords')}</span>
                   ) : (
                     keywordList.map((kw, idx) => (
                       <span 
@@ -527,20 +529,20 @@ export default function SettingsView({
 
                 {/* Nút nạp nhanh danh mục mẫu */}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <span className="text-[11px] font-bold text-slate-400">Gợi ý thêm nhanh:</span>
+                  <span className="text-[11px] font-bold text-slate-400">{t('safety.quick_suggestions')}</span>
                   <button
                     type="button"
                     onClick={() => handleAddPresetKeywords(['xúc phạm', 'miệt thị', 'xấu xí', 'béo ú', 'ngu ngốc'])}
                     className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer"
                   >
-                    + Miệt thị ngoại hình
+                    {t('safety.preset_body_shaming')}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleAddPresetKeywords(['đâm', 'chém', 'giết', 'đánh nhau', 'tiêu diệt'])}
                     className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer"
                   >
-                    + Từ ngữ bạo lực
+                    {t('safety.preset_violence')}
                   </button>
                 </div>
               </div>
@@ -554,7 +556,7 @@ export default function SettingsView({
                   className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md shadow-blue-500/20 flex items-center gap-2 cursor-pointer transition disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  <span>{loading ? 'Đang lưu...' : 'Lưu Danh Sách Từ Khóa'}</span>
+                  <span>{loading ? 'Đang lưu...' : t('safety.save_btn')}</span>
                 </button>
               </div>
             </div>
@@ -564,21 +566,21 @@ export default function SettingsView({
           {/* TAB 2: HỒ SƠ & TÀI KHOẢN */}
           {/* ======================================================== */}
           {activeSubTab === 'profile' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-blue-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-6 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 mb-1">
                   <User className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Thông Tin Hồ Sơ & Tài Khoản</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('settings_profile.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Cập nhật các thông tin hiển thị với bạn bè và cộng đồng NexusSocial.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('settings_profile.subtitle')}
                 </p>
               </div>
 
               {/* Ảnh đại diện & Ảnh bìa preview */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                  <label className="block text-xs font-bold text-slate-700">Ảnh đại diện (Avatar URL)</label>
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">{t('settings_profile.avatar_label')}</label>
                   <div className="flex items-center gap-3">
                     <img 
                       src={settings.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400"} 
@@ -589,20 +591,20 @@ export default function SettingsView({
                       type="text" 
                       value={settings.avatar_url}
                       onChange={(e) => setSettings(prev => ({ ...prev, avatar_url: e.target.value }))}
-                      placeholder="Dán link ảnh đại diện..."
-                      className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:border-blue-500"
+                      placeholder={isEn ? "Paste avatar image URL..." : "Dán link ảnh đại diện..."}
+                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl text-xs outline-none focus:border-blue-500"
                     />
                   </div>
                 </div>
 
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                  <label className="block text-xs font-bold text-slate-700">Ảnh bìa (Cover URL)</label>
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">{t('settings_profile.cover_label')}</label>
                   <input 
                     type="text" 
                     value={settings.cover_url}
                     onChange={(e) => setSettings(prev => ({ ...prev, cover_url: e.target.value }))}
-                    placeholder="Dán link ảnh bìa trang cá nhân..."
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:border-blue-500"
+                    placeholder={isEn ? "Paste cover image URL..." : "Dán link ảnh bìa trang cá nhân..."}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl text-xs outline-none focus:border-blue-500"
                   />
                   {settings.cover_url && (
                     <img 
@@ -618,7 +620,7 @@ export default function SettingsView({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-700">
-                    Tên hiển thị <span className="text-rose-500">* (3 - 30 ký tự)</span>
+                    {t('settings_profile.name_label')} <span className="text-rose-500">* (3 - 30 ký tự)</span>
                   </label>
                   <input 
                     type="text" 
@@ -629,7 +631,7 @@ export default function SettingsView({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">Số điện thoại</label>
+                  <label className="block text-xs font-bold text-slate-700">{t('settings_profile.phone_label')}</label>
                   <input 
                     type="text" 
                     value={settings.phone}
@@ -665,7 +667,7 @@ export default function SettingsView({
 
               {/* Giới thiệu / Bio */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">Tiểu sử / Bio</label>
+                <label className="block text-xs font-bold text-slate-700">{t('settings_profile.bio_label')}</label>
                 <textarea 
                   rows="3"
                   value={settings.bio}
@@ -678,7 +680,7 @@ export default function SettingsView({
               {/* Nơi ở, Quê quán & Học vấn */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">Tỉnh / Thành phố hiện tại</label>
+                  <label className="block text-xs font-bold text-slate-700">{t('edit_profile.city')}</label>
                   <input 
                     type="text" 
                     value={settings.location}
@@ -689,7 +691,7 @@ export default function SettingsView({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">Quê quán</label>
+                  <label className="block text-xs font-bold text-slate-700">{t('edit_profile.hometown')}</label>
                   <input 
                     type="text" 
                     value={settings.hometown}
@@ -700,7 +702,7 @@ export default function SettingsView({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">Học vấn / Trường học</label>
+                  <label className="block text-xs font-bold text-slate-700">{t('edit_profile.education')}</label>
                   <input 
                     type="text" 
                     value={settings.education}
@@ -720,7 +722,7 @@ export default function SettingsView({
                   className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md shadow-blue-500/20 flex items-center gap-2 cursor-pointer transition disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  <span>{loading ? 'Đang lưu...' : 'Lưu Thay Đổi Hồ Sơ'}</span>
+                  <span>{loading ? 'Đang lưu...' : t('settings_profile.save_btn')}</span>
                 </button>
               </div>
             </div>
@@ -730,82 +732,85 @@ export default function SettingsView({
           {/* TAB 3: MẬT KHẨU & BẢO MẬT */}
           {/* ======================================================== */}
           {activeSubTab === 'security' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-8 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-blue-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-8 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 mb-1">
                   <Lock className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Mật Khẩu & Bảo Mật Tài Khoản</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('security.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Bảo vệ tài khoản bằng mật khẩu mạnh và tính năng xác thực hai yếu tố.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('security.subtitle')}
                 </p>
               </div>
 
               {/* Form Đổi mật khẩu */}
               <form onSubmit={handleChangePassword} className="space-y-4 max-w-xl">
-                <h3 className="text-sm font-bold text-slate-800">Đổi Mật Khẩu Đăng Nhập</h3>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('security.change_password')}</h3>
                 
                 {/* Mật khẩu cũ */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">Mật khẩu hiện tại</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">{t('security.current_password')}</label>
                   <div className="relative">
                     <input 
-                      type={showPasswords.old ? "text" : "password"} 
+                      type={showOldPassword ? "text" : "password"} 
                       value={passwordForm.old_password}
                       onChange={(e) => setPasswordForm(prev => ({ ...prev, old_password: e.target.value }))}
                       placeholder="••••••••"
-                      className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white"
+                      className="w-full pl-4 pr-11 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition"
                     />
                     <button 
                       type="button"
-                      onClick={() => setShowPasswords(prev => ({ ...prev, old: !prev.old }))}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      onClick={() => setShowOldPassword(!showOldPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer z-10 p-1"
+                      title={showOldPassword ? t('security.hide_pwd') : t('security.show_pwd')}
                     >
-                      {showPasswords.old ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showOldPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
 
                 {/* Mật khẩu mới */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    Mật khẩu mới <span className="text-blue-600 font-normal">(Ít nhất 8 ký tự, có chữ hoa, thường và số)</span>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {t('security.new_password')} <span className="text-blue-600 dark:text-blue-400 font-normal">{t('security.password_hint')}</span>
                   </label>
                   <div className="relative">
                     <input 
-                      type={showPasswords.new ? "text" : "password"} 
+                      type={showNewPassword ? "text" : "password"} 
                       value={passwordForm.new_password}
                       onChange={(e) => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))}
                       placeholder="••••••••"
-                      className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white"
+                      className="w-full pl-4 pr-11 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition"
                     />
                     <button 
                       type="button"
-                      onClick={() => setShowPasswords(prev => ({ ...prev, new: !prev.new }))}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer z-10 p-1"
+                      title={showNewPassword ? t('security.hide_pwd') : t('security.show_pwd')}
                     >
-                      {showPasswords.new ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
 
                 {/* Xác nhận mật khẩu mới */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">Xác nhận mật khẩu mới</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">{t('security.confirm_password')}</label>
                   <div className="relative">
                     <input 
-                      type={showPasswords.confirm ? "text" : "password"} 
+                      type={showConfirmPassword ? "text" : "password"} 
                       value={passwordForm.confirm_password}
                       onChange={(e) => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))}
                       placeholder="••••••••"
-                      className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white"
+                      className="w-full pl-4 pr-11 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition"
                     />
                     <button 
                       type="button"
-                      onClick={() => setShowPasswords(prev => ({ ...prev, confirm: !prev.confirm }))}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer z-10 p-1"
+                      title={showConfirmPassword ? t('security.hide_pwd') : t('security.show_pwd')}
                     >
-                      {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
@@ -816,7 +821,7 @@ export default function SettingsView({
                   className="mt-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md shadow-indigo-500/20 flex items-center gap-2 cursor-pointer transition disabled:opacity-50"
                 >
                   <KeyRound className="w-4 h-4" />
-                  <span>{loading ? 'Đang cập nhật...' : 'Cập Nhật Mật Khẩu'}</span>
+                  <span>{loading ? t('security.updating') : t('security.update_btn')}</span>
                 </button>
               </form>
 
@@ -825,10 +830,10 @@ export default function SettingsView({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Smartphone className="w-5 h-5 text-indigo-600" />
-                    <span className="text-sm font-bold text-slate-900">Xác thực hai yếu tố (2FA)</span>
+                    <span className="text-sm font-bold text-slate-900">{t('security.2fa_title')}</span>
                   </div>
                   <p className="text-xs text-slate-500 max-w-lg">
-                    Tăng cường bảo mật: Yêu cầu mã xác thực khi đăng nhập trên thiết bị lạ hoặc trình duyệt mới.
+                    {t('security.2fa_desc')}
                   </p>
                 </div>
                 <button
@@ -840,7 +845,7 @@ export default function SettingsView({
                       : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm'
                   }`}
                 >
-                  {settings.two_factor_enabled ? 'Vô hiệu hóa 2FA' : 'Kích hoạt 2FA'}
+                  {settings.two_factor_enabled ? (isEn ? 'Disable 2FA' : 'Vô hiệu hóa 2FA') : (isEn ? 'Enable 2FA' : 'Kích hoạt 2FA')}
                 </button>
               </div>
             </div>
@@ -850,85 +855,184 @@ export default function SettingsView({
           {/* TAB 4: QUYỀN RIÊNG TƯ */}
           {/* ======================================================== */}
           {activeSubTab === 'privacy' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-blue-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-6 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 mb-1">
                   <Eye className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Cài Đặt Quyền Riêng Tư & Tương Tác</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('privacy.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Kiểm soát đối tượng có thể xem nội dung và tương tác với bạn.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('privacy.subtitle')}
                 </p>
               </div>
 
               {/* Quyền riêng tư bài viết mặc định */}
               <div className="space-y-2">
-                <label className="block text-xs sm:text-sm font-bold text-slate-800">
-                  Quyền riêng tư mặc định khi tạo bài viết mới
+                <label className="block text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
+                  {t('privacy.default_post')}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
-                    { id: 'public', label: 'Công khai', desc: 'Mọi người trên mạng xã hội đều xem được.' },
-                    { id: 'friends', label: 'Bạn bè', desc: 'Chỉ những người đã kết bạn mới xem được.' },
-                    { id: 'private', label: 'Chỉ mình tôi', desc: 'Nội dung riêng tư, chỉ mình bạn xem được.' }
+                    { id: 'public', label: t('privacy.public'), desc: t('privacy.public_desc') },
+                    { id: 'friends', label: t('privacy.friends'), desc: t('privacy.friends_desc') },
+                    { id: 'private', label: t('privacy.private'), desc: t('privacy.private_desc') }
                   ].map((p) => (
                     <div 
                       key={p.id}
                       onClick={() => setSettings(prev => ({ ...prev, post_default_privacy: p.id }))}
                       className={`p-4 rounded-2xl border-2 cursor-pointer transition ${
                         settings.post_default_privacy === p.id 
-                          ? 'border-blue-600 bg-blue-50/50' 
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
+                          ? 'border-blue-600 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-xs' 
+                          : 'border-slate-200 dark:border-slate-750 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
                       }`}
                     >
-                      <span className="text-xs sm:text-sm font-bold text-slate-900 block mb-1">{p.label}</span>
-                      <p className="text-[11px] text-slate-500">{p.desc}</p>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block">{p.label}</span>
+                        {settings.post_default_privacy === p.id && (
+                          <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{p.desc}</p>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Ai có thể gửi lời mời kết bạn */}
-              <div className="space-y-2">
-                <label className="block text-xs sm:text-sm font-bold text-slate-800">
-                  Ai có thể gửi lời mời kết bạn cho bạn?
-                </label>
-                <select
-                  value={settings.who_can_send_friend_requests}
-                  onChange={(e) => setSettings(prev => ({ ...prev, who_can_send_friend_requests: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="everyone">Mọi người trên hệ thống</option>
-                  <option value="friends_of_friends">Bạn của bạn bè</option>
-                </select>
-              </div>
-
-              {/* Hiển thị Email / Phone */}
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-800">Hiển thị Email trên hồ sơ công khai</h4>
-                    <p className="text-xs text-slate-500">Cho phép người khác nhìn thấy email của bạn trên trang cá nhân.</p>
+              {/* Ai có thể gửi cho bạn lời mời kết bạn? (Chuẩn Facebook UI/UX) */}
+              <div className="space-y-3 pt-1">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <UserPlus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <label className="block text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
+                      {t('privacy.who_can_request')}
+                    </label>
                   </div>
-                  <input 
-                    type="checkbox" 
-                    checked={settings.show_email} 
-                    onChange={(e) => setSettings(prev => ({ ...prev, show_email: e.target.checked }))}
-                    className="w-5 h-5 text-blue-600 rounded-lg cursor-pointer"
-                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-2.5">
+                    {t('privacy.who_can_request_desc')}
+                  </p>
                 </div>
 
-                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-800">Hiển thị Số điện thoại trên hồ sơ công khai</h4>
-                    <p className="text-xs text-slate-500">Cho phép người khác nhìn thấy số điện thoại của bạn.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    {
+                      id: 'everyone',
+                      label: t('privacy.everyone'),
+                      desc: t('privacy.everyone_desc'),
+                      icon: Globe,
+                      iconColor: 'text-blue-600 dark:text-blue-400',
+                      iconBg: 'bg-blue-100/70 dark:bg-blue-950/60'
+                    },
+                    {
+                      id: 'friends_of_friends',
+                      label: t('privacy.friends_of_friends'),
+                      desc: t('privacy.friends_of_friends_desc'),
+                      icon: Users,
+                      iconColor: 'text-indigo-600 dark:text-indigo-400',
+                      iconBg: 'bg-indigo-100/70 dark:bg-indigo-950/60'
+                    }
+                  ].map((opt) => {
+                    const IconComponent = opt.icon;
+                    const isSelected = (settings.who_can_send_friend_requests || 'everyone') === opt.id;
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={() => setSettings(prev => ({ ...prev, who_can_send_friend_requests: opt.id }))}
+                        className={`p-4 rounded-2xl border-2 cursor-pointer transition flex items-start gap-3.5 select-none ${
+                          isSelected
+                            ? 'border-blue-600 dark:border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 shadow-xs'
+                            : 'border-slate-200 dark:border-slate-750 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
+                        }`}
+                      >
+                        <div className={`p-2.5 rounded-xl shrink-0 ${opt.iconBg} ${opt.iconColor}`}>
+                          <IconComponent className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
+                              {opt.label}
+                            </span>
+                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-600 text-white'
+                                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                            }`}>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                            {opt.desc}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Hiển thị Email / Phone - Chuẩn hóa Toggle Switch */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-750">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{t('privacy.show_email')}</h4>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border transition ${
+                        Boolean(settings.show_email)
+                          ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' 
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                      }`}>
+                        {Boolean(settings.show_email) ? t('privacy.public') : t('privacy.private')}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{t('privacy.show_email_desc')}</p>
                   </div>
-                  <input 
-                    type="checkbox" 
-                    checked={settings.show_phone} 
-                    onChange={(e) => setSettings(prev => ({ ...prev, show_phone: e.target.checked }))}
-                    className="w-5 h-5 text-blue-600 rounded-lg cursor-pointer"
-                  />
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(settings.show_email)}
+                    onClick={() => setSettings(prev => ({ ...prev, show_email: !prev.show_email }))}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      Boolean(settings.show_email) ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
+                    }`}
+                  >
+                    <span 
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        Boolean(settings.show_email) ? 'translate-x-5' : 'translate-x-0'
+                      }`} 
+                    />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-750">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{t('privacy.show_phone')}</h4>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border transition ${
+                        Boolean(settings.show_phone)
+                          ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' 
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                      }`}>
+                        {Boolean(settings.show_phone) ? t('privacy.public') : t('privacy.private')}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{t('privacy.show_phone_desc')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(settings.show_phone)}
+                    onClick={() => setSettings(prev => ({ ...prev, show_phone: !prev.show_phone }))}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      Boolean(settings.show_phone) ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
+                    }`}
+                  >
+                    <span 
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        Boolean(settings.show_phone) ? 'translate-x-5' : 'translate-x-0'
+                      }`} 
+                    />
+                  </button>
                 </div>
               </div>
 
@@ -940,7 +1044,7 @@ export default function SettingsView({
                   className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md flex items-center gap-2 cursor-pointer transition disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  <span>{loading ? 'Đang lưu...' : 'Lưu Quyền Riêng Tư'}</span>
+                  <span>{loading ? t('privacy.saving') : t('privacy.save_btn')}</span>
                 </button>
               </div>
             </div>
@@ -950,44 +1054,44 @@ export default function SettingsView({
           {/* TAB 5: DANH SÁCH CHẶN */}
           {/* ======================================================== */}
           {activeSubTab === 'blocked' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-rose-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-6 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400 mb-1">
                   <UserX className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Quản Lý Danh Sách Chặn</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('blocked.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Người dùng bị chặn sẽ không thể xem bài viết, bình luận hoặc gửi tin nhắn cho bạn.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('blocked.subtitle')}
                 </p>
               </div>
 
               {blockedUsers.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-                  <h4 className="text-sm font-bold text-slate-700">Danh sách chặn đang trống</h4>
-                  <p className="text-xs text-slate-400 mt-1">Bạn chưa chặn người dùng nào.</p>
+                  <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">{t('blocked.empty')}</h4>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{isEn ? 'You have not blocked any users.' : 'Bạn chưa chặn người dùng nào.'}</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {blockedUsers.map((b) => (
                     <div key={b.id} className="py-4 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <img 
                           src={b.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"} 
                           alt={b.name} 
-                          className="w-10 h-10 rounded-full object-cover ring-2 ring-rose-200"
+                          className="w-10 h-10 rounded-full object-cover ring-2 ring-rose-200 dark:ring-rose-900"
                         />
                         <div>
-                          <p className="text-xs sm:text-sm font-bold text-slate-800">{b.name}</p>
-                          <p className="text-[11px] text-slate-400">@{b.username} • Chặn {b.blocked_at || 'Gần đây'}</p>
+                          <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{b.name}</p>
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500">@{b.username} • {isEn ? 'Blocked' : 'Chặn'} {b.blocked_at || (isEn ? 'Recently' : 'Gần đây')}</p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleUnblock(b.id, b.name)}
-                        className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 font-bold rounded-xl text-xs transition cursor-pointer"
+                        className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white font-bold rounded-xl text-xs transition cursor-pointer border border-slate-200 dark:border-slate-700"
                       >
-                        Bỏ chặn
+                        {t('blocked.unblock_btn')}
                       </button>
                     </div>
                   ))}
@@ -1000,38 +1104,38 @@ export default function SettingsView({
           {/* TAB 6: THÔNG BÁO */}
           {/* ======================================================== */}
           {activeSubTab === 'notifications' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-blue-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-6 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 mb-1">
                   <Bell className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Cài Đặt Nhận Thông Báo</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('notifications_settings.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Tùy chỉnh các thông báo và cảnh báo an toàn bạn muốn nhận từ hệ thống.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('notifications_settings.subtitle')}
                 </p>
               </div>
 
               <div className="space-y-3">
                 {[
-                  { key: 'notify_ai_warnings', label: 'Cảnh báo an ninh AI', desc: 'Nhận thông báo tức thì khi AI phát hiện tài khoản bị công kích hoặc quấy rối.', highlight: true },
-                  { key: 'notify_likes', label: 'Thông báo lượt bày tỏ cảm xúc', desc: 'Khi ai đó Thích, Yêu thích hoặc Haha bài viết của bạn.' },
-                  { key: 'notify_comments', label: 'Thông báo bình luận', desc: 'Khi có người để lại bình luận trên bài viết của bạn.' },
-                  { key: 'notify_friend_requests', label: 'Lời mời kết bạn', desc: 'Khi có người dùng gửi lời mời kết bạn mới.' },
-                  { key: 'sound_enabled', label: 'Âm thanh thông báo', desc: 'Phát âm thanh nhẹ khi có tin nhắn hoặc thông báo mới.' }
+                  { key: 'notify_ai_warnings', label: t('notifications_settings.ai_warnings'), desc: isEn ? 'Instant notification when AI detects account attacks or harassment.' : 'Nhận thông báo tức thì khi AI phát hiện tài khoản bị công kích hoặc quấy rối.', highlight: true },
+                  { key: 'notify_likes', label: t('notifications_settings.likes'), desc: isEn ? 'When someone likes, loves, or reacts to your posts.' : 'Khi ai đó Thích, Yêu thích hoặc Haha bài viết của bạn.' },
+                  { key: 'notify_comments', label: t('notifications_settings.comments'), desc: isEn ? 'When someone comments on your posts.' : 'Khi có người để lại bình luận trên bài viết của bạn.' },
+                  { key: 'notify_friend_requests', label: t('notifications_settings.requests'), desc: isEn ? 'When someone sends you a new friend request.' : 'Khi có người dùng gửi lời mời kết bạn mới.' },
+                  { key: 'sound_enabled', label: t('notifications_settings.sound'), desc: t('notifications_settings.sound_desc') }
                 ].map((item) => (
                   <div 
                     key={item.key} 
-                    className={`flex items-center justify-between p-4 rounded-2xl border ${
+                    className={`flex items-center justify-between p-4 rounded-2xl border transition ${
                       item.highlight 
-                        ? 'bg-blue-50/60 border-blue-200' 
-                        : 'bg-slate-50 border-slate-200/80'
+                        ? 'bg-blue-50/60 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800' 
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-750'
                     }`}
                   >
                     <div>
-                      <h4 className={`text-xs sm:text-sm font-bold ${item.highlight ? 'text-blue-900' : 'text-slate-800'}`}>
+                      <h4 className={`text-xs sm:text-sm font-bold ${item.highlight ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
                         {item.label}
                       </h4>
-                      <p className={`text-xs mt-0.5 ${item.highlight ? 'text-blue-700/80' : 'text-slate-500'}`}>
+                      <p className={`text-xs mt-0.5 ${item.highlight ? 'text-blue-700/80 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`}>
                         {item.desc}
                       </p>
                     </div>
@@ -1040,11 +1144,11 @@ export default function SettingsView({
                         <button
                           type="button"
                           onClick={() => playNotificationSound()}
-                          title="Nghe thử âm thanh thông báo"
-                          className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                          title={isEn ? "Preview notification sound" : "Nghe thử âm thanh thông báo"}
+                          className="px-2.5 py-1 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                         >
-                          <Volume2 className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Nghe thử</span>
+                          <Volume2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          <span>{isEn ? 'Preview' : 'Nghe thử'}</span>
                         </button>
                       )}
                       <input 
@@ -1082,46 +1186,46 @@ export default function SettingsView({
           {/* TAB 7: GIAO DIỆN & NGÔN NGỮ */}
           {/* ======================================================== */}
           {activeSubTab === 'appearance' && (
-            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 space-y-6 animate-fade-in">
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-2.5 text-blue-600 mb-1">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-6 animate-fade-in">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 mb-1">
                   <Palette className="w-6 h-6" />
-                  <h2 className="text-xl font-black text-slate-900">Giao Diện & Ngôn Ngữ</h2>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">{t('appearance.title')}</h2>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Tùy chỉnh phong cách hiển thị theo sở thích cá nhân.
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {t('appearance.subtitle')}
                 </p>
               </div>
 
               {/* Theme */}
               <div className="space-y-3">
-                <label className="block text-xs sm:text-sm font-bold text-slate-800">Chế độ hiển thị</label>
+                <label className="block text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{t('appearance.mode_title')}</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div 
                     onClick={() => {
                       setSettings(prev => ({ ...prev, theme: 'light' }));
                       if (onSetTheme) onSetTheme('light');
                       settingsService.updateAppearance({ theme: 'light', language: settings.language });
-                      showToast('success', 'Đã chuyển sang Giao diện Sáng (Light Mode)');
+                      showToast('success', isEn ? 'Switched to Light Mode' : 'Đã chuyển sang Giao diện Sáng (Light Mode)');
                     }}
                     className={`p-4 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition ${
                       theme === 'light' 
-                        ? 'border-blue-600 bg-blue-50/50 shadow-sm' 
-                        : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                        ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 shadow-sm' 
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                      <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center text-amber-600 dark:text-amber-400">
                         <Sun className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="text-xs sm:text-sm font-bold text-slate-900">Giao diện Sáng</p>
-                        <p className="text-[11px] text-slate-500">Chuẩn sắc nét ban ngày</p>
+                        <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{t('appearance.light_title')}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('appearance.light_desc')}</p>
                       </div>
                     </div>
                     {theme === 'light' && (
                       <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-600 text-white shadow-xs">
-                        Đang chọn
+                        {isEn ? 'Selected' : 'Đang chọn'}
                       </span>
                     )}
                   </div>
@@ -1131,26 +1235,26 @@ export default function SettingsView({
                       setSettings(prev => ({ ...prev, theme: 'dark' }));
                       if (onSetTheme) onSetTheme('dark');
                       settingsService.updateAppearance({ theme: 'dark', language: settings.language });
-                      showToast('success', 'Đã chuyển sang Giao diện Tối (Dark Mode)');
+                      showToast('success', isEn ? 'Switched to Dark Mode' : 'Đã chuyển sang Giao diện Tối (Dark Mode)');
                     }}
                     className={`p-4 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition ${
                       theme === 'dark' 
-                        ? 'border-blue-600 bg-blue-50/50 shadow-sm' 
-                        : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                        ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 shadow-sm' 
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                         <Moon className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="text-xs sm:text-sm font-bold text-slate-900">Giao diện Tối</p>
-                        <p className="text-[11px] text-slate-500">Dịu mắt ban đêm</p>
+                        <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{t('appearance.dark_title')}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('appearance.dark_desc')}</p>
                       </div>
                     </div>
                     {theme === 'dark' && (
                       <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-600 text-white shadow-xs">
-                        Đang chọn
+                        {isEn ? 'Selected' : 'Đang chọn'}
                       </span>
                     )}
                   </div>
@@ -1159,23 +1263,23 @@ export default function SettingsView({
 
               {/* Ngôn ngữ */}
               <div className="space-y-2">
-                <label className="block text-xs sm:text-sm font-bold text-slate-800">Ngôn ngữ hiển thị</label>
+                <label className="block text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{t('appearance.lang_title')}</label>
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => {
+                      setLanguage('vi');
                       setSettings(prev => ({ ...prev, language: 'vi' }));
-                      try { localStorage.setItem('nexussocial_language', 'vi'); } catch {}
                       settingsService.updateAppearance({ theme: settings.theme, language: 'vi' });
                       if (onUpdateUser) onUpdateUser({ settings: { ...settings, language: 'vi' } });
                       showToast('success', 'Đã lưu và áp dụng Tiếng Việt');
                     }}
                     className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold border-2 transition cursor-pointer flex items-center gap-2 ${
-                      settings.language === 'vi' ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs' : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      (i18nLang === 'vi' || settings.language === 'vi') ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs' : 'border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
-                    <span>🇻🇳 Tiếng Việt (Mặc định)</span>
-                    {settings.language === 'vi' && (
+                    <span>🇻🇳 {t('appearance.lang_vi')} ({t('appearance.lang_vi_sub')})</span>
+                    {(i18nLang === 'vi' || settings.language === 'vi') && (
                       <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
                         Đang chọn
                       </span>
@@ -1185,18 +1289,18 @@ export default function SettingsView({
                   <button
                     type="button"
                     onClick={() => {
+                      setLanguage('en');
                       setSettings(prev => ({ ...prev, language: 'en' }));
-                      try { localStorage.setItem('nexussocial_language', 'en'); } catch {}
                       settingsService.updateAppearance({ theme: settings.theme, language: 'en' });
                       if (onUpdateUser) onUpdateUser({ settings: { ...settings, language: 'en' } });
                       showToast('success', 'Saved and applied English');
                     }}
                     className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold border-2 transition cursor-pointer flex items-center gap-2 ${
-                      settings.language === 'en' ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs' : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      (i18nLang === 'en' || settings.language === 'en') ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs' : 'border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
-                    <span>🇺🇸 English</span>
-                    {settings.language === 'en' && (
+                    <span>🇺🇸 {t('appearance.lang_en')}</span>
+                    {(i18nLang === 'en' || settings.language === 'en') && (
                       <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
                         Selected
                       </span>

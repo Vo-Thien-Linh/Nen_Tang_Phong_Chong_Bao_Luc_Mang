@@ -212,11 +212,55 @@ export const settingsService = {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.message || 'Cập nhật thất bại');
+      
+      // Đồng bộ ngay lập tức vào bộ nhớ cục bộ
+      const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
+      const updated = { ...prev, ...privacyData, ...(data.data || {}) };
+      safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+
+      // Đồng bộ thông tin user đang đăng nhập
+      const curUser = JSON.parse(safeStorage.getItem(STORAGE_KEYS.USER) || '{}');
+      if (curUser && typeof curUser === 'object') {
+        const updatedUser = {
+          ...curUser,
+          show_email: Boolean(privacyData.show_email !== undefined ? privacyData.show_email : curUser.show_email),
+          show_phone: Boolean(privacyData.show_phone !== undefined ? privacyData.show_phone : curUser.show_phone),
+          settings: {
+            ...(curUser.settings || {}),
+            ...updated
+          }
+        };
+        safeStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('nexussocial_privacy_updated', { detail: updated }));
+      }
+
       return data;
     } catch (err) {
       const prev = JSON.parse(safeStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}');
       const updated = { ...prev, ...privacyData };
       safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+
+      const curUser = JSON.parse(safeStorage.getItem(STORAGE_KEYS.USER) || '{}');
+      if (curUser && typeof curUser === 'object') {
+        const updatedUser = {
+          ...curUser,
+          show_email: Boolean(privacyData.show_email !== undefined ? privacyData.show_email : curUser.show_email),
+          show_phone: Boolean(privacyData.show_phone !== undefined ? privacyData.show_phone : curUser.show_phone),
+          settings: {
+            ...(curUser.settings || {}),
+            ...updated
+          }
+        };
+        safeStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('nexussocial_privacy_updated', { detail: updated }));
+      }
+
       return { success: true, message: 'Đã lưu cấu hình quyền riêng tư', data: updated };
     }
   },
