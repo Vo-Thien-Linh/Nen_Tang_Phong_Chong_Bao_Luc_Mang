@@ -57,3 +57,16 @@ test('sharing a non public post is rejected', async () => {
     (error) => error.statusCode === 403 && error.message === 'BÃ i viáº¿t nÃ y khÃ´ng thá»ƒ chia sáº»'
   );
 });
+
+test('create post stores the chosen privacy', async () => {
+  let created;
+  const service = createPostService({
+    postRepository: {
+      createPost: async (input) => { created = input; return { id: 1, ...input }; },
+      findVisiblePosts: async () => [],
+    },
+    moderationHook: { afterPostCreated: async () => {} },
+  });
+  await service.createPost({ user: { id: 'author' }, content: 'hello', privacy: 'friends' });
+  assert.equal(created.privacy, 'friends');
+});
