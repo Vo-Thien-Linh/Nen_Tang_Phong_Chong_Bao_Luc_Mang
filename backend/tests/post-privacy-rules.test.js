@@ -93,3 +93,16 @@ test('create post uses the default privacy when missing', async () => {
   await service.createPost({ user: { id: 'author' }, content: 'hello' });
   assert.equal(created.privacy, 'only_me');
 });
+
+test('author can change privacy without marking the post edited', async () => {
+  let privacyUpdate;
+  const service = createPostService({
+    postRepository: {
+      findByIdForOwnerAction: async () => ({ id: 1, author_id: 'author', content: 'hello', image_url: null, privacy: 'public', image_moderation_status: null, ai_status: 'approved' }),
+      updatePostPrivacy: async (input) => { privacyUpdate = input; return { id: 1, privacy: input.privacy, edited_at: null }; },
+    },
+  });
+  const result = await service.editPost({ user: { id: 'author' }, postId: 1, content: 'hello', imageUrl: null, privacy: 'friends' });
+  assert.equal(privacyUpdate.privacy, 'friends');
+  assert.equal(result.edited_at, null);
+});
