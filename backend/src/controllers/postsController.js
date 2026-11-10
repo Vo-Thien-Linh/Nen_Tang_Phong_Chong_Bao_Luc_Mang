@@ -142,6 +142,7 @@ export function mapPostToResponse(post, viewerId = null) {
       : post.original_post_id
         ? null   // Bài gốc đã bị xóa (SET NULL không còn)
         : undefined,
+    ...(post.original_post_id ? { originalPostId: String(post.original_post_id) } : {}),
   };
 }
 

@@ -1058,6 +1058,11 @@ export default function PostCard({
       )}
 
       {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
+      {post.originalPostId && !post.originalPost && (
+        <div className="mx-4 sm:mx-5 mb-3 mt-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs font-medium text-slate-500">
+          {'N\u1ed9i dung g\u1ed1c kh\u00f4ng kh\u1ea3 d\u1ee5ng'}
+        </div>
+      )}
       {Boolean(post.originalPost) && (
         <div className="mx-4 sm:mx-5 mb-3 mt-1">
           {(post.originalPost?.author || post.originalPost?.id || post.originalPost?.content) && !post.originalPost?.isDeleted ? (
