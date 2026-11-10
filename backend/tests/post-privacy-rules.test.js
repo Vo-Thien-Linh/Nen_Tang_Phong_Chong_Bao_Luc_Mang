@@ -70,3 +70,13 @@ test('create post stores the chosen privacy', async () => {
   await service.createPost({ user: { id: 'author' }, content: 'hello', privacy: 'friends' });
   assert.equal(created.privacy, 'friends');
 });
+
+test('create post rejects an invalid privacy', async () => {
+  const service = createPostService({
+    postRepository: { createPost: async () => { throw new Error('should not create'); } },
+  });
+  await assert.rejects(
+    service.createPost({ user: { id: 'author' }, content: 'hello', privacy: 'followers' }),
+    (error) => error.statusCode === 400 && error.message === 'Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡'
+  );
+});
