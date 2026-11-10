@@ -131,3 +131,10 @@ test('cannot report an invisible post', async () => {
   );
   assert.equal(reported, false);
 });
+
+test('privacy sql uses valid columns', () => {
+  const schema = fs.readFileSync(new URL('../../database/schema.sql', import.meta.url), 'utf8');
+  assert.match(schema, /privacy\s+VARCHAR\(20\)/i);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS friendships/i);
+  assert.match(schema, /status IN \('pending', 'accepted', 'declined', 'blocked'\)/i);
+});
