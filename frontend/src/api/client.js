@@ -403,6 +403,10 @@ export async function createStoryApi({
   });
 }
 
+export async function fetchStoryByIdApi(storyId) {
+  return request(`/api/stories/${storyId}`);
+}
+
 export async function viewStoryApi(storyId) {
   return request(`/api/stories/${storyId}/view`, {
     method: 'POST',

@@ -23,6 +23,7 @@ import LiveStreamModal from './components/LiveStreamModal';
 import CreateLiveStreamModal from './components/CreateLiveStreamModal';
 import { livestreamService } from './services/livestreamService';
 import { authService } from './services/authService';
+import { messageService } from './services/messageService';
 import { hasRole, ROLES, getDefaultTabForUser, normalizeRole } from './utils/rbac';
 import { 
   currentUser as initialUser, 
@@ -47,7 +48,8 @@ import {
   resolveAppealApi,
   fetchAiOverridesList,
   createAiOverrideApi,
-  fetchStories
+  fetchStories,
+  fetchStoryByIdApi
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
@@ -90,6 +92,7 @@ export default function App() {
       return 1;
     }
   }); // Bộ đếm xoay vòng đề xuất bài viết bảng tin (lưu session để F5 giữ nguyên bài)
+  const [hasVisitedMessages, setHasVisitedMessages] = useState(false);
   const createdPostIdsRef = useRef(new Set());
   const pendingCommentKeysRef = useRef(new Set());
   const [openPostMenuId, setOpenPostMenuId] = useState(null);
@@ -110,6 +113,34 @@ export default function App() {
     addLocalNotification,
   } = useNotifications({ currentUser, activeTab });
   
+  // Quản lý số lượng tin nhắn chưa đọc trên Navbar
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+    let isMounted = true;
+    const fetchUnread = async () => {
+      try {
+        const convs = await messageService.getConversations('accepted');
+        if (convs && isMounted) {
+          const total = convs.reduce((sum, c) => sum + (c.unread_count || c.unreadCount || 0), 0);
+          setUnreadMessagesCount(total);
+        }
+      } catch (err) {
+        // silent
+      }
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentUser?.id]);
+
   // Quản lý Chế độ Giao diện Sáng / Tối (Theme Mode)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('nexussocial_theme') || 'light';
@@ -468,6 +499,18 @@ export default function App() {
       .catch(() => {});
   }, [currentUser?.id]);
 
+  useEffect(() => {
+    if (activeTab === 'messages' && currentUser) {
+      setHasVisitedMessages(true);
+    }
+  }, [activeTab, currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setHasVisitedMessages(false);
+    }
+  }, [currentUser]);
+
   // Xử lý Chuyển Tab có Auth Guard và Role Guard
   const handleTabChange = (tab, targetUser = null, replace = false) => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
@@ -744,10 +787,35 @@ export default function App() {
         if (!targetTray && currentUser?.id && !userId) {
           targetTray = allTrays.find((t) => String(t.author?.id) === String(currentUser.id));
         }
-        if (!targetTray && allTrays.length > 0 && !userId) {
+        if (!targetTray && allTrays.length > 0 && !userId && !storyId) {
           targetTray = allTrays[0];
         }
+
+        // Nếu storyId không nằm trong feed hiện tại (ví dụ đã xem hết hoặc lưu trữ), tải trực tiếp từ API
+        if (!targetTray && storyId) {
+          try {
+            const singleRes = await fetchStoryByIdApi(storyId);
+            if (singleRes?.success && singleRes?.data) {
+              const s = singleRes.data;
+              targetTray = {
+                author: {
+                  id: s.author_id,
+                  name: s.full_name || s.name || 'Người dùng',
+                  username: s.username,
+                  avatar: s.avatar_url,
+                  isVerified: Boolean(s.is_verified),
+                },
+                isSelf: currentUser?.id ? String(s.author_id) === String(currentUser.id) : false,
+                hasUnviewedStories: false,
+                stories: [s],
+              };
+            }
+          } catch (fetchErr) {
+            console.warn('Không thể tải tin lẻ từ storyId:', fetchErr);
+          }
+        }
       }
+
       if (targetTray) {
         setActiveStoryViewerTarget({
           tray: targetTray,
@@ -1786,7 +1854,7 @@ export default function App() {
         activeTab={activeTab} 
         setActiveTab={handleTabChange}
         unreadCount={unreadCount}
-        unreadMessagesCount={1}
+        unreadMessagesCount={unreadMessagesCount}
         pendingModerationCount={pendingModerationCount}
         onOpenAiLab={() => setIsAiModalOpen(true)}
         currentUser={currentUser}
@@ -1922,18 +1990,21 @@ export default function App() {
           />
         )}
 
-        {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn) */}
-        {activeTab === 'messages' && (
-          <MessagesView 
-            currentUser={currentUser} 
-            initialChatUser={selectedChatUser}
-            initialChatUserId={selectedChatUserId} 
-            onOpenReportModal={handleOpenReportModal}
-            onRequireAuth={handleRequireAuth}
-            onOpenProfile={handleOpenUserProfile}
-            onOpenStoryViewer={handleOpenStoryViewer}
-          />
-        )}
+        {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn, giữ DOM để chuyển tab tức thì 0s) */}
+        <div className={activeTab === 'messages' ? 'h-full flex flex-col flex-1' : 'hidden'}>
+          {hasVisitedMessages && currentUser && (
+            <MessagesView 
+              currentUser={currentUser} 
+              initialChatUser={selectedChatUser}
+              initialChatUserId={selectedChatUserId} 
+              onOpenReportModal={handleOpenReportModal}
+              onRequireAuth={handleRequireAuth}
+              onOpenProfile={handleOpenUserProfile}
+              onOpenStoryViewer={handleOpenStoryViewer}
+              onUnreadCountChange={setUnreadMessagesCount}
+            />
+          )}
+        </div>
 
         {/* Tab 4: Thông báo */}
         {activeTab === 'notifications' && (
@@ -2168,6 +2239,25 @@ export default function App() {
           handleEndLiveStream(sessionId);
         }}
       />
+
+      {/* Modal Xem Tin Toàn Màn Hình từ Thông Báo / Hoạt Động (Global Story Viewer) */}
+      {activeStoryViewerTarget && (
+        <StoryViewerModal
+          currentUser={currentUser}
+          tray={activeStoryViewerTarget.tray}
+          initialStoryId={activeStoryViewerTarget.initialStoryId}
+          initialShowViewers={activeStoryViewerTarget.initialShowViewers}
+          targetViewerId={activeStoryViewerTarget.targetViewerId}
+          isOpen={Boolean(activeStoryViewerTarget)}
+          onClose={() => {
+            setActiveStoryViewerTarget(null);
+          }}
+          onOpenReportModal={handleOpenReportModal}
+          onStoryDeleted={() => {
+            setActiveStoryViewerTarget(null);
+          }}
+        />
+      )}
 
     </div>
   );
