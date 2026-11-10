@@ -5,6 +5,7 @@ import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
+import { POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
 
 export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [content, setContent] = useState(post?.content || '');
@@ -113,9 +114,9 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
             {privacy === 'friends' ? <Users className="h-4 w-4 text-amber-500" /> : privacy === 'only_me' || privacy === 'private' ? <Lock className="h-4 w-4 text-rose-500" /> : <Globe className="h-4 w-4 text-blue-500" />}
             <span>Quyền riêng tư</span>
             <select value={privacy === 'private' ? 'only_me' : privacy} onChange={(event) => setPrivacy(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
-              <option value="public">Công khai</option>
-              <option value="friends">Bạn bè</option>
-              <option value="only_me">Chỉ mình tôi</option>
+              {POST_PRIVACY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
           </label>
 

@@ -7,7 +7,7 @@ import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
-import { normalizePostPrivacy } from '../utils/postPrivacy';
+import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
 
 const getInitialDefaultPrivacy = () => {
   try {
@@ -417,10 +417,9 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                   className="appearance-none pl-7 pr-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 transition cursor-pointer outline-none focus:ring-2 focus:ring-blue-400"
                   title="Quyền riêng tư bài viết"
                 >
-                  <option value="public">Công khai</option>
-                  <option value="friends">Bạn bè</option>
-                  <option value="private">Chỉ mình tôi</option>
-                  <option value="only_me">{"Ch\u1ec9 m\u00ecnh t\u00f4i"}</option>
+                  {POST_PRIVACY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
                 <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">
                   {(privacy === 'private' || privacy === 'only_me') ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
