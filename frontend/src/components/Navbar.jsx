@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Home, Bell, ShieldCheck, Users, MessageCircle, 
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
-  Sun, Moon, Radio
+  Sun, Moon, Radio, Bookmark
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
@@ -16,7 +16,7 @@ export default function Navbar({
   currentUser, 
   onOpenAuthModal,
   onLogout,
-  unreadMessagesCount = 1,
+  unreadMessagesCount = 0,
   pendingModerationCount = 0,
   theme = 'light',
   onToggleTheme,
@@ -293,6 +293,14 @@ export default function Navbar({
                     >
                       <User className="w-4 h-4 text-slate-400" />
                       <span>Trang cá nhân của bạn</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('profile', null, false, 'saved'); setShowUserMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                    >
+                      <Bookmark className="w-4 h-4 text-blue-500" />
+                      <span>Bài viết đã lưu</span>
                     </button>
 
                     <button

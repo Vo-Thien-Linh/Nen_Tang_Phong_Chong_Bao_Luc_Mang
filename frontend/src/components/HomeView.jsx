@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, UserPlus, Users, MessageCircle, 
   ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw,
-  Radio, Eye
+  Radio, Eye, Bookmark
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
@@ -46,7 +46,8 @@ export default function HomeView({
   refreshKey = 0,
   activeStreams = [],
   onWatchStream,
-  onOpenLiveStream
+  onOpenLiveStream,
+  onToggleSave
 }) {
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
@@ -420,6 +421,16 @@ export default function HomeView({
               <span>Hộp thư Tin nhắn</span>
             </button>
 
+            {currentUser && (
+              <button
+                onClick={() => setActiveTab && setActiveTab('profile', null, false, 'saved')}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              >
+                <Bookmark className="w-4 h-4 text-blue-600" />
+                <span>Bài viết đã lưu</span>
+              </button>
+            )}
+
             {isAdmin && (
               <button
                 onClick={() => setActiveTab && setActiveTab('admin')}
@@ -665,6 +676,7 @@ export default function HomeView({
                     onClosePostMenu={onClosePostMenu}
                     onDismissNotice={onDismissNotice}
                     onSharePost={onSharePost}
+                    onToggleSave={onToggleSave}
                     isTargeted={isPostTargeted(post.id) && focusedPostTarget?.type === 'comment'}
                     targetType={focusedPostTarget?.type}
                     targetActor={focusedPostTarget?.actor}

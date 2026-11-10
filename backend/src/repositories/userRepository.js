@@ -215,6 +215,18 @@ export function createUserRepository({ pool }) {
           )
         : { rows: [] };
 
+      // Lấy danh sách bài đã lưu của viewer
+      let savedPostIds = new Set();
+      if (viewerId) {
+        try {
+          const savedResult = await pool.query(
+            `SELECT post_id FROM saved_posts WHERE user_id = $1 AND post_id = ANY($2::bigint[])`,
+            [viewerId, postIds]
+          );
+          savedPostIds = new Set(savedResult.rows.map((r) => Number(r.post_id)));
+        } catch {}
+      }
+
       // Lấy comments
       const commentsResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
@@ -292,6 +304,8 @@ export function createUserRepository({ pool }) {
           reaction_counts: counts,
           total_reactions: total,
           my_reaction: myReactionByPost.get(pid) || null,
+          isSaved: savedPostIds.has(pid),
+          is_saved: savedPostIds.has(pid),
           comments: commentsByPost.get(pid) || [],
           imageModeration: post.image_moderation_status ? {
             status: post.image_moderation_status,

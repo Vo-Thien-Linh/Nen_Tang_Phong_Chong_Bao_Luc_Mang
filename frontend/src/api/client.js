@@ -114,6 +114,16 @@ export async function updatePostReaction({ userId, postId, type, action }) {
   });
 }
 
+export async function toggleSavePostApi(postId) {
+  return request(`/api/posts/${postId}/save`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchSavedPostsApi() {
+  return request('/api/posts/saved');
+}
+
 export async function uploadPostImage(file) {
   const formData = new FormData();
   formData.append('image', file);

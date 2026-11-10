@@ -25,7 +25,8 @@ export default function PostDetailView({
   onTogglePostMenu,
   onClosePostMenu,
   onDismissNotice,
-  onSharePost
+  onSharePost,
+  onToggleSave
 }) {
   const [post, setPost] = useState(initialPost);
   const [isLoading, setIsLoading] = useState(!initialPost && Boolean(postId));
@@ -254,6 +255,7 @@ export default function PostDetailView({
               onClosePostMenu={onClosePostMenu}
               onDismissNotice={onDismissNotice}
               onSharePost={onSharePost}
+              onToggleSave={onToggleSave}
               isTargeted={meta?.type === 'comment'}
               targetType={meta?.type}
               targetActor={meta?.actor}
@@ -305,6 +307,7 @@ export default function PostDetailView({
                     onClosePostMenu={onClosePostMenu}
                     onDismissNotice={onDismissNotice}
                     onSharePost={onSharePost}
+                    onToggleSave={onToggleSave}
                   />
                 ))}
               </div>

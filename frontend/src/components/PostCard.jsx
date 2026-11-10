@@ -5,7 +5,7 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
   Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock, Globe, Users, UserX
 } from 'lucide-react';
-import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
+import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage, toggleSavePostApi } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -129,7 +129,8 @@ export default function PostCard({
   isTargeted = false,
   targetType = null,
   targetActor = null,
-  targetCommentId = null
+  targetCommentId = null,
+  onToggleSave
 }) {
   const [showComments, setShowComments] = useState(false);
   const [highlightedCommentId, setHighlightedCommentId] = useState(null);
@@ -301,7 +302,47 @@ export default function PostCard({
       commentFileInputRef.current.value = '';
     }
   };
-  const [isSaved, setIsSaved] = useState(post.isSaved || false);
+  const [isSaved, setIsSaved] = useState(Boolean(post.isSaved));
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
+
+  useEffect(() => {
+    setIsSaved(Boolean(post.isSaved));
+  }, [post.isSaved]);
+
+  const handleToggleSave = async (e) => {
+    if (e) e.stopPropagation();
+    if (!currentUser?.id) {
+      if (onRequireLogin) onRequireLogin();
+      else if (onRequireAuth) onRequireAuth("Vui lòng đăng nhập để lưu bài viết");
+      return;
+    }
+
+    const previousState = isSaved;
+    const nextState = !previousState;
+    setIsSaved(nextState);
+    setIsSaving(true);
+    setSaveToast(nextState ? 'Đã lưu bài viết vào mục Yêu thích' : 'Đã bỏ lưu bài viết');
+    setTimeout(() => setSaveToast(false), 2200);
+
+    try {
+      const res = await toggleSavePostApi(post.id);
+      const serverSaved = res?.isSaved ?? nextState;
+      setIsSaved(serverSaved);
+      post.isSaved = serverSaved;
+      if (onToggleSave) {
+        onToggleSave(post.id, serverSaved);
+      }
+    } catch (err) {
+      setIsSaved(previousState);
+      post.isSaved = previousState;
+      setSaveToast('Lỗi khi lưu bài viết: ' + (err.message || 'Thất bại'));
+      setTimeout(() => setSaveToast(false), 2200);
+      console.warn('Lỗi lưu bài viết:', err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   const [copiedToast, setCopiedToast] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
   const [reactionCounts, setReactionCounts] = useState(() => normalizeReactionCounts(post.reactionCounts || post.counts));
@@ -1304,13 +1345,20 @@ export default function PostCard({
         </button>
 
         <button
-          onClick={() => setIsSaved(!isSaved)}
-          className={`px-3 py-2 rounded-xl hover:bg-slate-50 transition duration-150 cursor-pointer ${
-            isSaved ? 'text-amber-500' : 'text-slate-400'
+          type="button"
+          onClick={handleToggleSave}
+          disabled={isSaving}
+          className={`relative px-3 py-2 rounded-xl hover:bg-slate-50 transition duration-150 cursor-pointer ${
+            isSaved ? 'text-amber-500' : 'text-slate-400 hover:text-slate-600'
           }`}
           title={isSaved ? "Bỏ lưu bài viết" : "Lưu bài viết"}
         >
-          <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-amber-500' : ''}`} />
+          <Bookmark className={`w-4 h-4 transition-all duration-200 ${isSaved ? 'fill-amber-500 text-amber-500 scale-110' : 'hover:scale-110'}`} />
+          {saveToast && (
+            <span className="absolute -top-8 right-0 whitespace-nowrap bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-xl pointer-events-none animate-fade-in z-30">
+              {saveToast}
+            </span>
+          )}
         </button>
       </div>
 
