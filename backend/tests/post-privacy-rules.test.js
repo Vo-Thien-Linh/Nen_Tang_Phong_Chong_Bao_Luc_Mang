@@ -5,6 +5,7 @@ import { createHashtagRepository } from '../src/repositories/hashtagRepository.j
 import { realtimeService } from '../src/services/realtimeService.js';
 import { createPostService } from '../src/services/postService.js';
 import fs from 'node:fs';
+import { createReportsController } from '../src/controllers/reportsController.js';
 
 test('public post is visible to everyone', () => {
   assert.equal(canViewerSeePost({
@@ -112,4 +113,21 @@ test('search uses accepted friendship privacy rules', () => {
   const source = fs.readFileSync(new URL('../app/routes/search.py', import.meta.url), 'utf8');
   assert.match(source, /Friendship\.status == "accepted"/);
   assert.match(source, /func\.coalesce\(Post\.privacy, "public"\)/);
+});
+
+test('cannot report an invisible post', async () => {
+  let reported = false;
+  const controller = createReportsController({
+    postRepository: { findById: async () => null },
+    reportRepository: { createReport: async () => { reported = true; return { data: {} }; } },
+  });
+  const next = (error) => { throw error; };
+  await assert.rejects(
+    controller.createReport({
+      user: { id: 'viewer' },
+      body: { targetType: 'post', targetId: 12 },
+    }, {}, next),
+    (error) => error.statusCode === 404
+  );
+  assert.equal(reported, false);
 });
