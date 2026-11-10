@@ -1719,6 +1719,7 @@ export default function PostCard({
       )}
 
       <EditPostModal
+        key={`${post.id}-${post.privacy || 'public'}`}
         post={post}
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}

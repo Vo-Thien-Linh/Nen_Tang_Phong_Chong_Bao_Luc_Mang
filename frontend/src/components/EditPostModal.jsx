@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Image as ImageIcon, Save, Globe, Users, Lock } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
@@ -16,13 +16,6 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [isSaving, setIsSaving] = useState(false);
   const [nudgeData, setNudgeData] = useState(null);
   const imageUploadIdRef = useRef(0);
-
-  useEffect(() => {
-    if (!post) return;
-    setContent(post.content || '');
-    setImageUrl(post.image || post.image_url || '');
-    setPrivacy(post.privacy === 'private' ? 'only_me' : (post.privacy || 'public'));
-  }, [post?.id, post?.privacy]);
 
   if (!isOpen || !post) return null;
 
