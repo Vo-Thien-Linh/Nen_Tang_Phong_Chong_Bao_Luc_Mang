@@ -14,6 +14,12 @@ test('public post is visible to everyone', () => {
   }), true);
 });
 
+test('friends post is visible to an accepted friend', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'friend', authorId: 'author', privacy: 'friends', friendshipStatus: 'accepted',
+  }), true);
+});
+
 test('single post returns not found for unauthorized viewer', () => {
   assert.equal(canViewerSeePost({
     viewerId: 'stranger', authorId: 'author', privacy: 'only_me', friendshipStatus: 'accepted',
