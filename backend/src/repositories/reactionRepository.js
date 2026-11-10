@@ -172,6 +172,7 @@ export function createReactionRepository({ pool }) {
           createdAt: r.created_at
         }));
       } catch (err) {
+        if (err?.statusCode === 404) throw err;
         return [];
       }
     },

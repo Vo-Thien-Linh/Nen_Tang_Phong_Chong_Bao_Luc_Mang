@@ -313,6 +313,7 @@ export function createPostsController({ postService, postRepository, imageModera
             }
           } catch (e) {
             if (e.statusCode === 409) return res.status(409).json({ success: false, message: e.message });
+            if (e.statusCode === 404) return res.status(404).json({ success: false, message: e.message });
           }
         }
 
