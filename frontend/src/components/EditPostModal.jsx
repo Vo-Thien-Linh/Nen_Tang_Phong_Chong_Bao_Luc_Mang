@@ -5,7 +5,7 @@ import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
-import { POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
+import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
 
 export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [content, setContent] = useState(post?.content || '');
@@ -67,7 +67,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
       const result = await onSave({
         content: content.trim(),
         imageUrl: imageUrl || null,
-        privacy,
+        privacy: normalizePostPrivacy(privacy),
         forcePost,
       });
 
