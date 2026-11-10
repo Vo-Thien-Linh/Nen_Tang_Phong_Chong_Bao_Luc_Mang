@@ -1,21 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, UserPlus, Check, User, Sparkles, MessageCircle } from 'lucide-react';
+import { X, UserPlus, Check } from 'lucide-react';
 import { REACTIONS } from '../utils/reactionLogic';
 import { DEFAULT_AVATAR } from '../constants/defaults';
-import { suggestedFriends } from '../data/mockData';
-
-// Danh sách người dùng phong phú cho dữ liệu mô phỏng fallback
-const MOCK_REACTORS_POOL = [
-  { id: 'usr-1', name: 'Lê Thu Trang', username: 'thutrang.le', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80', mutual: 4 },
-  { id: 'usr-2', name: 'Hoàng Tuấn Kiệt', username: 'kiethoang.dev', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80', mutual: 3 },
-  { id: 'usr-3', name: 'Phạm Hải Yến', username: 'haiyen.pham', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&auto=format&fit=crop&q=80', mutual: 5 },
-  { id: 'usr-4', name: 'Đỗ Phương Thảo', username: 'thaodo.99', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80', mutual: 2 },
-  { id: 'usr-5', name: 'Hoàng Minh Đức', username: 'duc.hoang', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80', mutual: 1 },
-  { id: 'usr-6', name: 'Đặng Thảo Vy', username: 'vyvy.dang', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80', mutual: 6 },
-  { id: 'usr-7', name: 'Nguyễn Thanh Tùng', username: 'tung.nguyen', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80', mutual: 0 },
-  { id: 'usr-8', name: 'Trần Bảo Ngọc', username: 'ngocbao_tran', avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=200&auto=format&fit=crop&q=80', mutual: 2 },
-];
+import { fetchPostReactions } from '../api/client';
 
 export default function PostReactionsModal({
   isOpen,
@@ -37,24 +25,14 @@ export default function PostReactionsModal({
     let isMounted = true;
     setIsLoading(true);
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-    fetch(`${API_URL}/api/posts/${postId}/reactions`)
-      .then(res => res.json())
+    fetchPostReactions({ userId: currentUser?.id, postId })
       .then(data => {
         if (!isMounted) return;
-        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-          setReactors(data.data);
-        } else {
-          // Tạo danh sách mô phỏng tự nhiên dựa trên reactionCounts của bài viết
-          const fallbackReactors = buildFallbackReactors(post, currentUser);
-          setReactors(fallbackReactors);
-        }
+        setReactors(Array.isArray(data?.data) ? data.data : []);
       })
       .catch(() => {
         if (!isMounted) return;
-        const fallbackReactors = buildFallbackReactors(post, currentUser);
-        setReactors(fallbackReactors);
+        setReactors([]);
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -260,66 +238,4 @@ export default function PostReactionsModal({
     </div>,
     document.body
   );
-}
-
-// Hàm khởi tạo danh sách người dùng tương tác tự nhiên dựa trên thông tin bài viết
-function buildFallbackReactors(post, currentUser) {
-  const result = [];
-  const assignedIds = new Set();
-
-  // 1. Nếu người dùng hiện tại đã thả cảm xúc vào bài
-  if (currentUser?.id && (post?.myReaction || post?.isLiked)) {
-    const userReaction = post.myReaction || 'like';
-    result.push({
-      userId: currentUser.id,
-      name: currentUser.name || 'Bạn',
-      username: currentUser.username || 'current_user',
-      avatar: currentUser.avatar || DEFAULT_AVATAR,
-      reactionType: userReaction,
-      createdAt: new Date().toISOString()
-    });
-    assignedIds.add(String(currentUser.id));
-  }
-
-  // 2. Lấy tác giả các bình luận trong bài viết (những người hay tương tác bài này)
-  if (Array.isArray(post?.comments)) {
-    post.comments.forEach((cmt, idx) => {
-      if (cmt.author?.id && !assignedIds.has(String(cmt.author.id))) {
-        const types = ['love', 'like', 'haha', 'wow'];
-        const rType = types[idx % types.length];
-        result.push({
-          userId: cmt.author.id,
-          name: cmt.author.name,
-          username: cmt.author.username || `user_${idx + 1}`,
-          avatar: cmt.author.avatar || DEFAULT_AVATAR,
-          reactionType: rType,
-          createdAt: new Date().toISOString()
-        });
-        assignedIds.add(String(cmt.author.id));
-      }
-    });
-  }
-
-  // 3. Bổ sung từ danh sách người dùng mẫu phong phú
-  const reactionPool = ['like', 'love', 'haha', 'wow', 'sad', 'angry'];
-  let poolIdx = 0;
-
-  for (const poolUser of MOCK_REACTORS_POOL) {
-    if (!assignedIds.has(String(poolUser.id)) && result.length < 12) {
-      const reactionType = reactionPool[poolIdx % reactionPool.length];
-      poolIdx++;
-      result.push({
-        userId: poolUser.id,
-        name: poolUser.name,
-        username: poolUser.username,
-        avatar: poolUser.avatar,
-        mutual: poolUser.mutual,
-        reactionType,
-        createdAt: new Date().toISOString()
-      });
-      assignedIds.add(String(poolUser.id));
-    }
-  }
-
-  return result;
 }

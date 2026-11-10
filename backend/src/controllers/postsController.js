@@ -4,6 +4,17 @@ import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 import { formatImageModerationForViewer } from '../services/imageModerationResponse.js';
 import { getModerationNoticeText } from '../services/moderationNotificationText.js';
+import { normalizePostPrivacy } from '../repositories/postVisibility.js';
+
+async function getPostAudienceUserIds(postRepository, post) {
+  const privacy = normalizePostPrivacy(post?.privacy);
+  if (privacy === 'public') return undefined;
+  if (privacy === 'friends' && typeof postRepository?.findAcceptedFriendIds === 'function') {
+    const friends = await postRepository.findAcceptedFriendIds(post.author_id);
+    return [post.author_id, ...friends];
+  }
+  return [post?.author_id].filter(Boolean);
+}
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -49,6 +60,7 @@ export function mapPostToResponse(post, viewerId = null) {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
+    ...(Object.prototype.hasOwnProperty.call(post, 'privacy') ? { privacy: post.privacy || 'public' } : {}),
     imageModeration,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
@@ -130,6 +142,7 @@ export function mapPostToResponse(post, viewerId = null) {
       : post.original_post_id
         ? null   // Bài gốc đã bị xóa (SET NULL không còn)
         : undefined,
+    ...(post.original_post_id ? { originalPostId: String(post.original_post_id) } : {}),
   };
 }
 
@@ -141,6 +154,7 @@ export function createPostsController({ postService, postRepository, imageModera
           user: req.user,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          privacy: req.body?.privacy,
           forcePost: Boolean(req.body?.forcePost),
         });
 
@@ -161,6 +175,7 @@ export function createPostsController({ postService, postRepository, imageModera
           realtimeService.broadcast({
             type: 'POST_CREATED',
             post: mappedPost,
+            audienceUserIds: await getPostAudienceUserIds(postRepository, post),
           });
         }
 
@@ -202,11 +217,15 @@ export function createPostsController({ postService, postRepository, imageModera
 
     async editPost(req, res, next) {
       try {
+        const previousPost = postRepository?.findByIdForOwnerAction
+          ? await postRepository.findByIdForOwnerAction(req.params.postId)
+          : null;
         const post = await postService.editPost({
           user: req.user,
           postId: req.params.postId,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          privacy: req.body?.privacy,
           forcePost: Boolean(req.body?.forcePost),
         });
 
@@ -221,6 +240,18 @@ export function createPostsController({ postService, postRepository, imageModera
         }
 
         const mapped = mapPostToResponse(post, req.user?.id);
+        if (previousPost && normalizePostPrivacy(previousPost.privacy) !== normalizePostPrivacy(post.privacy)) {
+          realtimeService.broadcast({
+            type: 'POST_DELETED',
+            postId: String(post.id),
+            audienceUserIds: await getPostAudienceUserIds(postRepository, previousPost),
+          });
+          realtimeService.broadcast({
+            type: 'POST_CREATED',
+            post: mapped,
+            audienceUserIds: await getPostAudienceUserIds(postRepository, post),
+          });
+        }
         res.json({
           success: true,
           message: post.ai_status === 'hidden'
@@ -241,7 +272,11 @@ export function createPostsController({ postService, postRepository, imageModera
         });
 
         if (!['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(deleted.imageModerationStatus)) {
-          realtimeService.broadcast({ type: 'POST_DELETED', postId: String(req.params.postId) });
+          realtimeService.broadcast({
+            type: 'POST_DELETED',
+            postId: String(req.params.postId),
+            audienceUserIds: await getPostAudienceUserIds(postRepository, deleted),
+          });
         }
 
         res.json({
@@ -279,6 +314,7 @@ export function createPostsController({ postService, postRepository, imageModera
             }
           } catch (e) {
             if (e.statusCode === 409) return res.status(409).json({ success: false, message: e.message });
+            if (e.statusCode === 404) return res.status(404).json({ success: false, message: e.message });
           }
         }
 
@@ -595,6 +631,7 @@ export function createPostsController({ postService, postRepository, imageModera
             type: 'COMMENT_CREATED',
             postId: String(postId),
             comment: commentData,
+            audienceUserIds: await getPostAudienceUserIds(postRepository, targetPost),
           });
         }
 

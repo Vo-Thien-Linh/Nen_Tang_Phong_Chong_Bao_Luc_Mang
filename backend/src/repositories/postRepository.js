@@ -162,7 +162,17 @@ async function replacePostHashtags(db, postId, content, { clearExisting = true }
 export function createPostRepository({ pool }) {
   return {
     pool,
-    async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public', aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
+    async findAcceptedFriendIds(userId) {
+      const result = await pool.query(
+        `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS user_id
+         FROM friendships
+         WHERE (requester_id = $1 OR addressee_id = $1) AND status = 'accepted'`,
+        [userId]
+      );
+      return result.rows.map((row) => row.user_id);
+    },
+    async createPost({ authorId, content, imageUrl, imageModeration, privacy, aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
+      const storedPrivacy = privacy ?? 'public';
       const imgScores = imageModeration?.scores || imageModeration?.images?.[0]?.scores || {};
       const safeScore = imgScores.safe ?? null;
       const nsfwScore = imgScores.nsfw ?? null;
@@ -179,7 +189,7 @@ export function createPostRepository({ pool }) {
                             ai_label, ai_confidence, ai_status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING id`,
-          [authorId, content, imageUrl, privacy, imageModeration?.decision || null,
+          [authorId, content, imageUrl, storedPrivacy, imageModeration?.decision || null,
             imgLabel,
             safeScore,
             nsfwScore,
@@ -203,7 +213,7 @@ export function createPostRepository({ pool }) {
         author_id: authorId,
         content,
         image_url: imageUrl,
-        privacy,
+        ...(privacy !== undefined ? { privacy: storedPrivacy } : {}),
         image_moderation_status: imageModeration?.decision || null,
         image_moderation_safe: imageModeration?.images?.[0]?.scores?.safe || null,
         image_moderation_nsfw: imageModeration?.images?.[0]?.scores?.nsfw || null,
@@ -223,12 +233,7 @@ export function createPostRepository({ pool }) {
       const result = await pool.query(
         `${postSelect}
          WHERE p.id = $1
-           AND (
-             p.image_moderation_status IS NULL
-             OR p.image_moderation_status IN ('safe', 'sensitive')
-             OR (p.author_id = $2
-                 AND p.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'))
-           )`,
+           AND ${buildPostVisibilityPredicate('$2')}`,
         [cleanId, viewerId]
       );
 
@@ -278,9 +283,8 @@ export function createPostRepository({ pool }) {
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
-           WHERE p.id = $1 AND p.ai_status = 'approved'
-             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
-          [post.original_post_id]
+           WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}`,
+          [post.original_post_id, viewerId]
         );
         post.original_post = originalResult.rows[0] || null;
       }
@@ -361,6 +365,23 @@ export function createPostRepository({ pool }) {
         throw error;
       }
 
+      return this.findById(result.rows[0].id, authorId);
+    },
+
+    async updatePostPrivacy({ postId, authorId, privacy }) {
+      const result = await pool.query(
+        `UPDATE posts
+         SET privacy = $3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND author_id = $2
+           AND COALESCE(image_moderation_status, '') NOT IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final')
+         RETURNING id`,
+        [postId, authorId, privacy]
+      );
+      if (!result.rows[0]) {
+        const error = new Error('\u0042\u00e0i vi\u1ebft kh\u00f4ng t\u1ed3n t\u1ea1i');
+        error.statusCode = 404;
+        throw error;
+      }
       return this.findById(result.rows[0].id, authorId);
     },
 
@@ -528,9 +549,8 @@ export function createPostRepository({ pool }) {
                   u.id AS author_id, u.full_name, u.username, u.avatar_url
            FROM posts p
            JOIN users u ON u.id = p.author_id
-           WHERE p.id = ANY($1::bigint[]) AND p.ai_status = 'approved'
-             AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive'))`,
-          [originalPostIds]
+           WHERE p.id = ANY($1::bigint[]) AND ${buildPostVisibilityPredicate('$2')}`,
+          [originalPostIds, viewerId]
         );
         const originalPostMap = new Map(originalPostsResult.rows.map((op) => [Number(op.id), op]));
         return posts.map((p) => ({

@@ -328,6 +328,7 @@ export function createUsersController({ userRepository, pool }) {
           },
           content: p.content,
           image: p.image_url || null,
+          privacy: p.privacy || 'public',
           imageModeration: formatImageModerationForViewer(p.imageModeration, 'post', p.author_id, viewerId),
           createdAt: p.created_at,
           likesCount: p.likes_count || 0,
@@ -364,6 +365,7 @@ export function createUsersController({ userRepository, pool }) {
               avatar: p.orig_author_avatar,
               isVerified: p.orig_author_is_verified,
             },
+            privacy: p.orig_privacy || 'public',
           } : null,
         }));
 

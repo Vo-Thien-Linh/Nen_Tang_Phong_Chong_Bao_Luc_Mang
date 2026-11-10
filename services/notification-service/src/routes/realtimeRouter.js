@@ -16,7 +16,7 @@ export function createRealtimeRouter() {
       'Access-Control-Allow-Origin': '*',
     });
     res.write(`data: ${JSON.stringify({ type: 'CONNECTED' })}\n\n`);
-    realtimeService.addClient(res);
+    realtimeService.addClient(res, req.query.userId || req.header('x-user-id') || null);
 
     const keepAlive = setInterval(() => {
       try {
