@@ -80,3 +80,16 @@ test('create post rejects an invalid privacy', async () => {
     (error) => error.statusCode === 400 && error.message === 'Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡'
   );
 });
+
+test('create post uses the default privacy when missing', async () => {
+  let created;
+  const service = createPostService({
+    postRepository: {
+      pool: { query: async () => ({ rows: [{ post_default_privacy: 'only_me' }] }) },
+      createPost: async (input) => { created = input; return { id: 1, ...input }; },
+    },
+    moderationHook: { afterPostCreated: async () => {} },
+  });
+  await service.createPost({ user: { id: 'author' }, content: 'hello' });
+  assert.equal(created.privacy, 'only_me');
+});
