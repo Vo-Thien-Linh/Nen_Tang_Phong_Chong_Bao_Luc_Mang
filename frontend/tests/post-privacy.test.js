@@ -22,3 +22,8 @@ test('other viewers see the privacy badge only for visible posts', () => {
   assert.match(postCardSource, /getPostPrivacyLabel\(post\.privacy\)/);
   assert.match(postCardSource, /normalizePostPrivacy\(post\.privacy\) === 'only_me'/);
 });
+
+test('composer normalizes the legacy private default', () => {
+  const composerSource = fs.readFileSync(new URL('../src/components/CreatePostCard.jsx', import.meta.url), 'utf8');
+  assert.match(composerSource, /normalizePostPrivacy\(currentUser\?\.settings\?\.post_default_privacy/);
+});
