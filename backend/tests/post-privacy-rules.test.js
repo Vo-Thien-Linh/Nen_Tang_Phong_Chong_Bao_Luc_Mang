@@ -6,6 +6,7 @@ import { realtimeService } from '../src/services/realtimeService.js';
 import { createPostService } from '../src/services/postService.js';
 import fs from 'node:fs';
 import { createReportsController } from '../src/controllers/reportsController.js';
+import { mapPostToResponse } from '../src/controllers/postsController.js';
 
 test('public post is visible to everyone', () => {
   assert.equal(canViewerSeePost({
@@ -152,4 +153,12 @@ test('privacy sql uses valid columns', () => {
   assert.match(schema, /privacy\s+VARCHAR\(20\)/i);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS friendships/i);
   assert.match(schema, /status IN \('pending', 'accepted', 'declined', 'blocked'\)/i);
+});
+
+test('post response carries privacy when the row contains it', () => {
+  const response = mapPostToResponse({
+    id: 1, author_id: 'author', content: 'hello', privacy: 'friends',
+    created_at: new Date(), full_name: 'Author', username: 'author',
+  });
+  assert.equal(response.privacy, 'friends');
 });
