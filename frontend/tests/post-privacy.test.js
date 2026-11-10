@@ -34,3 +34,9 @@ test('only me privacy renders its own label', () => {
   const postCardSource = fs.readFileSync(new URL('../src/components/PostCard.jsx', import.meta.url), 'utf8');
   assert.match(postCardSource, /normalizePostPrivacy\(post\.privacy\) === 'only_me' \? 'Chỉ mình tôi'/);
 });
+
+test('shared post shows a placeholder when its original is unavailable', () => {
+  const postCardSource = fs.readFileSync(new URL('../src/components/PostCard.jsx', import.meta.url), 'utf8');
+  assert.match(postCardSource, /post\.originalPostId && !post\.originalPost/);
+  assert.match(postCardSource, /N\\u1ed9i dung g\\u1ed1c kh\\u00f4ng kh\\u1ea3 d\\u1ee5ng/);
+});
