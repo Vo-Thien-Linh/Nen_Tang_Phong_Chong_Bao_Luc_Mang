@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { canViewerSeePost } from '../src/repositories/postVisibility.js';
 import { createHashtagRepository } from '../src/repositories/hashtagRepository.js';
 import { realtimeService } from '../src/services/realtimeService.js';
+import { createPostService } from '../src/services/postService.js';
 
 test('public post is visible to everyone', () => {
   assert.equal(canViewerSeePost({
@@ -42,4 +43,17 @@ test('only me post is never broadcast to another viewer', () => {
     realtimeService.removeClient(author);
     realtimeService.removeClient(stranger);
   }
+});
+
+test('sharing a non public post is rejected', async () => {
+  const service = createPostService({
+    postRepository: {
+      findById: async () => ({ id: 1, author_id: 'author', privacy: 'friends', ai_status: 'approved' }),
+      sharePost: async () => { throw new Error('should not share'); },
+    },
+  });
+  await assert.rejects(
+    service.sharePost({ user: { id: 'viewer' }, originalPostId: 1, content: '' }),
+    (error) => error.statusCode === 403 && error.message === 'BÃ i viáº¿t nÃ y khÃ´ng thá»ƒ chia sáº»'
+  );
 });
