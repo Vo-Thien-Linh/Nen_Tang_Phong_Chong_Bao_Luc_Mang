@@ -7,7 +7,7 @@ import {
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
   UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert,
-  ShieldCheck, ExternalLink, Mail, Phone
+  ShieldCheck, ExternalLink, Mail, Phone, Trash2
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
@@ -100,6 +100,64 @@ export default function ProfileView({
   // ── Story ring quanh avatar trang cá nhân ──────────────────
   const [profileStoryInfo, setProfileStoryInfo] = useState(null); // { hasUnviewed, tray }
   const [showAvatarMenu, setShowAvatarMenu] = useState(false); // Popup tùy chọn khi click avatar có story đã xem
+  const [showProfileMoreMenu, setShowProfileMoreMenu] = useState(false);
+  const [profileToastMsg, setProfileToastMsg] = useState('');
+  const profileMoreMenuRef = useRef(null);
+
+  // Đóng menu tùy chọn 3 chấm khi nhấn ra ngoài
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (profileMoreMenuRef.current && !profileMoreMenuRef.current.contains(e.target)) {
+        setShowProfileMoreMenu(false);
+      }
+    };
+    if (showProfileMoreMenu) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showProfileMoreMenu]);
+
+  // Tự ẩn thông báo toast chia sẻ sau 3 giây
+  useEffect(() => {
+    if (profileToastMsg) {
+      const timer = setTimeout(() => setProfileToastMsg(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [profileToastMsg]);
+
+  // Xử lý chia sẻ trang cá nhân (Hỗ trợ Native Web Share API và copy fallback)
+  const handleShareProfile = async () => {
+    const profileUrl = `${window.location.origin}/?user=${targetUserId}`;
+    const name = activeUser?.name || activeUser?.full_name || 'Người dùng';
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Trang cá nhân của ${name}`,
+          text: `Ghé thăm trang cá nhân của ${name} trên WINGS!`,
+          url: profileUrl,
+        });
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(profileUrl);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = profileUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setProfileToastMsg('Đã sao chép liên kết trang cá nhân vào bộ nhớ tạm!');
+    } catch (e) {
+      setProfileToastMsg('Đã sao chép liên kết!');
+    }
+  };
 
   useEffect(() => {
     if (!targetUserId) return;
@@ -1009,21 +1067,135 @@ export default function ProfileView({
                 </button>
               )}
 
+              {/* Nút Chia sẻ trang */}
               <button 
-                onClick={() => {
-                  navigator.clipboard?.writeText(window.location.href);
-                  alert("Đã sao chép liên kết trang cá nhân!");
-                }}
+                onClick={handleShareProfile}
                 className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer"
+                title="Chia sẻ trang cá nhân"
               >
                 <Share2 className="w-4 h-4" />
                 <span>Chia sẻ trang</span>
               </button>
 
-              <button className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl transition cursor-pointer">
-                <MoreHorizontal className="w-5 h-5" />
-              </button>
+              {/* Nút 3 chấm mở tùy chọn nâng cao */}
+              <div className="relative" ref={profileMoreMenuRef}>
+                <button 
+                  type="button"
+                  onClick={() => setShowProfileMoreMenu(prev => !prev)}
+                  className={`p-2 rounded-xl transition cursor-pointer ${
+                    showProfileMoreMenu 
+                      ? 'bg-blue-100 dark:bg-blue-950 text-blue-600' 
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
+                  }`}
+                  title="Tùy chọn khác"
+                >
+                  <MoreHorizontal className="w-5 h-5" />
+                </button>
+
+                {showProfileMoreMenu && (
+                  <div className="absolute right-0 top-11 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 z-40 animate-scale-up">
+                    {isOwnProfile ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowProfileMoreMenu(false);
+                            if (onOpenStoryViewer) {
+                              onOpenStoryViewer({ userId: currentUser?.id, initialShowViewers: false });
+                            }
+                          }}
+                          className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition cursor-pointer"
+                        >
+                          <Clock className="w-4 h-4 text-blue-500" />
+                          <span>Kho lưu trữ tin (Stories)</span>
+                        </button>
+
+                        {onOpenSettings && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowProfileMoreMenu(false);
+                              onOpenSettings();
+                            }}
+                            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition cursor-pointer"
+                          >
+                            <Settings className="w-4 h-4 text-slate-500" />
+                            <span>Cài đặt & Quyền riêng tư</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowProfileMoreMenu(false);
+                            handleShareProfile();
+                          }}
+                          className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition cursor-pointer"
+                        >
+                          <Share2 className="w-4 h-4 text-emerald-500" />
+                          <span>Sao chép liên kết trang</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowProfileMoreMenu(false);
+                            handleShareProfile();
+                          }}
+                          className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition cursor-pointer"
+                        >
+                          <Share2 className="w-4 h-4 text-emerald-500" />
+                          <span>Sao chép liên kết trang cá nhân</span>
+                        </button>
+
+                        {onOpenChat && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowProfileMoreMenu(false);
+                              onOpenChat(profileData || viewedUser);
+                            }}
+                            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition cursor-pointer"
+                          >
+                            <MessageCircle className="w-4 h-4 text-blue-500" />
+                            <span>Nhắn tin trực tiếp</span>
+                          </button>
+                        )}
+
+                        {onOpenReportModal && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowProfileMoreMenu(false);
+                              onOpenReportModal({
+                                targetType: 'user',
+                                targetId: targetUserId,
+                                targetUser: profileData || viewedUser,
+                                post: null,
+                              });
+                            }}
+                            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          >
+                            <Flag className="w-4 h-4 text-rose-500" />
+                            <span>Báo cáo trang cá nhân này</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Thông báo Toast sao chép link trang cá nhân */}
+            {profileToastMsg && (
+              <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-2xl shadow-2xl border border-slate-700 animate-fade-in">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>{profileToastMsg}</span>
+              </div>
+            )}
 
           </div>
 
@@ -1953,6 +2125,35 @@ export default function ProfileView({
                   </p>
                 </div>
               </button>
+
+              {/* Lựa chọn 3: Xóa ảnh đại diện quay về mặc định (chỉ dành cho chủ tài khoản) */}
+              {isOwnProfile && activeUser?.avatar && activeUser.avatar !== DEFAULT_AVATAR && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowAvatarMenu(false);
+                    try {
+                      await handleSaveProfileModal({ avatar_url: DEFAULT_AVATAR });
+                      setProfileToastMsg('Đã đặt lại ảnh đại diện mặc định thành công!');
+                    } catch (e) {
+                      setProfileToastMsg('Lỗi khi xóa ảnh đại diện: ' + e.message);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3.5 p-3 rounded-2xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer text-left group"
+                >
+                  <div className="w-11 h-11 rounded-full bg-rose-50 dark:bg-rose-950/50 group-hover:bg-rose-100 transition shrink-0 flex items-center justify-center text-rose-600">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-rose-600 transition">
+                      Xóa ảnh đại diện
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">
+                      Quay về ảnh đại diện mặc định của hệ thống
+                    </p>
+                  </div>
+                </button>
+              )}
             </div>
 
             <button
