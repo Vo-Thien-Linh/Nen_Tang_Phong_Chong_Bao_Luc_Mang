@@ -53,6 +53,18 @@ test('blocked user cannot see the author post', () => {
   }), true);
 });
 
+test('privacy never overrides moderation visibility', () => {
+  assert.equal(canViewerSeePost({
+    viewerId: 'stranger', authorId: 'author', privacy: 'public', aiStatus: 'pending', imageModerationStatus: 'pending_review',
+  }), false);
+  assert.equal(canViewerSeePost({
+    viewerId: 'author', authorId: 'author', privacy: 'only_me', aiStatus: 'pending', imageModerationStatus: 'pending_review',
+  }), true);
+  assert.equal(canViewerSeePost({
+    viewerId: 'author', authorId: 'author', privacy: 'public', aiStatus: 'approved', imageModerationStatus: 'rejected_final',
+  }), false);
+});
+
 test('hashtag list hides friends and only me posts from strangers', async () => {
   const queries = [];
   const pool = { query: async (text) => {
