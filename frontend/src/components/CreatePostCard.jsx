@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users } from 'lucide-react';
+import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users, ShieldAlert, ShieldCheck, Clock, Loader2 } from 'lucide-react';
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
@@ -146,14 +146,24 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     setImagePreview(URL.createObjectURL(file));
     setImageFile(file);
     setIsUploadingImage(true);
+    setImageAiPreview(null);
 
     try {
       const uploadedUrl = await uploadPostImage(file);
       setImageUrl(uploadedUrl);
+
+      // Tự động kiểm tra an toàn ảnh bằng AI
+      try {
+        const previewResult = await previewPostImage(file, currentUser?.id);
+        setImageAiPreview(previewResult?.category || 'SAFE');
+      } catch {
+        setImageAiPreview('PENDING_REVIEW');
+      }
     } catch (error) {
       setImageUrl('');
       setImagePreview('');
       setImageFile(null);
+      setImageAiPreview(null);
       setErrorMessage(error.message || 'Tải ảnh thất bại');
     } finally {
       setIsUploadingImage(false);
@@ -216,9 +226,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setImageUrl('');
       setImagePreview('');
       setImageFile(null);
+      setImageAiPreview(null);
       setShowImageInput(false);
       setAiPreview(null);
-      setMessage('Đăng bài thành công');
+      const isPendingImg = result.data?.imageModeration?.status === 'pending_review' || result.data?.image_moderation_status === 'pending_review';
+      setMessage(isPendingImg ? 'Đăng bài thành công! Ảnh đang được gửi kiểm duyệt (chỉ bạn thấy cho đến khi được phê duyệt).' : 'Đăng bài thành công');
     } catch (error) {
       if (error.cooldown) {
         onAddPost(null, error.cooldown, { content: content.trim(), imageUrl: finalImageUrl, label: 'Violence' });
@@ -377,9 +389,46 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               </span>
             </div>
           )}
-          {imageAiPreview && (
-            <div className="mt-2 text-xs font-semibold text-slate-700">
-              {imageAiPreview === 'SAFE' ? 'Ảnh: An toàn' : imageAiPreview === 'SENSITIVE' ? 'Ảnh: Nhạy cảm (sẽ bị che mờ)' : imageAiPreview === 'VIOLATION' ? 'Ảnh: Vi phạm (bài sẽ bị chặn)' : 'Ảnh: Cần quản trị viên duyệt'}
+          {isUploadingImage && (
+            <div className="mt-2.5 p-2.5 rounded-xl border border-blue-100 bg-blue-50/70 text-xs text-blue-700 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+              <span>Đang tải lên và phân tích hình ảnh...</span>
+            </div>
+          )}
+
+          {imageAiPreview && !isUploadingImage && (
+            <div className={`mt-2.5 p-2.5 rounded-xl border text-xs flex items-start gap-2.5 transition-all ${
+              imageAiPreview === 'SAFE'
+                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                : imageAiPreview === 'SENSITIVE'
+                ? 'bg-amber-50/80 border-amber-200 text-amber-800'
+                : imageAiPreview === 'VIOLATION'
+                ? 'bg-rose-50/80 border-rose-200 text-rose-800'
+                : 'bg-indigo-50/80 border-indigo-200 text-indigo-800'
+            }`}>
+              {imageAiPreview === 'SAFE' ? (
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              ) : imageAiPreview === 'SENSITIVE' ? (
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              ) : imageAiPreview === 'VIOLATION' ? (
+                <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              ) : (
+                <Clock className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1 text-[11.5px] leading-relaxed">
+                {imageAiPreview === 'SAFE' && (
+                  <span><strong>Ảnh an toàn:</strong> Hình ảnh phù hợp tiêu chuẩn cộng đồng và sẽ hiển thị bình thường.</span>
+                )}
+                {imageAiPreview === 'SENSITIVE' && (
+                  <span><strong>Ảnh có yếu tố nhạy cảm:</strong> Ảnh sẽ được làm mờ và gắn nhãn cảnh báo trước khi người khác bấm xem.</span>
+                )}
+                {imageAiPreview === 'VIOLATION' && (
+                  <span><strong>Ảnh vi phạm:</strong> Hình ảnh chứa yếu tố bạo lực hoặc cấm. Bài viết có thể bị từ chối hoặc tài khoản bị giới hạn.</span>
+                )}
+                {imageAiPreview === 'PENDING_REVIEW' && (
+                  <span><strong>Ảnh cần kiểm duyệt:</strong> Sau khi đăng, ảnh sẽ được chuyển vào hàng đợi kiểm duyệt (chỉ bạn thấy trên trang cá nhân; bạn bè sẽ chưa thể thấy ảnh này cho đến khi được quản trị viên duyệt).</span>
+                )}
+              </div>
             </div>
           )}
 

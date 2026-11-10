@@ -141,6 +141,7 @@ export function createPostsController({ postService, postRepository, imageModera
           user: req.user,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          privacy: req.body?.privacy,
           forcePost: Boolean(req.body?.forcePost),
         });
 

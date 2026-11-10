@@ -24,7 +24,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
   };
 
   return {
-    async createPost({ user, content, imageUrl, forcePost }) {
+    async createPost({ user, content, imageUrl, privacy, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để đăng bài');
         error.statusCode = 401;
@@ -100,6 +100,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           authorId: user.id,
           content: normalizedContent,
           imageUrl: normalizeText(imageUrl) || null,
+          ...(privacy ? { privacy: ['public', 'friends', 'private'].includes(privacy) ? privacy : 'public' } : {}),
           createdAt: clock(),
           aiStatus: 'hidden',
           aiLabel: harmonized.finalLabel,
@@ -157,6 +158,9 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         imageUrl: normalizeText(imageUrl) || null,
         createdAt: clock(),
       };
+      if (privacy) {
+        postInput.privacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : 'public';
+      }
       if (harmonized.aiStatus && harmonized.aiStatus !== 'approved') {
         postInput.aiStatus = harmonized.aiStatus;
       }
