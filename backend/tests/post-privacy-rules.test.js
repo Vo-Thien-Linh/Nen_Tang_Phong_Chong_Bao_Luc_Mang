@@ -29,7 +29,7 @@ test('hashtag list hides friends and only me posts from strangers', async () => 
   } };
   await createHashtagRepository({ pool, postRepository: { findById: async () => null } })
     .findPosts({ tag: 'tag', viewerId: 'viewer' });
-  assert.match(queries[0], /f\.status = 'accepted'/);
+  assert.match(queries[0], /f\."status" = 'accepted'/);
   assert.match(queries[0], /COALESCE\(p\.privacy, 'public'\)/);
 });
 
@@ -72,7 +72,7 @@ test('sharing a non public post is rejected', async () => {
   });
   await assert.rejects(
     service.sharePost({ user: { id: 'viewer' }, originalPostId: 1, content: '' }),
-    (error) => error.statusCode === 403 && error.message === 'BÃ i viáº¿t nÃ y khÃ´ng thá»ƒ chia sáº»'
+    (error) => error.statusCode === 403 && error.message === 'Bài viết này không thể chia sẻ'
   );
 });
 
@@ -95,7 +95,7 @@ test('create post rejects an invalid privacy', async () => {
   });
   await assert.rejects(
     service.createPost({ user: { id: 'author' }, content: 'hello', privacy: 'followers' }),
-    (error) => error.statusCode === 400 && error.message === 'Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡'
+    (error) => error.statusCode === 400 && error.message === 'Quyền riêng tư không hợp lệ'
   );
 });
 
