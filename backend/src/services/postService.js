@@ -540,7 +540,12 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       await postRepository.deletePost({ postId, authorId: user.id });
-      return { id: String(postId), imageModerationStatus: existingPost.image_moderation_status };
+      return {
+        id: String(postId),
+        privacy: existingPost.privacy,
+        author_id: existingPost.author_id,
+        imageModerationStatus: existingPost.image_moderation_status,
+      };
     },
 
     async sharePost({ user, originalPostId, content }) {
