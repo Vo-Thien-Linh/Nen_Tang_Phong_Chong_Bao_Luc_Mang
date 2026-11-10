@@ -49,6 +49,7 @@ export function mapPostToResponse(post, viewerId = null) {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
+    privacy: post.privacy || 'public',
     imageModeration,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
@@ -141,6 +142,7 @@ export function createPostsController({ postService, postRepository, imageModera
           user: req.user,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          privacy: req.body?.privacy,
           forcePost: Boolean(req.body?.forcePost),
         });
 

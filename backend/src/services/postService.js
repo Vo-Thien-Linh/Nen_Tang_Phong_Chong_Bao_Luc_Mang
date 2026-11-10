@@ -25,7 +25,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
   };
 
   return {
-    async createPost({ user, content, imageUrl, forcePost }) {
+    async createPost({ user, content, imageUrl, privacy, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để đăng bài');
         error.statusCode = 401;
@@ -45,6 +45,28 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         error.statusCode = 400;
         throw error;
       }
+
+      let requestedPrivacy = privacy;
+      if (requestedPrivacy === undefined || requestedPrivacy === null || requestedPrivacy === '') {
+        requestedPrivacy = 'public';
+        if (postRepository.pool) {
+          try {
+            const settings = await postRepository.pool.query(
+              'SELECT post_default_privacy FROM user_settings WHERE user_id = $1',
+              [user.id]
+            );
+            requestedPrivacy = settings.rows[0]?.post_default_privacy || 'public';
+          } catch {
+            requestedPrivacy = 'public';
+          }
+        }
+      }
+      if (!['public', 'friends', 'only_me', 'private'].includes(requestedPrivacy)) {
+        const error = new Error('Quyá»n riÃªng tÆ° khÃ´ng há»£p lá»‡');
+        error.statusCode = 400;
+        throw error;
+      }
+      requestedPrivacy = normalizePostPrivacy(requestedPrivacy);
 
       const textMod = await moderateTextContent(normalizedContent);
 
@@ -101,6 +123,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           authorId: user.id,
           content: normalizedContent,
           imageUrl: normalizeText(imageUrl) || null,
+          privacy: requestedPrivacy,
           createdAt: clock(),
           aiStatus: 'hidden',
           aiLabel: harmonized.finalLabel,
@@ -156,6 +179,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
+        privacy: requestedPrivacy,
         createdAt: clock(),
       };
       if (harmonized.aiStatus && harmonized.aiStatus !== 'approved') {
