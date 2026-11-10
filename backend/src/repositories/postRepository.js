@@ -162,6 +162,15 @@ async function replacePostHashtags(db, postId, content, { clearExisting = true }
 export function createPostRepository({ pool }) {
   return {
     pool,
+    async findAcceptedFriendIds(userId) {
+      const result = await pool.query(
+        `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS user_id
+         FROM friendships
+         WHERE (requester_id = $1 OR addressee_id = $1) AND status = 'accepted'`,
+        [userId]
+      );
+      return result.rows.map((row) => row.user_id);
+    },
     async createPost({ authorId, content, imageUrl, imageModeration, privacy = 'public', aiLabel = 'Normal', aiConfidence = 1.0, aiStatus = 'approved' }) {
       const imgScores = imageModeration?.scores || imageModeration?.images?.[0]?.scores || {};
       const safeScore = imgScores.safe ?? null;

@@ -808,7 +808,8 @@ export default function App() {
     let eventSource = null;
     try {
       const nodeApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream`);
+      const realtimeUserId = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
+      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream${realtimeUserId}`);
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
@@ -826,7 +827,7 @@ export default function App() {
         eventSource.close();
       }
     };
-  }, []);
+  }, [currentUser?.id]);
 
   // Thêm bài viết mới
   const handleAddPost = (newPost, cooldown, violationInfo) => {
