@@ -75,6 +75,13 @@ export async function updatePost({ userId, postId, content, imageUrl, privacy, f
       body: JSON.stringify({ content, imageUrl, privacy, forcePost: true }),
     });
   }
+  if (privacy === undefined) {
+    return request(`/api/posts/${postId}`, {
+      method: 'PUT',
+      headers: userId ? { 'x-user-id': userId } : {},
+      body: JSON.stringify({ content, imageUrl }),
+    });
+  }
   return request(`/api/posts/${postId}`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
