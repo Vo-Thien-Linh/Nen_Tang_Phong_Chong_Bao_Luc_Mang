@@ -103,3 +103,4 @@ export async function getTrendingMusic(categoryId = 'all') {
   const cat = MUSIC_CATEGORIES.find((c) => c.id === categoryId) || MUSIC_CATEGORIES[0];
   return searchMusic(cat.defaultQuery, 25);
 }
+

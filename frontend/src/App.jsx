@@ -2311,6 +2311,7 @@ export default function App() {
           targetViewerId={activeStoryViewerTarget.targetViewerId}
           currentUser={currentUser}
           onViewPost={handleViewPost}
+          onOpenStoryViewer={handleOpenStoryViewer}
           onClose={() => setActiveStoryViewerTarget(null)}
         />
       )}

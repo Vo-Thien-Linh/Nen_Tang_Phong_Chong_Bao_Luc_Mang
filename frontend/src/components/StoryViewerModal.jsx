@@ -60,6 +60,7 @@ export default function StoryViewerModal({
   onOpenReportModal,
   onStoryViewed,
   onViewPost,
+  onOpenStoryViewer,
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -972,15 +973,20 @@ export default function StoryViewerModal({
 
               {/* Thẻ bài viết Instagram nổi giữa màn hình */}
               <div 
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (bgStyle.originalPostId && onViewPost) {
                     onClose();
                     onViewPost(bgStyle.originalPostId);
+                  } else if (bgStyle.originalStoryId && onOpenStoryViewer) {
+                    onClose();
+                    onOpenStoryViewer({ storyId: bgStyle.originalStoryId });
                   }
                 }}
-                className="relative z-10 w-full max-w-[340px] rounded-3xl overflow-hidden shadow-2xl border border-white/25 bg-black/40 backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer group/reshare"
-                title="Nhấn để xem bài viết gốc"
+                className="relative z-30 w-full max-w-[340px] rounded-3xl overflow-hidden shadow-2xl border border-white/25 bg-black/40 backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer group/reshare pointer-events-auto"
+                title="Nhấn để xem bài viết hoặc tin gốc"
               >
                 {/* Header tác giả bài viết: Avatar tròn + username nhỏ phía trên góc ảnh (Ảnh 2) */}
                 <div className="px-3.5 py-2.5 flex items-center justify-between bg-black/35 backdrop-blur-md border-b border-white/10">
@@ -994,10 +1000,23 @@ export default function StoryViewerModal({
                       {bgStyle.originalUsername || bgStyle.originalAuthor || 'Người dùng'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] font-semibold text-white/90 bg-white/20 px-2.5 py-0.5 rounded-full backdrop-blur-sm group-hover/reshare:bg-white/30 transition shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (bgStyle.originalPostId && onViewPost) {
+                        onClose();
+                        onViewPost(bgStyle.originalPostId);
+                      } else if (bgStyle.originalStoryId && onOpenStoryViewer) {
+                        onClose();
+                        onOpenStoryViewer({ storyId: bgStyle.originalStoryId });
+                      }
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-white/90 bg-white/20 px-2.5 py-0.5 rounded-full backdrop-blur-sm hover:bg-white/30 transition shrink-0 cursor-pointer pointer-events-auto"
+                  >
                     <ExternalLink className="w-3 h-3" />
                     <span>Xem bài viết</span>
-                  </div>
+                  </button>
                 </div>
 
                 {/* Nội dung bài viết: Ảnh hoặc Trích dẫn text */}
@@ -1024,7 +1043,19 @@ export default function StoryViewerModal({
                 )}
 
                 {/* Dải chân thẻ bài viết */}
-                <div className="px-3.5 py-2 bg-black/45 backdrop-blur-md flex items-center justify-between text-white/90 border-t border-white/10">
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (bgStyle.originalPostId && onViewPost) {
+                      onClose();
+                      onViewPost(bgStyle.originalPostId);
+                    } else if (bgStyle.originalStoryId && onOpenStoryViewer) {
+                      onClose();
+                      onOpenStoryViewer({ storyId: bgStyle.originalStoryId });
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-black/45 backdrop-blur-md flex items-center justify-between text-white/90 border-t border-white/10 hover:bg-black/60 transition cursor-pointer pointer-events-auto"
+                >
                   <span className="text-[11px] text-white/70">Nhấn để mở bài viết gốc</span>
                   <ChevronRight className="w-4 h-4 text-white/70 group-hover/reshare:translate-x-1 transition" />
                 </div>
@@ -1290,26 +1321,30 @@ export default function StoryViewerModal({
           )}
         </div>
 
-        {/* VÙNG NHẤN MÉP TRÁI / MÉP PHẢI ĐỂ CHUYỂN TIN & GIỮ CHUỘT ĐỂ TẠM DỪNG (INSTAGRAM / FACEBOOK UX) */}
+        {/* VÙNG NHẤN RÌA 2 BÊN ĐỂ CHUYỂN TIN & GIỮ CHUỘT ĐỂ TẠM DỪNG (CHỈ Ở RÌA 2 BÊN, KHÔNG CHE KHUẤT NỘI DUNG Ở GIỮA) */}
         {!isStoryCovered && (
-          <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex select-none pointer-events-auto">
-            {/* Mép trái (35%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
+          <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex justify-between select-none pointer-events-none">
+            {/* Rìa mép trái (15%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
             <div 
-              className="w-[35%] h-full cursor-pointer select-none"
+              className="w-[15%] max-w-[64px] h-full cursor-pointer select-none pointer-events-auto"
               onPointerDown={handleHoldStart}
               onPointerUp={(e) => handleTapOrRelease('prev', e)}
               onPointerLeave={handleHoldEnd}
               onPointerCancel={handleHoldEnd}
-              title="Nhấn mép trái để xem tin trước • Giữ chuột để tạm dừng"
+              title="Nhấn rìa trái để xem tin trước • Giữ chuột để tạm dừng"
             />
-            {/* Mép phải (65%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
+
+            {/* Vùng giữa hoàn toàn thông thoáng (pointer-events-none) để người xem tự do nhấn xem bài viết / story được chia sẻ */}
+            <div className="flex-1 h-full pointer-events-none" />
+
+            {/* Rìa mép phải (15%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
             <div 
-              className="w-[65%] h-full cursor-pointer select-none"
+              className="w-[15%] max-w-[64px] h-full cursor-pointer select-none pointer-events-auto"
               onPointerDown={handleHoldStart}
               onPointerUp={(e) => handleTapOrRelease('next', e)}
               onPointerLeave={handleHoldEnd}
               onPointerCancel={handleHoldEnd}
-              title="Nhấn mép phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
+              title="Nhấn rìa phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
             />
           </div>
         )}
