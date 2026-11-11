@@ -240,16 +240,13 @@ export function createStoryRepository({ pool }) {
             OR (
               s.ai_status != 'hidden'
               AND (s.media_moderation_status IS NULL OR s.media_moderation_status IN ('safe', 'sensitive'))
-              AND (
-                s.privacy = 'public'
-                OR (
-                  s.privacy = 'friends' AND $1 IS NOT NULL AND EXISTS (
-                    SELECT 1 FROM friendships f
-                    WHERE f.status = 'accepted'
-                      AND ((f.requester_id = s.author_id AND f.addressee_id = $1)
-                        OR (f.addressee_id = s.author_id AND f.requester_id = $1))
-                  )
-                )
+              AND s.privacy != 'private'
+              AND $1 IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM friendships f
+                WHERE f.status = 'accepted'
+                  AND ((f.requester_id = s.author_id AND f.addressee_id = $1)
+                    OR (f.addressee_id = s.author_id AND f.requester_id = $1))
               )
             )
           )
@@ -333,6 +330,129 @@ export function createStoryRepository({ pool }) {
       });
 
       return trays;
+    },
+
+    async listUserStories({ targetUserId, viewerId = null }) {
+      if (!targetUserId) return null;
+
+      // Kiểm tra quan hệ bạn bè giữa viewerId và targetUserId
+      let isFriend = false;
+      const isSelf = viewerId ? String(viewerId) === String(targetUserId) : false;
+
+      if (viewerId && !isSelf) {
+        const friendCheck = await pool.query(
+          `SELECT 1 FROM friendships 
+           WHERE status = 'accepted' 
+             AND ((requester_id = $1 AND addressee_id = $2) OR (addressee_id = $1 AND requester_id = $2))`,
+          [viewerId, targetUserId]
+        );
+        isFriend = friendCheck.rows.length > 0;
+      }
+
+      // Điều kiện quyền riêng tư:
+      // - Nếu là chính mình: xem tất cả tin
+      // - Nếu là bạn bè: xem tin public và friends
+      // - Nếu là người lạ: chỉ xem tin public
+      let privacyCondition = "AND s.privacy = 'public'";
+      if (isSelf) {
+        privacyCondition = "";
+      } else if (isFriend) {
+        privacyCondition = "AND s.privacy IN ('public', 'friends')";
+      }
+
+      const query = `
+        SELECT
+          s.id,
+          s.author_id,
+          s.story_type,
+          s.media_url,
+          s.text_content,
+          s.background_style,
+          s.privacy,
+          s.expires_at,
+          s.ai_status,
+          s.ai_label,
+          s.media_moderation_status,
+          s.media_moderation_label,
+          s.media_moderation_safe,
+          s.media_moderation_nsfw,
+          s.media_moderation_violence,
+          s.views_count,
+          s.reactions_count,
+          s.created_at,
+          u.username,
+          u.full_name,
+          u.avatar_url,
+          u.is_verified,
+          CASE WHEN sv.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_viewed,
+          sr.reaction_type AS my_reaction
+        FROM stories s
+        JOIN users u ON u.id = s.author_id
+        LEFT JOIN story_views sv ON sv.story_id = s.id AND sv.viewer_id = $2
+        LEFT JOIN (
+          SELECT story_id, 
+                 (array_agg(reaction_type ORDER BY created_at DESC))[1] AS reaction_type
+          FROM story_reactions
+          WHERE user_id = $2
+          GROUP BY story_id
+        ) sr ON sr.story_id = s.id
+        WHERE s.author_id = $1
+          AND s.expires_at > CURRENT_TIMESTAMP
+          AND s.is_deleted = FALSE
+          AND s.is_archived = FALSE
+          ${isSelf ? "" : "AND s.ai_status != 'hidden' AND (s.media_moderation_status IS NULL OR s.media_moderation_status IN ('safe', 'sensitive'))"}
+          ${privacyCondition}
+        ORDER BY s.created_at ASC
+      `;
+
+      const { rows } = await pool.query(query, [targetUserId, viewerId]);
+      if (rows.length === 0) return null;
+
+      const firstRow = rows[0];
+      const tray = {
+        author: {
+          id: firstRow.author_id,
+          name: firstRow.full_name,
+          username: firstRow.username,
+          avatar: firstRow.avatar_url,
+          isVerified: Boolean(firstRow.is_verified),
+        },
+        isSelf,
+        hasUnviewedStories: false,
+        latestStoryTime: rows[rows.length - 1].created_at,
+        stories: [],
+      };
+
+      for (const row of rows) {
+        if (!row.is_viewed) {
+          tray.hasUnviewedStories = true;
+        }
+
+        const isToxic = row.ai_label === 'Toxic' || row.ai_status === 'sensitive';
+        const isNsfw = row.media_moderation_status === 'sensitive' || row.media_moderation_label === 'nsfw' || (Number(row.media_moderation_nsfw) >= 0.7);
+        const isHardHidden = row.ai_status === 'hidden' || row.ai_label === 'Violence' || row.ai_label === 'Hate Speech';
+
+        tray.stories.push({
+          id: String(row.id),
+          storyType: row.story_type,
+          mediaUrl: row.media_url,
+          textContent: row.text_content,
+          backgroundStyle: typeof row.background_style === 'string' ? JSON.parse(row.background_style) : row.background_style,
+          privacy: row.privacy,
+          expiresAt: row.expires_at,
+          createdAt: row.created_at,
+          viewsCount: Number(row.views_count || 0),
+          reactionsCount: Number(row.reactions_count || 0),
+          isViewed: Boolean(row.is_viewed),
+          myReaction: row.my_reaction || null,
+          isToxic,
+          isNsfw,
+          isSensitive: (isToxic || isNsfw) && !isHardHidden,
+          isHardHidden,
+        });
+      }
+
+      return tray;
     },
 
     async listUserArchiveStories({ authorId, limit = 50, offset = 0 }) {

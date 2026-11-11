@@ -11,7 +11,7 @@ import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
-import { fetchStories } from '../api/client';
+import { fetchStories, fetchUserStoriesApi } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import CreateGroupModal from './CreateGroupModal';
 import GroupVideoCallModal from './GroupVideoCallModal';
@@ -158,6 +158,22 @@ export default function MessagesView({
       .then(res => setStoryTrays(res?.data || []))
       .catch(() => {});
   }, []);
+
+  // Tự động nạp story của đối tác trò chuyện nếu họ là người lạ (chưa có trong storyTrays bạn bè)
+  useEffect(() => {
+    const partnerId = currentConversation?.user?.id;
+    if (!partnerId || currentConversation?.is_group) return;
+    if (storyTrays.some(t => String(t.author?.id) === String(partnerId))) return;
+
+    fetchUserStoriesApi(partnerId)
+      .then(res => {
+        const tray = res?.data;
+        if (tray && tray.stories?.length > 0) {
+          setStoryTrays(prev => [...prev.filter(t => String(t.author?.id) !== String(partnerId)), tray]);
+        }
+      })
+      .catch(() => {});
+  }, [currentConversation?.user?.id, currentConversation?.is_group, storyTrays]);
 
   // Tạo Map: userId → { hasUnviewed, hasTextStory, tray } để tra cứu nhanh
   const userStoryMap = useMemo(() => {
