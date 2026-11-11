@@ -9,6 +9,7 @@ import {
 import { createStoryApi, uploadStoryMedia } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { STORY_MUSIC_LIBRARY } from '../constants/storyMusicList';
+import { searchMusic, getTrendingMusic, MUSIC_CATEGORIES } from '../services/musicService';
 
 // Danh sách phông nền chuyển sắc & đơn sắc phong cách Facebook Story
 const GRADIENT_PRESETS = [
@@ -233,9 +234,52 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [selectedMusic, setSelectedMusic] = useState(null);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [musicSearchQuery, setMusicSearchQuery] = useState('');
+  const [musicList, setMusicList] = useState(STORY_MUSIC_LIBRARY);
+  const [selectedMusicCategory, setSelectedMusicCategory] = useState('all');
+  const [isLoadingMusic, setIsLoadingMusic] = useState(false);
   const [previewingSongId, setPreviewingSongId] = useState(null);
   const [musicPos, setMusicPos] = useState({ x: 50, y: 84 });
   const previewAudioRef = useRef(null);
+
+  // Tải danh sách nhạc theo danh mục gợi ý khi mở picker hoặc chuyển tab
+  useEffect(() => {
+    if (showMusicPicker && !musicSearchQuery.trim()) {
+      let isMounted = true;
+      setIsLoadingMusic(true);
+      getTrendingMusic(selectedMusicCategory)
+        .then((tracks) => {
+          if (isMounted && tracks?.length > 0) setMusicList(tracks);
+        })
+        .catch(() => {
+          if (isMounted) setMusicList(STORY_MUSIC_LIBRARY);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoadingMusic(false);
+        });
+      return () => { isMounted = false; };
+    }
+  }, [showMusicPicker, selectedMusicCategory]);
+
+  // Tìm kiếm bài hát động (debounce 350ms) từ iTunes Search API
+  useEffect(() => {
+    if (!showMusicPicker) return;
+    if (!musicSearchQuery.trim()) return;
+
+    const timer = setTimeout(() => {
+      let isMounted = true;
+      setIsLoadingMusic(true);
+      searchMusic(musicSearchQuery, 35)
+        .then((tracks) => {
+          if (isMounted && tracks?.length > 0) setMusicList(tracks);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (isMounted) setIsLoadingMusic(false);
+        });
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [showMusicPicker, musicSearchQuery]);
 
   const fileInputRef = useRef(null);
   const cardRef = useRef(null);
@@ -1735,24 +1779,35 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                   <Music className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Kho Âm Nhạc cho Tin</h3>
-                  <p className="text-[11px] text-slate-400">Chọn giai điệu phù hợp cho Story của bạn</p>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Kho Âm Nhạc Story</h3>
+                  <p className="text-[11px] text-slate-400">Tìm kiếm bài hát & âm thanh không giới hạn</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (previewAudioRef.current) previewAudioRef.current.pause();
-                  setPreviewingSongId(null);
-                  setShowMusicPicker(false);
-                }}
-                className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {selectedMusic && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveSong}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                  >
+                    Gỡ nhạc
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (previewAudioRef.current) previewAudioRef.current.pause();
+                    setPreviewingSongId(null);
+                    setShowMusicPicker(false);
+                  }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            {/* Tìm kiếm */}
+            {/* Tìm kiếm bài hát */}
             <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-850">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -1760,21 +1815,55 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                   type="text"
                   value={musicSearchQuery}
                   onChange={(e) => setMusicSearchQuery(e.target.value)}
-                  placeholder="Tìm bài hát, nghệ sĩ, thể loại..."
-                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                  placeholder="Tìm bài hát, nghệ sĩ (Sơn Tùng, Vũ, Taylor Swift, Lofi...)"
+                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30"
                 />
+                {musicSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setMusicSearchQuery('')}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
+            </div>
+
+            {/* Bộ lọc thể loại nhanh phong cách Instagram */}
+            <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto border-b border-slate-100 dark:border-slate-800 scrollbar-none bg-slate-50/30 dark:bg-slate-850/30">
+              {MUSIC_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedMusicCategory(cat.id);
+                    setMusicSearchQuery('');
+                  }}
+                  className={`px-2.5 py-1 rounded-full text-[11px] whitespace-nowrap transition cursor-pointer ${
+                    selectedMusicCategory === cat.id && !musicSearchQuery.trim()
+                      ? 'bg-purple-600 text-white font-bold shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
             </div>
 
             {/* Danh sách bài hát */}
             <div className="p-2 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 flex-1">
-              {STORY_MUSIC_LIBRARY
-                .filter((s) => {
-                  if (!musicSearchQuery.trim()) return true;
-                  const q = musicSearchQuery.toLowerCase();
-                  return s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q) || s.category.toLowerCase().includes(q);
-                })
-                .map((song) => {
+              {isLoadingMusic ? (
+                <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                  <span className="text-xs">Đang tìm giai điệu âm nhạc...</span>
+                </div>
+              ) : musicList.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  Không tìm thấy bài hát nào phù hợp. Vui lòng thử từ khóa khác!
+                </div>
+              ) : (
+                musicList.map((song) => {
                   const isPlaying = previewingSongId === song.id;
                   const isCurrentSelected = selectedMusic?.id === song.id;
 
@@ -1786,7 +1875,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 shadow-xs group">
+                        <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 shadow-xs group bg-slate-200 dark:bg-slate-800">
                           <img src={song.coverUrl} alt={song.title} className="w-full h-full object-cover" />
                           <button
                             type="button"
@@ -1806,7 +1895,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                             {song.artist}
                           </p>
                           <span className="inline-block mt-0.5 px-2 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-medium text-slate-600 dark:text-slate-300">
-                            {song.category}
+                            {song.category} • 0:30
                           </span>
                         </div>
                       </div>
@@ -1824,7 +1913,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       </button>
                     </div>
                   );
-                })}
+                })
+              )}
             </div>
           </div>
         </div>
