@@ -4,17 +4,11 @@ import {
   Loader2, ArrowRight, CornerDownLeft, Sparkles, Check
 } from 'lucide-react';
 import { searchService } from '../services/searchService';
+import { fetchTrendingHashtags } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { useTranslation } from '../utils/i18n';
 
 const RECENT_SEARCHES_KEY = 'wings_recent_searches';
-const TRENDING_TOPICS = [
-  '#WINGS',
-  '#AIModeration',
-  '#BTLProject',
-  '#SinhVienKhoaHoc',
-  '#React19'
-];
 
 export default function SearchBar({
   onOpenProfile,
@@ -36,6 +30,27 @@ export default function SearchBar({
       return isEn ? ['Le Thu Trang', '#WINGS'] : ['Lê Thu Trang', '#WINGS'];
     }
   });
+  const [trendingTopics, setTrendingTopics] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    setTrendingLoading(true);
+    fetchTrendingHashtags({ limit: 6 })
+      .then(res => {
+        if (!mounted) return;
+        const list = Array.isArray(res?.data) ? res.data : [];
+        setTrendingTopics(list.map(item => item.tag?.startsWith('#') ? item.tag : `#${item.tag}`));
+      })
+      .catch(err => {
+        console.warn('Lỗi tải trending topics SearchBar:', err);
+        if (mounted) setTrendingTopics([]);
+      })
+      .finally(() => {
+        if (mounted) setTrendingLoading(false);
+      });
+    return () => { mounted = false; };
+  }, []);
 
   const containerRef = useRef(null);
   const inputRef = useRef(null);
@@ -403,16 +418,22 @@ export default function SearchBar({
                 </div>
 
                 <div className="flex flex-wrap gap-1.5 px-1">
-                  {TRENDING_TOPICS.map((topic, tIdx) => (
-                    <button
-                      key={tIdx}
-                      type="button"
-                      onClick={() => handleSelectTerm(topic)}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 rounded-full text-xs font-semibold border border-transparent hover:border-blue-200 dark:hover:border-blue-800 transition cursor-pointer"
-                    >
-                      {topic}
-                    </button>
-                  ))}
+                  {trendingLoading ? (
+                    <span className="text-xs text-slate-400 px-2 py-1">{isEn ? 'Loading...' : 'Đang tải...'}</span>
+                  ) : trendingTopics.length === 0 ? (
+                    <span className="text-xs text-slate-400 px-2 py-1">{isEn ? 'No trending topics yet' : 'Chưa có chủ đề thịnh hành'}</span>
+                  ) : (
+                    trendingTopics.map((topic, tIdx) => (
+                      <button
+                        key={tIdx}
+                        type="button"
+                        onClick={() => handleSelectTerm(topic)}
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 rounded-full text-xs font-semibold border border-transparent hover:border-blue-200 dark:hover:border-blue-800 transition cursor-pointer"
+                      >
+                        {topic}
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
 

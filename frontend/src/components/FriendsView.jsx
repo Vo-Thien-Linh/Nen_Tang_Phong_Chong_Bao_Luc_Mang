@@ -5,11 +5,18 @@ import { messageService } from '../services/messageService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { useTranslation } from '../utils/i18n';
 
-export default function FriendsView({ onOpenChat, onOpenProfile }) {
+export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'requests' }) {
   const { t, isEn } = useTranslation();
-  const [activeTab, setActiveTab] = useState('requests'); // 'requests' | 'all' | 'suggestions'
+  const [activeTab, setActiveTab] = useState(initialTab || 'requests'); // 'requests' | 'all' | 'suggestions'
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingSections, setLoadingSections] = useState({ requests: true, friends: true, suggestions: true });
+
+  // Đồng bộ khi prop initialTab thay đổi từ bên ngoài (ví dụ click từ trang chủ)
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Danh sách lời mời kết bạn (Pending) - Mặc định rỗng, chỉ hiển thị lời mời thật từ DB
   const [friendRequests, setFriendRequests] = useState([]);
