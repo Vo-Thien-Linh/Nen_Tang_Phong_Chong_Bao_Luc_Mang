@@ -11,7 +11,7 @@ import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
-import { fetchStories } from '../api/client';
+import { fetchStories, fetchUserStoriesApi } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import CreateGroupModal from './CreateGroupModal';
 import GroupVideoCallModal from './GroupVideoCallModal';
@@ -27,6 +27,7 @@ import {
 } from '../utils/callMediaLogic';
 import { FaceFilterManager } from '../utils/faceFilterLogic';
 import { MeshCallManager } from '../utils/meshCallManager';
+import { useTranslation } from '../utils/i18n';
 
 const EMOJI_CATEGORIES = [
   {
@@ -82,7 +83,7 @@ function FormattedMessageText({ text, isMe }) {
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
                 className={`underline underline-offset-2 font-medium hover:opacity-80 transition cursor-pointer break-all ${
-                  isMe ? 'text-blue-100 hover:text-white' : 'text-blue-600 hover:text-blue-800'
+                  isMe ? 'text-blue-100 hover:text-white' : 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300'
                 }`}
               >
                 {part}
@@ -102,7 +103,7 @@ function FormattedMessageText({ text, isMe }) {
           className={`block p-2 rounded-xl text-xs transition border cursor-pointer ${
             isMe 
               ? 'bg-blue-700/40 hover:bg-blue-700/60 border-blue-400/40 text-blue-50' 
-              : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+              : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-750 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
           }`}
         >
           <div className="flex items-center gap-1.5 font-bold truncate">
@@ -126,14 +127,15 @@ export default function MessagesView({
   onOpenStoryViewer,
   onUnreadCountChange
 }) {
+  const { t, isEn } = useTranslation();
   if (!currentUser) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white rounded-2xl m-4 border border-slate-200 shadow-xs">
-        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
+      <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-slate-900 rounded-2xl m-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mb-4">
           <MessageSquare className="w-8 h-8" />
         </div>
-        <h3 className="text-lg font-bold text-slate-800">Yêu cầu đăng nhập</h3>
-        <p className="text-sm text-slate-500 mt-1 max-w-sm">
+        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Yêu cầu đăng nhập</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
           Người dùng chưa đăng nhập sẽ không sử dụng được chức năng nhắn tin. Vui lòng đăng nhập để tiếp tục.
         </p>
         <button
@@ -156,6 +158,22 @@ export default function MessagesView({
       .then(res => setStoryTrays(res?.data || []))
       .catch(() => {});
   }, []);
+
+  // Tự động nạp story của đối tác trò chuyện nếu họ là người lạ (chưa có trong storyTrays bạn bè)
+  useEffect(() => {
+    const partnerId = currentConversation?.user?.id;
+    if (!partnerId || currentConversation?.is_group) return;
+    if (storyTrays.some(t => String(t.author?.id) === String(partnerId))) return;
+
+    fetchUserStoriesApi(partnerId)
+      .then(res => {
+        const tray = res?.data;
+        if (tray && tray.stories?.length > 0) {
+          setStoryTrays(prev => [...prev.filter(t => String(t.author?.id) !== String(partnerId)), tray]);
+        }
+      })
+      .catch(() => {});
+  }, [currentConversation?.user?.id, currentConversation?.is_group, storyTrays]);
 
   // Tạo Map: userId → { hasUnviewed, hasTextStory, tray } để tra cứu nhanh
   const userStoryMap = useMemo(() => {
@@ -2395,31 +2413,31 @@ export default function MessagesView({
     <main className={`w-full h-full min-h-0 flex flex-col overflow-hidden transition-all duration-200 ${
       isEdgeToEdge ? 'p-0' : 'p-2 sm:p-3 lg:p-4'
     }`}>
-      <div className={`bg-white shadow-sm border border-slate-200/90 h-full w-full flex min-h-0 overflow-hidden ${
+      <div className={`bg-white dark:bg-slate-900 shadow-sm border border-slate-200/90 dark:border-slate-800 h-full w-full flex min-h-0 overflow-hidden ${
         isEdgeToEdge ? 'rounded-none border-x-0 border-b-0' : 'rounded-2xl sm:rounded-3xl'
       }`}>
         
         {/* ================= CỘT TRÁI: DANH SÁCH CUỘC TRÒ CHUYỆN ================= */}
         <aside 
           className={
-            'w-full md:w-80 lg:w-[350px] xl:w-[390px] border-r border-slate-200 flex flex-col bg-white shrink-0 h-full overflow-hidden ' +
+            'w-full md:w-80 lg:w-[350px] xl:w-[390px] border-r border-slate-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 shrink-0 h-full overflow-hidden ' +
             (mobileShowChat ? 'hidden md:flex' : 'flex')
           }
         >
           {/* CỤM CỐ ĐỊNH ĐỨNG YÊN: HEADER + HỘP THƯ CHÍNH/CHỜ + Ô TÌM KIẾM */}
-          <div className="shrink-0 bg-white z-10 border-b border-slate-100">
+          <div className="shrink-0 bg-white dark:bg-slate-900 z-10 border-b border-slate-100 dark:border-slate-800">
             {/* Header danh sách chat */}
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-xl shadow-xs">
                   <MessageSquare className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black text-slate-800 leading-tight">Đoạn chat</h2>
+                  <h2 className="text-lg font-black text-slate-800 dark:text-slate-100 leading-tight">{t('messages.chats')}</h2>
                   <div className="flex items-center gap-1.5 text-[11px] mt-0.5">
                     <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
-                    <span className={isWsConnected ? 'text-slate-400 font-medium' : 'text-amber-500 font-medium'}>
-                      {isWsConnected ? 'Kết nối thời gian thực' : 'Đang kết nối máy chủ...'}
+                    <span className={isWsConnected ? 'text-slate-400 dark:text-slate-400 font-medium' : 'text-amber-500 font-medium'}>
+                      {isWsConnected ? t('messages.realtime_connected') : t('messages.connecting')}
                     </span>
                   </div>
                 </div>
@@ -2430,17 +2448,17 @@ export default function MessagesView({
                 <button
                   type="button"
                   onClick={() => setShowCreateGroupModal(true)}
-                  className="px-2.5 py-1.5 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-xl transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                  className="px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
                   title="Tạo nhóm trò chuyện mới"
                 >
-                  <UserPlus className="w-4 h-4 text-blue-600" />
-                  <span className="hidden sm:inline">Tạo nhóm</span>
+                  <UserPlus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span className="hidden sm:inline">{t('messages.create_group')}</span>
                 </button>
 
                 {/* Nút toggle Tràn viền (Edge-to-Edge) */}
                 <button
                   onClick={() => setIsEdgeToEdge(!isEdgeToEdge)}
-                  className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-xl transition cursor-pointer"
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl transition cursor-pointer"
                   title={isEdgeToEdge ? 'Thu về khung viền bo tròn' : 'Mở rộng tràn viền 100%'}
                 >
                   {isEdgeToEdge ? (
@@ -2453,7 +2471,7 @@ export default function MessagesView({
             </div>
 
             {/* 2 Tab: Hộp thư chính & Tin nhắn chờ (Người lạ) - ĐỂ YÊN CỐ ĐỊNH */}
-            <div className="flex px-3 pt-2 pb-2 bg-slate-50/80 gap-1.5 border-b border-slate-100">
+            <div className="flex px-3 pt-2 pb-2 bg-slate-50/80 dark:bg-slate-950/40 gap-1.5 border-b border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => {
                   setInboxTab('main');
@@ -2462,11 +2480,11 @@ export default function MessagesView({
                 className={
                   'flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ' +
                   (inboxTab === 'main'
-                    ? 'bg-white text-blue-600 shadow-xs border border-slate-200/80'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/60')
+                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-700'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-slate-800/50')
                 }
               >
-                <span>Hộp thư chính</span>
+                <span>{t('messages.main_inbox')}</span>
               </button>
 
               <button
@@ -2477,11 +2495,11 @@ export default function MessagesView({
                 className={
                   'flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 relative ' +
                   (inboxTab === 'requests'
-                    ? 'bg-white text-blue-600 shadow-xs border border-slate-200/80'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/60')
+                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-700'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-slate-800/50')
                 }
               >
-                <span>Tin nhắn chờ</span>
+                <span>{t('messages.message_requests')}</span>
                 {pendingRequestsCount > 0 && (
                   <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-black animate-pulse">
                     {pendingRequestsCount}
@@ -2491,42 +2509,50 @@ export default function MessagesView({
             </div>
 
             {/* Ô tìm kiếm - ĐỂ YÊN CỐ ĐỊNH */}
-            <div className="p-3 bg-white">
+            <div className="p-3 bg-white dark:bg-slate-900">
               <div className="relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder={inboxTab === 'main' ? 'Tìm bạn bè hoặc tin nhắn...' : 'Tìm trong tin nhắn chờ...'}
+                  placeholder={inboxTab === 'main' ? t('messages.search_placeholder') : t('messages.search_requests')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3.5 py-2 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-xs sm:text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-transparent focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition"
+                  className="w-full pl-9 pr-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-750 focus:bg-white dark:focus:bg-slate-800 text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 rounded-xl border border-transparent focus:border-blue-400 dark:focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 outline-none transition"
                 />
               </div>
             </div>
           </div>
 
           {/* VÙNG CUỘN ĐỘC LẬP: DANH SÁCH CÁC CUỘC TRÒ CHUYỆN */}
-          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-50 overscroll-contain">
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 overscroll-contain">
             {displayedConversations.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 {inboxTab === 'main' ? (
                   <div className="py-6 flex flex-col items-center">
-                    <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-3">
+                    <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 text-blue-500 dark:text-blue-400 rounded-2xl flex items-center justify-center mb-3">
                       <MessageSquare className="w-6 h-6" />
                     </div>
-                    <p className="font-bold text-slate-700">Chưa có cuộc trò chuyện nào</p>
-                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
-                      Vào trang cá nhân bạn bè hoặc mục Bạn bè để bấm "Nhắn tin" bắt đầu trò chuyện!
+                    <p className="font-bold text-slate-700 dark:text-slate-200">
+                      {isEn ? 'No conversations yet' : 'Chưa có cuộc trò chuyện nào'}
+                    </p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-[220px]">
+                      {isEn 
+                        ? 'Visit a friend\'s profile or Friends tab to start chatting!'
+                        : 'Vào trang cá nhân bạn bè hoặc mục Bạn bè để bấm "Nhắn tin" bắt đầu trò chuyện!'}
                     </p>
                   </div>
                 ) : (
                   <div className="py-6 flex flex-col items-center">
-                    <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mb-3">
+                    <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 dark:text-emerald-400 rounded-2xl flex items-center justify-center mb-3">
                       <CheckCheck className="w-6 h-6" />
                     </div>
-                    <p className="font-bold text-slate-700">Không có tin nhắn chờ nào</p>
-                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
-                      Khi người lạ gửi tin nhắn đến, yêu cầu sẽ xuất hiện tại đây.
+                    <p className="font-bold text-slate-700 dark:text-slate-200">
+                      {isEn ? 'No message requests' : 'Không có tin nhắn chờ nào'}
+                    </p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-[220px]">
+                      {isEn 
+                        ? 'When non-friends message you, requests will appear here.'
+                        : 'Khi người lạ gửi tin nhắn đến, yêu cầu sẽ xuất hiện tại đây.'}
                     </p>
                   </div>
                 )}
@@ -2540,13 +2566,13 @@ export default function MessagesView({
                     onClick={() => handleSelectConversation(conv.id)}
                     className={
                       'w-full p-3 sm:p-3.5 flex items-center gap-3 text-left transition duration-150 cursor-pointer ' +
-                      (isSelected ? 'bg-blue-50/90 border-l-4 border-blue-600' : 'hover:bg-slate-50')
+                      (isSelected ? 'bg-blue-50/90 dark:bg-slate-800/90 border-l-4 border-blue-600' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50')
                     }
                   >
                     {/* Avatar */}
                     {conv.type === 'group' ? (
                       <div className="relative shrink-0">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center ring-2 ring-slate-100 shadow-2xs">
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center ring-2 ring-slate-100 dark:ring-slate-800 shadow-2xs">
                           {conv.avatar ? (
                             <img src={conv.avatar} alt={conv.name} className="w-12 h-12 rounded-full object-cover" />
                           ) : (
@@ -2573,8 +2599,8 @@ export default function MessagesView({
                         >
                           {/* Viền story: xanh nếu chưa xem, xám nếu đã xem hết */}
                           {storyInfo ? (
-                            <div className={`rounded-full p-[2.5px] ${storyInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400 ring-0' : 'bg-slate-300'}`}>
-                              <div className="rounded-full p-[2px] bg-white">
+                            <div className={`rounded-full p-[2.5px] ${storyInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400 ring-0' : 'bg-slate-300 dark:bg-slate-700'}`}>
+                              <div className="rounded-full p-[2px] bg-white dark:bg-slate-900">
                                 <img
                                   src={conv.user?.avatar || DEFAULT_AVATAR}
                                   alt={conv.user?.name || ''}
@@ -2586,19 +2612,19 @@ export default function MessagesView({
                             <img
                               src={conv.user?.avatar || DEFAULT_AVATAR}
                               alt={conv.user?.name || ''}
-                              className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
+                              className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 dark:ring-slate-800 shadow-2xs hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
                             />
                           )}
                           {/* Icon đám mây nếu có text story */}
                           {storyInfo?.hasTextStory && (
-                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow border-2 border-white z-10">
+                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow border-2 border-white dark:border-slate-900 z-10">
                               <svg viewBox="0 0 20 14" className="w-3 h-3 fill-white">
                                 <path d="M4.5 11.5A3 3 0 0 1 2 8.5a3 3 0 0 1 2.4-2.94A4 4 0 0 1 12 4.1a3.5 3.5 0 0 1 5.5 2.9 3 3 0 0 1-.5 5.5H4.5z"/>
                               </svg>
                             </div>
                           )}
                           {conv.user?.isOnline && (
-                            <span className={`absolute ${storyInfo ? 'bottom-0.5 right-0.5' : 'bottom-0 right-0'} w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full`} />
+                            <span className={`absolute ${storyInfo ? 'bottom-0.5 right-0.5' : 'bottom-0 right-0'} w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full`} />
                           )}
                         </div>
                       );
@@ -2607,15 +2633,15 @@ export default function MessagesView({
                     {/* Tên & Tin nhắn cuối */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <h3 className={'text-sm font-bold truncate flex items-center gap-1.5 ' + (isSelected ? 'text-blue-900' : 'text-slate-800')}>
+                        <h3 className={'text-sm font-bold truncate flex items-center gap-1.5 ' + (isSelected ? 'text-blue-900 dark:text-blue-400' : 'text-slate-800 dark:text-slate-100')}>
                           <span className="truncate">{conv.type === 'group' ? (conv.name || 'Nhóm trò chuyện') : (conv.user?.name || 'Người dùng')}</span>
                           {conv.type === 'group' && (
-                            <span className="shrink-0 px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded text-[10px] font-semibold">
+                            <span className="shrink-0 px-1.5 py-0.2 bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded text-[10px] font-semibold">
                               Nhóm
                             </span>
                           )}
                           {conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active) && (
-                            <span className="shrink-0 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold flex items-center gap-1 animate-pulse">
+                            <span className="shrink-0 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-full text-[10px] font-bold flex items-center gap-1 animate-pulse">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                               Đang gọi
                             </span>
@@ -2627,8 +2653,8 @@ export default function MessagesView({
                       </div>
                       <p className={'text-xs truncate ' + (
                         (conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active))
-                          ? 'text-emerald-600 font-bold'
-                          : conv.unreadCount > 0 ? 'font-bold text-slate-800' : 'text-slate-500'
+                          ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                          : conv.unreadCount > 0 ? 'font-bold text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'
                       )}>
                         {conv.type === 'group' && (activeGroupCallsStatus[conv.id]?.is_active || activeGroupCallsStatus[String(conv.id)]?.is_active)
                           ? '🟢 Cuộc gọi video nhóm đang diễn ra • Bấm để vào'
@@ -2665,21 +2691,21 @@ export default function MessagesView({
         {/* ================= CỘT GIỮA: KHUNG CHAT CHI TIẾT ================= */}
         <section 
           className={
-            'flex-1 min-w-0 min-h-0 h-full flex flex-col bg-slate-50/40 overflow-hidden ' +
+            'flex-1 min-w-0 min-h-0 h-full flex flex-col bg-slate-50/40 dark:bg-slate-950/70 overflow-hidden ' +
             (!mobileShowChat ? 'hidden md:flex' : 'flex')
           }
         >
           {currentConversation && currentConversation.user ? (
             <>
               {/* Header khung chat - CỐ ĐỊNH Ở ĐỈNH */}
-              <div className="shrink-0 p-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between">
+              <div className="shrink-0 p-3 sm:px-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => {
                       setMobileShowChat(false);
                       if (draftConversation) setDraftConversation(null);
                     }}
-                    className="md:hidden p-1.5 text-slate-500 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    className="md:hidden p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
@@ -2709,8 +2735,8 @@ export default function MessagesView({
                         title={headerStoryInfo ? (headerStoryInfo.hasUnviewed ? 'Nhấn để xem tin mới' : 'Nhấn để xem tin') : 'Bấm để xem trang cá nhân'}
                       >
                         {headerStoryInfo ? (
-                          <div className={`rounded-full p-[2px] ${headerStoryInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400' : 'bg-slate-300'}`}>
-                            <div className="rounded-full p-[1.5px] bg-white">
+                          <div className={`rounded-full p-[2px] ${headerStoryInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400' : 'bg-slate-300 dark:bg-slate-700'}`}>
+                            <div className="rounded-full p-[1.5px] bg-white dark:bg-slate-900">
                               <img
                                 src={currentConversation.user.avatar || DEFAULT_AVATAR}
                                 alt={currentConversation.user.name}
@@ -2722,11 +2748,11 @@ export default function MessagesView({
                           <img
                             src={currentConversation.user.avatar || DEFAULT_AVATAR}
                             alt={currentConversation.user.name}
-                            className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
+                            className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100 dark:ring-slate-800 shadow-2xs group-hover:ring-2 group-hover:ring-blue-500 transition"
                           />
                         )}
                         {currentConversation.user.isOnline && (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
                         )}
                       </div>
                     );
@@ -2736,27 +2762,27 @@ export default function MessagesView({
                     <div className="flex items-center gap-1.5">
                       <h3 
                         onClick={() => currentConversation.type !== 'group' && onOpenProfile && onOpenProfile(currentConversation.user)}
-                        className={`text-sm sm:text-base font-bold text-slate-800 leading-tight ${currentConversation.type !== 'group' ? 'cursor-pointer hover:text-blue-600' : ''} transition`}
+                        className={`text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-tight ${currentConversation.type !== 'group' ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : ''} transition`}
                       >
                         {currentConversation.type === 'group' ? (currentConversation.name || 'Nhóm trò chuyện') : currentConversation.user.name}
                       </h3>
                       {currentConversation.type === 'group' ? (
-                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded text-[10px] font-bold">
+                        <span className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded text-[10px] font-bold">
                           Nhóm
                         </span>
                       ) : currentConversation.status === 'pending' ? (
-                        <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 rounded text-[10px] font-bold">
+                        <span className="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded text-[10px] font-bold">
                           Người lạ
                         </span>
                       ) : null}
                     </div>
                     <p className="text-[11px] text-slate-400 flex items-center gap-1">
                       {currentConversation.type === 'group' ? (
-                        <span className="text-blue-600 font-medium">
+                        <span className="text-blue-600 dark:text-blue-400 font-medium">
                           {currentConversation.memberCount || currentConversation.members?.length || 0} thành viên
                         </span>
                       ) : currentConversation.user.isOnline ? (
-                        <span className="text-emerald-600 font-medium">Đang trực tuyến</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">Đang trực tuyến</span>
                       ) : (
                         <span>Hoạt động: {currentConversation.user.lastSeen}</span>
                       )}
@@ -2765,7 +2791,7 @@ export default function MessagesView({
                 </div>
 
                 {/* Actions ở Header Chat */}
-                <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500">
+                <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500 dark:text-slate-400">
                   {currentConversation.type !== 'group' && (
                     <>
                       <button 
@@ -2773,7 +2799,7 @@ export default function MessagesView({
                         onClick={() => startCall('audio')}
                         disabled={isBlocked}
                         title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi thoại"}
-                        className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
@@ -2782,7 +2808,7 @@ export default function MessagesView({
                         onClick={() => startCall('video')}
                         disabled={isBlocked}
                         title={isBlocked ? "Cuộc trò chuyện đang bị chặn" : "Gọi video"}
-                        className="p-2 hover:bg-slate-100 hover:text-blue-600 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <Video className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
@@ -2805,7 +2831,7 @@ export default function MessagesView({
                         type="button"
                         onClick={() => handleStartOrJoinGroupCall(currentConversation.id)}
                         title="Bắt đầu hoặc tham gia gọi video nhóm"
-                        className="p-2 hover:bg-emerald-50 hover:text-emerald-600 rounded-xl transition cursor-pointer text-emerald-600 flex items-center gap-1.5"
+                        className="p-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-xl transition cursor-pointer text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5"
                       >
                         <Video className="w-4 h-4 sm:w-5 sm:h-5" />
                         <span className="text-xs font-semibold hidden md:inline">Gọi nhóm</span>
@@ -2827,7 +2853,7 @@ export default function MessagesView({
                       });
                     }}
                     title="Báo cáo cuộc trò chuyện này vi phạm"
-                    className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition cursor-pointer text-slate-400"
+                    className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl transition cursor-pointer text-slate-400 dark:text-slate-400"
                   >
                     <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
@@ -2838,8 +2864,8 @@ export default function MessagesView({
                     title={showInfoSidebar ? 'Ẩn thông tin hội thoại' : 'Xem thông tin người dùng & file đã gửi'}
                     className={`p-2 rounded-xl transition cursor-pointer hidden lg:flex ${
                       showInfoSidebar 
-                        ? 'bg-blue-50 text-blue-600' 
-                        : 'hover:bg-slate-100 hover:text-slate-800'
+                        ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400' 
+                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
                     <Info className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2848,7 +2874,7 @@ export default function MessagesView({
                   {/* Nút Toggle Tràn viền */}
                   <button
                     onClick={() => setIsEdgeToEdge(!isEdgeToEdge)}
-                    className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-xl transition cursor-pointer hidden sm:flex"
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl transition cursor-pointer hidden sm:flex"
                     title={isEdgeToEdge ? 'Thu về khung bo tròn' : 'Mở rộng tràn viền 100%'}
                   >
                     {isEdgeToEdge ? (
@@ -2862,17 +2888,17 @@ export default function MessagesView({
 
               {/* BANNER THÔNG BÁO CUỘC GỌI NHÓM ĐANG DIỄN RA */}
               {currentConversation.type === 'group' && (activeGroupCallsStatus[currentConversation.id]?.is_active || activeGroupCallsStatus[String(currentConversation.id)]?.is_active) && !groupCallModalOpen && (
-                <div className="shrink-0 p-3.5 sm:px-6 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 border-b border-emerald-500/30 flex items-center justify-between gap-3 text-emerald-950 animate-fadeIn shadow-xs">
+                <div className="shrink-0 p-3.5 sm:px-6 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-emerald-950/40 border-b border-emerald-500/30 flex items-center justify-between gap-3 text-emerald-950 dark:text-emerald-200 animate-fadeIn shadow-xs">
                   <div className="flex items-center gap-3">
                     <span className="relative flex h-3.5 w-3.5 shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
                     </span>
                     <div>
-                      <p className="text-xs sm:text-sm font-bold text-emerald-950 flex items-center gap-2">
+                      <p className="text-xs sm:text-sm font-bold text-emerald-950 dark:text-emerald-100 flex items-center gap-2">
                         <span>Cuộc gọi video nhóm đang diễn ra</span>
                       </p>
-                      <p className="text-[11px] sm:text-xs text-emerald-700 font-medium">
+                      <p className="text-[11px] sm:text-xs text-emerald-700 dark:text-emerald-300 font-medium">
                         {(activeGroupCallsStatus[currentConversation.id] || activeGroupCallsStatus[String(currentConversation.id)])?.participants_count || 1} người đang trong cuộc gọi • Nhấn để tham gia cùng nhóm
                       </p>
                     </div>
@@ -2891,14 +2917,14 @@ export default function MessagesView({
 
               {/* BANNER XÁC NHẬN TIN NHẮN CHỜ TỪ NGƯỜI LẠ (CHỈ BÊN NGƯỜI NHẬN MỚI CẦN XÁC NHẬN) */}
               {currentConversation.status === 'pending' && currentConversation.initiatedBy !== currentUser?.id && (
-                <div className="shrink-0 p-4 bg-amber-50/90 border-b border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 animate-fadeIn">
+                <div className="shrink-0 p-4 bg-amber-50/90 dark:bg-amber-950/40 border-b border-amber-200/80 dark:border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200 animate-fadeIn">
                   <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+                    <div className="p-2 bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 rounded-xl shrink-0">
                       <AlertCircle className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="text-xs sm:text-sm font-bold">Yêu cầu trò chuyện từ người lạ</h4>
-                      <p className="text-[11px] text-amber-700">
+                      <h4 className="text-xs sm:text-sm font-bold text-amber-900 dark:text-amber-100">Yêu cầu trò chuyện từ người lạ</h4>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-300">
                         {currentConversation.user.name} chưa có trong danh sách bạn bè của bạn. Chấp nhận để chuyển vào Hộp thư chính.
                       </p>
                     </div>
@@ -2913,7 +2939,7 @@ export default function MessagesView({
                     </button>
                     <button
                       onClick={() => handleDeclineRequest(currentConversation.id)}
-                      className="px-3 py-1.5 bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                      className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                     >
                       <UserX className="w-3.5 h-3.5" /> Từ chối
                     </button>
@@ -2923,7 +2949,7 @@ export default function MessagesView({
 
               {/* THÔNG BÁO NHẸ NHÀNG DÀNH CHO BÊN NGƯỜI GỬI (KHÔNG CHẶN NHẮN TIN) */}
               {currentConversation.status === 'pending' && currentConversation.initiatedBy === currentUser?.id && activeMessages.length > 0 && (
-                <div className="shrink-0 px-4 py-2 bg-blue-50/80 border-b border-blue-100 flex items-center justify-between text-blue-800 text-xs animate-fadeIn">
+                <div className="shrink-0 px-4 py-2 bg-blue-50/80 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/50 flex items-center justify-between text-blue-800 dark:text-blue-200 text-xs animate-fadeIn">
                   <div className="flex items-center gap-2">
                     <Info className="w-4 h-4 text-blue-500 shrink-0" />
                     <span>Tin nhắn đã gửi. Đối phương sẽ thấy trong mục <strong>Tin nhắn chờ</strong> và cần xác nhận để chuyển sang Hộp thư chính.</span>
@@ -2949,15 +2975,15 @@ export default function MessagesView({
                     <img
                       src={currentConversation.user.avatar || DEFAULT_AVATAR}
                       alt={currentConversation.user.name}
-                      className="w-14 h-14 rounded-full object-cover ring-4 ring-slate-100 shadow-xs group-hover:ring-blue-400 transition"
+                      className="w-14 h-14 rounded-full object-cover ring-4 ring-slate-100 dark:ring-slate-800 shadow-xs group-hover:ring-blue-400 transition"
                     />
                     {currentConversation.user.isOnline && (
-                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
+                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
                     )}
                   </div>
                   <h4 
                     onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                    className="text-sm sm:text-base font-bold text-slate-800 leading-tight cursor-pointer hover:text-blue-600 transition"
+                    className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-tight cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition"
                   >
                     {currentConversation.user.name}
                   </h4>
@@ -2965,7 +2991,7 @@ export default function MessagesView({
                     {currentConversation.user.bio || (currentConversation.user.isFriend ? 'Bạn bè trên WINGS' : 'Trò chuyện trên WINGS')}
                   </p>
                   <div className="pt-0.5">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200/60">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700">
                       {currentConversation.user.isFriend ? 'Đã là bạn bè trên WINGS' : 'Bắt đầu cuộc trò chuyện'}
                     </span>
                   </div>
@@ -2981,7 +3007,7 @@ export default function MessagesView({
                             onClick={() => {
                               setInputText(greeting);
                             }}
-                            className="px-3 py-1.5 bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 hover:border-blue-300 rounded-full text-xs font-semibold shadow-2xs transition cursor-pointer"
+                            className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 border border-slate-200 dark:border-slate-700 hover:border-blue-300 rounded-full text-xs font-semibold shadow-2xs transition cursor-pointer"
                           >
                             {greeting}
                           </button>
@@ -2997,7 +3023,7 @@ export default function MessagesView({
                     if (msg.mediaType === 'system') {
                       return (
                         <div key={msg.id} className="flex justify-center my-3 w-full">
-                          <div className="px-3.5 py-1.5 bg-slate-100 text-slate-500 text-xs rounded-full font-medium shadow-2xs border border-slate-200/60 max-w-md text-center">
+                          <div className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs rounded-full font-medium shadow-2xs border border-slate-200/60 dark:border-slate-700 max-w-md text-center">
                             {msg.text}
                           </div>
                         </div>
@@ -3046,13 +3072,13 @@ export default function MessagesView({
                               alt=""
                               onClick={() => !isGroup && onOpenProfile && onOpenProfile(currentConversation.user)}
                               title={msg.senderName || currentConversation.user?.name || 'Người dùng'}
-                              className={`w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 ${!isGroup ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''} transition ${isSameSenderAsNext ? 'opacity-0 pointer-events-none' : ''}`}
+                              className={`w-8 h-8 rounded-full object-cover shrink-0 mb-1 ring-2 ring-slate-100 dark:ring-slate-800 ${!isGroup ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''} transition ${isSameSenderAsNext ? 'opacity-0 pointer-events-none' : ''}`}
                             />
                           )}
 
                           <div className={'max-w-[80%] sm:max-w-[70%] lg:max-w-[65%] group relative flex flex-col ' + (isMe ? 'items-end' : 'items-start')}>
                             {!isMe && isGroup && msg.senderName && !isSameSenderAsPrev && (
-                              <span className="text-[11px] font-semibold text-slate-500 mb-1 px-1">
+                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 px-1">
                                 {msg.senderName}
                               </span>
                             )}
@@ -3100,8 +3126,8 @@ export default function MessagesView({
                                 className={
                                   'px-4 py-2.5 rounded-2xl text-xs sm:text-sm italic leading-relaxed break-words shadow-2xs flex items-center gap-1.5 ' +
                                   (isMe
-                                    ? 'bg-blue-100/70 text-blue-900 border border-blue-200/60 rounded-br-xs'
-                                    : 'bg-slate-100 text-slate-500 border border-slate-200 rounded-bl-xs')
+                                    ? 'bg-blue-100/70 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border border-blue-200/60 dark:border-blue-800/40 rounded-br-xs'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-bl-xs')
                                 }
                               >
                                 <RotateCcw className="w-3.5 h-3.5 opacity-70 shrink-0" />
@@ -3203,7 +3229,7 @@ export default function MessagesView({
                                   'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
                                   (isMe
                                     ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
-                                    : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs')
+                                    : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-bl-xs')
                                 }
                               >
                                 {/* Tệp tin đính kèm (nếu có) */}
@@ -3215,16 +3241,16 @@ export default function MessagesView({
                                       'p-3 mb-1.5 rounded-xl flex items-center gap-3 transition border ' +
                                       (isMe
                                         ? 'bg-white/15 hover:bg-white/25 border-white/25 text-white'
-                                        : 'bg-slate-50 hover:bg-blue-50/60 border-slate-200 text-slate-800')
+                                        : 'bg-slate-50 dark:bg-slate-750 hover:bg-blue-50/60 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100')
                                     }
                                     title="Bấm để tải về"
                                   >
-                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-600'}`}>
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'}`}>
                                       <FileText className="w-5 h-5" />
                                     </div>
                                     <div className="flex-1 min-w-0 pr-2">
                                       <span className="font-semibold text-xs truncate block">{msg.text || msg.fileName || 'Tệp đính kèm'}</span>
-                                      <span className={`text-[10px] block ${isMe ? 'text-white/80' : 'text-slate-400'}`}>Bấm để tải về</span>
+                                      <span className={`text-[10px] block ${isMe ? 'text-white/80' : 'text-slate-400 dark:text-slate-400'}`}>Bấm để tải về</span>
                                     </div>
                                     <Download className="w-4 h-4 shrink-0 opacity-80" />
                                   </a>
@@ -3335,14 +3361,14 @@ export default function MessagesView({
                       <img
                         src={currentConversation.user.avatar}
                         alt=""
-                        className="w-7 h-7 rounded-full object-cover ring-2 ring-slate-100"
+                        className="w-7 h-7 rounded-full object-cover ring-2 ring-slate-100 dark:ring-slate-800"
                       />
-                      <div className="bg-white border border-slate-200 px-3.5 py-1.5 rounded-full flex items-center gap-1 shadow-2xs">
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-1.5 rounded-full flex items-center gap-1 shadow-2xs">
                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]" />
                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0.4s]" />
                       </div>
-                      <span>{currentConversation.user.name} đang soạn tin...</span>
+                      <span className="text-slate-500 dark:text-slate-400">{currentConversation.user.name} đang soạn tin...</span>
                     </div>
                   )}
 
@@ -3352,8 +3378,8 @@ export default function MessagesView({
 
               {/* Thanh nhập tin nhắn (hoặc thông báo khi bị chặn) */}
               {isBlocked ? (
-                <div className="shrink-0 p-4 bg-slate-100 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-                  <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600">
+                <div className="shrink-0 p-4 bg-slate-100 dark:bg-slate-850 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
                     <Ban className="w-4 h-4 text-rose-500 shrink-0" />
                     <span>
                       {isBlockedByMe 
@@ -3365,18 +3391,18 @@ export default function MessagesView({
                     <button
                       type="button"
                       onClick={() => handleUnblockConversation(currentConversation.id)}
-                      className="px-4 py-1.5 bg-white hover:bg-slate-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer"
+                      className="px-4 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer"
                     >
                       Bỏ chặn
                     </button>
                   )}
                 </div>
               ) : (
-                <div className="shrink-0 bg-white border-t border-slate-200 relative">
+                <div className="shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 relative">
                   {/* Xem trước ảnh đính kèm trước khi gửi */}
                   {selectedImagePreview && (
                     <div className="px-4 pt-3 flex items-center gap-2">
-                      <div className="relative inline-block rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
+                      <div className="relative inline-block rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-2xs group">
                         <img 
                           src={selectedImagePreview} 
                           alt="Xem trước ảnh" 
@@ -3398,16 +3424,16 @@ export default function MessagesView({
                   {/* Xem trước tệp tin đính kèm trước khi gửi */}
                   {selectedFileAttachment && (
                     <div className="px-4 pt-3 flex items-center gap-2">
-                      <div className="flex items-center gap-2.5 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl shadow-2xs">
-                        <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                      <div className="flex items-center gap-2.5 px-3 py-2 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl shadow-2xs">
+                        <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
                         <div className="max-w-[200px] sm:max-w-xs truncate">
-                          <p className="text-xs font-semibold text-slate-800 truncate">{selectedFileAttachment.name}</p>
-                          <p className="text-[10px] text-slate-500">{formatFileSize(selectedFileAttachment.size)}</p>
+                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">{selectedFileAttachment.name}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">{formatFileSize(selectedFileAttachment.size)}</p>
                         </div>
                         <button
                           type="button"
                           onClick={() => setSelectedFileAttachment(null)}
-                          className="p-1 hover:bg-blue-100 text-slate-400 hover:text-slate-600 rounded-full transition cursor-pointer ml-1"
+                          className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full transition cursor-pointer ml-1"
                           title="Hủy chọn tệp tin"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -3421,14 +3447,14 @@ export default function MessagesView({
                   {showEmojiPicker && (
                     <div 
                       ref={emojiPickerRef}
-                      className="absolute bottom-full left-4 mb-2 w-72 sm:w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 p-3 max-h-72 overflow-y-auto animate-fadeIn"
+                      className="absolute bottom-full left-4 mb-2 w-72 sm:w-80 bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-2xl shadow-xl z-30 p-3 max-h-72 overflow-y-auto animate-fadeIn"
                     >
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
-                        <span className="text-xs font-bold text-slate-700">Biểu tượng cảm xúc</span>
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-750">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Biểu tượng cảm xúc</span>
                         <button
                           type="button"
                           onClick={() => setShowEmojiPicker(false)}
-                          className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                          className="p-1 hover:bg-slate-100 dark:hover:bg-slate-750 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -3448,7 +3474,7 @@ export default function MessagesView({
                                     setInputText(prev => prev + emoji);
                                     inputRef.current?.focus();
                                   }}
-                                  className="w-8 h-8 flex items-center justify-center text-lg hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                  className="w-8 h-8 flex items-center justify-center text-lg hover:bg-slate-100 dark:hover:bg-slate-750 rounded-lg transition cursor-pointer"
                                 >
                                   {emoji}
                                 </button>
@@ -3485,7 +3511,7 @@ export default function MessagesView({
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       title="Gửi ảnh"
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                      className="p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
                     >
                       <ImageIcon className="w-5 h-5" />
                     </button>
@@ -3493,7 +3519,7 @@ export default function MessagesView({
                       type="button"
                       onClick={() => docFileInputRef.current?.click()}
                       title="Đính kèm tệp tin"
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                      className="p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
                     >
                       <Paperclip className="w-5 h-5" />
                     </button>
@@ -3502,7 +3528,7 @@ export default function MessagesView({
                       onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                       title="Biểu tượng cảm xúc"
                       className={`p-2 rounded-xl transition cursor-pointer ${
-                        showEmojiPicker ? 'bg-amber-50 text-amber-500' : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100'
+                        showEmojiPicker ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-500' : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
                       <Smile className="w-5 h-5" />
@@ -3526,7 +3552,7 @@ export default function MessagesView({
                           }
                         }
                       }}
-                      className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                      className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-750 focus:bg-white dark:focus:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/30 outline-none transition"
                     />
 
                     <button
@@ -3537,7 +3563,7 @@ export default function MessagesView({
                         'p-2.5 rounded-full text-white transition shadow-sm ' +
                         (inputText.trim() || selectedImagePreview || selectedFileAttachment
                           ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105 cursor-pointer'
-                          : 'bg-slate-300 cursor-not-allowed opacity-60')
+                          : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed opacity-60')
                       }
                     >
                       <Send className="w-4 h-4" />
@@ -3548,7 +3574,7 @@ export default function MessagesView({
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
-              <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-4">
+              <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/40 text-blue-500 dark:text-blue-400 rounded-2xl flex items-center justify-center mb-4">
                 <MessageSquare className="w-8 h-8" />
               </div>
               <h3 className="text-lg font-bold text-slate-700">Chưa chọn cuộc trò chuyện</h3>
@@ -3561,13 +3587,13 @@ export default function MessagesView({
 
         {/* ================= CỘT 3: THÔNG TIN NGƯỜI DÙNG & TÙY CHỌN TRÒ CHUYỆN ================= */}
         {showInfoSidebar && currentConversation && currentConversation.user && (
-          <aside className="hidden lg:flex w-72 xl:w-80 border-l border-slate-200 bg-white flex-col shrink-0 h-full min-h-0 overflow-y-auto animate-fadeIn">
+          <aside className="hidden lg:flex w-72 xl:w-80 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex-col shrink-0 h-full min-h-0 overflow-y-auto animate-fadeIn">
             {/* Header Cột 3 */}
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-800">Thông tin đoạn chat</h3>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Thông tin đoạn chat</h3>
               <button 
                 onClick={() => setShowInfoSidebar(false)}
-                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                 title="Đóng panel"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -3575,10 +3601,10 @@ export default function MessagesView({
             </div>
 
             {/* Thông tin đại diện */}
-            <div className="p-6 flex flex-col items-center text-center border-b border-slate-100">
+            <div className="p-6 flex flex-col items-center text-center border-b border-slate-100 dark:border-slate-800">
               {currentConversation.type === 'group' ? (
                 <div className="relative group/avatar mb-3">
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center ring-4 ring-slate-100 shadow-md overflow-hidden">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center ring-4 ring-slate-100 dark:ring-slate-800 shadow-md overflow-hidden">
                     {currentConversation.avatar ? (
                       <img src={currentConversation.avatar} alt={currentConversation.name} className="w-20 h-20 rounded-full object-cover" />
                     ) : (
@@ -3619,10 +3645,10 @@ export default function MessagesView({
                   <img 
                     src={currentConversation.user.avatar || DEFAULT_AVATAR} 
                     alt={currentConversation.user.name} 
-                    className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 shadow-md group-hover:ring-2 group-hover:ring-blue-500 transition"
+                    className="w-20 h-20 rounded-full object-cover ring-4 ring-slate-100 dark:ring-slate-800 shadow-md group-hover:ring-2 group-hover:ring-blue-500 transition"
                   />
                   {currentConversation.user.isOnline && (
-                    <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" />
+                    <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
                   )}
                 </div>
               )}
@@ -3641,7 +3667,7 @@ export default function MessagesView({
                       autoFocus
                       placeholder="Nhập tên nhóm..."
                       maxLength={100}
-                      className="w-full text-center text-sm font-semibold text-slate-800 border border-blue-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 rounded-lg px-2 py-1 bg-slate-50"
+                      className="w-full text-center text-sm font-semibold text-slate-800 dark:text-slate-100 border border-blue-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 rounded-lg px-2 py-1 bg-slate-50 dark:bg-slate-800"
                     />
                     <div className="flex items-center gap-1.5">
                       <button
@@ -3658,7 +3684,7 @@ export default function MessagesView({
                         type="button"
                         onClick={handleCancelEditGroupName}
                         disabled={isUpdatingGroupName}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+                        className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer"
                         title="Hủy"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -3668,13 +3694,13 @@ export default function MessagesView({
                   </div>
                 ) : (
                   <div className="flex items-center justify-center gap-1.5 group/title max-w-full px-2">
-                    <h4 className="text-base font-bold text-slate-900 leading-tight truncate">
+                    <h4 className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
                       {currentConversation.name || 'Nhóm trò chuyện'}
                     </h4>
                     <button
                       type="button"
                       onClick={handleStartEditGroupName}
-                      className="p-1 text-slate-400 hover:text-blue-600 rounded-md hover:bg-blue-50 transition cursor-pointer shrink-0"
+                      className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer shrink-0"
                       title="Đổi tên nhóm"
                     >
                       <Pencil className="w-3.5 h-3.5" />
@@ -3684,22 +3710,22 @@ export default function MessagesView({
               ) : (
                 <h4 
                   onClick={() => onOpenProfile && onOpenProfile(currentConversation.user)}
-                  className="text-base font-bold text-slate-900 leading-tight cursor-pointer hover:text-blue-600 transition truncate max-w-full"
+                  className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition truncate max-w-full"
                 >
                   {currentConversation.user.name}
                 </h4>
               )}
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {currentConversation.type === 'group' 
                   ? `${currentConversation.memberCount || currentConversation.members?.length || 0} thành viên`
                   : `@${currentConversation.user.username}`}
               </p>
               <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                 currentConversation.type === 'group'
-                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                   : currentConversation.user.isOnline 
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                    : 'bg-slate-100 text-slate-600'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}>
                 {currentConversation.type === 'group' 
                   ? 'Nhóm trò chuyện' 
@@ -3710,20 +3736,20 @@ export default function MessagesView({
               <div className="grid grid-cols-3 gap-2 w-full mt-5">
                 <button 
                   onClick={() => currentConversation.type !== 'group' && onOpenProfile && onOpenProfile(currentConversation.user)}
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-50 text-slate-600 transition cursor-pointer"
+                  className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                   title={currentConversation.type === 'group' ? 'Thành viên' : 'Trang cá nhân'}
                 >
-                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200">
                     {currentConversation.type === 'group' ? <Users className="w-4 h-4" /> : <User className="w-4 h-4" />}
                   </div>
                   <span className="text-[10px] font-medium">{currentConversation.type === 'group' ? 'Thành viên' : 'Trang cá nhân'}</span>
                 </button>
 
                 <button 
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-50 text-slate-600 transition cursor-pointer"
+                  className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                   title="Tắt thông báo"
                 >
-                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-700">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200">
                     <BellOff className="w-4 h-4" />
                   </div>
                   <span className="text-[10px] font-medium">Tắt báo</span>
@@ -3741,10 +3767,10 @@ export default function MessagesView({
                       contentExcerpt: currentConversation.lastMessage || ('Đoạn chat với ' + (currentConversation.name || convAuthor.name))
                     });
                   }}
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-rose-50 text-rose-600 transition cursor-pointer"
+                  className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition cursor-pointer"
                   title="Báo cáo vi phạm"
                 >
-                  <div className="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center text-rose-600">
+                  <div className="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-950/50 flex items-center justify-center text-rose-600 dark:text-rose-400">
                     <ShieldAlert className="w-4 h-4" />
                   </div>
                   <span className="text-[10px] font-medium">Báo cáo</span>
@@ -3754,24 +3780,24 @@ export default function MessagesView({
 
             {/* Danh sách thành viên (nếu là nhóm) */}
             {currentConversation.type === 'group' && currentConversation.members?.length > 0 && (
-              <div className="p-4 border-b border-slate-100 space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                   <span>Thành viên ({currentConversation.members.length})</span>
                 </div>
                 <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                   {currentConversation.members.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2.5 p-1.5 rounded-xl hover:bg-slate-50 transition">
+                    <div key={m.id} className="flex items-center gap-2.5 p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition">
                       <img
                         src={m.avatar || DEFAULT_AVATAR}
                         alt={m.name}
-                        className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-100 shrink-0"
+                        className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-100 dark:ring-slate-800 shrink-0"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-800 truncate">{m.name}</p>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{m.name}</p>
                         <p className="text-[10px] text-slate-400 truncate">@{m.username}</p>
                       </div>
                       {String(m.id) === String(currentUser?.id) && (
-                        <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded">
+                        <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.2 rounded">
                           Bạn
                         </span>
                       )}
@@ -3782,8 +3808,8 @@ export default function MessagesView({
             )}
 
             {/* File, Ảnh & Link đã gửi */}
-            <div className="p-4 border-b border-slate-100 space-y-3">
-              <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wider">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                 <span>File, Ảnh & Link đã gửi</span>
                 {(sharedMedia.length > 0 || sharedLinks.length > 0) && (
                   <button
@@ -3792,7 +3818,7 @@ export default function MessagesView({
                       setAllMediaTab(sidebarActiveTab);
                       setShowAllMediaModal(true);
                     }}
-                    className="text-blue-600 hover:text-blue-700 cursor-pointer font-normal text-xs transition"
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer font-normal text-xs transition"
                   >
                     Xem tất cả
                   </button>
@@ -3800,20 +3826,20 @@ export default function MessagesView({
               </div>
 
               {/* Sub-tabs chuyển đổi giữa Ảnh & File và Link */}
-              <div className="flex items-center bg-slate-100/80 p-0.5 rounded-lg text-xs">
+              <div className="flex items-center bg-slate-100/80 dark:bg-slate-800/80 p-0.5 rounded-lg text-xs">
                 <button
                   type="button"
                   onClick={() => setSidebarActiveTab('media')}
                   className={`flex-1 py-1 rounded-md font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 ${
                     sidebarActiveTab === 'media'
-                      ? 'bg-white text-slate-800 shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-700'
+                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                   }`}
                 >
                   <ImageIcon className="w-3.5 h-3.5" />
                   <span>Ảnh & File</span>
                   {sharedMedia.length > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 rounded-full font-bold">
+                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 rounded-full font-bold">
                       {sharedMedia.length}
                     </span>
                   )}
@@ -3823,14 +3849,14 @@ export default function MessagesView({
                   onClick={() => setSidebarActiveTab('links')}
                   className={`flex-1 py-1 rounded-md font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 ${
                     sidebarActiveTab === 'links'
-                      ? 'bg-white text-slate-800 shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-700'
+                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                   }`}
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
                   <span>Link</span>
                   {sharedLinks.length > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 rounded-full font-bold">
+                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 rounded-full font-bold">
                       {sharedLinks.length}
                     </span>
                   )}
@@ -3847,17 +3873,17 @@ export default function MessagesView({
                           key={item.id}
                           href={item.url}
                           download={item.fileName || 'tep-tin'}
-                          className="relative group rounded-lg p-1.5 border border-slate-200/80 aspect-square flex flex-col items-center justify-center text-center bg-slate-50 hover:bg-blue-50/80 transition cursor-pointer"
+                          className="relative group rounded-lg p-1.5 border border-slate-200/80 dark:border-slate-700 aspect-square flex flex-col items-center justify-center text-center bg-slate-50 dark:bg-slate-800/80 hover:bg-blue-50/80 dark:hover:bg-slate-750 transition cursor-pointer"
                           title={item.fileName || 'Tệp đính kèm'}
                         >
-                          <FileText className="w-5 h-5 text-blue-600 mb-0.5" />
-                          <span className="text-[9px] text-slate-700 truncate max-w-full font-medium leading-tight px-0.5">{item.fileName || 'Tệp tin'}</span>
+                          <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-0.5" />
+                          <span className="text-[9px] text-slate-700 dark:text-slate-200 truncate max-w-full font-medium leading-tight px-0.5">{item.fileName || 'Tệp tin'}</span>
                           <Download className="w-3 h-3 text-slate-400 group-hover:text-blue-600 mt-1" />
                         </a>
                       ) : (
                         <div
                           key={item.id}
-                          className="relative group rounded-lg overflow-hidden border border-slate-200/80 aspect-square cursor-pointer"
+                          className="relative group rounded-lg overflow-hidden border border-slate-200/80 dark:border-slate-700 aspect-square cursor-pointer"
                           onClick={() => setSelectedImageModal(item.url)}
                         >
                           <img
@@ -3884,10 +3910,10 @@ export default function MessagesView({
                         href={linkItem.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-2 rounded-xl bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-200 flex items-center justify-between gap-2 transition group cursor-pointer"
+                        className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 hover:bg-blue-50/70 dark:hover:bg-slate-750 border border-slate-200/80 dark:border-slate-700 hover:border-blue-200 flex items-center justify-between gap-2 transition group cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 group-hover:text-blue-600 truncate">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate">
                             <ExternalLink className="w-3 h-3 shrink-0 text-slate-400 group-hover:text-blue-500" />
                             <span className="truncate">{linkItem.domain}</span>
                           </div>
@@ -3906,7 +3932,7 @@ export default function MessagesView({
 
             {/* Cài đặt riêng tư */}
             <div className="p-4 space-y-2">
-              <div className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+              <div className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
                 Quyền riêng tư & Hỗ trợ
               </div>
               <button 
@@ -3918,7 +3944,7 @@ export default function MessagesView({
                     contentExcerpt: currentConversation.lastMessage
                   });
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition cursor-pointer"
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl transition cursor-pointer"
               >
                 <Flag className="w-4 h-4 text-rose-500" />
                 <span>Báo cáo cuộc trò chuyện này</span>
@@ -3935,11 +3961,11 @@ export default function MessagesView({
                 }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-xl transition cursor-pointer ${
                   isBlockedByMe 
-                    ? 'text-blue-600 hover:bg-blue-50' 
-                    : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                    ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40' 
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400'
                 }`}
               >
-                <Ban className={`w-4 h-4 ${isBlockedByMe ? 'text-blue-600' : 'text-slate-400'}`} />
+                <Ban className={`w-4 h-4 ${isBlockedByMe ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`} />
                 <span>{isBlockedByMe ? 'Bỏ chặn người dùng này' : 'Chặn tin nhắn & cuộc gọi'}</span>
               </button>
             </div>
@@ -3977,13 +4003,13 @@ export default function MessagesView({
             onClick={() => setShowAllMediaModal(false)}
           >
             <div 
-              className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-scaleUp"
+              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] border border-slate-200 dark:border-slate-800 animate-scaleUp"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
-              <div className="p-4 sm:px-6 border-b border-slate-200 flex items-center justify-between">
+              <div className="p-4 sm:px-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-bold text-slate-800">File, Ảnh & Link đã gửi</h3>
+                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">File, Ảnh & Link đã gửi</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Hội thoại với {currentConversation?.user?.name}
                   </p>
@@ -3991,21 +4017,21 @@ export default function MessagesView({
                 <button
                   type="button"
                   onClick={() => setShowAllMediaModal(false)}
-                  className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Modal Tabs */}
-              <div className="flex items-center px-6 border-b border-slate-200 gap-6">
+              <div className="flex items-center px-6 border-b border-slate-200 dark:border-slate-800 gap-6">
                 <button
                   type="button"
                   onClick={() => setAllMediaTab('media')}
                   className={`py-3 text-xs sm:text-sm font-bold border-b-2 transition cursor-pointer flex items-center gap-2 ${
                     allMediaTab === 'media'
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                   }`}
                 >
                   <ImageIcon className="w-4 h-4" />
@@ -4016,8 +4042,8 @@ export default function MessagesView({
                   onClick={() => setAllMediaTab('links')}
                   className={`py-3 text-xs sm:text-sm font-bold border-b-2 transition cursor-pointer flex items-center gap-2 ${
                     allMediaTab === 'links'
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                   }`}
                 >
                   <LinkIcon className="w-4 h-4" />
@@ -4036,16 +4062,16 @@ export default function MessagesView({
                             key={item.id}
                             href={item.url}
                             download={item.fileName || 'tep-tin'}
-                            className="relative group rounded-xl p-3 border border-slate-200 aspect-square flex flex-col items-center justify-center text-center bg-slate-50 hover:bg-blue-50/80 transition cursor-pointer shadow-2xs hover:shadow-md"
+                            className="relative group rounded-xl p-3 border border-slate-200 dark:border-slate-700 aspect-square flex flex-col items-center justify-center text-center bg-slate-50 dark:bg-slate-800 hover:bg-blue-50/80 dark:hover:bg-slate-750 transition cursor-pointer shadow-2xs hover:shadow-md"
                             title={item.fileName || 'Tệp đính kèm'}
                           >
-                            <FileText className="w-8 h-8 text-blue-600 mb-1.5" />
-                            <span className="text-xs text-slate-700 truncate max-w-full font-semibold">{item.fileName || 'Tệp tin'}</span>
-                            <span className="text-[10px] text-blue-600 flex items-center gap-1 mt-1 font-medium">
+                            <FileText className="w-8 h-8 text-blue-600 dark:text-blue-400 mb-1.5" />
+                            <span className="text-xs text-slate-700 dark:text-slate-200 truncate max-w-full font-semibold">{item.fileName || 'Tệp tin'}</span>
+                            <span className="text-[10px] text-blue-600 dark:text-blue-400 flex items-center gap-1 mt-1 font-medium">
                               <Download className="w-3 h-3" /> Tải về
                             </span>
                             {item.time && (
-                              <span className="absolute bottom-1 right-1 text-[9px] bg-slate-200/80 text-slate-600 px-1.5 py-0.5 rounded-md">
+                              <span className="absolute bottom-1 right-1 text-[9px] bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md">
                                 {item.time}
                               </span>
                             )}
@@ -4053,7 +4079,7 @@ export default function MessagesView({
                         ) : (
                           <div
                             key={item.id}
-                            className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-square cursor-pointer shadow-2xs hover:shadow-md transition"
+                            className="relative group rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 aspect-square cursor-pointer shadow-2xs hover:shadow-md transition"
                             onClick={() => {
                               setSelectedImageModal(item.url);
                             }}
@@ -4077,7 +4103,7 @@ export default function MessagesView({
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 text-center">
-                      <ImageIcon className="w-12 h-12 mb-2 stroke-1 text-slate-300" />
+                      <ImageIcon className="w-12 h-12 mb-2 stroke-1 text-slate-300 dark:text-slate-600" />
                       <p className="text-sm">Chưa có ảnh hoặc file nào được chia sẻ trong đoạn chat này</p>
                     </div>
                   )
@@ -4090,14 +4116,14 @@ export default function MessagesView({
                           href={linkItem.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/70 border border-slate-200 hover:border-blue-300 flex items-center justify-between gap-3 transition group cursor-pointer"
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-blue-50/70 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700 hover:border-blue-300 flex items-center justify-between gap-3 transition group cursor-pointer"
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 text-sm font-bold text-slate-800 group-hover:text-blue-600 truncate">
+                            <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate">
                               <ExternalLink className="w-4 h-4 shrink-0 text-slate-400 group-hover:text-blue-500" />
                               <span className="truncate">{linkItem.domain}</span>
                             </div>
-                            <span className="text-xs text-slate-500 truncate block mt-0.5">
+                            <span className="text-xs text-slate-500 dark:text-slate-400 truncate block mt-0.5">
                               {linkItem.url}
                             </span>
                           </div>
@@ -4111,7 +4137,7 @@ export default function MessagesView({
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 text-center">
-                      <LinkIcon className="w-12 h-12 mb-2 stroke-1 text-slate-300" />
+                      <LinkIcon className="w-12 h-12 mb-2 stroke-1 text-slate-300 dark:text-slate-600" />
                       <p className="text-sm">Chưa có liên kết nào được chia sẻ trong đoạn chat này</p>
                     </div>
                   )

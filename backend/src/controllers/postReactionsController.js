@@ -21,6 +21,7 @@ export function createPostReactionsController({ reactionService }) {
     async listPostReactions(req, res, next) {
       try {
         const reactions = await reactionService.getPostReactions({
+          user: req.user,
           postId: req.params.postId,
         });
         res.json({

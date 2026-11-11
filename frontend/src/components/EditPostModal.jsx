@@ -1,14 +1,16 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Image as ImageIcon, Save } from 'lucide-react';
+import { X, Image as ImageIcon, Save, Globe, Users, Lock } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
+import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
 
 export default function EditPostModal({ post, isOpen, onClose, onSave }) {
   const [content, setContent] = useState(post?.content || '');
   const [imageUrl, setImageUrl] = useState(post?.image || post?.image_url || '');
+  const [privacy, setPrivacy] = useState(post?.privacy || 'public');
   const [imagePreview, setImagePreview] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -65,6 +67,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
       const result = await onSave({
         content: content.trim(),
         imageUrl: imageUrl || null,
+        privacy: normalizePostPrivacy(privacy),
         forcePost,
       });
 
@@ -106,6 +109,16 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
             className="min-h-32 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             placeholder="Nội dung bài viết"
           />
+
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            {privacy === 'friends' ? <Users className="h-4 w-4 text-amber-500" /> : privacy === 'only_me' || privacy === 'private' ? <Lock className="h-4 w-4 text-rose-500" /> : <Globe className="h-4 w-4 text-blue-500" />}
+            <span>Quyền riêng tư</span>
+            <select value={privacy === 'private' ? 'only_me' : privacy} onChange={(event) => setPrivacy(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
+              {POST_PRIVACY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
 
           <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100">
             <ImageIcon className="h-4 w-4 text-emerald-500" />

@@ -1,6 +1,7 @@
 import { calculateTrustDeduction, applyTrustPenalty } from './trustScoreService.js';
 import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
+import { normalizePostPrivacy } from '../repositories/postVisibility.js';
 
 export function createPostService({ postRepository, moderationHook, imageModerationClient, clock = () => new Date() }) {
   const holdViolent = (result) => result?.decision === 'rejected'
@@ -24,7 +25,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
   };
 
   return {
-    async createPost({ user, content, imageUrl, forcePost }) {
+    async createPost({ user, content, imageUrl, privacy, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để đăng bài');
         error.statusCode = 401;
@@ -44,6 +45,29 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         error.statusCode = 400;
         throw error;
       }
+
+      const privacyWasProvided = privacy !== undefined && privacy !== null && privacy !== '';
+      let requestedPrivacy = privacy;
+      if (requestedPrivacy === undefined || requestedPrivacy === null || requestedPrivacy === '') {
+        requestedPrivacy = 'public';
+        if (postRepository.pool) {
+          try {
+            const settings = await postRepository.pool.query(
+              'SELECT post_default_privacy FROM user_settings WHERE user_id = $1',
+              [user.id]
+            );
+            requestedPrivacy = settings.rows[0]?.post_default_privacy || 'public';
+          } catch {
+            requestedPrivacy = 'public';
+          }
+        }
+      }
+      if (!['public', 'friends', 'only_me', 'private'].includes(requestedPrivacy)) {
+        const error = new Error('\u0051\u0075y\u1ec1n ri\u00eang t\u01b0 kh\u00f4ng h\u1ee3p l\u1ec7');
+        error.statusCode = 400;
+        throw error;
+      }
+      requestedPrivacy = normalizePostPrivacy(requestedPrivacy);
 
       const textMod = await moderateTextContent(normalizedContent);
 
@@ -100,6 +124,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
           authorId: user.id,
           content: normalizedContent,
           imageUrl: normalizeText(imageUrl) || null,
+          ...(privacyWasProvided || requestedPrivacy !== 'public' ? { privacy: requestedPrivacy } : {}),
           createdAt: clock(),
           aiStatus: 'hidden',
           aiLabel: harmonized.finalLabel,
@@ -155,6 +180,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         authorId: user.id,
         content: normalizedContent,
         imageUrl: normalizeText(imageUrl) || null,
+        ...(privacyWasProvided || requestedPrivacy !== 'public' ? { privacy: requestedPrivacy } : {}),
         createdAt: clock(),
       };
       if (harmonized.aiStatus && harmonized.aiStatus !== 'approved') {
@@ -241,7 +267,7 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       return post;
     },
 
-    async editPost({ user, postId, content, imageUrl, forcePost }) {
+    async editPost({ user, postId, content, imageUrl, privacy, forcePost }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để tiếp tục');
         error.statusCode = 401;
@@ -280,11 +306,29 @@ export function createPostService({ postRepository, moderationHook, imageModerat
         throw error;
       }
 
+      let requestedPrivacy = privacy;
+      if (requestedPrivacy !== undefined) {
+        if (!['public', 'friends', 'only_me', 'private'].includes(requestedPrivacy)) {
+          const error = new Error('\u0051\u0075y\u1ec1n ri\u00eang t\u01b0 kh\u00f4ng h\u1ee3p l\u1ec7');
+          error.statusCode = 400;
+          throw error;
+        }
+        requestedPrivacy = normalizePostPrivacy(requestedPrivacy);
+      }
+
       const normalizedContent = normalizeText(content);
       if (!normalizedContent) {
         const error = new Error('Nội dung không được để trống');
         error.statusCode = 400;
         throw error;
+      }
+
+      const sameContent = normalizedContent === normalizeText(existingPost.content);
+      const sameImage = normalizeImageUrl(imageUrl) === normalizeImageUrl(existingPost.image_url);
+      const currentPrivacy = normalizePostPrivacy(existingPost.privacy);
+      if (requestedPrivacy !== undefined && sameContent && sameImage && requestedPrivacy !== currentPrivacy
+          && typeof postRepository.updatePostPrivacy === 'function') {
+        return postRepository.updatePostPrivacy({ postId, authorId: user.id, privacy: requestedPrivacy });
       }
 
       const textMod = await moderateTextContent(normalizedContent);
@@ -433,6 +477,11 @@ export function createPostService({ postRepository, moderationHook, imageModerat
             : {}),
       });
 
+      if (requestedPrivacy !== undefined && requestedPrivacy !== currentPrivacy
+          && typeof postRepository.updatePostPrivacy === 'function') {
+        return postRepository.updatePostPrivacy({ postId, authorId: user.id, privacy: requestedPrivacy });
+      }
+
       // Trừ điểm uy tín khi chỉnh sửa vi phạm (chỉ trừ phần chênh lệch nếu nhãn mới nặng hơn)
       const prevDeduction = calculateTrustDeduction(
         existingPost?.ai_label || 'Normal',
@@ -492,7 +541,12 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       }
 
       await postRepository.deletePost({ postId, authorId: user.id });
-      return { id: String(postId), imageModerationStatus: existingPost.image_moderation_status };
+      return {
+        id: String(postId),
+        privacy: existingPost.privacy,
+        author_id: existingPost.author_id,
+        imageModerationStatus: existingPost.image_moderation_status,
+      };
     },
 
     async sharePost({ user, originalPostId, content }) {
@@ -515,6 +569,12 @@ export function createPostService({ postRepository, moderationHook, imageModerat
       if (!originalPost) {
         const error = new Error('Bài viết gốc không tồn tại');
         error.statusCode = 404;
+        throw error;
+      }
+
+      if (normalizePostPrivacy(originalPost.privacy) !== 'public') {
+        const error = new Error('\u0042\u00e0i vi\u1ebft n\u00e0y kh\u00f4ng th\u1ec3 chia s\u1ebb');
+        error.statusCode = 403;
         throw error;
       }
 

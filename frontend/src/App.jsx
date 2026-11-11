@@ -48,7 +48,9 @@ import {
   resolveAppealApi,
   fetchAiOverridesList,
   createAiOverrideApi,
-  fetchStories
+  fetchStories,
+  fetchStoryByIdApi,
+  fetchUserStoriesApi
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
@@ -78,6 +80,7 @@ export default function App() {
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [profileInitialTab, setProfileInitialTab] = useState('all');
   const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
@@ -511,7 +514,7 @@ export default function App() {
   }, [currentUser]);
 
   // Xử lý Chuyển Tab có Auth Guard và Role Guard
-  const handleTabChange = (tab, targetUser = null, replace = false) => {
+  const handleTabChange = (tab, targetUser = null, replace = false, subTab = 'all') => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
       const msg = tab === 'admin' || tab === 'moderation'
         ? "Vui lòng đăng nhập để truy cập khu vực này"
@@ -535,8 +538,10 @@ export default function App() {
 
     if (effectiveTab === 'profile') {
       setViewedProfileUser(targetUser || null);
+      setProfileInitialTab(subTab || 'all');
     } else {
       setViewedProfileUser(null);
+      setProfileInitialTab('all');
     }
     if (effectiveTab !== 'post') {
       setViewedPostDetail(null);
@@ -774,6 +779,58 @@ export default function App() {
   const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
     try {
       let targetTray = tray;
+
+      // 1. Nếu có storyId cụ thể, ưu tiên tải trực tiếp story theo ID
+      if (!targetTray && storyId) {
+        try {
+          const singleStoryRes = await fetchStoryByIdApi(storyId, currentUser?.id);
+          const singleStory = singleStoryRes?.data || singleStoryRes;
+          if (singleStory?.id) {
+            const parsedBg = typeof singleStory.backgroundStyle === 'object' && singleStory.backgroundStyle !== null
+              ? singleStory.backgroundStyle
+              : (typeof singleStory.background_style === 'string'
+                  ? (() => { try { return JSON.parse(singleStory.background_style); } catch { return {}; } })()
+                  : (singleStory.background_style || {}));
+
+            const normalizedSingleStory = {
+              ...singleStory,
+              id: String(singleStory.id),
+              storyType: singleStory.storyType || singleStory.story_type || 'text',
+              mediaUrl: singleStory.mediaUrl || singleStory.media_url || null,
+              textContent: singleStory.textContent || singleStory.text_content || '',
+              backgroundStyle: parsedBg,
+            };
+
+            targetTray = {
+              author: {
+                id: singleStory.author_id,
+                name: singleStory.author_name || singleStory.full_name || singleStory.username || 'Người dùng',
+                username: singleStory.author_username || singleStory.username || '',
+                avatar: singleStory.author_avatar || singleStory.avatar_url,
+              },
+              isSelf: currentUser?.id ? String(currentUser.id) === String(singleStory.author_id) : false,
+              hasUnviewedStories: false,
+              stories: [normalizedSingleStory],
+            };
+          }
+        } catch (fetchErr) {
+          console.warn('Không thể tải tin theo ID, thử tìm qua feed/user:', fetchErr.message);
+        }
+      }
+
+      // 2. Nếu chưa có tray và có userId, thử gọi API lấy tin của user đó
+      if (!targetTray && userId) {
+        try {
+          const userStoriesRes = await fetchUserStoriesApi(userId);
+          if (userStoriesRes?.data?.stories?.length > 0) {
+            targetTray = userStoriesRes.data;
+          }
+        } catch (uErr) {
+          console.warn('Không thể tải tin của user:', uErr.message);
+        }
+      }
+
+      // 3. Fallback: tìm trong feed stories chung
       if (!targetTray) {
         const res = await fetchStories();
         const allTrays = res?.data || [];
@@ -790,6 +847,19 @@ export default function App() {
           targetTray = allTrays[0];
         }
       }
+
+      // 4. Nếu vẫn chưa có và người dùng đang click vào thông báo tin của chính mình
+      if (!targetTray && currentUser?.id) {
+        try {
+          const myStoriesRes = await fetchUserStoriesApi(currentUser.id);
+          if (myStoriesRes?.data?.stories?.length > 0) {
+            targetTray = myStoriesRes.data;
+          }
+        } catch (myErr) {
+          console.warn('Không thể tải tin cá nhân:', myErr.message);
+        }
+      }
+
       if (targetTray) {
         setActiveStoryViewerTarget({
           tray: targetTray,
@@ -808,7 +878,8 @@ export default function App() {
     let eventSource = null;
     try {
       const nodeApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream`);
+      const realtimeUserId = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
+      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream${realtimeUserId}`);
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
@@ -826,7 +897,7 @@ export default function App() {
         eventSource.close();
       }
     };
-  }, []);
+  }, [currentUser?.id]);
 
   // Thêm bài viết mới
   const handleAddPost = (newPost, cooldown, violationInfo) => {
@@ -920,7 +991,7 @@ export default function App() {
       if (isHardHiddenPost(p)) return false;
       const authorId = String(p.author_id || p.author?.id || '');
       if (authorId && blockedIds.has(authorId)) return false;
-      if (p.privacy === 'private' && authorId !== String(currentUser?.id)) return false;
+      if ((p.privacy === 'private' || p.privacy === 'only_me') && authorId !== String(currentUser?.id)) return false;
       return true;
     });
   };
@@ -984,6 +1055,7 @@ export default function App() {
         postId,
         content: changes.content,
         imageUrl: changes.imageUrl,
+        privacy: changes.privacy,
         forcePost: changes.forcePost,
       });
 
@@ -1031,6 +1103,16 @@ export default function App() {
     if (newSharedPost) {
       setPosts((prev) => [newSharedPost, ...prev]);
     }
+  };
+
+  // Lưu / Bỏ lưu bài viết yêu thích (đồng bộ trạng thái trên toàn hệ thống)
+  const handleToggleSavePost = (postId, nextSaved) => {
+    setPosts((previous) => previous.map((post) => {
+      if (String(post.id) === String(postId)) {
+        return { ...post, isSaved: nextSaved };
+      }
+      return post;
+    }));
   };
 
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
@@ -1895,6 +1977,8 @@ export default function App() {
             activeStreams={activeStreamsList}
             onWatchStream={handleWatchLiveStream}
             onOpenLiveStream={handleOpenLiveStreamAction}
+            onToggleSave={handleToggleSavePost}
+            onViewPost={handleViewPost}
           />
         )}
 
@@ -1953,6 +2037,7 @@ export default function App() {
             onClosePostMenu={handleClosePostMenu}
             onDismissNotice={handleDismissPostNotice}
             onSharePost={handleSharePost}
+            onToggleSave={handleToggleSavePost}
           />
         )}
 
@@ -2021,6 +2106,8 @@ export default function App() {
             onEditPost={handleUpdatePost}
             onDeletePost={handleDeleteOwnPost}
             onOpenStoryViewer={handleOpenStoryViewer}
+            initialTab={profileInitialTab}
+            onToggleSave={handleToggleSavePost}
           />
         )}
 
@@ -2213,6 +2300,22 @@ export default function App() {
           handleEndLiveStream(sessionId);
         }}
       />
+
+      {/* Modal Xem Story cấp ứng dụng (Mở từ Thông báo hoặc điều hướng trực tiếp) */}
+      {activeStoryViewerTarget && (
+        <StoryViewerModal
+          isOpen={Boolean(activeStoryViewerTarget)}
+          tray={activeStoryViewerTarget.tray}
+          initialStoryId={activeStoryViewerTarget.initialStoryId}
+          initialStoryIndex={activeStoryViewerTarget.initialStoryIndex}
+          initialShowViewers={activeStoryViewerTarget.initialShowViewers}
+          targetViewerId={activeStoryViewerTarget.targetViewerId}
+          currentUser={currentUser}
+          onViewPost={handleViewPost}
+          onOpenStoryViewer={handleOpenStoryViewer}
+          onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
 
     </div>
   );

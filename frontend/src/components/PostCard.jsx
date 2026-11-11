@@ -5,7 +5,7 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
   Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock, Globe, Users, UserX
 } from 'lucide-react';
-import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
+import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage, toggleSavePostApi } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -22,6 +22,7 @@ import { getModerationNoticeText, moderationViolationNotice } from '../utils/mod
 import { canSubmitImageAppeal, shouldHideContentForViewer, shouldShowPostAiLabel } from '../utils/imageModerationReviewLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
+import { getPostPrivacyLabel, normalizePostPrivacy } from '../utils/postPrivacy';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
 import VerifiedBadge from './VerifiedBadge';
@@ -129,7 +130,8 @@ export default function PostCard({
   isTargeted = false,
   targetType = null,
   targetActor = null,
-  targetCommentId = null
+  targetCommentId = null,
+  onToggleSave
 }) {
   const [showComments, setShowComments] = useState(false);
   const [highlightedCommentId, setHighlightedCommentId] = useState(null);
@@ -301,7 +303,47 @@ export default function PostCard({
       commentFileInputRef.current.value = '';
     }
   };
-  const [isSaved, setIsSaved] = useState(post.isSaved || false);
+  const [isSaved, setIsSaved] = useState(Boolean(post.isSaved));
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
+
+  useEffect(() => {
+    setIsSaved(Boolean(post.isSaved));
+  }, [post.isSaved]);
+
+  const handleToggleSave = async (e) => {
+    if (e) e.stopPropagation();
+    if (!currentUser?.id) {
+      if (onRequireLogin) onRequireLogin();
+      else if (onRequireAuth) onRequireAuth("Vui lòng đăng nhập để lưu bài viết");
+      return;
+    }
+
+    const previousState = isSaved;
+    const nextState = !previousState;
+    setIsSaved(nextState);
+    setIsSaving(true);
+    setSaveToast(nextState ? 'Đã lưu bài viết vào mục Yêu thích' : 'Đã bỏ lưu bài viết');
+    setTimeout(() => setSaveToast(false), 2200);
+
+    try {
+      const res = await toggleSavePostApi(post.id);
+      const serverSaved = res?.isSaved ?? nextState;
+      setIsSaved(serverSaved);
+      post.isSaved = serverSaved;
+      if (onToggleSave) {
+        onToggleSave(post.id, serverSaved);
+      }
+    } catch (err) {
+      setIsSaved(previousState);
+      post.isSaved = previousState;
+      setSaveToast('Lỗi khi lưu bài viết: ' + (err.message || 'Thất bại'));
+      setTimeout(() => setSaveToast(false), 2200);
+      console.warn('Lỗi lưu bài viết:', err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   const [copiedToast, setCopiedToast] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
   const [reactionCounts, setReactionCounts] = useState(() => normalizeReactionCounts(post.reactionCounts || post.counts));
@@ -616,6 +658,7 @@ export default function PostCard({
   };
 
   const handleShare = () => {
+    if (post.privacy && !['public'].includes(post.privacy)) return;
     if (!currentUser?.id) {
       if (onRequireAuth) {
         onRequireAuth('Vui lòng đăng nhập để chia sẻ bài viết');
@@ -640,9 +683,9 @@ export default function PostCard({
     onSharePost?.(result?.data);
   };
 
-  const handleSaveEdit = async ({ content, imageUrl, forcePost }) => {
+  const handleSaveEdit = async ({ content, imageUrl, privacy, forcePost }) => {
     setPostError('');
-    const updatedPost = await onEditPost(post.id, { content, imageUrl, forcePost });
+    const updatedPost = await onEditPost(post.id, { content, imageUrl, privacy, forcePost });
     if (!updatedPost?.nudge) {
       setShowEditModal(false);
     }
@@ -807,11 +850,11 @@ export default function PostCard({
                 </>
               )}
               <span>•</span>
-              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
-                post.privacy === 'private' ? 'Chỉ mình tôi' :
+              <span aria-label={getPostPrivacyLabel(post.privacy)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
+                normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                 post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
               }>
-                {post.privacy === 'private' ? (
+                {normalizePostPrivacy(post.privacy) === 'only_me' ? (
                   <Lock className="w-3 h-3 text-rose-500" />
                 ) : post.privacy === 'friends' ? (
                   <Users className="w-3.5 h-3.5 text-amber-500" />
@@ -819,7 +862,7 @@ export default function PostCard({
                   <Globe className="w-3 h-3 text-blue-500" />
                 )}
                 <span>
-                  {post.privacy === 'private' ? 'Chỉ mình tôi' :
+                  {normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                    post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'}
                 </span>
               </span>
@@ -962,24 +1005,30 @@ export default function PostCard({
           </div>
           <div className="max-w-md">
             <h4 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-100">
-              {adminImageReviewStatus ? 'Nội dung nhạy cảm' : 'Cảnh báo: Nội dung nhạy cảm'}
+              {adminImageReviewStatus ? 'Hình ảnh đang được kiểm duyệt' : 'Cảnh báo: Nội dung nhạy cảm'}
             </h4>
             <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1 leading-relaxed">
-              {isToxicText && isNsfwImage
-                ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
-                : isNsfwImage
-                ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
-                : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).'}
+              {adminImageReviewStatus
+                ? (isAuthor
+                    ? 'Hình ảnh của bài viết đang được kiểm duyệt AI hoặc Quản trị viên xét duyệt. Chỉ bạn có thể nhìn thấy.'
+                    : 'Hình ảnh bài viết này đang trong quá trình kiểm duyệt hoặc đã bị ẩn do vi phạm tiêu chuẩn cộng đồng.')
+                : (isToxicText && isNsfwImage
+                    ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
+                    : isNsfwImage
+                    ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
+                    : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).')}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setRevealedSensitivePost(true)}
-            className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
-          >
-            <Eye className="w-4 h-4" />
-            <span>{adminImageReviewStatus ? 'Xem' : 'Xem toàn bộ bài viết'}</span>
-          </button>
+          {(!adminImageReviewStatus || isAuthor) && (
+            <button
+              type="button"
+              onClick={() => setRevealedSensitivePost(true)}
+              className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
+            >
+              <Eye className="w-4 h-4" />
+              <span>{adminImageReviewStatus ? 'Xem ảnh của tôi' : 'Xem toàn bộ bài viết'}</span>
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -1056,6 +1105,11 @@ export default function PostCard({
       )}
 
       {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
+      {post.originalPostId && !post.originalPost && (
+        <div className="mx-4 sm:mx-5 mb-3 mt-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs font-medium text-slate-500">
+          {'N\u1ed9i dung g\u1ed1c kh\u00f4ng kh\u1ea3 d\u1ee5ng'}
+        </div>
+      )}
       {Boolean(post.originalPost) && (
         <div className="mx-4 sm:mx-5 mb-3 mt-1">
           {(post.originalPost?.author || post.originalPost?.id || post.originalPost?.content) && !post.originalPost?.isDeleted ? (
@@ -1297,20 +1351,29 @@ export default function PostCard({
 
         <button
           onClick={handleShare}
-          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer"
+          disabled={Boolean(post.privacy && post.privacy !== 'public')}
+          title={post.privacy && post.privacy !== 'public' ? "Ch\u1ec9 b\u00e0i vi\u1ebft c\u00f4ng khai m\u1edbi c\u00f3 th\u1ec3 chia s\u1ebb" : undefined}
+          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Share2 className="w-4 h-4 text-slate-500" />
           <span>Chia sẻ</span>
         </button>
 
         <button
-          onClick={() => setIsSaved(!isSaved)}
-          className={`px-3 py-2 rounded-xl hover:bg-slate-50 transition duration-150 cursor-pointer ${
-            isSaved ? 'text-amber-500' : 'text-slate-400'
+          type="button"
+          onClick={handleToggleSave}
+          disabled={isSaving}
+          className={`relative px-3 py-2 rounded-xl hover:bg-slate-50 transition duration-150 cursor-pointer ${
+            isSaved ? 'text-amber-500' : 'text-slate-400 hover:text-slate-600'
           }`}
           title={isSaved ? "Bỏ lưu bài viết" : "Lưu bài viết"}
         >
-          <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-amber-500' : ''}`} />
+          <Bookmark className={`w-4 h-4 transition-all duration-200 ${isSaved ? 'fill-amber-500 text-amber-500 scale-110' : 'hover:scale-110'}`} />
+          {saveToast && (
+            <span className="absolute -top-8 right-0 whitespace-nowrap bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-xl pointer-events-none animate-fade-in z-30">
+              {saveToast}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1715,6 +1778,7 @@ export default function PostCard({
       )}
 
       <EditPostModal
+        key={`${post.id}-${post.privacy || 'public'}`}
         post={post}
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}

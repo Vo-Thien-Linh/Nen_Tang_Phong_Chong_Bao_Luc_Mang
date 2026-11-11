@@ -1,7 +1,10 @@
 import { Bell, Heart, MessageCircle, Repeat, ShieldAlert, ShieldCheck, X } from 'lucide-react';
 import { getNotificationSnapshotPreview } from '../utils/notificationSnapshotLogic';
+import { useTranslation, translateNotificationText } from '../utils/i18n';
+import { formatRelativeTime } from '../utils/timeAgo';
 
 export default function NotificationToast({ notification, onClose, onClick }) {
+  const { isEn } = useTranslation();
   if (!notification) return null;
 
   const getTypeIcon = (type) => {
@@ -24,14 +27,15 @@ export default function NotificationToast({ notification, onClose, onClick }) {
   };
 
   const actor = notification.user || {
-    name: 'Thông báo hệ thống',
+    name: isEn ? 'System Notification' : 'Thông báo hệ thống',
     avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200',
   };
+  const displayName = isEn && actor.name === 'Thông báo hệ thống' ? 'System Notification' : actor.name;
   const snapshotPreview = getNotificationSnapshotPreview(notification);
 
   return (
     <aside
-      aria-label="Thông báo mới"
+      aria-label={isEn ? "New notification" : "Thông báo mới"}
       className="fixed bottom-6 right-6 z-50 max-w-sm sm:max-w-md w-full animate-slide-up-fade"
     >
       <div 
@@ -45,7 +49,7 @@ export default function NotificationToast({ notification, onClose, onClick }) {
         <div className="relative shrink-0">
           <img
             src={actor.avatar}
-            alt={actor.name}
+            alt={displayName}
             className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-100 dark:ring-blue-900 shadow-xs"
           />
           <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white dark:bg-slate-800 ring-2 ring-white dark:ring-slate-900 flex items-center justify-center shadow-xs">
@@ -56,14 +60,20 @@ export default function NotificationToast({ notification, onClose, onClick }) {
         {/* Content */}
         <div className="flex-1 min-w-0 pr-6">
           <div className="flex items-center gap-1.5 mb-0.5">
-            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Thông báo mới</span>
+            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+              {isEn ? 'New Notification' : 'Thông báo mới'}
+            </span>
             <span className="text-slate-300 dark:text-slate-600">·</span>
-            <span className="text-[11px] text-slate-400">{notification.time || 'Vừa xong'}</span>
+            <span className="text-[11px] text-slate-400">
+              {formatRelativeTime(notification.time || (isEn ? 'Just now' : 'Vừa xong'), isEn)}
+            </span>
           </div>
 
           <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-snug line-clamp-2">
-            <strong className="text-slate-900 dark:text-white font-semibold">{actor.name}</strong>{' '}
-            <span className="text-slate-600 dark:text-slate-400">{notification.content}</span>
+            <strong className="text-slate-900 dark:text-white font-semibold">{displayName}</strong>{' '}
+            <span className="text-slate-600 dark:text-slate-400">
+              {translateNotificationText(notification.content, isEn)}
+            </span>
           </p>
 
           {notification.targetPost?.contentSnippet && (
@@ -76,7 +86,7 @@ export default function NotificationToast({ notification, onClose, onClick }) {
               {snapshotPreview.content && <p className="line-clamp-2 break-words text-[11px] text-slate-700 dark:text-slate-200">{snapshotPreview.content}</p>}
               {snapshotPreview.images.length > 0 && (
                 <div className="mt-1.5 flex gap-1.5">
-                  {snapshotPreview.images.map((imageUrl) => <img key={imageUrl} src={imageUrl} alt="Nội dung đã bị xóa" className="h-10 w-10 rounded object-cover" />)}
+                  {snapshotPreview.images.map((imageUrl) => <img key={imageUrl} src={imageUrl} alt={isEn ? "Content removed" : "Nội dung đã bị xóa"} className="h-10 w-10 rounded object-cover" />)}
                 </div>
               )}
             </div>
@@ -90,7 +100,7 @@ export default function NotificationToast({ notification, onClose, onClick }) {
             onClose();
           }}
           className="absolute top-3 right-3 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
-          title="Đóng"
+          title={isEn ? "Close" : "Đóng"}
         >
           <X className="w-4 h-4" />
         </button>

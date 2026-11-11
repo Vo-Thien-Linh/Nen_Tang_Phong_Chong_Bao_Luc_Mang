@@ -139,6 +139,7 @@ def update_privacy(
         data={
             "post_default_privacy": settings.post_default_privacy,
             "who_can_send_friend_requests": settings.who_can_send_friend_requests,
+            "who_can_message": settings.who_can_message,
             "show_email": settings.show_email,
             "show_phone": settings.show_phone
         }

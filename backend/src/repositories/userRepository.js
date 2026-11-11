@@ -1,3 +1,5 @@
+import { buildPostVisibilityPredicate } from './postVisibility.js';
+
 export function createUserRepository({ pool }) {
   return {
     async findById(userId) {
@@ -66,12 +68,7 @@ export function createUserRepository({ pool }) {
            u.banned_until, u.ban_reason, COALESCE(u.trust_score, 100) AS trust_score, u.last_trust_recovery_at,
            (SELECT COUNT(*) FROM posts p
             WHERE p.author_id = u.id
-              AND (
-                p.author_id = $2
-                OR (p.ai_status = 'approved'
-                    AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
-              )
-              AND p.image_moderation_status IS DISTINCT FROM 'rejected_final')::int AS posts_count,
+              AND ${buildPostVisibilityPredicate('$2')})::int AS posts_count,
            (SELECT COUNT(*) FROM friendships
             WHERE (requester_id = u.id OR addressee_id = u.id)
               AND status = 'accepted')::int AS friends_count
@@ -167,6 +164,7 @@ export function createUserRepository({ pool }) {
            orig_p.id AS orig_id,
            orig_p.content AS orig_content,
            orig_p.image_url AS orig_image_url,
+           orig_p.privacy AS orig_privacy,
            orig_p.created_at AS orig_created_at,
            orig_p.likes_count AS orig_likes_count,
            orig_p.comments_count AS orig_comments_count,
@@ -178,16 +176,11 @@ export function createUserRepository({ pool }) {
            orig_u.is_verified AS orig_author_is_verified
          FROM posts p
          JOIN users u ON u.id = p.author_id
-         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id AND orig_p.ai_status = 'approved'
-           AND (orig_p.image_moderation_status IS NULL OR orig_p.image_moderation_status IN ('safe', 'sensitive'))
+         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id
+           AND ${buildPostVisibilityPredicate('$2', { tableAlias: 'orig_p' })}
          LEFT JOIN users orig_u ON orig_u.id = orig_p.author_id
          WHERE p.author_id = $1
-           AND p.image_moderation_status IS DISTINCT FROM 'rejected_final'
-           AND (
-             p.author_id = $2
-             OR (p.ai_status = 'approved'
-                 AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
-           )
+           AND ${buildPostVisibilityPredicate('$2')}
          ORDER BY p.created_at DESC`,
         [userId, viewerId]
       );
@@ -215,6 +208,18 @@ export function createUserRepository({ pool }) {
           )
         : { rows: [] };
 
+      // Lấy danh sách bài đã lưu của viewer
+      let savedPostIds = new Set();
+      if (viewerId) {
+        try {
+          const savedResult = await pool.query(
+            `SELECT post_id FROM saved_posts WHERE user_id = $1 AND post_id = ANY($2::bigint[])`,
+            [viewerId, postIds]
+          );
+          savedPostIds = new Set(savedResult.rows.map((r) => Number(r.post_id)));
+        } catch {}
+      }
+
       // Lấy comments
       const commentsResult = await pool.query(
         `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
@@ -227,11 +232,7 @@ export function createUserRepository({ pool }) {
            AND c.is_hidden = false
            AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
            AND c.image_moderation_status IS DISTINCT FROM 'rejected_final'
-           AND (
-             c.author_id = $2
-             OR c.image_moderation_status IS NULL
-             OR c.image_moderation_status IN ('safe', 'sensitive')
-           )
+           AND (c.author_id = $2 OR c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive'))
          ORDER BY c.created_at ASC`,
         [postIds, viewerId]
       );
@@ -292,6 +293,8 @@ export function createUserRepository({ pool }) {
           reaction_counts: counts,
           total_reactions: total,
           my_reaction: myReactionByPost.get(pid) || null,
+          isSaved: savedPostIds.has(pid),
+          is_saved: savedPostIds.has(pid),
           comments: commentsByPost.get(pid) || [],
           imageModeration: post.image_moderation_status ? {
             status: post.image_moderation_status,

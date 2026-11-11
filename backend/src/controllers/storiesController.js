@@ -54,6 +54,21 @@ export function createStoriesController({ storyService }) {
       }
     },
 
+    async getUserStories(req, res, next) {
+      try {
+        const tray = await storyService.getUserStories({
+          user: req.user,
+          targetUserId: req.params.userId,
+        });
+        res.json({
+          success: true,
+          data: tray,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
     async listMyArchive(req, res, next) {
       try {
         const limit = Number(req.query?.limit) || 50;
@@ -136,6 +151,26 @@ export function createStoriesController({ storyService }) {
         res.json({
           success: true,
           message: 'Xóa tin thành công',
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async interactWidget(req, res, next) {
+      try {
+        const result = await storyService.interactWidget({
+          user: req.user,
+          storyId: req.params.storyId,
+          widgetType: req.body?.widgetType,
+          stickerId: req.body?.stickerId,
+          option: req.body?.option,
+          value: req.body?.value,
+          text: req.body?.text,
+        });
+        res.json({
+          success: true,
+          data: result,
         });
       } catch (error) {
         next(error);

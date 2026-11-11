@@ -63,8 +63,7 @@ test('Integration Test: Full lifecycle of Stories (Create, Moderation, Feed 24h,
         story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         reaction_type VARCHAR(20) NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        UNIQUE(story_id, user_id)
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
   } catch (migrationErr) {
@@ -97,6 +96,17 @@ test('Integration Test: Full lifecycle of Stories (Create, Moderation, Feed 24h,
 
   const author = usersRes.rows[0];
   const viewer = usersRes.rows[1];
+
+  // Đảm bảo author và viewer là bạn bè để hiển thị trên bảng tin trang chủ feed
+  try {
+    await pool.query(
+      `INSERT INTO friendships (requester_id, addressee_id, status)
+       VALUES ($1, $2, 'accepted')
+       ON CONFLICT (LEAST(requester_id, addressee_id), GREATEST(requester_id, addressee_id))
+       DO UPDATE SET status = 'accepted'`,
+      [author.id, viewer.id]
+    );
+  } catch (err) {}
 
   let createdStoryId = null;
 

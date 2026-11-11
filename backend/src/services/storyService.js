@@ -257,11 +257,39 @@ export function createStoryService({
         });
       }
 
+      // Gửi thông báo nhắc tên đến những người bạn được gắn thẻ trong tin
+      if (storyRepository.pool && createdStory.ai_status !== 'hidden') {
+        const stickers = backgroundStyle?.stickers || [];
+        const mentions = stickers.filter((s) => s.type === 'widget' && s.widgetType === 'mention' && s.userId);
+        for (const m of mentions) {
+          if (m.userId && String(m.userId) !== String(user.id)) {
+            try {
+              await storyRepository.pool.query(
+                `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
+                 VALUES ($1, $2, 'story_mention', $3, $4::jsonb)`,
+                [
+                  m.userId,
+                  user.id,
+                  `${user.full_name || 'Một người bạn'} đã nhắc đến bạn trong một tin mới.`,
+                  JSON.stringify({ storyId: String(createdStory.id), authorName: user.full_name, authorAvatar: user.avatar_url })
+                ]
+              );
+            } catch (mentionNotifErr) {
+              console.error('Lỗi gửi thông báo nhắc tên trong tin:', mentionNotifErr.message);
+            }
+          }
+        }
+      }
+
       return createdStory;
     },
 
     async listFeedStories({ user }) {
       return await storyRepository.listFeedStories({ viewerId: user?.id || null });
+    },
+
+    async getUserStories({ user, targetUserId }) {
+      return await storyRepository.listUserStories({ targetUserId, viewerId: user?.id || null });
     },
 
     async listMyArchive({ user, limit = 50, offset = 0 }) {
@@ -328,22 +356,55 @@ export function createStoryService({
       if (String(story.author_id) !== String(user.id) && storyRepository.pool) {
         try {
           const actorName = user.name || user.full_name || 'Người dùng';
-          await storyRepository.pool.query(
-            `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
-             VALUES ($1, $2, 'story_reaction', $3, $4)`,
-            [
-              story.author_id,
-              user.id,
-              `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
-              JSON.stringify({
-                storyId: String(storyId),
-                reactionType,
-                actorId: user.id,
-                actorName,
-                isStory: true,
-              }),
-            ]
+          const allReactions = result?.reactions || [reactionType];
+          const distinctReactionTypes = [...new Set(allReactions)];
+
+          const payloadObj = {
+            storyId: String(storyId),
+            reactionType,
+            reactionTypes: distinctReactionTypes,
+            actorId: user.id,
+            actorName,
+            isStory: true,
+          };
+
+          // Kiểm tra xem đã có thông báo cảm xúc của người này cho tin này chưa (tránh spam nhiều thông báo)
+          const existingNotif = await storyRepository.pool.query(
+            `SELECT id FROM notifications 
+             WHERE recipient_id = $1 
+               AND actor_id = $2 
+               AND type = 'story_reaction' 
+               AND payload->>'storyId' = $3
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [story.author_id, user.id, String(storyId)]
           );
+
+          if (existingNotif.rows.length > 0) {
+            // Cập nhật thông báo đã có thay vì tạo thêm thông báo mới
+            await storyRepository.pool.query(
+              `UPDATE notifications 
+               SET content = $1, payload = $2, is_read = FALSE, created_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [
+                `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
+                JSON.stringify(payloadObj),
+                existingNotif.rows[0].id,
+              ]
+            );
+          } else {
+            // Thêm mới nếu chưa từng có thông báo cho tin này
+            await storyRepository.pool.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
+               VALUES ($1, $2, 'story_reaction', $3, $4)`,
+              [
+                story.author_id,
+                user.id,
+                `${actorName} đã bày tỏ cảm xúc về tin của bạn.`,
+                JSON.stringify(payloadObj),
+              ]
+            );
+          }
         } catch (notifErr) {
           console.warn('Lỗi gửi notification thả reaction tin:', notifErr.message);
         }
@@ -379,6 +440,35 @@ export function createStoryService({
       });
 
       return true;
+    },
+
+    async interactWidget({ user, storyId, widgetType, stickerId, option, value, text }) {
+      if (!user?.id) {
+        const error = new Error('Bạn cần đăng nhập để tương tác với tin');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      const result = await storyRepository.interactWidget({
+        storyId,
+        userId: user.id,
+        widgetType,
+        stickerId,
+        option,
+        value,
+        text,
+        userName: user.name || user.full_name || 'Người dùng',
+        userAvatar: user.avatar_url || user.avatar || null,
+      });
+
+      realtimeService.broadcast({
+        type: 'STORY_WIDGET_INTERACT',
+        storyId: String(storyId),
+        userId: user.id,
+        data: result,
+      });
+
+      return result;
     },
   };
 }

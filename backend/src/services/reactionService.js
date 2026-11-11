@@ -34,10 +34,10 @@ export function createReactionService({ reactionRepository }) {
       });
     },
 
-    async getPostReactions({ postId }) {
+    async getPostReactions({ user, postId }) {
       if (!postId) return [];
       if (typeof reactionRepository.getPostReactions === 'function') {
-        return reactionRepository.getPostReactions({ postId });
+        return reactionRepository.getPostReactions({ postId, viewerId: user?.id || null });
       }
       return [];
     },

@@ -2,11 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Home, Bell, ShieldCheck, Users, MessageCircle, 
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
-  Sun, Moon, Radio
+  Sun, Moon, Radio, Bookmark
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
 import { hasRole, ROLES } from '../utils/rbac';
+import { useTranslation } from '../utils/i18n';
 
 export default function Navbar({ 
   activeTab, 
@@ -29,6 +30,7 @@ export default function Navbar({
   isLoadingPosts = false,
   onOpenLiveStream
 }) {
+  const { t } = useTranslation();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef(null);
   const isAdmin = hasRole(currentUser, ROLES.ADMIN);
@@ -99,7 +101,7 @@ export default function Navbar({
           {/* Nút Tab Trang chủ */}
           <button
             onClick={handleHomeClick}
-            title="Trang chủ (Nhấn để làm mới bảng tin)"
+            title={t('nav.home')}
             className={
               'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
               (activeTab === 'home'
@@ -108,13 +110,13 @@ export default function Navbar({
             }
           >
             <Home className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-            <span className="hidden lg:inline whitespace-nowrap">Trang chủ</span>
+            <span className="hidden lg:inline whitespace-nowrap">{t('nav.home')}</span>
           </button>
 
           {/* Nút Tab Bạn bè */}
           <button
             onClick={() => setActiveTab('friends')}
-            title="Bạn bè"
+            title={t('nav.friends')}
             className={
               'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
               (activeTab === 'friends'
@@ -123,13 +125,13 @@ export default function Navbar({
             }
           >
             <Users className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-            <span className="hidden lg:inline whitespace-nowrap">Bạn bè</span>
+            <span className="hidden lg:inline whitespace-nowrap">{t('nav.friends')}</span>
           </button>
 
           {/* Nút Tab Tin nhắn */}
           <button
             onClick={() => setActiveTab('messages')}
-            title="Đoạn chat & Tin nhắn bạn bè"
+            title={t('nav.messages')}
             className={
               'h-10 relative flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
               (activeTab === 'messages'
@@ -145,13 +147,13 @@ export default function Navbar({
                 </span>
               )}
             </div>
-            <span className="hidden lg:inline whitespace-nowrap">Tin nhắn</span>
+            <span className="hidden lg:inline whitespace-nowrap">{t('nav.messages')}</span>
           </button>
 
           {/* Nút Tab Thông báo */}
           <button
             onClick={() => setActiveTab('notifications')}
-            title="Thông báo"
+            title={t('nav.notifications')}
             className={
               'h-10 relative flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
               (activeTab === 'notifications'
@@ -167,7 +169,7 @@ export default function Navbar({
                 </span>
               )}
             </div>
-            <span className="hidden lg:inline whitespace-nowrap">Thông báo</span>
+            <span className="hidden lg:inline whitespace-nowrap">{t('nav.notifications')}</span>
           </button>
 
           {/* Nút Tab Phát Trực Tiếp (Livestream) */}
@@ -178,7 +180,7 @@ export default function Navbar({
             className="h-10 flex items-center gap-1.5 px-3 rounded-xl text-xs sm:text-sm font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 transition duration-150 cursor-pointer whitespace-nowrap shrink-0 border border-rose-200/60 dark:border-rose-900/40"
           >
             <Radio className="w-4 h-4 text-rose-500 animate-pulse shrink-0" />
-            <span className="hidden sm:inline font-bold whitespace-nowrap">Trực tiếp</span>
+            <span className="hidden sm:inline font-bold whitespace-nowrap">{t("nav.live")}</span>
           </button>
 
           {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin; User thường KHÔNG render trong DOM) */}
@@ -195,7 +197,7 @@ export default function Navbar({
               }
             >
               <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Quản trị</span>
+              <span className="whitespace-nowrap">{t("nav.admin")}</span>
             </button>
           ) : isModerator ? (
             <button
@@ -210,7 +212,7 @@ export default function Navbar({
               }
             >
               <Shield className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Kiểm duyệt</span>
+              <span className="whitespace-nowrap">{t("nav.moderation")}</span>
             </button>
           ) : null}
 
@@ -227,7 +229,7 @@ export default function Navbar({
           {/* Nút Chuyển đổi Giao diện Sáng / Tối */}
           <button
             onClick={onToggleTheme}
-            title={theme === 'dark' ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối"}
+            title={theme === 'dark' ? t("nav.switch_to_light") : t("nav.switch_to_dark")}
             className="h-10 w-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-400 transition duration-150 cursor-pointer shrink-0"
           >
             {theme === 'dark' ? (
@@ -247,7 +249,7 @@ export default function Navbar({
             <div className="relative shrink-0" ref={menuRef}>
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                title="Menu tài khoản"
+                title={t("nav.user_menu")}
                 className={
                   'h-10 flex items-center gap-1.5 sm:gap-2 p-1 pr-2 sm:pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
                   (showUserMenu || activeTab === 'profile' || activeTab === 'settings'
@@ -292,7 +294,15 @@ export default function Navbar({
                       className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
                     >
                       <User className="w-4 h-4 text-slate-400" />
-                      <span>Trang cá nhân của bạn</span>
+                      <span>{t('nav.profile')}</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('profile', null, false, 'saved'); setShowUserMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                    >
+                      <Bookmark className="w-4 h-4 text-blue-500" />
+                      <span>Bài viết đã lưu</span>
                     </button>
 
                     <button
@@ -300,7 +310,7 @@ export default function Navbar({
                       className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
                     >
                       <Settings className="w-4 h-4 text-blue-500" />
-                      <span>Cài đặt & Quyền riêng tư</span>
+                      <span>{t('nav.settings')}</span>
                     </button>
 
 
@@ -310,7 +320,7 @@ export default function Navbar({
                         className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
                       >
                         <LayoutDashboard className="w-4 h-4 text-blue-600" />
-                        <span>Khu vực quản trị</span>
+                        <span>{t("nav.admin_panel")}</span>
                       </button>
                     )}
 
@@ -320,7 +330,7 @@ export default function Navbar({
                         className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
                       >
                         <Shield className="w-4 h-4 text-blue-600" />
-                        <span>Khu vực kiểm duyệt</span>
+                        <span>{t("nav.moderation_panel")}</span>
                       </button>
                     )}
                   </div>
@@ -335,7 +345,7 @@ export default function Navbar({
                       className="w-full px-3 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2.5 transition duration-150 cursor-pointer"
                     >
                       <LogOut className="w-4 h-4 text-rose-500" />
-                      <span>Đăng xuất khỏi hệ thống</span>
+                      <span>{t('nav.logout')}</span>
                     </button>
                   </div>
                 </div>
@@ -348,14 +358,14 @@ export default function Navbar({
                 className="h-9 px-3.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 transition duration-150 flex items-center gap-1.5 cursor-pointer"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>Đăng nhập</span>
+                <span>{t('nav.login')}</span>
               </button>
               <button
                 onClick={() => onOpenAuthModal('register')}
                 className="h-9 px-3.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/20 transition duration-150 flex items-center gap-1.5 cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Đăng ký</span>
+                <span>{t('nav.register')}</span>
               </button>
             </div>
           )}

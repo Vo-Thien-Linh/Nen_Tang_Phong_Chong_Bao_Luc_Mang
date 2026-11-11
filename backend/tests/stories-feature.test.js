@@ -369,3 +369,57 @@ test('reactToStory: adds reaction and validates reaction type', async () => {
   assert.equal(res.reactionType, 'love');
   assert.equal(res.reactionsCount, 1);
 });
+
+test('reactToStory: accumulates distinct reactions and updates notification payload', async () => {
+  const notifQueries = [];
+  const mockPool = {
+    async query(sql, params) {
+      notifQueries.push({ sql, params });
+      if (sql.includes('SELECT id FROM notifications')) {
+        return {
+          rows: [
+            {
+              id: 99,
+              payload: JSON.stringify({
+                storyId: '10',
+                reactionType: 'wow',
+                reactionTypes: ['wow'],
+              }),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const mockRepo = {
+    pool: mockPool,
+    async getStoryById(id, userId) {
+      return { id, author_id: 'author-1' };
+    },
+    async reactToStory({ storyId, userId, reactionType }) {
+      return {
+        reactionType,
+        reactions: ['wow', 'love'],
+        reactionsCount: 2,
+      };
+    },
+  };
+
+  const service = createStoryService({ storyRepository: mockRepo });
+  const res = await service.reactToStory({
+    user: { id: 'user-2', name: 'Tester' },
+    storyId: 10,
+    reactionType: 'love',
+  });
+
+  assert.equal(res.reactionType, 'love');
+  assert.equal(res.reactionsCount, 2);
+
+  const updateQuery = notifQueries.find((q) => q.sql.includes('UPDATE notifications'));
+  assert.ok(updateQuery, 'Must update existing notification instead of creating duplicate');
+  const payload = JSON.parse(updateQuery.params[1]);
+  assert.equal(payload.reactionType, 'love');
+  assert.deepEqual(payload.reactionTypes, ['wow', 'love']);
+});

@@ -317,55 +317,73 @@ export function createUsersController({ userRepository, pool }) {
         const viewerId = req.user?.id || null;
         const posts = await userRepository.findUserPosts(userId, viewerId);
 
-        const formatted = posts.map((p) => ({
-          id: String(p.id),
-          author: {
-            id: p.author_id,
-            name: p.full_name,
-            username: p.username,
-            avatar: p.avatar_url,
-            isVerified: p.is_verified,
-          },
-          content: p.content,
-          image: p.image_url || null,
-          imageModeration: formatImageModerationForViewer(p.imageModeration, 'post', p.author_id, viewerId),
-          createdAt: p.created_at,
-          likesCount: p.likes_count || 0,
-          commentsCount: p.comments_count || 0,
-          sharesCount: p.shares_count || 0,
-          isLiked: p.my_reaction != null,
-          myReaction: p.my_reaction || null,
-          reactionCounts: p.reaction_counts || {},
-          aiStatus: {
-            label: p.ai_label || 'Normal',
-            confidence: parseFloat(p.ai_confidence) || 0.99,
-          },
-          aiStatusValue: p.ai_status || 'approved',
-          comments: (p.comments || []).map((c) => ({
-            id: c.id,
-            author: c.author,
-            content: c.content,
-            image: c.image || null,
-            imageModeration: formatImageModerationForViewer(c.imageModeration, 'comment', c.author?.id, viewerId),
-            time: c.created_at,
-          })),
-          originalPost: p.original_post_id && p.orig_id ? {
-            id: String(p.orig_id),
-            content: p.orig_content,
-            image: p.orig_image_url || null,
-            createdAt: p.orig_created_at,
-            likesCount: Number(p.orig_likes_count || 0),
-            commentsCount: Number(p.orig_comments_count || 0),
-            sharesCount: Number(p.orig_shares_count || 0),
+        const formatted = posts.map((p) => {
+          const rawImageModeration = p.imageModeration || (p.image_moderation_status ? {
+            status: p.image_moderation_status,
+            label: p.image_moderation_label || null,
+            scores: { safe: p.image_moderation_safe, nsfw: p.image_moderation_nsfw, violence: p.image_moderation_violence },
+            thresholds: p.image_moderation_thresholds || null,
+            appealedAt: p.image_moderation_appealed_at || null,
+          } : null);
+
+          return {
+            id: String(p.id),
             author: {
-              id: p.orig_author_id,
-              name: p.orig_author_name,
-              username: p.orig_author_username,
-              avatar: p.orig_author_avatar,
-              isVerified: p.orig_author_is_verified,
+              id: p.author_id,
+              name: p.full_name,
+              username: p.username,
+              avatar: p.avatar_url,
+              isVerified: p.is_verified,
             },
-          } : null,
-        }));
+            content: p.content,
+            image: p.image_url || null,
+            privacy: p.privacy || 'public',
+            imageModeration: formatImageModerationForViewer(rawImageModeration, 'post', p.author_id, viewerId),
+            image_moderation_status: p.image_moderation_status || null,
+            createdAt: p.created_at,
+            likesCount: p.likes_count || 0,
+            commentsCount: p.comments_count || 0,
+            sharesCount: p.shares_count || 0,
+            isLiked: p.my_reaction != null,
+            myReaction: p.my_reaction || null,
+            reactionCounts: p.reaction_counts || {},
+            aiStatus: {
+              label: p.ai_label || 'Normal',
+              confidence: parseFloat(p.ai_confidence) || 0.99,
+            },
+            aiStatusValue: p.ai_status || 'approved',
+            comments: (p.comments || []).map((c) => ({
+              id: c.id,
+              author: c.author,
+              content: c.content,
+              image: c.image || null,
+              imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
+                status: c.image_moderation_status,
+                scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+                thresholds: c.image_moderation_thresholds || null,
+                appealedAt: c.image_moderation_appealed_at || null,
+              } : null), 'comment', c.author?.id, viewerId),
+              time: c.created_at,
+            })),
+            originalPost: p.original_post_id && p.orig_id ? {
+              id: String(p.orig_id),
+              content: p.orig_content,
+              image: p.orig_image_url || null,
+              createdAt: p.orig_created_at,
+              likesCount: Number(p.orig_likes_count || 0),
+              commentsCount: Number(p.orig_comments_count || 0),
+              sharesCount: Number(p.orig_shares_count || 0),
+              author: {
+                id: p.orig_author_id,
+                name: p.orig_author_name,
+                username: p.orig_author_username,
+                avatar: p.orig_author_avatar,
+                isVerified: p.orig_author_is_verified,
+              },
+              privacy: p.orig_privacy || 'public',
+            } : null,
+          };
+        });
 
         res.json({ success: true, data: formatted });
       } catch (err) {
