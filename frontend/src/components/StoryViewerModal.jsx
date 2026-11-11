@@ -3,10 +3,13 @@ import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, EyeOff, Trash2, Heart, 
   ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert,
-  Send, Loader2, Clock, MoreHorizontal, Link, BellOff, AlertTriangle
+  Send, Loader2, Clock, MoreHorizontal, Link, BellOff, AlertTriangle,
+  Share2, Music, Search, Check, Copy, ExternalLink,
+  MapPin, AtSign, MessageCircle
 } from 'lucide-react';
 import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
 import { messageService } from '../services/messageService';
+import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 
 const REACTION_ICONS = [
@@ -57,6 +60,8 @@ export default function StoryViewerModal({
   targetViewerId = null,
   onOpenReportModal,
   onStoryViewed,
+  onViewPost,
+  onOpenStoryViewer,
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -103,13 +108,47 @@ export default function StoryViewerModal({
   const [isHolding, setIsHolding] = useState(false);
   const pressStartTimeRef = useRef(0);
 
+  // Quản lý Âm nhạc nền cho Story
+  const storyAudioRef = useRef(null);
+
+  // Quản lý Modal Chia sẻ tin đăng (Instagram Story Share)
+  const [showShareStoryModal, setShowShareStoryModal] = useState(false);
+  const [friendsList, setFriendsList] = useState([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+  const [friendSearch, setFriendSearch] = useState('');
+  const [storySendingStatus, setStorySendingStatus] = useState({});
+  const [storyShareMsg, setStoryShareMsg] = useState('');
+  const [isCopiedStoryLink, setIsCopiedStoryLink] = useState(false);
+
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
 
   const stories = tray?.stories || [];
   const safeIndex = stories.length > 0 ? Math.min(currentIndex, stories.length - 1) : 0;
   const currentStory = stories[safeIndex] || null;
-  const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
+  const isAuthor = Boolean(
+    (currentUser?.id && tray?.author?.id && String(tray.author.id) === String(currentUser.id)) ||
+    (currentUser?.id && currentStory?.author_id && String(currentStory.author_id) === String(currentUser.id)) ||
+    tray?.isSelf
+  );
+
+  const rawBgStyle = currentStory?.backgroundStyle || currentStory?.background_style;
+  const bgStyle = useMemo(() => {
+    if (typeof rawBgStyle === 'object' && rawBgStyle !== null) return rawBgStyle;
+    if (typeof rawBgStyle === 'string') {
+      try { return JSON.parse(rawBgStyle); } catch { return {}; }
+    }
+    return {};
+  }, [rawBgStyle]);
+
+  const isSharedPost = Boolean(bgStyle?.isSharedPost || bgStyle?.originalPostId);
+  const storyType = currentStory?.storyType || currentStory?.story_type || (bgStyle?.originalImage ? 'image' : 'text');
+  const mediaUrl = currentStory?.mediaUrl || currentStory?.media_url || bgStyle?.originalImage || null;
+  const textContent = currentStory?.textContent || currentStory?.text_content || '';
+
+  const storyMusic = useMemo(() => {
+    return bgStyle?.music || currentStory?.backgroundStyle?.music || currentStory?.music || null;
+  }, [bgStyle, currentStory]);
 
   // Kiểm tra mức độ kiểm duyệt của tin hiện tại (Áp dụng Phương án A: Bạo lực ẩn cứng, Toxic/NSFW che mờ)
   const isHardHidden = Boolean(
@@ -154,7 +193,7 @@ export default function StoryViewerModal({
 
   const badgeText = isToxic && isNsfw ? 'Toxic & NSFW' : isToxic ? 'Toxic' : 'NSFW';
 
-  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn, danh sách người xem hoặc khi gặp tin nhạy cảm đang bị che cảnh báo
+  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn, modal chia sẻ, danh sách người xem hoặc khi gặp tin nhạy cảm đang bị che cảnh báo
   const isEffectivePaused = Boolean(
     isPaused || 
     isHolding || 
@@ -162,6 +201,7 @@ export default function StoryViewerModal({
     replyMessage.trim().length > 0 || 
     showViewers ||
     showStoryMenu ||
+    showShareStoryModal ||
     isStoryCovered
   );
 
@@ -174,6 +214,61 @@ export default function StoryViewerModal({
       videoRef.current.play().catch(() => {});
     }
   }, [isEffectivePaused]);
+
+  // Quản lý phát nhạc nền Story
+  useEffect(() => {
+    if (!storyMusic?.audioUrl) {
+      if (storyAudioRef.current) {
+        storyAudioRef.current.pause();
+        storyAudioRef.current = null;
+      }
+      return;
+    }
+
+    const audio = new Audio(storyMusic.audioUrl);
+    audio.loop = true;
+    audio.muted = isMuted;
+
+    if (storyMusic.startTime && Number(storyMusic.startTime) > 0) {
+      const startSec = Number(storyMusic.startTime);
+      audio.addEventListener('loadedmetadata', () => {
+        try {
+          audio.currentTime = startSec;
+        } catch (_) {}
+      }, { once: true });
+      try {
+        audio.currentTime = startSec;
+      } catch (_) {}
+    }
+
+    storyAudioRef.current = audio;
+
+    if (!isEffectivePaused) {
+      audio.play().catch(() => {});
+    }
+
+    return () => {
+      audio.pause();
+      storyAudioRef.current = null;
+    };
+  }, [currentStory?.id, storyMusic?.audioUrl, storyMusic?.startTime]);
+
+  // Đồng bộ tạm dừng/phát nhạc theo trạng thái Story
+  useEffect(() => {
+    if (!storyAudioRef.current) return;
+    if (isEffectivePaused) {
+      storyAudioRef.current.pause();
+    } else {
+      storyAudioRef.current.play().catch(() => {});
+    }
+  }, [isEffectivePaused]);
+
+  // Đồng bộ Mute/Unmute
+  useEffect(() => {
+    if (storyAudioRef.current) {
+      storyAudioRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
   useEffect(() => {
@@ -194,15 +289,16 @@ export default function StoryViewerModal({
       setReplyErrorMsg('');
 
       // Tự động mở danh sách người xem tin nếu đến từ thông báo cảm xúc/lượt xem
-      if (initialShowViewers && isAuthor) {
+      if (initialShowViewers) {
         setShowViewers(true);
         setIsPaused(true);
         setIsLoadingViewers(true);
-        const targetStory = stories[startIndex];
+        const targetStory = stories[startIndex] || currentStory;
         if (targetStory?.id) {
-          fetchStoryViewersApi(targetStory.id)
+          fetchStoryViewersApi(targetStory.id, currentUser?.id)
             .then((res) => {
-              if (res?.success) setViewersList(res.data || []);
+              const list = res?.data || (Array.isArray(res) ? res : []);
+              setViewersList(Array.isArray(list) ? list : []);
             })
             .catch((err) => console.warn('Lỗi lấy viewers từ thông báo:', err.message))
             .finally(() => setIsLoadingViewers(false));
@@ -266,6 +362,65 @@ export default function StoryViewerModal({
     }
   }, [currentStory?.id]);
 
+  const handleOpenStoryShare = () => {
+    setIsPaused(true);
+    setShowStoryMenu(false);
+    setShowShareStoryModal(true);
+    if (friendsList.length === 0) {
+      setIsLoadingFriends(true);
+      friendService.getFriendsList()
+        .then((data) => {
+          if (Array.isArray(data)) setFriendsList(data);
+          else if (data?.friends && Array.isArray(data.friends)) setFriendsList(data.friends);
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingFriends(false));
+    }
+  };
+
+  const handleSendStoryToFriend = async (friend) => {
+    const friendId = friend.id;
+    if (storySendingStatus[friendId] === 'sending' || storySendingStatus[friendId] === 'sent') return;
+
+    setStorySendingStatus(prev => ({ ...prev, [friendId]: 'sending' }));
+    try {
+      const storyUrl = `${window.location.origin}?story=${currentStory?.id}`;
+      const authorName = tray?.author?.name || 'thành viên';
+      const textMsg = storyShareMsg.trim() 
+        ? `${storyShareMsg.trim()}\n\n🔗 Tin của ${authorName}: ${storyUrl}`
+        : `Xem tin của ${authorName} nhé:\n\n🔗 ${storyUrl}`;
+
+      await messageService.sendMessage(friendId, textMsg);
+      setStorySendingStatus(prev => ({ ...prev, [friendId]: 'sent' }));
+      setReplySuccessMsg(`Đã gửi tin tới ${friend.name || friend.username}!`);
+      setTimeout(() => setReplySuccessMsg(''), 2500);
+    } catch (err) {
+      setStorySendingStatus(prev => ({ ...prev, [friendId]: 'error' }));
+      setReplyErrorMsg('Gửi tin thất bại, vui lòng thử lại');
+      setTimeout(() => setReplyErrorMsg(''), 2500);
+    }
+  };
+
+  const handleShareStoryExternal = async () => {
+    const storyUrl = `${window.location.origin}?story=${currentStory?.id}`;
+    const authorName = tray?.author?.name || 'thành viên';
+    if (navigator?.share) {
+      try {
+        await navigator.share({
+          title: `Tin của ${authorName} trên WINGS`,
+          text: `Xem tin của ${authorName} trên WINGS:`,
+          url: storyUrl,
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          handleCopyStoryLink();
+        }
+      }
+    } else {
+      handleCopyStoryLink();
+    }
+  };
+
   const handleCopyStoryLink = () => {
     const url = `${window.location.origin}?story=${currentStory?.id}`;
     if (navigator?.clipboard?.writeText) {
@@ -315,11 +470,13 @@ export default function StoryViewerModal({
     }
   };
 
-  // Bộ đếm tiến trình (Progress bar 5s cho static / theo video duration)
+  // Bộ đếm tiến trình (Progress bar theo music duration / video / static 5s)
   useEffect(() => {
     if (!isOpen || isEffectivePaused || !currentStory) return;
 
-    const duration = currentStory.storyType === 'video' ? 15000 : 5000;
+    const duration = storyMusic?.duration 
+      ? Number(storyMusic.duration) * 1000 
+      : (currentStory.storyType === 'video' ? 15000 : 5000);
     const interval = 50; // cập nhật mỗi 50ms
     const step = (interval / duration) * 100;
 
@@ -334,7 +491,7 @@ export default function StoryViewerModal({
     }, interval);
 
     return () => clearInterval(progressTimerRef.current);
-  }, [isOpen, currentIndex, isEffectivePaused, currentStory?.id]);
+  }, [isOpen, currentIndex, isEffectivePaused, currentStory?.id, storyMusic?.duration]);
 
   if (!isOpen || !currentStory) return null;
 
@@ -502,8 +659,9 @@ export default function StoryViewerModal({
     setShowViewers(true);
     setIsLoadingViewers(true);
     try {
-      const res = await fetchStoryViewersApi(currentStory.id);
-      if (res?.success) setViewersList(res.data || []);
+      const res = await fetchStoryViewersApi(currentStory.id, currentUser?.id);
+      const list = res?.data || (Array.isArray(res) ? res : []);
+      setViewersList(Array.isArray(list) ? list : []);
     } catch (err) {
       console.warn('Lỗi lấy viewers:', err.message);
     } finally {
@@ -630,13 +788,28 @@ export default function StoryViewerModal({
                   }
                 })()}
               </p>
+
+              {/* Nhãn âm nhạc đang phát chuẩn Facebook/Instagram */}
+              {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (
+                <div className="flex items-center gap-1.5 text-white/95 text-[11px] font-medium bg-black/40 backdrop-blur-md px-2.5 py-0.5 rounded-full mt-1 w-fit max-w-[210px] border border-white/10 shadow-xs">
+                  <Music className="w-3 h-3 text-purple-400 shrink-0" />
+                  <span className="truncate">{storyMusic.title} • {storyMusic.artist}</span>
+                  {!isMuted && !isEffectivePaused && (
+                    <div className="flex items-end gap-0.5 h-2 shrink-0">
+                      <span className="w-0.5 h-full bg-purple-400 rounded-full animate-pulse" />
+                      <span className="w-0.5 h-1.5 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                      <span className="w-0.5 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Cụm công cụ góc phải trên (Play/Pause, Âm thanh, Menu 3 chấm ... chuẩn Facebook Story) */}
           <div className="flex items-center gap-1.5 z-40 relative">
-            {/* Nút Bật/Tắt âm thanh (khi là Video) */}
-            {currentStory.storyType === 'video' && (
+            {/* Nút Bật/Tắt âm thanh (khi là Video hoặc Story có Âm nhạc) */}
+            {(currentStory.storyType === 'video' || storyMusic) && (
               <button
                 onClick={() => setIsMuted(!isMuted)}
                 className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-sm transition cursor-pointer"
@@ -678,20 +851,20 @@ export default function StoryViewerModal({
                   onClick={(e) => e.stopPropagation()}
                   className="absolute right-0 top-10 w-72 sm:w-80 p-2 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/15 text-white z-50 animate-scale-up space-y-1 select-none"
                 >
-                  {/* Mục 1: Sao chép liên kết */}
+                  {/* Mục 1: Chia sẻ tin đăng (Instagram Story Share) */}
                   <button
-                    onClick={handleCopyStoryLink}
+                    onClick={handleOpenStoryShare}
                     className="w-full flex items-start gap-3 p-2.5 rounded-xl hover:bg-white/10 transition text-left cursor-pointer group"
                   >
                     <div className="p-2 rounded-full bg-white/10 group-hover:bg-blue-600/30 text-white transition shrink-0 mt-0.5">
-                      <Link className="w-4 h-4 text-blue-400" />
+                      <Share2 className="w-4 h-4 text-blue-400" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-white group-hover:text-blue-300 transition">
-                        Sao chép liên kết để chia sẻ tin này
+                        Chia sẻ tin đăng
                       </p>
                       <p className="text-[10px] text-white/60 leading-tight mt-0.5">
-                        Tin sẽ hiển thị với đối tượng của {tray.author?.name} trong 24 giờ.
+                        Gửi tin này cho bạn bè qua tin nhắn hoặc chia sẻ ra ngoài
                       </p>
                     </div>
                   </button>
@@ -796,6 +969,123 @@ export default function StoryViewerModal({
         {/* 3. Vùng hiển thị Nội dung Media hoặc Text */}
         <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
           <div className={`w-full h-full relative flex items-center justify-center transition-all duration-300 ${isStoryCovered ? 'blur-2xl scale-110 pointer-events-none' : ''}`}>
+          {/* 3.1. TRÍCH DẪN BÀI VIẾT CHUẨN INSTAGRAM STORY (Ảnh 2) */}
+          {isSharedPost ? (
+            <div 
+              className="w-full h-full relative flex flex-col items-center justify-center p-4 overflow-hidden"
+              style={
+                bgStyle.background 
+                  ? (typeof bgStyle.background === 'object' ? bgStyle.background : { background: bgStyle.background }) 
+                  : { background: 'linear-gradient(135deg, #2b3a4a 0%, #151e28 100%)' }
+              }
+            >
+              {/* Lớp nền mờ Ambient từ ảnh bài viết */}
+              {(mediaUrl || bgStyle.originalImage) && (
+                <div 
+                  className="absolute inset-0 bg-cover bg-center blur-3xl opacity-45 scale-125 pointer-events-none"
+                  style={{ backgroundImage: `url(${mediaUrl || bgStyle.originalImage})` }}
+                />
+              )}
+
+              {/* Thẻ bài viết Instagram nổi giữa màn hình */}
+              <div 
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (bgStyle.originalPostId && onViewPost) {
+                    onClose();
+                    onViewPost(bgStyle.originalPostId);
+                  } else if (bgStyle.originalStoryId && onOpenStoryViewer) {
+                    onClose();
+                    onOpenStoryViewer({ storyId: bgStyle.originalStoryId });
+                  }
+                }}
+                className="relative z-30 w-full max-w-[340px] rounded-3xl overflow-hidden shadow-2xl border border-white/25 bg-black/40 backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer group/reshare pointer-events-auto"
+                title="Nhấn để xem bài viết hoặc tin gốc"
+              >
+                {/* Header tác giả bài viết: Avatar tròn + username nhỏ phía trên góc ảnh (Ảnh 2) */}
+                <div className="px-3.5 py-2.5 flex items-center justify-between bg-black/35 backdrop-blur-md border-b border-white/10">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img 
+                      src={bgStyle.originalAvatar || DEFAULT_AVATAR} 
+                      alt={bgStyle.originalAuthor || 'Author'}
+                      className="w-6 h-6 rounded-full object-cover border border-white/60 shadow-xs shrink-0" 
+                    />
+                    <span className="text-xs font-bold text-white tracking-wide truncate drop-shadow-sm">
+                      {bgStyle.originalUsername || bgStyle.originalAuthor || 'Người dùng'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (bgStyle.originalPostId && onViewPost) {
+                        onClose();
+                        onViewPost(bgStyle.originalPostId);
+                      } else if (bgStyle.originalStoryId && onOpenStoryViewer) {
+                        onClose();
+                        onOpenStoryViewer({ storyId: bgStyle.originalStoryId });
+                      }
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-white/90 bg-white/20 px-2.5 py-0.5 rounded-full backdrop-blur-sm hover:bg-white/30 transition shrink-0 cursor-pointer pointer-events-auto"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Xem bài viết</span>
+                  </button>
+                </div>
+
+                {/* Nội dung bài viết: Ảnh hoặc Trích dẫn text */}
+                {(mediaUrl || bgStyle.originalImage) ? (
+                  <div className="w-full relative bg-black/50 overflow-hidden flex items-center justify-center max-h-[380px]">
+                    <img 
+                      src={mediaUrl || bgStyle.originalImage} 
+                      alt="Shared post" 
+                      className="w-full h-full object-cover max-h-[380px]"
+                    />
+                    {bgStyle.originalContent && (
+                      <div className="absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t from-black/85 via-black/40 to-transparent text-white text-xs line-clamp-2 drop-shadow-md">
+                        <span className="font-bold mr-1">{bgStyle.originalAuthor}:</span>
+                        <span>{bgStyle.originalContent}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-5 text-white space-y-2 bg-gradient-to-br from-white/10 to-transparent min-h-[160px] flex flex-col justify-center">
+                    <p className="text-sm sm:text-base font-medium leading-relaxed italic line-clamp-6 text-white/95">
+                      "{bgStyle.originalContent || textContent}"
+                    </p>
+                  </div>
+                )}
+
+                {/* Dải chân thẻ bài viết */}
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (bgStyle.originalPostId && onViewPost) {
+                      onClose();
+                      onViewPost(bgStyle.originalPostId);
+                    } else if (bgStyle.originalStoryId && onOpenStoryViewer) {
+                      onClose();
+                      onOpenStoryViewer({ storyId: bgStyle.originalStoryId });
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-black/45 backdrop-blur-md flex items-center justify-between text-white/90 border-t border-white/10 hover:bg-black/60 transition cursor-pointer pointer-events-auto"
+                >
+                  <span className="text-[11px] text-white/70">Nhấn để mở bài viết gốc</span>
+                  <ChevronRight className="w-4 h-4 text-white/70 group-hover/reshare:translate-x-1 transition" />
+                </div>
+              </div>
+
+              {/* Lời nhắn / Ghi chú thêm của người chia sẻ nếu có */}
+              {textContent && !textContent.includes('[Trích dẫn từ bài viết') && (
+                <div className="relative z-10 mt-3.5 px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-md text-white text-xs font-semibold shadow-lg border border-white/20 max-w-[85%] text-center truncate">
+                  💬 {textContent}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           {/* Tin văn bản */}
           {currentStory.storyType === 'text' && (
             <div 
@@ -954,6 +1244,240 @@ export default function StoryViewerModal({
               )}
             </div>
           )}
+            </>
+          )}
+
+          {/* LỚP STICKERS & NHÃN DÁN NGHỆ THUẬT (POINTER-EVENTS-NONE) */}
+          {((bgStyle?.stickers) || (currentStory.backgroundStyle?.stickers)) && (
+            <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
+              {(bgStyle?.stickers || currentStory.backgroundStyle?.stickers).map((stk) => (
+                <div
+                  key={stk.id || `${stk.type}-${stk.x}-${stk.y}`}
+                  style={{
+                    left: `${stk.x}%`,
+                    top: `${stk.y}%`,
+                    transform: `translate(-50%, -50%) scale(${stk.scale || 1})`,
+                  }}
+                  className="absolute select-none pointer-events-none transition-transform"
+                >
+                  {/* 1. Emoji native */}
+                  {stk.type === 'emoji' && (
+                    <span className="text-5xl select-none filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.6)] leading-none inline-block">
+                      {stk.content}
+                    </span>
+                  )}
+
+                  {/* 2. Instagram Interactive Widgets */}
+                  {stk.type === 'widget' && (
+                    <>
+                      {/* Vị trí (Location) */}
+                      {stk.widgetType === 'location' && (
+                        <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/95 dark:bg-black/80 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none">
+                          <MapPin className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0" />
+                          <span>{stk.text}</span>
+                        </div>
+                      )}
+
+                      {/* Giờ số (Time) */}
+                      {stk.widgetType === 'time' && (
+                        <div className="px-3 py-1 font-black text-2xl sm:text-3xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)] select-none">
+                          {stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      )}
+
+                      {/* Nhắc tên (Mention) */}
+                      {stk.widgetType === 'mention' && (
+                        <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide select-none">
+                          <AtSign className="w-3 h-3 text-white shrink-0" />
+                          <span>{stk.text?.replace(/^@/, '') || 'banbe'}</span>
+                        </div>
+                      )}
+
+                      {/* Thăm dò ý kiến (Poll) */}
+                      {stk.widgetType === 'poll' && (
+                        <div className="w-56 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
+                          <p className="font-extrabold text-xs mb-2">{stk.question || 'Bạn thích không?'}</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                              {stk.optionA || 'Có 👍'}
+                            </div>
+                            <div className="py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-bold text-xs">
+                              {stk.optionB || 'Không 👎'}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Hộp câu hỏi (Question) */}
+                      {stk.widgetType === 'question' && (
+                        <div className="w-56 p-3 rounded-2xl bg-white text-slate-900 shadow-2xl border border-slate-100 select-none text-center">
+                          <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-600 mb-1.5">
+                            <MessageCircle className="w-3.5 h-3.5 text-purple-600" />
+                            <span>{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
+                          </div>
+                          <div className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-400 text-xs font-medium">
+                            Nhập câu trả lời...
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Thanh trượt cảm xúc (Slider) */}
+                      {stk.widgetType === 'slider' && (
+                        <div className="w-52 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
+                          <div className="relative h-2 bg-slate-200 dark:bg-slate-700 rounded-full my-2">
+                            <div className="absolute left-3/4 -top-3 text-2xl -translate-x-1/2">
+                              {stk.emoji || '🔥'}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Đếm ngược (Countdown) */}
+                      {stk.widgetType === 'countdown' && (
+                        <div className="w-52 p-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-2xl border border-white/30 select-none text-center">
+                          <p className="font-extrabold text-[11px] tracking-wider mb-1">{stk.title || 'ĐẾM NGƯỢC'}</p>
+                          <div className="font-black text-lg tracking-widest bg-black/20 rounded-xl py-1">
+                            {stk.timeText || '03 : 12 : 45'}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* HIỂN THỊ ÂM NHẠC TRÊN KHUNG STORY THEO STYLE (POINTER-EVENTS-NONE) */}
+          {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (
+            <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
+              {/* Style 1: Chạy chữ Lyric Karaoke đồng bộ theo progress Story - KHÔNG KHUNG, CHỈ CẦN CHỮ CHẠY */}
+              {storyMusic.displayMode === 'lyrics' && (
+                <div
+                  style={{
+                    left: `${storyMusic.musicPos?.x ?? 50}%`,
+                    top: `${storyMusic.musicPos?.y ?? 65}%`,
+                    transform: `translate(-50%, -50%) scale(${storyMusic.scale || storyMusic.musicScale || 1})`,
+                  }}
+                  className="absolute pointer-events-none w-[90%] max-w-[380px] text-center select-none"
+                >
+                  {/* Tên bài hát & ca sĩ nhỏ tinh tế (không khung) */}
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-white/80 font-bold mb-2.5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+                    <Music className="w-3.5 h-3.5 text-pink-400 animate-spin" style={{ animationDuration: '4s' }} />
+                    <span className="truncate max-w-[220px]">{storyMusic.title} • {storyMusic.artist}</span>
+                  </div>
+
+                  {/* Lời bài hát chạy chữ trực tiếp trên màn hình KHÔNG KHUNG BẢO VỆ */}
+                  <div className="space-y-2">
+                    {(() => {
+                      const lyrics = storyMusic.lyrics || [];
+                      if (lyrics.length === 0) {
+                        return (
+                          <p className="text-2xl font-black text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
+                            {storyMusic.title}
+                          </p>
+                        );
+                      }
+                      const activeIdx = Math.min(lyrics.length - 1, Math.floor((progress / 100) * lyrics.length));
+                      return lyrics.map((line, idx) => {
+                        const isActive = idx === activeIdx;
+                        const isPast = idx < activeIdx;
+                        if (Math.abs(idx - activeIdx) > 1) return null;
+                        return (
+                          <p
+                            key={idx}
+                            className={`font-black tracking-wide leading-tight transition-all duration-300 drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] ${
+                              isActive 
+                                ? 'text-2xl sm:text-3xl text-white scale-105' 
+                                : isPast
+                                ? 'text-base sm:text-lg text-white/35 -translate-y-1'
+                                : 'text-base sm:text-lg text-white/45 translate-y-1'
+                            }`}
+                          >
+                            {line}
+                          </p>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Style 2: Thẻ Bìa Album Card (Spotify/Instagram style) */}
+              {storyMusic.displayMode === 'card' && (
+                <div
+                  style={{
+                    left: `${storyMusic.musicPos?.x ?? 50}%`,
+                    top: `${storyMusic.musicPos?.y ?? 82}%`,
+                    transform: `translate(-50%, -50%) scale(${storyMusic.scale || storyMusic.musicScale || 1})`,
+                  }}
+                  className="absolute pointer-events-none select-none"
+                >
+                  <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/25 shadow-2xl text-white w-64">
+                    <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-md bg-purple-700">
+                      <img src={storyMusic.coverUrl} alt={storyMusic.title} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                        <Music className="w-4 h-4 text-white drop-shadow" />
+                      </div>
+                    </div>
+                    <div className="min-w-0 pr-1 flex-1">
+                      <p className="text-xs font-bold text-white truncate drop-shadow-sm">
+                        {storyMusic.title}
+                      </p>
+                      <p className="text-[11px] text-white/80 truncate">
+                        {storyMusic.artist}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1 text-[9px] text-purple-300 font-medium">
+                        <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full transition-all duration-100" 
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <span>0:{storyMusic.duration || 15}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Style 3: Huy hiệu Đĩa quay kinh điển (Badge pill) */}
+              {(storyMusic.displayMode === 'badge' || (!storyMusic.displayMode && storyMusic.musicPos)) && (
+                <div
+                  style={{
+                    left: `${storyMusic.musicPos?.x ?? 50}%`,
+                    top: `${storyMusic.musicPos?.y ?? 84}%`,
+                    transform: `translate(-50%, -50%) scale(${storyMusic.scale || storyMusic.musicScale || 1})`,
+                  }}
+                  className="absolute pointer-events-none select-none"
+                >
+                  <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/65 backdrop-blur-md border border-white/25 shadow-2xl text-white">
+                    <div className="relative w-6 h-6 rounded-full overflow-hidden bg-purple-600 shrink-0 border border-white/40 shadow-xs flex items-center justify-center">
+                      <img src={storyMusic.coverUrl} alt={storyMusic.title} className="w-full h-full object-cover animate-spin" style={{ animationDuration: '4s' }} />
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                        <Music className="w-2.5 h-2.5 text-white" />
+                      </div>
+                    </div>
+                    <div className="min-w-0 pr-1">
+                      <p className="text-[11px] font-bold truncate max-w-[130px] leading-tight drop-shadow-xs">
+                        {storyMusic.title}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-[9px] text-white/80 leading-tight">
+                        <span className="truncate max-w-[90px]">{storyMusic.artist}</span>
+                        {!isMuted && !isEffectivePaused && (
+                          <div className="flex items-end gap-0.5 h-2">
+                            <span className="w-0.5 h-full bg-purple-400 rounded-full animate-pulse" />
+                            <span className="w-0.5 h-1.5 bg-purple-300 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                            <span className="w-0.5 h-1 bg-purple-200 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Lớp hạt Reaction bay bổng đa chiều (Floating Particles 60fps) */}
           <div className="absolute inset-0 pointer-events-none z-40 overflow-hidden">
@@ -1045,26 +1569,30 @@ export default function StoryViewerModal({
           )}
         </div>
 
-        {/* VÙNG NHẤN MÉP TRÁI / MÉP PHẢI ĐỂ CHUYỂN TIN & GIỮ CHUỘT ĐỂ TẠM DỪNG (INSTAGRAM / FACEBOOK UX) */}
+        {/* VÙNG NHẤN RÌA 2 BÊN ĐỂ CHUYỂN TIN & GIỮ CHUỘT ĐỂ TẠM DỪNG (CHỈ Ở RÌA 2 BÊN, KHÔNG CHE KHUẤT NỘI DUNG Ở GIỮA) */}
         {!isStoryCovered && (
-          <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex select-none pointer-events-auto">
-            {/* Mép trái (35%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
+          <div className="absolute top-20 bottom-28 inset-x-0 z-20 flex justify-between select-none pointer-events-none">
+            {/* Rìa mép trái (15%): Bấm chuyển về tin trước, giữ chuột để tạm dừng */}
             <div 
-              className="w-[35%] h-full cursor-pointer select-none"
+              className="w-[15%] max-w-[64px] h-full cursor-pointer select-none pointer-events-auto"
               onPointerDown={handleHoldStart}
               onPointerUp={(e) => handleTapOrRelease('prev', e)}
               onPointerLeave={handleHoldEnd}
               onPointerCancel={handleHoldEnd}
-              title="Nhấn mép trái để xem tin trước • Giữ chuột để tạm dừng"
+              title="Nhấn rìa trái để xem tin trước • Giữ chuột để tạm dừng"
             />
-            {/* Mép phải (65%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
+
+            {/* Vùng giữa hoàn toàn thông thoáng (pointer-events-none) để người xem tự do nhấn xem bài viết / story được chia sẻ */}
+            <div className="flex-1 h-full pointer-events-none" />
+
+            {/* Rìa mép phải (15%): Bấm chuyển sang tin kế tiếp, giữ chuột để tạm dừng */}
             <div 
-              className="w-[65%] h-full cursor-pointer select-none"
+              className="w-[15%] max-w-[64px] h-full cursor-pointer select-none pointer-events-auto"
               onPointerDown={handleHoldStart}
               onPointerUp={(e) => handleTapOrRelease('next', e)}
               onPointerLeave={handleHoldEnd}
               onPointerCancel={handleHoldEnd}
-              title="Nhấn mép phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
+              title="Nhấn rìa phải để xem tin kế tiếp • Giữ chuột để tạm dừng"
             />
           </div>
         )}
@@ -1279,6 +1807,148 @@ export default function StoryViewerModal({
                   );
                 })
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Modal Chia sẻ tin đăng (Instagram Story Share) */}
+        {showShareStoryModal && (
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex flex-col p-5 text-white animate-fade-in justify-between"
+          >
+            {/* Header */}
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-blue-600/30 text-blue-400">
+                    <Share2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-white">Chia sẻ tin đăng</h3>
+                    <p className="text-[11px] text-white/60">Gửi tin của {tray.author?.name} tới bạn bè</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowShareStoryModal(false); setIsPaused(false); }}
+                  className="p-1 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Ô tìm kiếm bạn bè */}
+              <div className="mt-3 relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-white/40" />
+                <input
+                  type="text"
+                  value={friendSearch}
+                  onChange={(e) => setFriendSearch(e.target.value)}
+                  placeholder="Tìm kiếm bạn bè..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white/10 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+
+              {/* Ô ghi chú đính kèm */}
+              <div className="mt-2">
+                <input
+                  type="text"
+                  value={storyShareMsg}
+                  onChange={(e) => setStoryShareMsg(e.target.value)}
+                  placeholder="Viết tin nhắn kèm theo (tùy chọn)..."
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-white/10 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+            </div>
+
+            {/* Danh sách bạn bè */}
+            <div className="flex-1 my-3 overflow-y-auto divide-y divide-white/5 pr-1">
+              {isLoadingFriends ? (
+                <div className="py-12 flex flex-col items-center justify-center text-white/50 gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                  <span className="text-xs">Đang tải bạn bè...</span>
+                </div>
+              ) : friendsList.filter(f => {
+                  if (!friendSearch.trim()) return true;
+                  const q = friendSearch.toLowerCase();
+                  return (f.name && f.name.toLowerCase().includes(q)) || (f.username && f.username.toLowerCase().includes(q));
+                }).length === 0 ? (
+                <div className="py-10 text-center text-white/50 text-xs">
+                  {friendSearch ? 'Không tìm thấy bạn bè phù hợp' : 'Chưa có bạn bè nào'}
+                </div>
+              ) : (
+                friendsList
+                  .filter(f => {
+                    if (!friendSearch.trim()) return true;
+                    const q = friendSearch.toLowerCase();
+                    return (f.name && f.name.toLowerCase().includes(q)) || (f.username && f.username.toLowerCase().includes(q));
+                  })
+                  .map((friend) => {
+                    const status = storySendingStatus[friend.id];
+                    return (
+                      <div key={friend.id} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={friend.avatar || friend.avatar_url || DEFAULT_AVATAR}
+                            alt={friend.name}
+                            className="w-8 h-8 rounded-full object-cover border border-white/20"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-white truncate">{friend.name || friend.username}</p>
+                            <p className="text-[10px] text-white/50 truncate">@{friend.username || 'user'}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={status === 'sending' || status === 'sent'}
+                          onClick={() => handleSendStoryToFriend(friend)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0 ${
+                            status === 'sent'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
+                          }`}
+                        >
+                          {status === 'sending' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : status === 'sent' ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              <span>Đã gửi</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3 h-3" />
+                              <span>Gửi</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* Footer hành động bổ sung */}
+            <div className="pt-3 border-t border-white/10 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleShareStoryExternal}
+                className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Chia sẻ ra ngoài</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyStoryLink}
+                className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Sao chép link</span>
+              </button>
             </div>
           </div>
         )}

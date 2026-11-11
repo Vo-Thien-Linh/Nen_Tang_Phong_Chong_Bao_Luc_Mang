@@ -264,6 +264,10 @@ export function createStoryService({
       return await storyRepository.listFeedStories({ viewerId: user?.id || null });
     },
 
+    async getUserStories({ user, targetUserId }) {
+      return await storyRepository.listUserStories({ targetUserId, viewerId: user?.id || null });
+    },
+
     async listMyArchive({ user, limit = 50, offset = 0 }) {
       if (!user?.id) {
         const error = new Error('Bạn cần đăng nhập để xem kho lưu trữ tin');

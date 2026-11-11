@@ -54,6 +54,21 @@ export function createStoriesController({ storyService }) {
       }
     },
 
+    async getUserStories(req, res, next) {
+      try {
+        const tray = await storyService.getUserStories({
+          user: req.user,
+          targetUserId: req.params.userId,
+        });
+        res.json({
+          success: true,
+          data: tray,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
     async listMyArchive(req, res, next) {
       try {
         const limit = Number(req.query?.limit) || 50;

@@ -4,10 +4,23 @@ async function request(path, options = {}) {
   const token = localStorage.getItem('nexussocial_token');
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
+  // Tự động bổ sung x-user-id từ phiên đăng nhập nếu chưa có trong headers
+  let autoUserHeader = {};
+  try {
+    const rawUser = localStorage.getItem('nexussocial_user');
+    if (rawUser) {
+      const parsedUser = JSON.parse(rawUser);
+      if (parsedUser?.id) {
+        autoUserHeader = { 'x-user-id': parsedUser.id };
+      }
+    }
+  } catch {}
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...autoUserHeader,
       ...authHeaders,
       ...(options.headers || {}),
     },
@@ -209,14 +222,6 @@ export async function sharePost({ userId, postId, content = '', user = null }) {
   const headers = {};
   if (userId) {
     headers['x-user-id'] = userId;
-    const name = user?.name || user?.full_name;
-    if (name) {
-      headers['x-user-name'] = encodeURIComponent(name);
-    }
-    const avatar = user?.avatar || user?.avatar_url;
-    if (avatar) {
-      headers['x-user-avatar'] = encodeURIComponent(avatar);
-    }
   }
 
   return request(`/api/posts/${postId}/share`, {
@@ -425,18 +430,29 @@ export async function createStoryApi({
   });
 }
 
-export async function fetchStoryByIdApi(storyId) {
-  return request(`/api/stories/${storyId}`);
-}
-
-export async function viewStoryApi(storyId) {
-  return request(`/api/stories/${storyId}/view`, {
-    method: 'POST',
+export async function fetchStoryByIdApi(storyId, userId) {
+  return request(`/api/stories/${storyId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
   });
 }
 
-export async function fetchStoryViewersApi(storyId) {
-  return request(`/api/stories/${storyId}/viewers`);
+export async function fetchUserStoriesApi(userId) {
+  return request(`/api/stories/user/${userId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function viewStoryApi(storyId, userId) {
+  return request(`/api/stories/${storyId}/view`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchStoryViewersApi(storyId, userId) {
+  return request(`/api/stories/${storyId}/viewers`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
 }
 
 export async function reactToStoryApi(storyId, reactionType = 'like') {

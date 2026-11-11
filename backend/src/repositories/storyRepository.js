@@ -176,8 +176,31 @@ export function createStoryRepository({ pool }) {
       const isNsfw = story.media_moderation_status === 'sensitive' || story.media_moderation_label === 'nsfw' || (Number(story.media_moderation_nsfw) >= 0.7);
       const isHardHidden = story.ai_status === 'hidden' || story.ai_label === 'Violence' || story.ai_label === 'Hate Speech';
 
+      const parsedBackgroundStyle = typeof story.background_style === 'string'
+        ? (() => { try { return JSON.parse(story.background_style); } catch { return story.background_style; } })()
+        : story.background_style;
+
       return {
         ...story,
+        id: String(story.id),
+        storyType: story.story_type,
+        mediaUrl: story.media_url,
+        textContent: story.text_content,
+        backgroundStyle: parsedBackgroundStyle,
+        author: {
+          id: story.author_id,
+          name: story.full_name || story.username || 'Người dùng',
+          username: story.username || '',
+          avatar: story.avatar_url,
+          isVerified: Boolean(story.is_verified),
+        },
+        author_name: story.full_name || story.username || 'Người dùng',
+        author_username: story.username || '',
+        author_avatar: story.avatar_url,
+        isViewed,
+        myReaction,
+        viewsCount: Number(story.views_count || 0),
+        reactionsCount: Number(story.reactions_count || 0),
         aiStatus: story.ai_status,
         aiLabel: story.ai_label,
         mediaModerationStatus: story.media_moderation_status,
@@ -240,16 +263,13 @@ export function createStoryRepository({ pool }) {
             OR (
               s.ai_status != 'hidden'
               AND (s.media_moderation_status IS NULL OR s.media_moderation_status IN ('safe', 'sensitive'))
-              AND (
-                s.privacy = 'public'
-                OR (
-                  s.privacy = 'friends' AND $1 IS NOT NULL AND EXISTS (
-                    SELECT 1 FROM friendships f
-                    WHERE f.status = 'accepted'
-                      AND ((f.requester_id = s.author_id AND f.addressee_id = $1)
-                        OR (f.addressee_id = s.author_id AND f.requester_id = $1))
-                  )
-                )
+              AND s.privacy != 'private'
+              AND $1 IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM friendships f
+                WHERE f.status = 'accepted'
+                  AND ((f.requester_id = s.author_id AND f.addressee_id = $1)
+                    OR (f.addressee_id = s.author_id AND f.requester_id = $1))
               )
             )
           )
@@ -335,6 +355,129 @@ export function createStoryRepository({ pool }) {
       return trays;
     },
 
+    async listUserStories({ targetUserId, viewerId = null }) {
+      if (!targetUserId) return null;
+
+      // Kiểm tra quan hệ bạn bè giữa viewerId và targetUserId
+      let isFriend = false;
+      const isSelf = viewerId ? String(viewerId) === String(targetUserId) : false;
+
+      if (viewerId && !isSelf) {
+        const friendCheck = await pool.query(
+          `SELECT 1 FROM friendships 
+           WHERE status = 'accepted' 
+             AND ((requester_id = $1 AND addressee_id = $2) OR (addressee_id = $1 AND requester_id = $2))`,
+          [viewerId, targetUserId]
+        );
+        isFriend = friendCheck.rows.length > 0;
+      }
+
+      // Điều kiện quyền riêng tư:
+      // - Nếu là chính mình: xem tất cả tin
+      // - Nếu là bạn bè: xem tin public và friends
+      // - Nếu là người lạ: chỉ xem tin public
+      let privacyCondition = "AND s.privacy = 'public'";
+      if (isSelf) {
+        privacyCondition = "";
+      } else if (isFriend) {
+        privacyCondition = "AND s.privacy IN ('public', 'friends')";
+      }
+
+      const query = `
+        SELECT
+          s.id,
+          s.author_id,
+          s.story_type,
+          s.media_url,
+          s.text_content,
+          s.background_style,
+          s.privacy,
+          s.expires_at,
+          s.ai_status,
+          s.ai_label,
+          s.media_moderation_status,
+          s.media_moderation_label,
+          s.media_moderation_safe,
+          s.media_moderation_nsfw,
+          s.media_moderation_violence,
+          s.views_count,
+          s.reactions_count,
+          s.created_at,
+          u.username,
+          u.full_name,
+          u.avatar_url,
+          u.is_verified,
+          CASE WHEN sv.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_viewed,
+          sr.reaction_type AS my_reaction
+        FROM stories s
+        JOIN users u ON u.id = s.author_id
+        LEFT JOIN story_views sv ON sv.story_id = s.id AND sv.viewer_id = $2
+        LEFT JOIN (
+          SELECT story_id, 
+                 (array_agg(reaction_type ORDER BY created_at DESC))[1] AS reaction_type
+          FROM story_reactions
+          WHERE user_id = $2
+          GROUP BY story_id
+        ) sr ON sr.story_id = s.id
+        WHERE s.author_id = $1
+          AND s.expires_at > CURRENT_TIMESTAMP
+          AND s.is_deleted = FALSE
+          AND s.is_archived = FALSE
+          ${isSelf ? "" : "AND s.ai_status != 'hidden' AND (s.media_moderation_status IS NULL OR s.media_moderation_status IN ('safe', 'sensitive'))"}
+          ${privacyCondition}
+        ORDER BY s.created_at ASC
+      `;
+
+      const { rows } = await pool.query(query, [targetUserId, viewerId]);
+      if (rows.length === 0) return null;
+
+      const firstRow = rows[0];
+      const tray = {
+        author: {
+          id: firstRow.author_id,
+          name: firstRow.full_name,
+          username: firstRow.username,
+          avatar: firstRow.avatar_url,
+          isVerified: Boolean(firstRow.is_verified),
+        },
+        isSelf,
+        hasUnviewedStories: false,
+        latestStoryTime: rows[rows.length - 1].created_at,
+        stories: [],
+      };
+
+      for (const row of rows) {
+        if (!row.is_viewed) {
+          tray.hasUnviewedStories = true;
+        }
+
+        const isToxic = row.ai_label === 'Toxic' || row.ai_status === 'sensitive';
+        const isNsfw = row.media_moderation_status === 'sensitive' || row.media_moderation_label === 'nsfw' || (Number(row.media_moderation_nsfw) >= 0.7);
+        const isHardHidden = row.ai_status === 'hidden' || row.ai_label === 'Violence' || row.ai_label === 'Hate Speech';
+
+        tray.stories.push({
+          id: String(row.id),
+          storyType: row.story_type,
+          mediaUrl: row.media_url,
+          textContent: row.text_content,
+          backgroundStyle: typeof row.background_style === 'string' ? JSON.parse(row.background_style) : row.background_style,
+          privacy: row.privacy,
+          expiresAt: row.expires_at,
+          createdAt: row.created_at,
+          viewsCount: Number(row.views_count || 0),
+          reactionsCount: Number(row.reactions_count || 0),
+          isViewed: Boolean(row.is_viewed),
+          myReaction: row.my_reaction || null,
+          isToxic,
+          isNsfw,
+          isSensitive: (isToxic || isNsfw) && !isHardHidden,
+          isHardHidden,
+        });
+      }
+
+      return tray;
+    },
+
     async listUserArchiveStories({ authorId, limit = 50, offset = 0 }) {
       const query = `
         ${storySelect}
@@ -405,8 +548,8 @@ export function createStoryRepository({ pool }) {
 
       const query = `
         SELECT
-          sv.id AS view_id,
-          sv.viewed_at,
+          COALESCE(sv.id::text, concat('react-', COALESCE(sv.viewer_id, sr_agg.user_id))) AS view_id,
+          COALESCE(sv.viewed_at, sr_agg.last_reaction_at, CURRENT_TIMESTAMP) AS viewed_at,
           u.id AS viewer_id,
           u.username,
           u.full_name,
@@ -414,12 +557,14 @@ export function createStoryRepository({ pool }) {
           u.is_verified,
           sr_agg.reaction_type,
           COALESCE(sr_agg.reactions, '[]'::json) AS reactions
-        FROM story_views sv
-        JOIN users u ON u.id = sv.viewer_id
-        LEFT JOIN (
+        FROM (
+          SELECT id, story_id, viewer_id, viewed_at FROM story_views WHERE story_id = $1
+        ) sv
+        FULL OUTER JOIN (
           SELECT
             story_id,
             user_id,
+            MAX(created_at) AS last_reaction_at,
             (array_agg(reaction_type ORDER BY created_at DESC))[1] AS reaction_type,
             json_agg(
               json_build_object(
@@ -430,9 +575,10 @@ export function createStoryRepository({ pool }) {
           FROM story_reactions
           WHERE story_id = $1
           GROUP BY story_id, user_id
-        ) sr_agg ON sr_agg.story_id = sv.story_id AND sr_agg.user_id = sv.viewer_id
-        WHERE sv.story_id = $1 AND sv.viewer_id != $2
-        ORDER BY sv.viewed_at DESC
+        ) sr_agg ON sr_agg.user_id = sv.viewer_id
+        JOIN users u ON u.id = COALESCE(sv.viewer_id, sr_agg.user_id)
+        WHERE COALESCE(sv.viewer_id, sr_agg.user_id) != $2
+        ORDER BY viewed_at DESC
       `;
       const { rows } = await pool.query(query, [storyId, authorId]);
       return rows;

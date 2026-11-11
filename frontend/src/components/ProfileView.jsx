@@ -13,7 +13,7 @@ import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
 import { settingsService } from '../services/settingsService';
-import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchSavedPostsApi } from '../api/client';
+import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchUserStoriesApi, fetchSavedPostsApi } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
@@ -132,11 +132,10 @@ export default function ProfileView({
 
   useEffect(() => {
     if (!targetUserId) return;
-    fetchStories()
+    fetchUserStoriesApi(targetUserId)
       .then(res => {
-        const trays = res?.data || [];
-        const tray = trays.find(t => String(t.author?.id) === String(targetUserId));
-        if (tray) {
+        const tray = res?.data;
+        if (tray && tray.stories?.length > 0) {
           setProfileStoryInfo({ 
             hasUnviewed: Boolean(tray.hasUnviewedStories),
             tray 
@@ -145,7 +144,23 @@ export default function ProfileView({
           setProfileStoryInfo(null);
         }
       })
-      .catch(() => setProfileStoryInfo(null));
+      .catch(() => {
+        // Fallback kiểm tra trong feed stories nếu có
+        fetchStories()
+          .then(res => {
+            const trays = res?.data || [];
+            const tray = trays.find(t => String(t.author?.id) === String(targetUserId));
+            if (tray) {
+              setProfileStoryInfo({ 
+                hasUnviewed: Boolean(tray.hasUnviewedStories),
+                tray 
+              });
+            } else {
+              setProfileStoryInfo(null);
+            }
+          })
+          .catch(() => setProfileStoryInfo(null));
+      });
   }, [targetUserId]);
 
   // Xử lý khi nhấn vào Avatar lớn trang cá nhân

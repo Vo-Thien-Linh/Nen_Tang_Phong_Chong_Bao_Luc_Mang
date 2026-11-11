@@ -48,6 +48,7 @@ export default function HomeView({
   activeStreams = [],
   onWatchStream,
   onOpenLiveStream,
+  onViewPost,
   onToggleSave
 }) {
   const { t, isEn } = useTranslation();
@@ -884,6 +885,11 @@ export default function HomeView({
           }}
           onStoryViewed={handleStoryViewed}
           onOpenReportModal={onOpenReportModal}
+          onViewPost={onViewPost}
+          onOpenStoryViewer={(target) => {
+            if (target?.tray) setActiveStoryTray(target.tray);
+            else if (target?.stories) setActiveStoryTray(target);
+          }}
           onStoryDeleted={() => {
             loadStories();
           }}

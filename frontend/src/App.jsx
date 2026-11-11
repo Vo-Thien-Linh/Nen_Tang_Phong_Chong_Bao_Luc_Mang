@@ -48,7 +48,9 @@ import {
   resolveAppealApi,
   fetchAiOverridesList,
   createAiOverrideApi,
-  fetchStories
+  fetchStories,
+  fetchStoryByIdApi,
+  fetchUserStoriesApi
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
@@ -777,6 +779,58 @@ export default function App() {
   const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
     try {
       let targetTray = tray;
+
+      // 1. Nếu có storyId cụ thể, ưu tiên tải trực tiếp story theo ID
+      if (!targetTray && storyId) {
+        try {
+          const singleStoryRes = await fetchStoryByIdApi(storyId, currentUser?.id);
+          const singleStory = singleStoryRes?.data || singleStoryRes;
+          if (singleStory?.id) {
+            const parsedBg = typeof singleStory.backgroundStyle === 'object' && singleStory.backgroundStyle !== null
+              ? singleStory.backgroundStyle
+              : (typeof singleStory.background_style === 'string'
+                  ? (() => { try { return JSON.parse(singleStory.background_style); } catch { return {}; } })()
+                  : (singleStory.background_style || {}));
+
+            const normalizedSingleStory = {
+              ...singleStory,
+              id: String(singleStory.id),
+              storyType: singleStory.storyType || singleStory.story_type || 'text',
+              mediaUrl: singleStory.mediaUrl || singleStory.media_url || null,
+              textContent: singleStory.textContent || singleStory.text_content || '',
+              backgroundStyle: parsedBg,
+            };
+
+            targetTray = {
+              author: {
+                id: singleStory.author_id,
+                name: singleStory.author_name || singleStory.full_name || singleStory.username || 'Người dùng',
+                username: singleStory.author_username || singleStory.username || '',
+                avatar: singleStory.author_avatar || singleStory.avatar_url,
+              },
+              isSelf: currentUser?.id ? String(currentUser.id) === String(singleStory.author_id) : false,
+              hasUnviewedStories: false,
+              stories: [normalizedSingleStory],
+            };
+          }
+        } catch (fetchErr) {
+          console.warn('Không thể tải tin theo ID, thử tìm qua feed/user:', fetchErr.message);
+        }
+      }
+
+      // 2. Nếu chưa có tray và có userId, thử gọi API lấy tin của user đó
+      if (!targetTray && userId) {
+        try {
+          const userStoriesRes = await fetchUserStoriesApi(userId);
+          if (userStoriesRes?.data?.stories?.length > 0) {
+            targetTray = userStoriesRes.data;
+          }
+        } catch (uErr) {
+          console.warn('Không thể tải tin của user:', uErr.message);
+        }
+      }
+
+      // 3. Fallback: tìm trong feed stories chung
       if (!targetTray) {
         const res = await fetchStories();
         const allTrays = res?.data || [];
@@ -793,6 +847,19 @@ export default function App() {
           targetTray = allTrays[0];
         }
       }
+
+      // 4. Nếu vẫn chưa có và người dùng đang click vào thông báo tin của chính mình
+      if (!targetTray && currentUser?.id) {
+        try {
+          const myStoriesRes = await fetchUserStoriesApi(currentUser.id);
+          if (myStoriesRes?.data?.stories?.length > 0) {
+            targetTray = myStoriesRes.data;
+          }
+        } catch (myErr) {
+          console.warn('Không thể tải tin cá nhân:', myErr.message);
+        }
+      }
+
       if (targetTray) {
         setActiveStoryViewerTarget({
           tray: targetTray,
@@ -1911,6 +1978,7 @@ export default function App() {
             onWatchStream={handleWatchLiveStream}
             onOpenLiveStream={handleOpenLiveStreamAction}
             onToggleSave={handleToggleSavePost}
+            onViewPost={handleViewPost}
           />
         )}
 
@@ -2232,6 +2300,21 @@ export default function App() {
           handleEndLiveStream(sessionId);
         }}
       />
+
+      {/* Modal Xem Story cấp ứng dụng (Mở từ Thông báo hoặc điều hướng trực tiếp) */}
+      {activeStoryViewerTarget && (
+        <StoryViewerModal
+          isOpen={Boolean(activeStoryViewerTarget)}
+          tray={activeStoryViewerTarget.tray}
+          initialStoryId={activeStoryViewerTarget.initialStoryId}
+          initialShowViewers={activeStoryViewerTarget.initialShowViewers}
+          targetViewerId={activeStoryViewerTarget.targetViewerId}
+          currentUser={currentUser}
+          onViewPost={handleViewPost}
+          onOpenStoryViewer={handleOpenStoryViewer}
+          onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
 
     </div>
   );
