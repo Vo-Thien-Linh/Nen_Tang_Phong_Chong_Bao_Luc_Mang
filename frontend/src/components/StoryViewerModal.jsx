@@ -120,6 +120,13 @@ export default function StoryViewerModal({
   const [storyShareMsg, setStoryShareMsg] = useState('');
   const [isCopiedStoryLink, setIsCopiedStoryLink] = useState(false);
 
+  // Quản lý tương tác thực tế với các Widgets (Poll, Question, Slider)
+  const [pollVotes, setPollVotes] = useState({});
+  const [questionInputs, setQuestionInputs] = useState({});
+  const [isSendingQuestion, setIsSendingQuestion] = useState({});
+  const [questionSent, setQuestionSent] = useState({});
+  const [sliderValues, setSliderValues] = useState({});
+
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
 
@@ -590,6 +597,57 @@ export default function StoryViewerModal({
     } catch (err) {
       console.warn('Lỗi thả reaction:', err.message);
     }
+  };
+
+  // Tương tác Thăm dò ý kiến (Poll voting)
+  const handleVotePoll = (stickerId, option) => {
+    setPollVotes((prev) => {
+      const existing = prev[stickerId] || { countA: 3, countB: 1, voted: null };
+      if (existing.voted) return prev; // Đã vote thì giữ nguyên
+      const isA = option === 'A';
+      return {
+        ...prev,
+        [stickerId]: {
+          voted: option,
+          countA: existing.countA + (isA ? 1 : 0),
+          countB: existing.countB + (isA ? 0 : 1),
+        },
+      };
+    });
+  };
+
+  // Tương tác Gửi câu trả lời cho Hộp câu hỏi (Question answering)
+  const handleSendQuestion = async (stk) => {
+    const text = questionInputs[stk.id]?.trim();
+    const authorId = currentStory?.author_id || tray?.author?.id;
+    if (!text || !authorId || isSendingQuestion[stk.id]) return;
+
+    if (!currentUser?.id) {
+      setReplyErrorMsg('Vui lòng đăng nhập để gửi câu trả lời');
+      setTimeout(() => setReplyErrorMsg(''), 3000);
+      return;
+    }
+
+    setIsSendingQuestion((prev) => ({ ...prev, [stk.id]: true }));
+    try {
+      const messageContent = `[Story Q&A: "${stk.prompt || 'Hỏi tôi bất cứ điều gì'}"]\n${text}`;
+      await messageService.sendMessage(authorId, messageContent, currentStory.mediaUrl || null, 'text');
+      setQuestionSent((prev) => ({ ...prev, [stk.id]: true }));
+      setQuestionInputs((prev) => ({ ...prev, [stk.id]: '' }));
+      setReplySuccessMsg('Đã gửi câu trả lời đến tác giả!');
+      setTimeout(() => setReplySuccessMsg(''), 3000);
+    } catch (err) {
+      setReplyErrorMsg('Không thể gửi câu trả lời: ' + err.message);
+      setTimeout(() => setReplyErrorMsg(''), 3000);
+    } finally {
+      setIsSendingQuestion((prev) => ({ ...prev, [stk.id]: false }));
+      setIsPaused(false);
+    }
+  };
+
+  // Tương tác Kéo thả thanh cảm xúc (Slider)
+  const handleSliderChange = (stickerId, value) => {
+    setSliderValues((prev) => ({ ...prev, [stickerId]: Number(value) }));
   };
 
   // Xử lý gửi tin nhắn trả lời tin (Reply to Story)
@@ -1247,7 +1305,7 @@ export default function StoryViewerModal({
             </>
           )}
 
-          {/* LỚP STICKERS & NHÃN DÁN NGHỆ THUẬT (POINTER-EVENTS-NONE) */}
+          {/* LỚP STICKERS & NHÃN DÁN NGHỆ THUẬT (POINTER-EVENTS-NONE CHO KHUNG NGOÀI, POINTER-EVENTS-AUTO CHO WIDGET) */}
           {((bgStyle?.stickers) || (currentStory.backgroundStyle?.stickers)) && (
             <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
               {(bgStyle?.stickers || currentStory.backgroundStyle?.stickers).map((stk) => (
@@ -1258,7 +1316,7 @@ export default function StoryViewerModal({
                     top: `${stk.y}%`,
                     transform: `translate(-50%, -50%) scale(${stk.scale || 1})`,
                   }}
-                  className="absolute select-none pointer-events-none transition-transform"
+                  className={`absolute select-none transition-transform ${stk.type === 'widget' ? 'pointer-events-auto z-30' : 'pointer-events-none'}`}
                 >
                   {/* 1. Emoji native */}
                   {stk.type === 'emoji' && (
@@ -1267,70 +1325,243 @@ export default function StoryViewerModal({
                     </span>
                   )}
 
-                  {/* 2. Instagram Interactive Widgets */}
+                  {/* 2. Tiện ích tương tác (Interactive Widgets) */}
                   {stk.type === 'widget' && (
                     <>
-                      {/* Vị trí (Location) */}
+                      {/* Vị trí (Location) - Click mở Google Maps */}
                       {stk.widgetType === 'location' && (
-                        <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/95 dark:bg-black/80 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none">
-                          <MapPin className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0" />
-                          <span>{stk.text}</span>
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const query = stk.text || 'Việt Nam';
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                          }}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-white/95 dark:bg-black/85 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none cursor-pointer hover:scale-105 active:scale-95 transition-all group/loc"
+                          title="Nhấn để xem địa điểm trên Google Maps"
+                        >
+                          <MapPin className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0 group-hover/loc:animate-bounce" />
+                          <span className="truncate max-w-[180px]">{stk.text}</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400 group-hover/loc:text-rose-500 transition-colors shrink-0" />
                         </div>
                       )}
 
-                      {/* Giờ số (Time) */}
-                      {stk.widgetType === 'time' && (
-                        <div className="px-3 py-1 font-black text-2xl sm:text-3xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)] select-none">
-                          {stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      )}
+                      {/* Giờ số (Time) với 4 Styles */}
+                      {stk.widgetType === 'time' && (() => {
+                        const timeVal = stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const style = stk.timeStyle || 'digital';
 
-                      {/* Nhắc tên (Mention) */}
+                        if (style === 'badge') {
+                          return (
+                            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/25 text-white font-black text-xs tracking-wider shadow-xl">
+                              <Clock className="w-3.5 h-3.5 text-pink-400" />
+                              <span>{timeVal}</span>
+                            </div>
+                          );
+                        }
+                        if (style === 'neon') {
+                          return (
+                            <div className="px-3.5 py-1 rounded-2xl bg-black/70 backdrop-blur-sm border border-pink-500/80 text-pink-400 font-black text-2xl tracking-widest shadow-[0_0_20px_rgba(236,72,153,0.7)]">
+                              {timeVal}
+                            </div>
+                          );
+                        }
+                        if (style === 'date_time') {
+                          const dateStr = new Date().toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' });
+                          return (
+                            <div className="px-3 py-1.5 rounded-2xl bg-black/65 backdrop-blur-md border border-white/20 text-white text-center shadow-xl">
+                              <p className="text-[10px] font-bold text-white/75 uppercase tracking-wider">{dateStr}</p>
+                              <p className="text-xl font-black tracking-widest leading-none mt-0.5">{timeVal}</p>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="px-3 py-1 font-black text-3xl sm:text-4xl text-white tracking-widest drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] select-none">
+                            {timeVal}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Nhắc tên (Mention) - Click xem Profile bạn bè */}
                       {stk.widgetType === 'mention' && (
-                        <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide select-none">
-                          <AtSign className="w-3 h-3 text-white shrink-0" />
-                          <span>{stk.text?.replace(/^@/, '') || 'banbe'}</span>
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (stk.friendId) {
+                              window.open(`/profile/${stk.friendId}`, '_blank');
+                            }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide cursor-pointer hover:scale-105 active:scale-95 transition-all select-none"
+                          title="Nhấn để xem trang cá nhân"
+                        >
+                          {stk.avatarUrl && (
+                            <img 
+                              src={stk.avatarUrl} 
+                              alt="" 
+                              className="w-4 h-4 rounded-full object-cover border border-white/60"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          )}
+                          <AtSign className="w-3.5 h-3.5 text-white shrink-0" />
+                          <span className="truncate max-w-[140px]">{stk.text?.replace(/^@/, '') || 'banbe'}</span>
                         </div>
                       )}
 
-                      {/* Thăm dò ý kiến (Poll) */}
-                      {stk.widgetType === 'poll' && (
-                        <div className="w-56 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
-                          <p className="font-extrabold text-xs mb-2">{stk.question || 'Bạn thích không?'}</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-                              {stk.optionA || 'Có 👍'}
-                            </div>
-                            <div className="py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-bold text-xs">
-                              {stk.optionB || 'Không 👎'}
+                      {/* Thăm dò ý kiến (Poll) - Bình chọn Có / Không tương tác thật */}
+                      {stk.widgetType === 'poll' && (() => {
+                        const voteData = pollVotes[stk.id] || { voted: null, countA: 3, countB: 1 };
+                        const hasVoted = Boolean(voteData.voted);
+                        const totalVotes = voteData.countA + voteData.countB;
+                        const pctA = totalVotes > 0 ? Math.round((voteData.countA / totalVotes) * 100) : 50;
+                        const pctB = 100 - pctA;
+                        const optA = stk.optionA || 'Có 👍';
+                        const optB = stk.optionB || 'Không 👎';
+
+                        return (
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-60 p-3.5 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center animate-scale-up"
+                          >
+                            <p className="font-extrabold text-xs mb-2.5 leading-snug px-1">{stk.question || 'Bạn thích không?'}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {/* Option A */}
+                              <button
+                                type="button"
+                                disabled={hasVoted}
+                                onClick={() => handleVotePoll(stk.id, 'A')}
+                                className={`relative overflow-hidden py-2 px-2.5 rounded-2xl font-bold text-xs transition cursor-pointer border ${
+                                  hasVoted
+                                    ? voteData.voted === 'A'
+                                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                                      : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
+                                    : 'border-emerald-400/40 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-700 dark:text-emerald-300'
+                                }`}
+                              >
+                                {hasVoted && (
+                                  <div 
+                                    className="absolute inset-y-0 left-0 bg-emerald-500/25 transition-all duration-500 ease-out"
+                                    style={{ width: `${pctA}%` }}
+                                  />
+                                )}
+                                <div className="relative z-10 flex flex-col items-center gap-0.5">
+                                  <span className="truncate max-w-full">{optA}</span>
+                                  {hasVoted && (
+                                    <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                                      {pctA}% {voteData.voted === 'A' && '✓'}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+
+                              {/* Option B */}
+                              <button
+                                type="button"
+                                disabled={hasVoted}
+                                onClick={() => handleVotePoll(stk.id, 'B')}
+                                className={`relative overflow-hidden py-2 px-2.5 rounded-2xl font-bold text-xs transition cursor-pointer border ${
+                                  hasVoted
+                                    ? voteData.voted === 'B'
+                                      ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 shadow-xs'
+                                      : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
+                                    : 'border-rose-400/40 bg-rose-500/15 hover:bg-rose-500/25 active:scale-95 text-rose-700 dark:text-rose-300'
+                                }`}
+                              >
+                                {hasVoted && (
+                                  <div 
+                                    className="absolute inset-y-0 left-0 bg-rose-500/25 transition-all duration-500 ease-out"
+                                    style={{ width: `${pctB}%` }}
+                                  />
+                                )}
+                                <div className="relative z-10 flex flex-col items-center gap-0.5">
+                                  <span className="truncate max-w-full">{optB}</span>
+                                  {hasVoted && (
+                                    <span className="text-[11px] font-black text-rose-600 dark:text-rose-400">
+                                      {pctB}% {voteData.voted === 'B' && '✓'}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
                             </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
-                      {/* Hộp câu hỏi (Question) */}
+                      {/* Hộp câu hỏi (Question) - Người xem gửi câu trả lời về chat tác giả */}
                       {stk.widgetType === 'question' && (
-                        <div className="w-56 p-3 rounded-2xl bg-white text-slate-900 shadow-2xl border border-slate-100 select-none text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-600 mb-1.5">
-                            <MessageCircle className="w-3.5 h-3.5 text-purple-600" />
-                            <span>{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
+                        <div 
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-64 p-3.5 rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-100 dark:border-slate-800 select-none text-center animate-scale-up"
+                        >
+                          <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 mb-2">
+                            <MessageCircle className="w-4 h-4" />
+                            <span className="truncate max-w-[200px]">{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
                           </div>
-                          <div className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-400 text-xs font-medium">
-                            Nhập câu trả lời...
-                          </div>
+                          {questionSent[stk.id] ? (
+                            <div className="py-2 px-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Đã gửi câu trả lời!</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={questionInputs[stk.id] || ''}
+                                onChange={(e) => setQuestionInputs((prev) => ({ ...prev, [stk.id]: e.target.value }))}
+                                onFocus={() => setIsPaused(true)}
+                                onBlur={() => setIsPaused(false)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSendQuestion(stk);
+                                  }
+                                }}
+                                placeholder="Nhập câu trả lời..."
+                                className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-0 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={!questionInputs[stk.id]?.trim() || isSendingQuestion[stk.id]}
+                                onClick={() => handleSendQuestion(stk)}
+                                className="p-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white transition disabled:opacity-40 cursor-pointer shrink-0"
+                                title="Gửi"
+                              >
+                                {isSendingQuestion[stk.id] ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Send className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
 
-                      {/* Thanh trượt cảm xúc (Slider) */}
-                      {stk.widgetType === 'slider' && (
-                        <div className="w-52 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
-                          <div className="relative h-2 bg-slate-200 dark:bg-slate-700 rounded-full my-2">
-                            <div className="absolute left-3/4 -top-3 text-2xl -translate-x-1/2">
-                              {stk.emoji || '🔥'}
+                      {/* Thanh trượt cảm xúc (Slider) - Kéo thả mức độ thích */}
+                      {stk.widgetType === 'slider' && (() => {
+                        const val = sliderValues[stk.id] ?? 50;
+                        return (
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-56 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center"
+                          >
+                            <div className="relative flex items-center justify-center mb-1">
+                              <span 
+                                className="text-2xl transition-transform"
+                                style={{ transform: `scale(${0.8 + (val / 100) * 0.7})` }}
+                              >
+                                {stk.emoji || '🔥'}
+                              </span>
                             </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={val}
+                              onChange={(e) => handleSliderChange(stk.id, e.target.value)}
+                              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-pink-600"
+                            />
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* Đếm ngược (Countdown) */}
                       {stk.widgetType === 'countdown' && (
@@ -1351,59 +1582,7 @@ export default function StoryViewerModal({
           {/* HIỂN THỊ ÂM NHẠC TRÊN KHUNG STORY THEO STYLE (POINTER-EVENTS-NONE) */}
           {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (
             <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
-              {/* Style 1: Chạy chữ Lyric Karaoke đồng bộ theo progress Story - KHÔNG KHUNG, CHỈ CẦN CHỮ CHẠY */}
-              {storyMusic.displayMode === 'lyrics' && (
-                <div
-                  style={{
-                    left: `${storyMusic.musicPos?.x ?? 50}%`,
-                    top: `${storyMusic.musicPos?.y ?? 65}%`,
-                    transform: `translate(-50%, -50%) scale(${storyMusic.scale || storyMusic.musicScale || 1})`,
-                  }}
-                  className="absolute pointer-events-none w-[90%] max-w-[380px] text-center select-none"
-                >
-                  {/* Tên bài hát & ca sĩ nhỏ tinh tế (không khung) */}
-                  <div className="flex items-center justify-center gap-1.5 text-xs text-white/80 font-bold mb-2.5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
-                    <Music className="w-3.5 h-3.5 text-pink-400 animate-spin" style={{ animationDuration: '4s' }} />
-                    <span className="truncate max-w-[220px]">{storyMusic.title} • {storyMusic.artist}</span>
-                  </div>
-
-                  {/* Lời bài hát chạy chữ trực tiếp trên màn hình KHÔNG KHUNG BẢO VỆ */}
-                  <div className="space-y-2">
-                    {(() => {
-                      const lyrics = storyMusic.lyrics || [];
-                      if (lyrics.length === 0) {
-                        return (
-                          <p className="text-2xl font-black text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
-                            {storyMusic.title}
-                          </p>
-                        );
-                      }
-                      const activeIdx = Math.min(lyrics.length - 1, Math.floor((progress / 100) * lyrics.length));
-                      return lyrics.map((line, idx) => {
-                        const isActive = idx === activeIdx;
-                        const isPast = idx < activeIdx;
-                        if (Math.abs(idx - activeIdx) > 1) return null;
-                        return (
-                          <p
-                            key={idx}
-                            className={`font-black tracking-wide leading-tight transition-all duration-300 drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] ${
-                              isActive 
-                                ? 'text-2xl sm:text-3xl text-white scale-105' 
-                                : isPast
-                                ? 'text-base sm:text-lg text-white/35 -translate-y-1'
-                                : 'text-base sm:text-lg text-white/45 translate-y-1'
-                            }`}
-                          >
-                            {line}
-                          </p>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {/* Style 2: Thẻ Bìa Album Card (Spotify/Instagram style) */}
+              {/* Style 1: Thẻ Bìa Album Card (Spotify/Instagram style) */}
               {storyMusic.displayMode === 'card' && (
                 <div
                   style={{
@@ -1441,8 +1620,8 @@ export default function StoryViewerModal({
                 </div>
               )}
 
-              {/* Style 3: Huy hiệu Đĩa quay kinh điển (Badge pill) */}
-              {(storyMusic.displayMode === 'badge' || (!storyMusic.displayMode && storyMusic.musicPos)) && (
+              {/* Style 2: Huy hiệu Đĩa quay kinh điển (Badge pill - Áp dụng cả khi displayMode là lyrics để giao diện gọn gàng) */}
+              {(storyMusic.displayMode === 'badge' || storyMusic.displayMode === 'lyrics' || (!storyMusic.displayMode && storyMusic.musicPos)) && (
                 <div
                   style={{
                     left: `${storyMusic.musicPos?.x ?? 50}%`,

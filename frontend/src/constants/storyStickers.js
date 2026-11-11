@@ -1,19 +1,28 @@
 /**
  * storyStickers.js
- * Thư viện nhãn dán & tiện ích tương tác phong cách Instagram Stories (Chuẩn Instagram & Facebook)
- * Không dùng template AI sến súa - tập trung vào Interactive Widgets & Native Emojis cao cấp.
+ * Thư viện nhãn dán & tiện ích tương tác trực quan cho Tin (Story)
+ * Tương tác thật: Vị trí, Giờ số nhiều kiểu, Nhắc tên bạn bè, Thăm dò ý kiến, Hộp câu hỏi, Slider cảm xúc.
  */
 
 export const STICKER_CATEGORIES = [
-  { id: 'widgets', label: 'Tiện ích Instagram' },
+  { id: 'widgets', label: 'Tiện ích tương tác' },
   { id: 'emojis', label: 'Biểu cảm & Emojis' },
   { id: 'aesthetic', label: 'Khoảnh khắc & Vibe' },
 ];
 
 export const STORY_STICKERS = [
   // ==========================================
-  // NHÓM 1: TIỆN ÍCH TƯƠNG TÁC (INSTAGRAM WIDGETS)
+  // NHÓM 1: TIỆN ÍCH TƯƠNG TÁC (INTERACTIVE WIDGETS)
   // ==========================================
+  {
+    id: 'widget-loc-current',
+    type: 'widget',
+    widgetType: 'location',
+    category: 'widgets',
+    text: '📍 Vị trí hiện tại',
+    isCurrentLocation: true,
+    label: '📍 Lấy vị trí hiện tại (GPS)',
+  },
   {
     id: 'widget-loc-hcm',
     type: 'widget',
@@ -50,15 +59,16 @@ export const STORY_STICKERS = [
     id: 'widget-time-digital',
     type: 'widget',
     widgetType: 'time',
+    timeStyle: 'digital', // 'digital' | 'badge' | 'neon' | 'analog_text'
     category: 'widgets',
-    label: '⏰ Giờ kỹ thuật số (17:35)',
+    label: '⏰ Giờ kỹ thuật số (Nhiều kiểu)',
   },
   {
     id: 'widget-mention',
     type: 'widget',
     widgetType: 'mention',
     category: 'widgets',
-    text: '@banbe',
+    text: '@ Nhắc tên bạn bè',
     label: '@ NHẮC TÊN BẠN BÈ',
   },
   {
@@ -66,10 +76,10 @@ export const STORY_STICKERS = [
     type: 'widget',
     widgetType: 'poll',
     category: 'widgets',
-    question: 'Bạn thích bức ảnh này chứ?',
-    optionA: 'Rất thích 😍',
+    question: 'Bạn thấy thế nào?',
+    optionA: 'Thích quá 😍',
     optionB: 'Bình thường 😉',
-    label: '📊 Thăm dò ý kiến (Poll)',
+    label: '📊 Thăm dò ý kiến (Bình chọn thật)',
   },
   {
     id: 'widget-question',
@@ -77,7 +87,7 @@ export const STORY_STICKERS = [
     widgetType: 'question',
     category: 'widgets',
     prompt: 'Hỏi tôi bất cứ điều gì...',
-    label: '💬 Hộp câu hỏi (Questions)',
+    label: '💬 Hộp câu hỏi (Hỏi đáp trực tiếp)',
   },
   {
     id: 'widget-slider',
@@ -85,7 +95,7 @@ export const STORY_STICKERS = [
     widgetType: 'slider',
     category: 'widgets',
     emoji: '🔥',
-    label: '🔥 Thanh trượt cảm xúc (Slider)',
+    label: '🔥 Thanh trượt cảm xúc (Kéo thả)',
   },
   {
     id: 'widget-countdown',
