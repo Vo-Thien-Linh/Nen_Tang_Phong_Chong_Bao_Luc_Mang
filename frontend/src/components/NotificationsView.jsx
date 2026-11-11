@@ -391,7 +391,7 @@ export default function NotificationsView({
                     if (isStory && onOpenStoryViewer) {
                       onOpenStoryViewer({
                         storyId: payload?.storyId || item.target_post_id || null,
-                        userId: item.recipient_id || null,
+                        userId: item.recipient_id || currentUser?.id || null,
                         initialShowViewers: true,
                         targetViewerId: payload?.actorId || item.actor_id || actor.id,
                       });
@@ -528,7 +528,7 @@ export default function NotificationsView({
                             if (onOpenStoryViewer) {
                               onOpenStoryViewer({
                                 storyId: payload?.storyId || item.target_post_id || null,
-                                userId: item.recipient_id || null,
+                                userId: item.recipient_id || currentUser?.id || null,
                                 initialShowViewers: true,
                                 targetViewerId: payload?.actorId || item.actor_id || actor.id,
                               });

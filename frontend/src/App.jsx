@@ -783,19 +783,34 @@ export default function App() {
       // 1. Nếu có storyId cụ thể, ưu tiên tải trực tiếp story theo ID
       if (!targetTray && storyId) {
         try {
-          const singleStoryRes = await fetchStoryByIdApi(storyId);
+          const singleStoryRes = await fetchStoryByIdApi(storyId, currentUser?.id);
           const singleStory = singleStoryRes?.data || singleStoryRes;
           if (singleStory?.id) {
+            const parsedBg = typeof singleStory.backgroundStyle === 'object' && singleStory.backgroundStyle !== null
+              ? singleStory.backgroundStyle
+              : (typeof singleStory.background_style === 'string'
+                  ? (() => { try { return JSON.parse(singleStory.background_style); } catch { return {}; } })()
+                  : (singleStory.background_style || {}));
+
+            const normalizedSingleStory = {
+              ...singleStory,
+              id: String(singleStory.id),
+              storyType: singleStory.storyType || singleStory.story_type || 'text',
+              mediaUrl: singleStory.mediaUrl || singleStory.media_url || null,
+              textContent: singleStory.textContent || singleStory.text_content || '',
+              backgroundStyle: parsedBg,
+            };
+
             targetTray = {
               author: {
                 id: singleStory.author_id,
-                name: singleStory.author_name || singleStory.username || 'Người dùng',
+                name: singleStory.author_name || singleStory.full_name || singleStory.username || 'Người dùng',
                 username: singleStory.author_username || singleStory.username || '',
                 avatar: singleStory.author_avatar || singleStory.avatar_url,
               },
               isSelf: currentUser?.id ? String(currentUser.id) === String(singleStory.author_id) : false,
               hasUnviewedStories: false,
-              stories: [singleStory],
+              stories: [normalizedSingleStory],
             };
           }
         } catch (fetchErr) {
@@ -1963,6 +1978,7 @@ export default function App() {
             onWatchStream={handleWatchLiveStream}
             onOpenLiveStream={handleOpenLiveStreamAction}
             onToggleSave={handleToggleSavePost}
+            onViewPost={handleViewPost}
           />
         )}
 
@@ -2284,6 +2300,20 @@ export default function App() {
           handleEndLiveStream(sessionId);
         }}
       />
+
+      {/* Modal Xem Story cấp ứng dụng (Mở từ Thông báo hoặc điều hướng trực tiếp) */}
+      {activeStoryViewerTarget && (
+        <StoryViewerModal
+          isOpen={Boolean(activeStoryViewerTarget)}
+          tray={activeStoryViewerTarget.tray}
+          initialStoryId={activeStoryViewerTarget.initialStoryId}
+          initialShowViewers={activeStoryViewerTarget.initialShowViewers}
+          targetViewerId={activeStoryViewerTarget.targetViewerId}
+          currentUser={currentUser}
+          onViewPost={handleViewPost}
+          onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
 
     </div>
   );

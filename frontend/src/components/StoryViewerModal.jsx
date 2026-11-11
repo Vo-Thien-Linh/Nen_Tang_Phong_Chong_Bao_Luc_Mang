@@ -59,6 +59,7 @@ export default function StoryViewerModal({
   targetViewerId = null,
   onOpenReportModal,
   onStoryViewed,
+  onViewPost,
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -123,11 +124,29 @@ export default function StoryViewerModal({
   const stories = tray?.stories || [];
   const safeIndex = stories.length > 0 ? Math.min(currentIndex, stories.length - 1) : 0;
   const currentStory = stories[safeIndex] || null;
-  const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
+  const isAuthor = Boolean(
+    (currentUser?.id && tray?.author?.id && String(tray.author.id) === String(currentUser.id)) ||
+    (currentUser?.id && currentStory?.author_id && String(currentStory.author_id) === String(currentUser.id)) ||
+    tray?.isSelf
+  );
+
+  const rawBgStyle = currentStory?.backgroundStyle || currentStory?.background_style;
+  const bgStyle = useMemo(() => {
+    if (typeof rawBgStyle === 'object' && rawBgStyle !== null) return rawBgStyle;
+    if (typeof rawBgStyle === 'string') {
+      try { return JSON.parse(rawBgStyle); } catch { return {}; }
+    }
+    return {};
+  }, [rawBgStyle]);
+
+  const isSharedPost = Boolean(bgStyle?.isSharedPost || bgStyle?.originalPostId);
+  const storyType = currentStory?.storyType || currentStory?.story_type || (bgStyle?.originalImage ? 'image' : 'text');
+  const mediaUrl = currentStory?.mediaUrl || currentStory?.media_url || bgStyle?.originalImage || null;
+  const textContent = currentStory?.textContent || currentStory?.text_content || '';
 
   const storyMusic = useMemo(() => {
-    return currentStory?.backgroundStyle?.music || currentStory?.music || null;
-  }, [currentStory]);
+    return bgStyle?.music || currentStory?.backgroundStyle?.music || currentStory?.music || null;
+  }, [bgStyle, currentStory]);
 
   // Kiểm tra mức độ kiểm duyệt của tin hiện tại (Áp dụng Phương án A: Bạo lực ẩn cứng, Toxic/NSFW che mờ)
   const isHardHidden = Boolean(
@@ -255,15 +274,16 @@ export default function StoryViewerModal({
       setReplyErrorMsg('');
 
       // Tự động mở danh sách người xem tin nếu đến từ thông báo cảm xúc/lượt xem
-      if (initialShowViewers && isAuthor) {
+      if (initialShowViewers) {
         setShowViewers(true);
         setIsPaused(true);
         setIsLoadingViewers(true);
-        const targetStory = stories[startIndex];
+        const targetStory = stories[startIndex] || currentStory;
         if (targetStory?.id) {
-          fetchStoryViewersApi(targetStory.id)
+          fetchStoryViewersApi(targetStory.id, currentUser?.id)
             .then((res) => {
-              if (res?.success) setViewersList(res.data || []);
+              const list = res?.data || (Array.isArray(res) ? res : []);
+              setViewersList(Array.isArray(list) ? list : []);
             })
             .catch((err) => console.warn('Lỗi lấy viewers từ thông báo:', err.message))
             .finally(() => setIsLoadingViewers(false));
@@ -622,8 +642,9 @@ export default function StoryViewerModal({
     setShowViewers(true);
     setIsLoadingViewers(true);
     try {
-      const res = await fetchStoryViewersApi(currentStory.id);
-      if (res?.success) setViewersList(res.data || []);
+      const res = await fetchStoryViewersApi(currentStory.id, currentUser?.id);
+      const list = res?.data || (Array.isArray(res) ? res : []);
+      setViewersList(Array.isArray(list) ? list : []);
     } catch (err) {
       console.warn('Lỗi lấy viewers:', err.message);
     } finally {
@@ -931,6 +952,93 @@ export default function StoryViewerModal({
         {/* 3. Vùng hiển thị Nội dung Media hoặc Text */}
         <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
           <div className={`w-full h-full relative flex items-center justify-center transition-all duration-300 ${isStoryCovered ? 'blur-2xl scale-110 pointer-events-none' : ''}`}>
+          {/* 3.1. TRÍCH DẪN BÀI VIẾT CHUẨN INSTAGRAM STORY (Ảnh 2) */}
+          {isSharedPost ? (
+            <div 
+              className="w-full h-full relative flex flex-col items-center justify-center p-4 overflow-hidden"
+              style={
+                bgStyle.background 
+                  ? (typeof bgStyle.background === 'object' ? bgStyle.background : { background: bgStyle.background }) 
+                  : { background: 'linear-gradient(135deg, #2b3a4a 0%, #151e28 100%)' }
+              }
+            >
+              {/* Lớp nền mờ Ambient từ ảnh bài viết */}
+              {(mediaUrl || bgStyle.originalImage) && (
+                <div 
+                  className="absolute inset-0 bg-cover bg-center blur-3xl opacity-45 scale-125 pointer-events-none"
+                  style={{ backgroundImage: `url(${mediaUrl || bgStyle.originalImage})` }}
+                />
+              )}
+
+              {/* Thẻ bài viết Instagram nổi giữa màn hình */}
+              <div 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (bgStyle.originalPostId && onViewPost) {
+                    onClose();
+                    onViewPost(bgStyle.originalPostId);
+                  }
+                }}
+                className="relative z-10 w-full max-w-[340px] rounded-3xl overflow-hidden shadow-2xl border border-white/25 bg-black/40 backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer group/reshare"
+                title="Nhấn để xem bài viết gốc"
+              >
+                {/* Header tác giả bài viết: Avatar tròn + username nhỏ phía trên góc ảnh (Ảnh 2) */}
+                <div className="px-3.5 py-2.5 flex items-center justify-between bg-black/35 backdrop-blur-md border-b border-white/10">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img 
+                      src={bgStyle.originalAvatar || DEFAULT_AVATAR} 
+                      alt={bgStyle.originalAuthor || 'Author'}
+                      className="w-6 h-6 rounded-full object-cover border border-white/60 shadow-xs shrink-0" 
+                    />
+                    <span className="text-xs font-bold text-white tracking-wide truncate drop-shadow-sm">
+                      {bgStyle.originalUsername || bgStyle.originalAuthor || 'Người dùng'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[11px] font-semibold text-white/90 bg-white/20 px-2.5 py-0.5 rounded-full backdrop-blur-sm group-hover/reshare:bg-white/30 transition shrink-0">
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Xem bài viết</span>
+                  </div>
+                </div>
+
+                {/* Nội dung bài viết: Ảnh hoặc Trích dẫn text */}
+                {(mediaUrl || bgStyle.originalImage) ? (
+                  <div className="w-full relative bg-black/50 overflow-hidden flex items-center justify-center max-h-[380px]">
+                    <img 
+                      src={mediaUrl || bgStyle.originalImage} 
+                      alt="Shared post" 
+                      className="w-full h-full object-cover max-h-[380px]"
+                    />
+                    {bgStyle.originalContent && (
+                      <div className="absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t from-black/85 via-black/40 to-transparent text-white text-xs line-clamp-2 drop-shadow-md">
+                        <span className="font-bold mr-1">{bgStyle.originalAuthor}:</span>
+                        <span>{bgStyle.originalContent}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-5 text-white space-y-2 bg-gradient-to-br from-white/10 to-transparent min-h-[160px] flex flex-col justify-center">
+                    <p className="text-sm sm:text-base font-medium leading-relaxed italic line-clamp-6 text-white/95">
+                      "{bgStyle.originalContent || textContent}"
+                    </p>
+                  </div>
+                )}
+
+                {/* Dải chân thẻ bài viết */}
+                <div className="px-3.5 py-2 bg-black/45 backdrop-blur-md flex items-center justify-between text-white/90 border-t border-white/10">
+                  <span className="text-[11px] text-white/70">Nhấn để mở bài viết gốc</span>
+                  <ChevronRight className="w-4 h-4 text-white/70 group-hover/reshare:translate-x-1 transition" />
+                </div>
+              </div>
+
+              {/* Lời nhắn / Ghi chú thêm của người chia sẻ nếu có */}
+              {textContent && !textContent.includes('[Trích dẫn từ bài viết') && (
+                <div className="relative z-10 mt-3.5 px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-md text-white text-xs font-semibold shadow-lg border border-white/20 max-w-[85%] text-center truncate">
+                  💬 {textContent}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           {/* Tin văn bản */}
           {currentStory.storyType === 'text' && (
             <div 
@@ -1088,6 +1196,8 @@ export default function StoryViewerModal({
                 </div>
               )}
             </div>
+          )}
+            </>
           )}
 
           {/* Lớp hạt Reaction bay bổng đa chiều (Floating Particles 60fps) */}

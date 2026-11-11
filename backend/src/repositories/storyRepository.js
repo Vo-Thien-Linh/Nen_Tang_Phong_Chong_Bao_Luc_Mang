@@ -176,8 +176,31 @@ export function createStoryRepository({ pool }) {
       const isNsfw = story.media_moderation_status === 'sensitive' || story.media_moderation_label === 'nsfw' || (Number(story.media_moderation_nsfw) >= 0.7);
       const isHardHidden = story.ai_status === 'hidden' || story.ai_label === 'Violence' || story.ai_label === 'Hate Speech';
 
+      const parsedBackgroundStyle = typeof story.background_style === 'string'
+        ? (() => { try { return JSON.parse(story.background_style); } catch { return story.background_style; } })()
+        : story.background_style;
+
       return {
         ...story,
+        id: String(story.id),
+        storyType: story.story_type,
+        mediaUrl: story.media_url,
+        textContent: story.text_content,
+        backgroundStyle: parsedBackgroundStyle,
+        author: {
+          id: story.author_id,
+          name: story.full_name || story.username || 'Người dùng',
+          username: story.username || '',
+          avatar: story.avatar_url,
+          isVerified: Boolean(story.is_verified),
+        },
+        author_name: story.full_name || story.username || 'Người dùng',
+        author_username: story.username || '',
+        author_avatar: story.avatar_url,
+        isViewed,
+        myReaction,
+        viewsCount: Number(story.views_count || 0),
+        reactionsCount: Number(story.reactions_count || 0),
         aiStatus: story.ai_status,
         aiLabel: story.ai_label,
         mediaModerationStatus: story.media_moderation_status,
@@ -525,8 +548,8 @@ export function createStoryRepository({ pool }) {
 
       const query = `
         SELECT
-          sv.id AS view_id,
-          sv.viewed_at,
+          COALESCE(sv.id::text, concat('react-', COALESCE(sv.viewer_id, sr_agg.user_id))) AS view_id,
+          COALESCE(sv.viewed_at, sr_agg.last_reaction_at, CURRENT_TIMESTAMP) AS viewed_at,
           u.id AS viewer_id,
           u.username,
           u.full_name,
@@ -534,12 +557,14 @@ export function createStoryRepository({ pool }) {
           u.is_verified,
           sr_agg.reaction_type,
           COALESCE(sr_agg.reactions, '[]'::json) AS reactions
-        FROM story_views sv
-        JOIN users u ON u.id = sv.viewer_id
-        LEFT JOIN (
+        FROM (
+          SELECT id, story_id, viewer_id, viewed_at FROM story_views WHERE story_id = $1
+        ) sv
+        FULL OUTER JOIN (
           SELECT
             story_id,
             user_id,
+            MAX(created_at) AS last_reaction_at,
             (array_agg(reaction_type ORDER BY created_at DESC))[1] AS reaction_type,
             json_agg(
               json_build_object(
@@ -550,9 +575,10 @@ export function createStoryRepository({ pool }) {
           FROM story_reactions
           WHERE story_id = $1
           GROUP BY story_id, user_id
-        ) sr_agg ON sr_agg.story_id = sv.story_id AND sr_agg.user_id = sv.viewer_id
-        WHERE sv.story_id = $1 AND sv.viewer_id != $2
-        ORDER BY sv.viewed_at DESC
+        ) sr_agg ON sr_agg.user_id = sv.viewer_id
+        JOIN users u ON u.id = COALESCE(sv.viewer_id, sr_agg.user_id)
+        WHERE COALESCE(sv.viewer_id, sr_agg.user_id) != $2
+        ORDER BY viewed_at DESC
       `;
       const { rows } = await pool.query(query, [storyId, authorId]);
       return rows;
