@@ -5,7 +5,7 @@ import {
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
   User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download,
-  PhoneMissed, PhoneOff, Users, UserPlus, Camera, Pencil
+  PhoneMissed, PhoneOff, Users, UserPlus, Camera, Pencil, Calendar
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
@@ -28,6 +28,12 @@ import {
 import { FaceFilterManager } from '../utils/faceFilterLogic';
 import { MeshCallManager } from '../utils/meshCallManager';
 import { useTranslation } from '../utils/i18n';
+import { formatRelativeTime } from '../utils/timeAgo';
+import {
+  getMessageDateDivider,
+  getMessageTimeDivider,
+  formatFullTimestamp
+} from '../utils/chatTimeDividers';
 
 const EMOJI_CATEGORIES = [
   {
@@ -117,6 +123,74 @@ function FormattedMessageText({ text, isMe }) {
   );
 }
 
+function formatOnlineStatusText(user, isEn = false) {
+  if (!user) return '';
+  if (user.isOnline) {
+    return isEn ? 'Active now' : 'Đang trực tuyến';
+  }
+
+  const dateInput = user.rawLastSeen || user.lastSeen;
+  if (!dateInput || dateInput === 'Gần đây' || dateInput === 'Recently') {
+    return isEn ? 'Active recently' : 'Hoạt động gần đây';
+  }
+
+  // Nếu dateInput là ISO string hoặc hợp lệ với new Date()
+  const parsedDate = new Date(dateInput);
+  if (!isNaN(parsedDate.getTime()) && (typeof dateInput !== 'string' || dateInput.includes('T') || dateInput.includes('-') || dateInput.includes(':'))) {
+    const diffMs = Math.max(0, Date.now() - parsedDate.getTime());
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSec < 60 || diffMin <= 0) {
+      return isEn ? 'Online just now' : 'Online cách đây vài giây';
+    }
+    if (diffMin < 60) {
+      return isEn ? `Online ${diffMin} minute${diffMin > 1 ? 's' : ''} ago` : `Online cách đây ${diffMin} phút`;
+    }
+    if (diffHours < 24) {
+      return isEn ? `Online ${diffHours} hour${diffHours > 1 ? 's' : ''} ago` : `Online cách đây ${diffHours} giờ`;
+    }
+    if (diffDays < 7) {
+      return isEn ? `Online ${diffDays} day${diffDays > 1 ? 's' : ''} ago` : `Online cách đây ${diffDays} ngày`;
+    }
+    const d = parsedDate.getDate().toString().padStart(2, '0');
+    const m = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+    const y = parsedDate.getFullYear();
+    return isEn ? `Online on ${d}/${m}/${y}` : `Online ngày ${d}/${m}/${y}`;
+  }
+
+  // Nếu dateInput là chuỗi tương đối
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (trimmed === 'Vừa xong' || trimmed === 'Just now') {
+      return isEn ? 'Online just now' : 'Online cách đây vài giây';
+    }
+    if (trimmed === 'Gần đây' || trimmed === 'Recently') {
+      return isEn ? 'Active recently' : 'Hoạt động gần đây';
+    }
+    const minMatch = trimmed.match(/^(\d+)\s*phút(?:\s*trước)?$/i);
+    if (minMatch) {
+      return isEn ? `Online ${minMatch[1]}m ago` : `Online cách đây ${minMatch[1]} phút`;
+    }
+    const hourMatch = trimmed.match(/^(\d+)\s*giờ(?:\s*trước)?$/i);
+    if (hourMatch) {
+      return isEn ? `Online ${hourMatch[1]}h ago` : `Online cách đây ${hourMatch[1]} giờ`;
+    }
+    const dayMatch = trimmed.match(/^(\d+)\s*ngày(?:\s*trước)?$/i);
+    if (dayMatch) {
+      return isEn ? `Online ${dayMatch[1]}d ago` : `Online cách đây ${dayMatch[1]} ngày`;
+    }
+    if (trimmed.startsWith('Online')) {
+      return trimmed;
+    }
+    return isEn ? `Online: ${trimmed}` : `Hoạt động: ${trimmed}`;
+  }
+
+  return isEn ? 'Active recently' : 'Hoạt động gần đây';
+}
+
 export default function MessagesView({ 
   currentUser, 
   initialChatUser, 
@@ -158,22 +232,6 @@ export default function MessagesView({
       .then(res => setStoryTrays(res?.data || []))
       .catch(() => {});
   }, []);
-
-  // Tự động nạp story của đối tác trò chuyện nếu họ là người lạ (chưa có trong storyTrays bạn bè)
-  useEffect(() => {
-    const partnerId = currentConversation?.user?.id;
-    if (!partnerId || currentConversation?.is_group) return;
-    if (storyTrays.some(t => String(t.author?.id) === String(partnerId))) return;
-
-    fetchUserStoriesApi(partnerId)
-      .then(res => {
-        const tray = res?.data;
-        if (tray && tray.stories?.length > 0) {
-          setStoryTrays(prev => [...prev.filter(t => String(t.author?.id) !== String(partnerId)), tray]);
-        }
-      })
-      .catch(() => {});
-  }, [currentConversation?.user?.id, currentConversation?.is_group, storyTrays]);
 
   // Tạo Map: userId → { hasUnviewed, hasTextStory, tray } để tra cứu nhanh
   const userStoryMap = useMemo(() => {
@@ -316,6 +374,22 @@ export default function MessagesView({
   // File, Ảnh & Liên kết đã gửi trong cuộc trò chuyện hiện tại
   const { media: sharedMedia, links: sharedLinks } = extractSharedMediaAndLinks(activeMessages);
 
+  // Tự động nạp story của đối tác trò chuyện nếu họ là người lạ (chưa có trong storyTrays bạn bè)
+  useEffect(() => {
+    const partnerId = currentConversation?.user?.id;
+    if (!partnerId || currentConversation?.is_group) return;
+    if (storyTrays.some(t => String(t.author?.id) === String(partnerId))) return;
+
+    fetchUserStoriesApi(partnerId)
+      .then(res => {
+        const tray = res?.data;
+        if (tray && tray.stories?.length > 0) {
+          setStoryTrays(prev => [...prev.filter(t => String(t.author?.id) !== String(partnerId)), tray]);
+        }
+      })
+      .catch(() => {});
+  }, [currentConversation?.user?.id, currentConversation?.is_group, storyTrays]);
+
   const targetInitialUserId = initialChatUser?.id || initialChatUserId;
   const targetInitialUserTs = initialChatUser?._ts || 0;
 
@@ -345,10 +419,11 @@ export default function MessagesView({
                 name: c.user?.name || 'Người dùng',
                 username: c.user?.username || '',
                 avatar: c.user?.avatar || DEFAULT_AVATAR,
-                isOnline: c.user?.is_online ?? true,
+                isOnline: Boolean(c.user?.is_online),
                 isFriend: c.user?.is_friend ?? false,
                 bio: c.user?.bio || '',
-                lastSeen: 'Vừa xong'
+                rawLastSeen: c.user?.last_seen || null,
+                lastSeen: c.user?.is_online ? 'Vừa xong' : (c.user?.last_seen ? formatRelativeTime(c.user.last_seen) : null)
               } : {
                 id: 'group_' + c.id,
                 name: c.name || 'Nhóm trò chuyện',
@@ -422,6 +497,7 @@ export default function MessagesView({
           mediaUrl: m.media_url || null,
           mediaType: m.media_type || 'text',
           isRecalled: Boolean(m.is_recalled),
+          createdAt: m.created_at || new Date().toISOString(),
           time: new Date(m.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
           status: m.status || 'sent'
         }));
@@ -563,6 +639,7 @@ export default function MessagesView({
                             mediaUrl: msg.media_url || null,
                             mediaType: msg.media_type || 'text',
                             isRecalled: Boolean(msg.is_recalled),
+                            createdAt: msg.created_at || m.createdAt || new Date().toISOString(),
                             time: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                             status: msg.status || 'sent',
                           }
@@ -580,6 +657,7 @@ export default function MessagesView({
                       mediaUrl: msg.media_url || null,
                       mediaType: msg.media_type || 'text',
                       isRecalled: Boolean(msg.is_recalled),
+                      createdAt: msg.created_at || new Date().toISOString(),
                       time: new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                       status: msg.status || 'sent',
                     },
@@ -906,6 +984,47 @@ export default function MessagesView({
               if (fromUserId && meshCallManagerRef.current) {
                 meshCallManagerRef.current.handleSignal(fromUserId, data.signal || data);
               }
+            } else if (data.type === 'USER_STATUS') {
+              const targetUid = String(data.user_id);
+              const isOnline = Boolean(data.is_online);
+              const rawLastSeen = data.last_seen || (isOnline ? null : new Date().toISOString());
+              const lastSeenText = isOnline ? 'Vừa xong' : (rawLastSeen ? formatRelativeTime(rawLastSeen) : 'Vừa xong');
+
+              setConversations(prev => prev.map(conv => {
+                if (conv.user && String(conv.user.id) === targetUid) {
+                  return {
+                    ...conv,
+                    user: {
+                      ...conv.user,
+                      isOnline,
+                      rawLastSeen,
+                      lastSeen: lastSeenText
+                    }
+                  };
+                }
+                if (conv.type === 'group' && Array.isArray(conv.members)) {
+                  return {
+                    ...conv,
+                    members: conv.members.map(m => String(m.id) === targetUid ? { ...m, isOnline, rawLastSeen, lastSeen: lastSeenText } : m)
+                  };
+                }
+                return conv;
+              }));
+
+              setDraftConversation(prev => {
+                if (prev && prev.user && String(prev.user.id) === targetUid) {
+                  return {
+                    ...prev,
+                    user: {
+                      ...prev.user,
+                      isOnline,
+                      rawLastSeen,
+                      lastSeen: lastSeenText
+                    }
+                  };
+                }
+                return prev;
+              });
             }
           } catch (e) {
             console.warn('Lỗi xử lý WebSocket message:', e);
@@ -944,6 +1063,53 @@ export default function MessagesView({
     };
   }, [currentUser?.id]);
 
+  // Đồng bộ trạng thái hoạt động thực tế định kỳ (mỗi 30s)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    let isMounted = true;
+
+    const syncOnlineStatuses = async () => {
+      const partnerIds = conversations
+        .filter(c => c.user?.id)
+        .map(c => String(c.user.id));
+      if (partnerIds.length === 0) return;
+
+      try {
+        const statuses = await messageService.getUsersOnlineStatus(partnerIds);
+        if (!isMounted || !statuses || typeof statuses !== 'object') return;
+
+        setConversations(prev => prev.map(conv => {
+          if (conv.user?.id && statuses[conv.user.id]) {
+            const st = statuses[conv.user.id];
+            const isOnline = Boolean(st.is_online);
+            const rawLastSeen = st.last_seen || (isOnline ? null : conv.user.rawLastSeen);
+            const lastSeen = isOnline ? 'Vừa xong' : (rawLastSeen ? formatRelativeTime(rawLastSeen) : conv.user.lastSeen);
+            return {
+              ...conv,
+              user: {
+                ...conv.user,
+                isOnline,
+                rawLastSeen,
+                lastSeen
+              }
+            };
+          }
+          return conv;
+        }));
+      } catch (err) {
+        console.warn('Lỗi đồng bộ online status:', err);
+      }
+    };
+
+    // Chạy đồng bộ ngay lập tức và định kỳ mỗi 30s
+    syncOnlineStatuses();
+    const interval = setInterval(syncOnlineStatuses, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentUser?.id, conversations.length]);
+
   // Ghi nhận nhật ký cuộc gọi vào khung chat và đồng bộ cơ sở dữ liệu
   const recordCallLog = async (reason, duration = 0, targetPartnerId = null, cType = null) => {
     const partnerId = targetPartnerId || activeCallPartnerIdRef.current || callPartnerUser?.id;
@@ -956,6 +1122,7 @@ export default function MessagesView({
       duration
     });
 
+    const nowIso = new Date().toISOString();
     const nowTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const tempId = `call_log_${Date.now()}`;
     const convIdStr = String(selectedConversationIdRef.current);
@@ -970,6 +1137,7 @@ export default function MessagesView({
         mediaUrl: null,
         mediaType: 'call_log',
         isRecalled: false,
+        createdAt: nowIso,
         time: nowTime,
         status: 'sending'
       }
@@ -1844,10 +2012,11 @@ export default function MessagesView({
         name: initialChatUser?.name || 'Người dùng',
         username: initialChatUser?.username || '',
         avatar: initialChatUser?.avatar || DEFAULT_AVATAR,
-        isOnline: true,
+        isOnline: Boolean(initialChatUser?.isOnline ?? initialChatUser?.is_online),
         isFriend: Boolean(initialChatUser?.isFriend ?? initialChatUser?.is_friend),
         bio: initialChatUser?.bio || '',
-        lastSeen: 'Vừa xong'
+        rawLastSeen: initialChatUser?.last_seen || null,
+        lastSeen: (initialChatUser?.isOnline ?? initialChatUser?.is_online) ? 'Vừa xong' : (initialChatUser?.last_seen ? formatRelativeTime(initialChatUser.last_seen) : null)
       },
       lastMessage: '',
       lastTime: 'Vừa xong',
@@ -1887,7 +2056,9 @@ export default function MessagesView({
                   avatar: res.user.avatar || prev.user.avatar,
                   bio: res.user.bio || prev.user.bio,
                   isFriend: Boolean(res.user.is_friend ?? prev.user.isFriend),
-                  isOnline: Boolean(res.user.is_online ?? prev.user.isOnline)
+                  isOnline: Boolean(res.user.is_online),
+                  rawLastSeen: res.user.last_seen || prev.user.rawLastSeen || null,
+                  lastSeen: res.user.is_online ? 'Vừa xong' : (res.user.last_seen ? formatRelativeTime(res.user.last_seen) : prev.user.lastSeen)
                 }
               };
             });
@@ -2203,6 +2374,7 @@ export default function MessagesView({
     if ((!finalCaption && !mediaUrl) || !selectedConversationId) return;
 
     const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const nowIso = new Date().toISOString();
     const tempId = 'msg-' + Date.now();
 
     // 1. Trạng thái 1: Đang gửi (optimistic message)
@@ -2215,6 +2387,7 @@ export default function MessagesView({
       mediaUrl: mediaUrl || null,
       mediaType: mediaType,
       isRecalled: false,
+      createdAt: nowIso,
       time: timeNow,
       status: 'sending'
     };
@@ -2262,7 +2435,8 @@ export default function MessagesView({
         status: serverMsg?.status || 'sent',
         mediaUrl: serverMsg?.media_url || m.mediaUrl,
         mediaType: serverMsg?.media_type || m.mediaType,
-        isRecalled: Boolean(serverMsg?.is_recalled)
+        isRecalled: Boolean(serverMsg?.is_recalled),
+        createdAt: serverMsg?.created_at || m.createdAt
       } : m));
 
       if (serverMsg?.conversation_id) {
@@ -2280,7 +2454,9 @@ export default function MessagesView({
               id: serverMsg ? serverMsg.id : m.id,
               status: serverMsg?.status || 'sent',
               mediaUrl: serverMsg?.media_url || m.mediaUrl,
-              mediaType: serverMsg?.media_type || m.mediaType
+              mediaType: serverMsg?.media_type || m.mediaType,
+              isRecalled: Boolean(serverMsg?.is_recalled),
+              createdAt: serverMsg?.created_at || m.createdAt
             } : m)
           };
         }
@@ -2624,7 +2800,10 @@ export default function MessagesView({
                             </div>
                           )}
                           {conv.user?.isOnline && (
-                            <span className={`absolute ${storyInfo ? 'bottom-0.5 right-0.5' : 'bottom-0 right-0'} w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full`} />
+                            <span 
+                              title={formatOnlineStatusText(conv.user, isEn)}
+                              className={`absolute ${storyInfo ? 'bottom-0.5 right-0.5' : 'bottom-0 right-0'} w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full`} 
+                            />
                           )}
                         </div>
                       );
@@ -2752,7 +2931,10 @@ export default function MessagesView({
                           />
                         )}
                         {currentConversation.user.isOnline && (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                          <span 
+                            title={formatOnlineStatusText(currentConversation.user, isEn)}
+                            className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" 
+                          />
                         )}
                       </div>
                     );
@@ -2782,9 +2964,15 @@ export default function MessagesView({
                           {currentConversation.memberCount || currentConversation.members?.length || 0} thành viên
                         </span>
                       ) : currentConversation.user.isOnline ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">Đang trực tuyến</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>{isEn ? 'Active now' : 'Đang trực tuyến'}</span>
+                        </span>
                       ) : (
-                        <span>Hoạt động: {currentConversation.user.lastSeen}</span>
+                        <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+                          <span>{formatOnlineStatusText(currentConversation.user, isEn)}</span>
+                        </span>
                       )}
                     </p>
                   </div>
@@ -3020,21 +3208,44 @@ export default function MessagesView({
                 {/* Nhóm danh sách các tin nhắn */}
                 <div className="flex flex-col w-full">
                   {activeMessages.map((msg, idx) => {
+                    const prevMsg = activeMessages[idx - 1];
+                    const nextMsg = activeMessages[idx + 1];
+
+                    const dateDivider = getMessageDateDivider(msg, prevMsg, isEn);
+                    const timeDivider = getMessageTimeDivider(msg, prevMsg);
+
                     if (msg.mediaType === 'system') {
                       return (
-                        <div key={msg.id} className="flex justify-center my-3 w-full">
-                          <div className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs rounded-full font-medium shadow-2xs border border-slate-200/60 dark:border-slate-700 max-w-md text-center">
-                            {msg.text}
+                        <div key={msg.id} className="w-full flex flex-col">
+                          {dateDivider && (
+                            <div className="flex items-center justify-center my-4 w-full select-none" data-testid="chat-date-divider">
+                              <div className="flex items-center gap-1.5 px-3.5 py-1 bg-slate-100/90 dark:bg-slate-800/90 backdrop-blur-xs text-slate-500 dark:text-slate-400 text-xs font-semibold rounded-full shadow-2xs border border-slate-200/60 dark:border-slate-700/60">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                                <span>{dateDivider}</span>
+                              </div>
+                            </div>
+                          )}
+                          {!dateDivider && timeDivider && (
+                            <div className="flex items-center justify-center my-3 w-full select-none" data-testid="chat-time-divider">
+                              <div className="flex items-center gap-1 px-2.5 py-0.5 bg-slate-100/60 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 text-[11px] font-medium rounded-full">
+                                <Clock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
+                                <span>{timeDivider}</span>
+                              </div>
+                            </div>
+                          )}
+                          <div className="flex justify-center my-3 w-full">
+                            <div className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs rounded-full font-medium shadow-2xs border border-slate-200/60 dark:border-slate-700 max-w-md text-center">
+                              {msg.text}
+                            </div>
                           </div>
                         </div>
                       );
                     }
 
-                    const prevMsg = activeMessages[idx - 1];
-                    const nextMsg = activeMessages[idx + 1];
-
                     const isSameSenderAsPrev = Boolean(
                       prevMsg &&
+                      !dateDivider &&
+                      !timeDivider &&
                       prevMsg.mediaType !== 'system' &&
                       String(prevMsg.senderId) === String(msg.senderId) &&
                       prevMsg.time === msg.time
@@ -3059,11 +3270,30 @@ export default function MessagesView({
                       msg.status === 'failed' ||
                       ((msg.status === 'read' || !msg.status) && isLastRead);
 
-                    const itemMarginTop = idx === 0 ? 'mt-0' : isSameSenderAsPrev ? 'mt-1' : 'mt-3.5';
+                    const itemMarginTop = (idx === 0 || dateDivider || timeDivider)
+                      ? 'mt-1'
+                      : isSameSenderAsPrev ? 'mt-1' : 'mt-3.5';
+                    const fullTimeTooltip = msg.createdAt ? formatFullTimestamp(msg.createdAt, isEn) : (msg.time || '');
 
                     return (
+                      <div key={msg.id} className="w-full flex flex-col">
+                        {dateDivider && (
+                          <div className="flex items-center justify-center my-4 w-full select-none" data-testid="chat-date-divider">
+                            <div className="flex items-center gap-1.5 px-3.5 py-1 bg-slate-100/90 dark:bg-slate-800/90 backdrop-blur-xs text-slate-500 dark:text-slate-400 text-xs font-semibold rounded-full shadow-2xs border border-slate-200/60 dark:border-slate-700/60">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                              <span>{dateDivider}</span>
+                            </div>
+                          </div>
+                        )}
+                        {!dateDivider && timeDivider && (
+                          <div className="flex items-center justify-center my-3 w-full select-none" data-testid="chat-time-divider">
+                            <div className="flex items-center gap-1 px-2.5 py-0.5 bg-slate-100/60 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 text-[11px] font-medium rounded-full">
+                              <Clock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
+                              <span>{timeDivider}</span>
+                            </div>
+                          </div>
+                        )}
                         <div
-                          key={msg.id}
                           className={'flex items-end gap-2.5 ' + itemMarginTop + (isMe ? ' justify-end' : ' justify-start')}
                         >
                           {!isMe && (
@@ -3123,6 +3353,7 @@ export default function MessagesView({
                               {/* Nội dung tin nhắn: Thu hồi hoặc Nhật ký cuộc gọi hoặc Hiển thị thường (ảnh + chữ + link) */}
                             {msg.isRecalled ? (
                               <div
+                                title={fullTimeTooltip}
                                 className={
                                   'px-4 py-2.5 rounded-2xl text-xs sm:text-sm italic leading-relaxed break-words shadow-2xs flex items-center gap-1.5 ' +
                                   (isMe
@@ -3193,7 +3424,7 @@ export default function MessagesView({
                                       <span className="truncate">{msg.text}</span>
                                     </div>
                                     <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
-                                      <span>{msg.time}</span>
+                                      <span title={fullTimeTooltip} className="cursor-default select-none">{msg.time}</span>
                                       <span className={`font-medium ${
                                         isMissed || isRejected
                                           ? 'text-rose-600 dark:text-rose-400'
@@ -3225,6 +3456,7 @@ export default function MessagesView({
                               );
                             })() : (
                               <div
+                                title={fullTimeTooltip}
                                 className={
                                   'px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
                                   (isMe
@@ -3287,7 +3519,11 @@ export default function MessagesView({
                                   (isMe ? 'justify-end' : 'justify-start')
                                 }
                               >
-                                {showTimestamp && <span>{msg.time}</span>}
+                                {showTimestamp && (
+                                  <span title={fullTimeTooltip} className="cursor-default select-none">
+                                    {msg.time}
+                                  </span>
+                                )}
                                 {isMe && (
                                   <div className="flex items-center gap-1.5">
                                     {/* Trạng thái 1: Đang gửi */}
@@ -3352,6 +3588,7 @@ export default function MessagesView({
                             )}
                           </div>
                         </div>
+                      </div>
                     );
                   })}
 
@@ -3720,16 +3957,21 @@ export default function MessagesView({
                   ? `${currentConversation.memberCount || currentConversation.members?.length || 0} thành viên`
                   : `@${currentConversation.user.username}`}
               </p>
-              <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+              <span className={`inline-flex items-center gap-1.5 mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                 currentConversation.type === 'group'
                   ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                   : currentConversation.user.isOnline 
                     ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}>
-                {currentConversation.type === 'group' 
-                  ? 'Nhóm trò chuyện' 
-                  : (currentConversation.user.isOnline ? 'Đang trực tuyến' : `Hoạt động: ${currentConversation.user.lastSeen}`)}
+                {currentConversation.type === 'group' ? (
+                  'Nhóm trò chuyện'
+                ) : (
+                  <>
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentConversation.user.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                    <span>{formatOnlineStatusText(currentConversation.user, isEn)}</span>
+                  </>
+                )}
               </span>
 
               {/* Phím tắt tác vụ nhanh */}
