@@ -503,13 +503,9 @@ export default function App() {
   }, [currentUser?.id]);
 
   useEffect(() => {
-    if (activeTab === 'messages' && currentUser) {
+    if (currentUser) {
       setHasVisitedMessages(true);
-    }
-  }, [activeTab, currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) {
+    } else {
       setHasVisitedMessages(false);
     }
   }, [currentUser]);

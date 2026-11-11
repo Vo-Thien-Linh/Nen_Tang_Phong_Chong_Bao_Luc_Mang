@@ -81,6 +81,8 @@ def ensure_schema_migrations(eng):
                         conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
                     if "updated_at" not in existing_user_cols:
                         conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP"))
+                    if "last_seen" not in existing_user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN last_seen TIMESTAMP"))
 
                 existing_conv_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(conversations)")).fetchall()]
                 if existing_conv_cols:
@@ -113,6 +115,12 @@ def ensure_schema_migrations(eng):
                         pass
 
                     # Kiểm tra danh sách cột có sẵn trước để tránh lệnh ALTER TABLE chiếm ACCESS EXCLUSIVE lock
+                    user_cols = [r[0] for r in conn.execute(text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"
+                    )).fetchall()]
+                    if user_cols and "last_seen" not in user_cols:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"))
+
                     conv_cols = [r[0] for r in conn.execute(text(
                         "SELECT column_name FROM information_schema.columns WHERE table_name = 'conversations'"
                     )).fetchall()]
