@@ -441,6 +441,35 @@ export function createStoryService({
 
       return true;
     },
+
+    async interactWidget({ user, storyId, widgetType, stickerId, option, value, text }) {
+      if (!user?.id) {
+        const error = new Error('Bạn cần đăng nhập để tương tác với tin');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      const result = await storyRepository.interactWidget({
+        storyId,
+        userId: user.id,
+        widgetType,
+        stickerId,
+        option,
+        value,
+        text,
+        userName: user.name || user.full_name || 'Người dùng',
+        userAvatar: user.avatar_url || user.avatar || null,
+      });
+
+      realtimeService.broadcast({
+        type: 'STORY_WIDGET_INTERACT',
+        storyId: String(storyId),
+        userId: user.id,
+        data: result,
+      });
+
+      return result;
+    },
   };
 }
 

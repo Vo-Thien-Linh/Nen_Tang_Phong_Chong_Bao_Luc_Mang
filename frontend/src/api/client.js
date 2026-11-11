@@ -462,6 +462,13 @@ export async function reactToStoryApi(storyId, reactionType = 'like') {
   });
 }
 
+export async function interactStoryWidgetApi(storyId, { widgetType, stickerId, option, value, text }) {
+  return request(`/api/stories/${storyId}/interact`, {
+    method: 'POST',
+    body: JSON.stringify({ widgetType, stickerId, option, value, text }),
+  });
+}
+
 export async function deleteStoryApi(storyId) {
   return request(`/api/stories/${storyId}`, {
     method: 'DELETE',

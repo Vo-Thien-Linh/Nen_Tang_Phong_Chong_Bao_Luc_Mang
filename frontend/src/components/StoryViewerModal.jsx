@@ -7,7 +7,7 @@ import {
   Share2, Music, Search, Check, Copy, ExternalLink,
   MapPin, AtSign, MessageCircle
 } from 'lucide-react';
-import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
+import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi, interactStoryWidgetApi } from '../api/client';
 import { messageService } from '../services/messageService';
 import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
@@ -45,6 +45,58 @@ function getViewerReactionsSummary(viewer) {
       count,
     };
   });
+}
+
+function StoryCountdownLive({ stk, expiresAt, createdAt }) {
+  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0, isExpired: false });
+
+  useEffect(() => {
+    // Tính mốc kết thúc: Ưu tiên targetDate, hoặc expiresAt, hoặc 24h từ lúc tạo
+    let target = null;
+    if (stk.targetDate) {
+      target = new Date(stk.targetDate).getTime();
+    } else if (expiresAt) {
+      target = new Date(expiresAt).getTime();
+    } else if (createdAt) {
+      target = new Date(createdAt).getTime() + 24 * 60 * 60 * 1000;
+    } else {
+      target = Date.now() + 3 * 3600 * 1000 + 12 * 60 * 1000 + 45 * 1000;
+    }
+
+    const calcTime = () => {
+      const now = Date.now();
+      const diff = Math.max(0, target - now);
+      if (diff <= 0) {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0, isExpired: true });
+        return;
+      }
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft({ hours, minutes, seconds, isExpired: false });
+    };
+
+    calcTime();
+    const timer = setInterval(calcTime, 1000);
+    return () => clearInterval(timer);
+  }, [stk.targetDate, expiresAt, createdAt]);
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  return (
+    <div className="w-56 p-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-2xl border border-white/30 select-none text-center">
+      <p className="font-extrabold text-[11px] tracking-wider uppercase mb-1 drop-shadow-sm truncate">
+        {stk.title || 'SỰ KIỆN ĐẶC BIỆT'}
+      </p>
+      <div className="font-black text-xl tracking-widest bg-black/25 rounded-xl py-1.5 shadow-inner">
+        {timeLeft.isExpired ? (
+          <span className="text-xs font-bold tracking-normal">ĐÃ KẾT THÚC 🎉</span>
+        ) : (
+          `${pad(timeLeft.hours)} : ${pad(timeLeft.minutes)} : ${pad(timeLeft.seconds)}`
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function StoryViewerModal({ 
@@ -608,27 +660,105 @@ export default function StoryViewerModal({
     }
   };
 
-  // Tương tác Thăm dò ý kiến (Poll voting)
-  const handleVotePoll = (stickerId, option) => {
-    setPollVotes((prev) => {
-      const existing = prev[stickerId] || { countA: 3, countB: 1, voted: null };
-      if (existing.voted) return prev; // Đã vote thì giữ nguyên
-      const isA = option === 'A';
-      return {
-        ...prev,
-        [stickerId]: {
-          voted: option,
-          countA: existing.countA + (isA ? 1 : 0),
-          countB: existing.countB + (isA ? 0 : 1),
-        },
-      };
-    });
+  // Tương tác Thăm dò ý kiến (Poll voting) - Chuẩn nghiệp vụ Instagram/Facebook
+  const handleVotePoll = async (stk, option) => {
+    const stickerId = stk.id;
+    const storyId = currentStory?.id;
+    if (!storyId || !stickerId) return;
+
+    if (!currentUser?.id) {
+      setReplyErrorMsg('Vui lòng đăng nhập để bình chọn');
+      setTimeout(() => setReplyErrorMsg(''), 2500);
+      return;
+    }
+
+    // Lấy dữ liệu bình chọn hiện tại (ưu tiên dữ liệu từ server hoặc state/local)
+    const localKey = `wings_poll_${storyId}_${stickerId}`;
+    let savedLocal = null;
+    try {
+      savedLocal = JSON.parse(localStorage.getItem(localKey) || 'null');
+    } catch {}
+
+    const existing = pollVotes[stickerId] || savedLocal || stk.pollData || { countA: 0, countB: 0, voted: null };
+    if (existing.voted) return; // Đã bình chọn rồi thì không bình chọn lại
+
+    const isA = option === 'A';
+    const updated = {
+      voted: option,
+      countA: (Number(existing.countA) || 0) + (isA ? 1 : 0),
+      countB: (Number(existing.countB) || 0) + (isA ? 0 : 1),
+    };
+
+    // Cập nhật UI ngay lập tức (Optimistic UI)
+    setPollVotes((prev) => ({ ...prev, [stickerId]: updated }));
+
+    // Lưu bền vững vào localStorage
+    try {
+      localStorage.setItem(localKey, JSON.stringify(updated));
+    } catch {}
+
+    // Gửi lên backend lưu vào CSDL
+    try {
+      await interactStoryWidgetApi(storyId, {
+        widgetType: 'poll',
+        stickerId,
+        option,
+      });
+    } catch (err) {
+      console.warn('Lỗi lưu kết quả bình chọn poll:', err.message);
+    }
+  };
+
+  // Tương tác Kéo thả thanh cảm xúc (Slider) khi người xem thả tay (onPointerUp / onTouchEnd)
+  const handleSliderCommit = async (stk, value) => {
+    const stickerId = stk.id;
+    const storyId = currentStory?.id;
+    if (!storyId || !stickerId) return;
+
+    const numericVal = Math.min(100, Math.max(0, Number(value) || 0));
+    setSliderValues((prev) => ({ ...prev, [stickerId]: numericVal }));
+
+    const localKey = `wings_slider_${storyId}_${stickerId}`;
+    try {
+      localStorage.setItem(localKey, String(numericVal));
+    } catch {}
+
+    // Kích hoạt hiệu ứng hạt Emoji (lửa 🔥) bay ngập màn hình chuẩn Instagram
+    const emoji = stk.emoji || '🔥';
+    const newParticles = Array.from({ length: 12 }).map((_, i) => ({
+      id: `slider-${Date.now()}-${i}-${Math.random()}`,
+      emoji,
+      left: 25 + Math.random() * 50,
+      scale: 1.0 + Math.random() * 0.8,
+      delay: i * 45,
+      duration: 1300 + Math.random() * 400,
+      rotate: -20 + Math.random() * 40,
+      driftX: -45 + Math.random() * 90,
+    }));
+    setFloatingParticles((prev) => [...prev, ...newParticles]);
+    setTimeout(() => {
+      setFloatingParticles((prev) => prev.filter((p) => !newParticles.find((np) => np.id === p.id)));
+    }, 2200);
+
+    // Gửi lên backend lưu vào CSDL
+    if (currentUser?.id) {
+      try {
+        await interactStoryWidgetApi(storyId, {
+          widgetType: 'slider',
+          stickerId,
+          value: numericVal,
+        });
+      } catch (err) {
+        console.warn('Lỗi lưu điểm thanh trượt:', err.message);
+      }
+    }
   };
 
   // Tương tác Gửi câu trả lời cho Hộp câu hỏi (Question answering)
   const handleSendQuestion = async (stk) => {
     const text = questionInputs[stk.id]?.trim();
     const authorId = currentStory?.author_id || tray?.author?.id;
+    const storyId = currentStory?.id;
     if (!text || !authorId || isSendingQuestion[stk.id]) return;
 
     if (!currentUser?.id) {
@@ -641,7 +771,20 @@ export default function StoryViewerModal({
     try {
       const messageContent = `[Story Q&A: "${stk.prompt || 'Hỏi tôi bất cứ điều gì'}"]\n${text}`;
       await messageService.sendMessage(authorId, messageContent, currentStory.mediaUrl || null, 'text');
-      setQuestionSent((prev) => ({ ...prev, [stk.id]: true }));
+
+      // Gửi lên backend lưu câu trả lời
+      await interactStoryWidgetApi(storyId, {
+        widgetType: 'question',
+        stickerId: stk.id,
+        text,
+      });
+
+      // Lưu bền vững vào localStorage
+      try {
+        localStorage.setItem(`wings_qa_${storyId}_${stk.id}`, text);
+      } catch {}
+
+      setQuestionSent((prev) => ({ ...prev, [stk.id]: text }));
       setQuestionInputs((prev) => ({ ...prev, [stk.id]: '' }));
       setReplySuccessMsg('Đã gửi câu trả lời đến tác giả!');
       setTimeout(() => setReplySuccessMsg(''), 3000);
@@ -1415,39 +1558,57 @@ export default function StoryViewerModal({
                         </div>
                       )}
 
-                      {/* Thăm dò ý kiến (Poll) - Bình chọn Có / Không tương tác thật */}
+                      {/* Thăm dò ý kiến (Poll) - Chuẩn nghiệp vụ Instagram/Facebook */}
                       {stk.widgetType === 'poll' && (() => {
-                        const voteData = pollVotes[stk.id] || { voted: null, countA: 3, countB: 1 };
-                        const hasVoted = Boolean(voteData.voted);
-                        const totalVotes = voteData.countA + voteData.countB;
-                        const pctA = totalVotes > 0 ? Math.round((voteData.countA / totalVotes) * 100) : 50;
-                        const pctB = 100 - pctA;
+                        const storyId = currentStory?.id;
+                        let localSaved = null;
+                        try {
+                          localSaved = JSON.parse(localStorage.getItem(`wings_poll_${storyId}_${stk.id}`) || 'null');
+                        } catch {}
+
+                        const pollData = pollVotes[stk.id] || localSaved || stk.pollData || { countA: 0, countB: 0, votes: {} };
+                        const myVote = pollData.votes?.[currentUser?.id] || localSaved?.voted || pollVotes[stk.id]?.voted || null;
+                        const isAuthor = Boolean(
+                          currentUser?.id && 
+                          ((currentStory?.author_id && String(currentUser.id) === String(currentStory.author_id)) ||
+                           (tray?.author?.id && String(currentUser.id) === String(tray.author.id)))
+                        );
+                        const hasVoted = Boolean(myVote) || isAuthor;
+
+                        const countA = Number(pollData.countA) || 0;
+                        const countB = Number(pollData.countB) || 0;
+                        const totalVotes = countA + countB;
+                        const pctA = totalVotes > 0 ? Math.round((countA / totalVotes) * 100) : (hasVoted ? 50 : 0);
+                        const pctB = totalVotes > 0 ? (100 - pctA) : (hasVoted ? 50 : 0);
+
                         const optA = stk.optionA || 'Có 👍';
                         const optB = stk.optionB || 'Không 👎';
 
                         return (
                           <div 
                             onClick={(e) => e.stopPropagation()}
-                            className="w-60 p-3.5 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center animate-scale-up"
+                            className="w-64 p-3.5 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center animate-scale-up"
                           >
-                            <p className="font-extrabold text-xs mb-2.5 leading-snug px-1">{stk.question || 'Bạn thích không?'}</p>
+                            <p className="font-extrabold text-xs mb-2.5 leading-snug px-1 text-slate-900 dark:text-white">
+                              {stk.question || 'Bạn thấy thế nào?'}
+                            </p>
                             <div className="grid grid-cols-2 gap-2">
                               {/* Option A */}
                               <button
                                 type="button"
-                                disabled={hasVoted}
-                                onClick={() => handleVotePoll(stk.id, 'A')}
+                                disabled={Boolean(myVote)}
+                                onClick={() => handleVotePoll(stk, 'A')}
                                 className={`relative overflow-hidden py-2 px-2.5 rounded-2xl font-bold text-xs transition cursor-pointer border ${
                                   hasVoted
-                                    ? voteData.voted === 'A'
-                                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                                    ? myVote === 'A'
+                                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 shadow-xs'
                                       : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
                                     : 'border-emerald-400/40 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-700 dark:text-emerald-300'
                                 }`}
                               >
                                 {hasVoted && (
                                   <div 
-                                    className="absolute inset-y-0 left-0 bg-emerald-500/25 transition-all duration-500 ease-out"
+                                    className="absolute inset-y-0 left-0 bg-emerald-500/30 transition-all duration-700 ease-out"
                                     style={{ width: `${pctA}%` }}
                                   />
                                 )}
@@ -1455,7 +1616,7 @@ export default function StoryViewerModal({
                                   <span className="truncate max-w-full">{optA}</span>
                                   {hasVoted && (
                                     <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">
-                                      {pctA}% {voteData.voted === 'A' && '✓'}
+                                      {pctA}% {myVote === 'A' && '✓'}
                                     </span>
                                   )}
                                 </div>
@@ -1464,19 +1625,19 @@ export default function StoryViewerModal({
                               {/* Option B */}
                               <button
                                 type="button"
-                                disabled={hasVoted}
-                                onClick={() => handleVotePoll(stk.id, 'B')}
+                                disabled={Boolean(myVote)}
+                                onClick={() => handleVotePoll(stk, 'B')}
                                 className={`relative overflow-hidden py-2 px-2.5 rounded-2xl font-bold text-xs transition cursor-pointer border ${
                                   hasVoted
-                                    ? voteData.voted === 'B'
-                                      ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 shadow-xs'
+                                    ? myVote === 'B'
+                                      ? 'border-rose-500 bg-rose-500/20 text-rose-700 dark:text-rose-300 shadow-xs'
                                       : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
                                     : 'border-rose-400/40 bg-rose-500/15 hover:bg-rose-500/25 active:scale-95 text-rose-700 dark:text-rose-300'
                                 }`}
                               >
                                 {hasVoted && (
                                   <div 
-                                    className="absolute inset-y-0 left-0 bg-rose-500/25 transition-all duration-500 ease-out"
+                                    className="absolute inset-y-0 left-0 bg-rose-500/30 transition-all duration-700 ease-out"
                                     style={{ width: `${pctB}%` }}
                                   />
                                 )}
@@ -1484,102 +1645,148 @@ export default function StoryViewerModal({
                                   <span className="truncate max-w-full">{optB}</span>
                                   {hasVoted && (
                                     <span className="text-[11px] font-black text-rose-600 dark:text-rose-400">
-                                      {pctB}% {voteData.voted === 'B' && '✓'}
+                                      {pctB}% {myVote === 'B' && '✓'}
                                     </span>
                                   )}
                                 </div>
                               </button>
                             </div>
+                            {hasVoted && (
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2">
+                                {totalVotes > 0 ? `${totalVotes} lượt bình chọn` : 'Chưa có lượt bình chọn'}
+                              </p>
+                            )}
                           </div>
                         );
                       })()}
 
                       {/* Hộp câu hỏi (Question) - Người xem gửi câu trả lời về chat tác giả */}
-                      {stk.widgetType === 'question' && (
-                        <div 
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-64 p-3.5 rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-100 dark:border-slate-800 select-none text-center animate-scale-up"
-                        >
-                          <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 mb-2">
-                            <MessageCircle className="w-4 h-4" />
-                            <span className="truncate max-w-[200px]">{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
-                          </div>
-                          {questionSent[stk.id] ? (
-                            <div className="py-2 px-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Đã gửi câu trả lời!</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="text"
-                                value={questionInputs[stk.id] || ''}
-                                onChange={(e) => setQuestionInputs((prev) => ({ ...prev, [stk.id]: e.target.value }))}
-                                onFocus={() => setIsPaused(true)}
-                                onBlur={() => setIsPaused(false)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleSendQuestion(stk);
-                                  }
-                                }}
-                                placeholder="Nhập câu trả lời..."
-                                className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-0 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                              />
-                              <button
-                                type="button"
-                                disabled={!questionInputs[stk.id]?.trim() || isSendingQuestion[stk.id]}
-                                onClick={() => handleSendQuestion(stk)}
-                                className="p-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white transition disabled:opacity-40 cursor-pointer shrink-0"
-                                title="Gửi"
-                              >
-                                {isSendingQuestion[stk.id] ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Send className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {stk.widgetType === 'question' && (() => {
+                        const storyId = currentStory?.id;
+                        let savedAnswer = null;
+                        try {
+                          savedAnswer = localStorage.getItem(`wings_qa_${storyId}_${stk.id}`);
+                        } catch {}
+                        const hasAnswered = Boolean(savedAnswer || questionSent[stk.id]);
 
-                      {/* Thanh trượt cảm xúc (Slider) - Kéo thả mức độ thích */}
-                      {stk.widgetType === 'slider' && (() => {
-                        const val = sliderValues[stk.id] ?? 50;
                         return (
                           <div 
                             onClick={(e) => e.stopPropagation()}
-                            className="w-56 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center"
+                            className="w-64 p-3.5 rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-100 dark:border-slate-800 select-none text-center animate-scale-up"
+                          >
+                            <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 mb-2">
+                              <MessageCircle className="w-4 h-4" />
+                              <span className="truncate max-w-[200px]">{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
+                            </div>
+                            {hasAnswered ? (
+                              <div className="space-y-1.5">
+                                <div className="py-2 px-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Đã gửi câu trả lời!</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate italic">
+                                  "{savedAnswer || questionSent[stk.id]}"
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={questionInputs[stk.id] || ''}
+                                  onChange={(e) => setQuestionInputs((prev) => ({ ...prev, [stk.id]: e.target.value }))}
+                                  onFocus={() => setIsPaused(true)}
+                                  onBlur={() => setIsPaused(false)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleSendQuestion(stk);
+                                    }
+                                  }}
+                                  placeholder="Nhập câu trả lời..."
+                                  className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-0 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={!questionInputs[stk.id]?.trim() || isSendingQuestion[stk.id]}
+                                  onClick={() => handleSendQuestion(stk)}
+                                  className="p-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white transition disabled:opacity-40 cursor-pointer shrink-0"
+                                  title="Gửi"
+                                >
+                                  {isSendingQuestion[stk.id] ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Thanh trượt cảm xúc (Slider) - Chuẩn kéo thả & lưu bền vững Instagram */}
+                      {stk.widgetType === 'slider' && (() => {
+                        const storyId = currentStory?.id;
+                        let localSaved = null;
+                        try {
+                          localSaved = localStorage.getItem(`wings_slider_${storyId}_${stk.id}`);
+                        } catch {}
+
+                        const serverScore = stk.sliderData?.votes?.[currentUser?.id];
+                        const myScore = localSaved !== null 
+                          ? Number(localSaved) 
+                          : (serverScore !== undefined ? Number(serverScore) : (sliderValues[stk.id] ?? null));
+
+                        const hasSlid = myScore !== null && myScore !== undefined;
+                        const currentVal = sliderValues[stk.id] ?? (hasSlid ? myScore : 20);
+
+                        return (
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-60 p-3.5 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center"
                           >
                             <div className="relative flex items-center justify-center mb-1">
                               <span 
-                                className="text-2xl transition-transform"
-                                style={{ transform: `scale(${0.8 + (val / 100) * 0.7})` }}
+                                className="text-3xl transition-transform filter drop-shadow-md cursor-grab active:cursor-grabbing"
+                                style={{ transform: `scale(${0.9 + (currentVal / 100) * 0.7})` }}
                               >
                                 {stk.emoji || '🔥'}
                               </span>
+                              {hasSlid && (
+                                <span className="absolute right-2 top-0 text-[10px] font-extrabold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/50 px-1.5 py-0.5 rounded-md">
+                                  {currentVal}%
+                                </span>
+                              )}
                             </div>
                             <input
                               type="range"
                               min="0"
                               max="100"
-                              value={val}
+                              value={currentVal}
+                              onFocus={() => setIsPaused(true)}
+                              onBlur={() => setIsPaused(false)}
                               onChange={(e) => handleSliderChange(stk.id, e.target.value)}
-                              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-pink-600"
+                              onPointerUp={(e) => handleSliderCommit(stk, e.target.value)}
+                              onTouchEnd={(e) => handleSliderCommit(stk, e.target.value)}
+                              onMouseUp={(e) => handleSliderCommit(stk, e.target.value)}
+                              className="w-full h-2.5 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-pink-600"
                             />
+                            {hasSlid && (
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">
+                                Điểm bạn đã kéo: <span className="font-bold text-slate-700 dark:text-slate-300">{currentVal}%</span>
+                              </p>
+                            )}
                           </div>
                         );
                       })()}
 
-                      {/* Đếm ngược (Countdown) */}
+                      {/* Đếm ngược (Countdown) - Đếm ngược thời gian thực sống động từng giây */}
                       {stk.widgetType === 'countdown' && (
-                        <div className="w-52 p-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-2xl border border-white/30 select-none text-center">
-                          <p className="font-extrabold text-[11px] tracking-wider mb-1">{stk.title || 'ĐẾM NGƯỢC'}</p>
-                          <div className="font-black text-lg tracking-widest bg-black/20 rounded-xl py-1">
-                            {stk.timeText || '03 : 12 : 45'}
-                          </div>
-                        </div>
+                        <StoryCountdownLive 
+                          stk={stk} 
+                          expiresAt={currentStory?.expiresAt || currentStory?.expires_at} 
+                          createdAt={currentStory?.createdAt || currentStory?.created_at} 
+                        />
                       )}
                     </>
                   )}
