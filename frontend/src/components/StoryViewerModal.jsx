@@ -227,6 +227,19 @@ export default function StoryViewerModal({
     const audio = new Audio(storyMusic.audioUrl);
     audio.loop = true;
     audio.muted = isMuted;
+
+    if (storyMusic.startTime && Number(storyMusic.startTime) > 0) {
+      const startSec = Number(storyMusic.startTime);
+      audio.addEventListener('loadedmetadata', () => {
+        try {
+          audio.currentTime = startSec;
+        } catch (_) {}
+      }, { once: true });
+      try {
+        audio.currentTime = startSec;
+      } catch (_) {}
+    }
+
     storyAudioRef.current = audio;
 
     if (!isEffectivePaused) {
@@ -237,7 +250,7 @@ export default function StoryViewerModal({
       audio.pause();
       storyAudioRef.current = null;
     };
-  }, [currentStory?.id, storyMusic?.audioUrl]);
+  }, [currentStory?.id, storyMusic?.audioUrl, storyMusic?.startTime]);
 
   // Đồng bộ tạm dừng/phát nhạc theo trạng thái Story
   useEffect(() => {
@@ -456,11 +469,13 @@ export default function StoryViewerModal({
     }
   };
 
-  // Bộ đếm tiến trình (Progress bar 5s cho static / theo video duration)
+  // Bộ đếm tiến trình (Progress bar theo music duration / video / static 5s)
   useEffect(() => {
     if (!isOpen || isEffectivePaused || !currentStory) return;
 
-    const duration = currentStory.storyType === 'video' ? 15000 : 5000;
+    const duration = storyMusic?.duration 
+      ? Number(storyMusic.duration) * 1000 
+      : (currentStory.storyType === 'video' ? 15000 : 5000);
     const interval = 50; // cập nhật mỗi 50ms
     const step = (interval / duration) * 100;
 
@@ -475,7 +490,7 @@ export default function StoryViewerModal({
     }, interval);
 
     return () => clearInterval(progressTimerRef.current);
-  }, [isOpen, currentIndex, isEffectivePaused, currentStory?.id]);
+  }, [isOpen, currentIndex, isEffectivePaused, currentStory?.id, storyMusic?.duration]);
 
   if (!isOpen || !currentStory) return null;
 
@@ -774,7 +789,7 @@ export default function StoryViewerModal({
               </p>
 
               {/* Nhãn âm nhạc đang phát chuẩn Facebook/Instagram */}
-              {storyMusic && (
+              {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (
                 <div className="flex items-center gap-1.5 text-white/95 text-[11px] font-medium bg-black/40 backdrop-blur-md px-2.5 py-0.5 rounded-full mt-1 w-fit max-w-[210px] border border-white/10 shadow-xs">
                   <Music className="w-3 h-3 text-purple-400 shrink-0" />
                   <span className="truncate">{storyMusic.title} • {storyMusic.artist}</span>
@@ -1229,6 +1244,160 @@ export default function StoryViewerModal({
             </div>
           )}
             </>
+          )}
+
+          {/* LỚP STICKERS & NHÃN DÁN NGHỆ THUẬT (POINTER-EVENTS-NONE) */}
+          {((bgStyle?.stickers) || (currentStory.backgroundStyle?.stickers)) && (
+            <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
+              {(bgStyle?.stickers || currentStory.backgroundStyle?.stickers).map((stk) => (
+                <div
+                  key={stk.id || `${stk.type}-${stk.x}-${stk.y}`}
+                  style={{
+                    left: `${stk.x}%`,
+                    top: `${stk.y}%`,
+                    transform: `translate(-50%, -50%) scale(${stk.scale || 1})`,
+                  }}
+                  className="absolute select-none pointer-events-none transition-transform"
+                >
+                  {stk.type === 'emoji' ? (
+                    <span className="text-5xl select-none filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.6)] leading-none inline-block">
+                      {stk.content}
+                    </span>
+                  ) : (
+                    <div className={`px-4 py-2 rounded-2xl shadow-2xl text-white font-black tracking-wider text-sm select-none border border-white/30 ${stk.bg || 'bg-gradient-to-r from-pink-500 to-purple-600'}`}>
+                      {stk.text}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* HIỂN THỊ ÂM NHẠC TRÊN KHUNG STORY THEO STYLE (POINTER-EVENTS-NONE) */}
+          {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (
+            <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
+              {/* Style 1: Chạy chữ Lyric Karaoke đồng bộ theo progress Story */}
+              {storyMusic.displayMode === 'lyrics' && (
+                <div
+                  style={{
+                    left: `${storyMusic.musicPos?.x ?? 50}%`,
+                    top: `${storyMusic.musicPos?.y ?? 80}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                  className="absolute pointer-events-none w-[90%] max-w-[340px] text-center"
+                >
+                  <div className="px-4 py-3 rounded-2xl bg-black/65 backdrop-blur-md border border-white/20 shadow-2xl text-white">
+                    <div className="flex items-center justify-center gap-1.5 text-xs text-purple-300 font-bold mb-1.5">
+                      <Music className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '4s' }} />
+                      <span className="truncate max-w-[200px]">{storyMusic.title} • {storyMusic.artist}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {(() => {
+                        const lyrics = storyMusic.lyrics || [];
+                        if (lyrics.length === 0) {
+                          return (
+                            <p className="text-base font-extrabold text-yellow-300 drop-shadow-md">
+                              {storyMusic.title} - {storyMusic.artist}
+                            </p>
+                          );
+                        }
+                        const activeIdx = Math.min(lyrics.length - 1, Math.floor((progress / 100) * lyrics.length));
+                        return lyrics.map((line, idx) => {
+                          const isActive = idx === activeIdx;
+                          if (Math.abs(idx - activeIdx) > 1) return null;
+                          return (
+                            <p
+                              key={idx}
+                              className={`font-black tracking-wide leading-snug transition-all duration-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] ${
+                                isActive 
+                                  ? 'text-lg sm:text-xl text-yellow-300 scale-105' 
+                                  : 'text-xs sm:text-sm text-white/60'
+                              }`}
+                            >
+                              {line}
+                            </p>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Style 2: Thẻ Bìa Album Card (Spotify/Instagram style) */}
+              {storyMusic.displayMode === 'card' && (
+                <div
+                  style={{
+                    left: `${storyMusic.musicPos?.x ?? 50}%`,
+                    top: `${storyMusic.musicPos?.y ?? 82}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                  className="absolute pointer-events-none select-none"
+                >
+                  <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/25 shadow-2xl text-white w-64">
+                    <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-md bg-purple-700">
+                      <img src={storyMusic.coverUrl} alt={storyMusic.title} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                        <Music className="w-4 h-4 text-white drop-shadow" />
+                      </div>
+                    </div>
+                    <div className="min-w-0 pr-1 flex-1">
+                      <p className="text-xs font-bold text-white truncate drop-shadow-sm">
+                        {storyMusic.title}
+                      </p>
+                      <p className="text-[11px] text-white/80 truncate">
+                        {storyMusic.artist}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1 text-[9px] text-purple-300 font-medium">
+                        <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full transition-all duration-100" 
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <span>0:{storyMusic.duration || 15}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Style 3: Huy hiệu Đĩa quay kinh điển (Badge pill) */}
+              {(storyMusic.displayMode === 'badge' || (!storyMusic.displayMode && storyMusic.musicPos)) && (
+                <div
+                  style={{
+                    left: `${storyMusic.musicPos?.x ?? 50}%`,
+                    top: `${storyMusic.musicPos?.y ?? 84}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                  className="absolute pointer-events-none select-none"
+                >
+                  <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/65 backdrop-blur-md border border-white/25 shadow-2xl text-white">
+                    <div className="relative w-6 h-6 rounded-full overflow-hidden bg-purple-600 shrink-0 border border-white/40 shadow-xs flex items-center justify-center">
+                      <img src={storyMusic.coverUrl} alt={storyMusic.title} className="w-full h-full object-cover animate-spin" style={{ animationDuration: '4s' }} />
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                        <Music className="w-2.5 h-2.5 text-white" />
+                      </div>
+                    </div>
+                    <div className="min-w-0 pr-1">
+                      <p className="text-[11px] font-bold truncate max-w-[130px] leading-tight drop-shadow-xs">
+                        {storyMusic.title}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-[9px] text-white/80 leading-tight">
+                        <span className="truncate max-w-[90px]">{storyMusic.artist}</span>
+                        {!isMuted && !isEffectivePaused && (
+                          <div className="flex items-end gap-0.5 h-2">
+                            <span className="w-0.5 h-full bg-purple-400 rounded-full animate-pulse" />
+                            <span className="w-0.5 h-1.5 bg-purple-300 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                            <span className="w-0.5 h-1 bg-purple-200 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Lớp hạt Reaction bay bổng đa chiều (Floating Particles 60fps) */}

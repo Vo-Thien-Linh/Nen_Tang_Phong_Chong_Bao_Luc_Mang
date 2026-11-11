@@ -4,12 +4,14 @@ import {
   X, Image as ImageIcon, Type, Sparkles, AlertCircle, 
   Globe, Users, Lock, Loader2, ArrowLeft,
   RotateCw, Settings, Clock, ChevronDown, Check, Smile, Minus, Plus,
-  FileText, Move, RotateCcw, Music, Volume2, VolumeX, Play, Pause, Disc, Search
+  FileText, Move, RotateCcw, Music, Volume2, VolumeX, Play, Pause, Disc, Search,
+  Sliders, Eye, EyeOff, Tag, ListMusic, Heart
 } from 'lucide-react';
 import { createStoryApi, uploadStoryMedia } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { STORY_MUSIC_LIBRARY } from '../constants/storyMusicList';
 import { searchMusic, getTrendingMusic, MUSIC_CATEGORIES } from '../services/musicService';
+import { STORY_STICKERS, STICKER_CATEGORIES, generateSampleLyrics } from '../constants/storyStickers';
 
 // Danh sách phông nền chuyển sắc & đơn sắc phong cách Facebook Story
 const GRADIENT_PRESETS = [
@@ -241,6 +243,19 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [musicPos, setMusicPos] = useState({ x: 50, y: 84 });
   const previewAudioRef = useRef(null);
 
+  // 1. Tùy chọn Ẩn/Hiện icon âm nhạc, Kiểu hiển thị (Badge, Lyrics, Album Card, Hidden) & Thời gian phát
+  const [musicShowSticker, setMusicShowSticker] = useState(true);
+  const [musicDisplayMode, setMusicDisplayMode] = useState('badge'); // 'badge' | 'lyrics' | 'card' | 'hidden'
+  const [musicDuration, setMusicDuration] = useState(15); // 15 hoặc 30 giây
+  const [musicStartTime, setMusicStartTime] = useState(0); // Giây bắt đầu (0 - 15)
+  const [musicLyrics, setMusicLyrics] = useState([]); // Danh sách câu hát
+
+  // 2. Bộ sưu tập Stickers & Icons cho Story
+  const [stickers, setStickers] = useState([]); // [{ id, type, content, text, bg, x, y, scale }]
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [selectedStickerCategory, setSelectedStickerCategory] = useState('emoji');
+  const [activeStickerId, setActiveStickerId] = useState(null);
+
   // Tải danh sách nhạc theo danh mục gợi ý khi mở picker hoặc chuyển tab
   useEffect(() => {
     if (showMusicPicker && !musicSearchQuery.trim()) {
@@ -351,6 +366,14 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setShowMusicPicker(false);
     setPreviewingSongId(null);
     setMusicPos({ x: 50, y: 84 });
+    setMusicShowSticker(true);
+    setMusicDisplayMode('badge');
+    setMusicDuration(15);
+    setMusicStartTime(0);
+    setMusicLyrics([]);
+    setStickers([]);
+    setShowStickerPicker(false);
+    setActiveStickerId(null);
   };
 
   const handleTogglePreviewMusic = (song, e) => {
@@ -366,6 +389,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       }
       const audio = new Audio(song.audioUrl);
       previewAudioRef.current = audio;
+      audio.currentTime = musicStartTime || 0;
       audio.play().catch(() => {});
       audio.onended = () => setPreviewingSongId(null);
       setPreviewingSongId(song.id);
@@ -379,6 +403,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     }
     setPreviewingSongId(null);
     setSelectedMusic(song);
+    setMusicLyrics(generateSampleLyrics(song));
+    setMusicStartTime(0);
     setShowMusicPicker(false);
   };
 
@@ -389,6 +415,84 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     }
     setPreviewingSongId(null);
     setSelectedMusic(null);
+  };
+
+  const handleMusicStartTimeChange = (val) => {
+    const num = Number(val);
+    setMusicStartTime(num);
+    if (previewAudioRef.current) {
+      previewAudioRef.current.currentTime = num;
+      previewAudioRef.current.play().catch(() => {});
+    }
+  };
+
+  const handleAddSticker = (item) => {
+    const newStk = {
+      id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      type: item.type,
+      content: item.content || null,
+      text: item.text || null,
+      bg: item.bg || null,
+      x: 50,
+      y: 50,
+      scale: 1,
+    };
+    setStickers((prev) => [...prev, newStk]);
+    setActiveStickerId(newStk.id);
+    setShowStickerPicker(false);
+  };
+
+  const handleRemoveSticker = (id, e) => {
+    if (e) e.stopPropagation();
+    setStickers((prev) => prev.filter((s) => s.id !== id));
+    if (activeStickerId === id) setActiveStickerId(null);
+  };
+
+  const handleScaleSticker = (id, delta, e) => {
+    if (e) e.stopPropagation();
+    setStickers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, scale: Math.max(0.6, Math.min(2.5, Number(((s.scale || 1) + delta).toFixed(1)))) } : s))
+    );
+  };
+
+  const handleStickerDragStart = (id, e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setActiveStickerId(id);
+    const cardEl = cardRef.current;
+    if (!cardEl) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const currentStk = stickers.find((s) => s.id === id);
+    if (!currentStk) return;
+    const initialPos = { x: currentStk.x, y: currentStk.y };
+    const rect = cardEl.getBoundingClientRect();
+
+    const onPointerMove = (moveEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      let newX = initialPos.x + (deltaX / rect.width) * 100;
+      let newY = initialPos.y + (deltaY / rect.height) * 100;
+
+      newX = Math.max(10, Math.min(90, newX));
+      newY = Math.max(10, Math.min(90, newY));
+
+      setStickers((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, x: Math.round(newX), y: Math.round(newY) } : s))
+      );
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   const handleMusicDragStart = (e) => {
@@ -607,7 +711,13 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             coverUrl: selectedMusic.coverUrl,
             audioUrl: selectedMusic.audioUrl,
             musicPos,
+            showSticker: musicShowSticker,
+            displayMode: musicDisplayMode,
+            duration: musicDuration,
+            startTime: musicStartTime,
+            lyrics: musicLyrics,
           } : null,
+          stickers: stickers.length > 0 ? stickers : undefined,
         } : {
           zoomLevel,
           rotation,
@@ -628,7 +738,13 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             coverUrl: selectedMusic.coverUrl,
             audioUrl: selectedMusic.audioUrl,
             musicPos,
+            showSticker: musicShowSticker,
+            displayMode: musicDisplayMode,
+            duration: musicDuration,
+            startTime: musicStartTime,
+            lyrics: musicLyrics,
           } : null,
+          stickers: stickers.length > 0 ? stickers : undefined,
         },
         privacy,
         forcePost: force,
@@ -1328,6 +1444,191 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     </button>
                   )}
                 </div>
+
+                {/* Các tùy chọn chi tiết khi đã chọn nhạc: Ẩn/Hiện icon, Lyrics, Thời lượng & Đoạn phát */}
+                {selectedMusic && (
+                  <div className="p-3.5 pt-0 space-y-3 border-t border-slate-200/60 dark:border-slate-800/60 animate-fade-in text-xs">
+                    {/* 1. Tùy chọn Ẩn / Hiện icon nhạc */}
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
+                        {musicShowSticker ? <Eye className="w-4 h-4 text-purple-500" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                        <span>Hiển thị nhãn âm nhạc trên tin</span>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={musicShowSticker}
+                        onClick={() => setMusicShowSticker(!musicShowSticker)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                          musicShowSticker ? 'bg-purple-600' : 'bg-slate-300 dark:bg-slate-700'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ${
+                            musicShowSticker ? 'translate-x-4' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* 2. Kiểu hiển thị (Display Mode): Nhãn đĩa / Lyric chạy chữ / Bìa Album / Ẩn */}
+                    {musicShowSticker && (
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                          Kiểu hiển thị trên Story:
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setMusicDisplayMode('badge')}
+                            className={`px-2 py-1.5 rounded-xl font-bold text-[11px] border transition flex items-center justify-center gap-1 cursor-pointer ${
+                              musicDisplayMode === 'badge'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>🎵 Đĩa quay</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMusicDisplayMode('lyrics')}
+                            className={`px-2 py-1.5 rounded-xl font-bold text-[11px] border transition flex items-center justify-center gap-1 cursor-pointer ${
+                              musicDisplayMode === 'lyrics'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>🎤 Chạy chữ</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMusicDisplayMode('card')}
+                            className={`px-2 py-1.5 rounded-xl font-bold text-[11px] border transition flex items-center justify-center gap-1 cursor-pointer ${
+                              musicDisplayMode === 'card'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>💽 Bìa Album</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Tùy chỉnh Lyric câu hát nếu ở chế độ lyrics */}
+                    {musicShowSticker && musicDisplayMode === 'lyrics' && (
+                      <div className="space-y-1 p-2 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/50 dark:border-purple-800/40">
+                        <label className="text-[10px] font-bold text-purple-700 dark:text-purple-300">
+                          Câu hát hiển thị (Lyric Text):
+                        </label>
+                        <input
+                          type="text"
+                          value={musicLyrics[0] || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setMusicLyrics(prev => [val, ...(prev.slice(1))]);
+                          }}
+                          placeholder="Nhập câu hát yêu thích..."
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    )}
+
+                    {/* 4. Chọn thời lượng phát nhạc & Đoạn nhạc bắt đầu */}
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Thời lượng phát:</span>
+                        <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-0.5 rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => setMusicDuration(15)}
+                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] transition ${
+                              musicDuration === 15 ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            15s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMusicDuration(30)}
+                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] transition ${
+                              musicDuration === 30 ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            30s
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Thanh trượt chọn đoạn nhạc bắt đầu */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500 dark:text-slate-400">Đoạn nhạc bắt đầu:</span>
+                          <span className="font-bold text-purple-600 dark:text-purple-400">
+                            0:{String(musicStartTime).padStart(2, '0')} - 0:{String(Math.min(30, musicStartTime + musicDuration)).padStart(2, '0')}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max={30 - musicDuration > 0 ? 30 - musicDuration : 15}
+                          value={musicStartTime}
+                          onChange={(e) => handleMusicStartTimeChange(e.target.value)}
+                          className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MỤC NHÃN DÁN & ICON (STICKERS CHO STORY) */}
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/50 dark:bg-slate-850">
+                <div className="p-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 shrink-0">
+                      <Smile className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                        Nhãn dán & Emojis
+                      </p>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {stickers.length > 0 ? `Đã thêm ${stickers.length} nhãn dán vào tin` : 'Chèn icon, cảm xúc, sticker vào Story'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowStickerPicker(true)}
+                    className="px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Thêm sticker</span>
+                  </button>
+                </div>
+
+                {stickers.length > 0 && (
+                  <div className="px-3.5 pb-3 flex items-center gap-2 overflow-x-auto scrollbar-none border-t border-slate-100 dark:border-slate-800/60 pt-2">
+                    {stickers.map((stk) => (
+                      <div
+                        key={stk.id}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs shrink-0 shadow-xs"
+                      >
+                        <span>{stk.type === 'badge' ? stk.text : stk.content}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleRemoveSticker(stk.id, e)}
+                          className="text-slate-400 hover:text-rose-500 cursor-pointer ml-0.5"
+                          title="Xóa sticker này"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* MỤC CHUNG: THÊM NHÃN AI (AI LABELING TOGGLE) */}
@@ -1668,37 +1969,218 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                   </div>
                 )}
 
-                {/* 3. STICKER ÂM NHẠC TRÊN CANVAS STORY (Kéo thả di chuyển được) */}
+                {/* 3. DANH SÁCH STICKERS & ICONS TRÊN CANVAS (Kéo thả, chỉnh cỡ, xoá) */}
+                {stickers.map((stk) => {
+                  const isSelected = activeStickerId === stk.id;
+                  return (
+                    <div
+                      key={stk.id}
+                      onPointerDown={(e) => handleStickerDragStart(stk.id, e)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveStickerId(stk.id);
+                      }}
+                      style={{
+                        left: `${stk.x}%`,
+                        top: `${stk.y}%`,
+                        transform: `translate(-50%, -50%) scale(${stk.scale || 1})`,
+                      }}
+                      className={`absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none group/stk transition-transform ${
+                        isSelected ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-black/50 rounded-2xl' : ''
+                      }`}
+                      title="Kéo thả hoặc chạm để điều chỉnh sticker"
+                    >
+                      {/* Nút Phóng to / Thu nhỏ / Xóa khi đang active */}
+                      {isSelected && (
+                        <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/20 shadow-xl z-50">
+                          <button
+                            type="button"
+                            onClick={(e) => handleScaleSticker(stk.id, -0.2, e)}
+                            className="w-5 h-5 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-xs font-bold transition cursor-pointer"
+                            title="Thu nhỏ"
+                          >
+                            -
+                          </button>
+                          <span className="text-[10px] text-white/90 font-medium px-1">
+                            {Math.round((stk.scale || 1) * 100)}%
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleScaleSticker(stk.id, 0.2, e)}
+                            className="w-5 h-5 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-xs font-bold transition cursor-pointer"
+                            title="Phóng to"
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleRemoveSticker(stk.id, e)}
+                            className="w-5 h-5 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-xs ml-1 transition cursor-pointer"
+                            title="Xóa sticker"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Nội dung Sticker */}
+                      {stk.type === 'emoji' ? (
+                        <span className="text-5xl select-none filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] leading-none inline-block hover:scale-105 transition-transform">
+                          {stk.content}
+                        </span>
+                      ) : (
+                        <div className={`px-4 py-2 rounded-2xl shadow-xl text-white font-black tracking-wider text-sm select-none border border-white/30 ${stk.bg || 'bg-gradient-to-r from-pink-500 to-purple-600'}`}>
+                          {stk.text}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* 4. HIỂN THỊ ÂM NHẠC TRÊN CANVAS THEO STYLE (Badge, Lyrics, Album Card, Hidden) */}
                 {selectedMusic && (
-                  <div
-                    onPointerDown={handleMusicDragStart}
-                    style={{
-                      left: `${musicPos.x}%`,
-                      top: `${musicPos.y}%`,
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                    className="absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none group/music"
-                    title="Kéo thả để di chuyển nhãn bài hát"
-                  >
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/25 shadow-2xl text-white group-hover/music:scale-105 transition-transform">
-                      <div className="w-5 h-5 rounded-full overflow-hidden bg-purple-600 flex items-center justify-center shrink-0 border border-white/40 animate-spin" style={{ animationDuration: '4s' }}>
-                        <Music className="w-3 h-3 text-white" />
+                  <>
+                    {/* Trạng thái Ẩn Sticker: Hiện nhãn mờ trong editor để người tạo biết nhạc vẫn chạy */}
+                    {(!musicShowSticker || musicDisplayMode === 'hidden') && (
+                      <div
+                        onPointerDown={handleMusicDragStart}
+                        style={{
+                          left: `${musicPos.x}%`,
+                          top: `${musicPos.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none"
+                        title="Nhạc sẽ phát nhưng sticker được ẩn trên story"
+                      >
+                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white/80 text-[11px] font-medium shadow-lg">
+                          <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Ẩn sticker • {selectedMusic.title}</span>
+                        </div>
                       </div>
-                      <div className="min-w-0 pr-1">
-                        <p className="text-[11px] font-bold truncate max-w-[130px] leading-tight drop-shadow-xs">
-                          {selectedMusic.title}
-                        </p>
-                        <div className="flex items-center gap-1.5 text-[9px] text-white/80 leading-tight">
-                          <span className="truncate max-w-[90px]">{selectedMusic.artist}</span>
-                          <div className="flex items-end gap-0.5 h-2">
-                            <span className="w-0.5 h-full bg-white rounded-full animate-pulse" />
-                            <span className="w-0.5 h-1.5 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
-                            <span className="w-0.5 h-1 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                    )}
+
+                    {/* Style 1: Chạy chữ Lyric (Karaoke / Typewriter) */}
+                    {musicShowSticker && musicDisplayMode === 'lyrics' && (
+                      <div
+                        onPointerDown={handleMusicDragStart}
+                        style={{
+                          left: `${musicPos.x}%`,
+                          top: `${musicPos.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none w-[90%] max-w-[340px] text-center group/lyrics"
+                        title="Kéo thả để di chuyển lời bài hát"
+                      >
+                        <div className="px-4 py-3.5 rounded-3xl bg-black/65 backdrop-blur-md border border-white/25 shadow-2xl text-white group-hover/lyrics:scale-102 transition-transform">
+                          <div className="flex items-center justify-center gap-1.5 text-xs text-purple-300 font-bold mb-2">
+                            <Music className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '4s' }} />
+                            <span className="truncate max-w-[200px]">{selectedMusic.title} • {selectedMusic.artist}</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {musicLyrics && musicLyrics.length > 0 ? (
+                              musicLyrics.slice(0, 3).map((line, idx) => (
+                                <p
+                                  key={idx}
+                                  className={`font-black tracking-wide drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] leading-tight transition-all ${
+                                    idx === 0 
+                                      ? 'text-lg sm:text-xl text-yellow-300 font-extrabold scale-102' 
+                                      : 'text-sm text-white/85'
+                                  }`}
+                                >
+                                  {line}
+                                </p>
+                              ))
+                            ) : (
+                              <p className="text-base font-bold text-white drop-shadow-md">
+                                {selectedMusic.title} - {selectedMusic.artist}
+                              </p>
+                            )}
+                          </div>
+                          <div className="mt-2.5 flex items-center justify-center gap-1 text-[10px] text-white/60">
+                            <span>0:{String(musicStartTime).padStart(2, '0')}</span>
+                            <div className="w-20 h-1 bg-white/20 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-yellow-400 to-pink-500 rounded-full w-2/3 animate-pulse" />
+                            </div>
+                            <span>0:{musicDuration}</span>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    )}
+
+                    {/* Style 2: Bìa Album Card (Spotify/Instagram style) */}
+                    {musicShowSticker && musicDisplayMode === 'card' && (
+                      <div
+                        onPointerDown={handleMusicDragStart}
+                        style={{
+                          left: `${musicPos.x}%`,
+                          top: `${musicPos.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none group/card"
+                        title="Kéo thả để di chuyển thẻ nhạc"
+                      >
+                        <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/25 shadow-2xl text-white w-64 group-hover/card:scale-102 transition-transform">
+                          <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-md bg-purple-700">
+                            <img src={selectedMusic.coverUrl} alt={selectedMusic.title} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                              <Music className="w-4 h-4 text-white drop-shadow" />
+                            </div>
+                          </div>
+                          <div className="min-w-0 pr-1 flex-1">
+                            <p className="text-xs font-bold text-white truncate drop-shadow-sm">
+                              {selectedMusic.title}
+                            </p>
+                            <p className="text-[11px] text-white/80 truncate">
+                              {selectedMusic.artist}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-1 text-[9px] text-purple-300 font-medium">
+                              <span>0:{String(musicStartTime).padStart(2, '0')}</span>
+                              <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full w-2/3 animate-pulse" />
+                              </div>
+                              <span>0:{musicDuration}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Style 3: Huy hiệu Đĩa quay kinh điển (Badge pill) */}
+                    {musicShowSticker && musicDisplayMode === 'badge' && (
+                      <div
+                        onPointerDown={handleMusicDragStart}
+                        style={{
+                          left: `${musicPos.x}%`,
+                          top: `${musicPos.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none group/music"
+                        title="Kéo thả để di chuyển nhãn bài hát"
+                      >
+                        <div className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-black/65 backdrop-blur-md border border-white/25 shadow-2xl text-white group-hover/music:scale-105 transition-transform">
+                          <div className="relative w-6 h-6 rounded-full overflow-hidden bg-purple-600 shrink-0 border border-white/40 shadow-xs flex items-center justify-center">
+                            <img src={selectedMusic.coverUrl} alt={selectedMusic.title} className="w-full h-full object-cover animate-spin" style={{ animationDuration: '4s' }} />
+                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                              <Music className="w-2.5 h-2.5 text-white" />
+                            </div>
+                          </div>
+                          <div className="min-w-0 pr-1">
+                            <p className="text-[11px] font-bold truncate max-w-[130px] leading-tight drop-shadow-xs">
+                              {selectedMusic.title}
+                            </p>
+                            <div className="flex items-center gap-1.5 text-[9px] text-white/80 leading-tight">
+                              <span className="truncate max-w-[90px]">{selectedMusic.artist}</span>
+                              <div className="flex items-end gap-0.5 h-2">
+                                <span className="w-0.5 h-full bg-purple-400 rounded-full animate-pulse" />
+                                <span className="w-0.5 h-1.5 bg-purple-300 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                                <span className="w-0.5 h-1 bg-purple-200 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1914,6 +2396,132 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     </div>
                   );
                 })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHỌN NHÃN DÁN (STICKERS & ICONS PICKER) */}
+      {showStickerPicker && (
+        <div 
+          onClick={() => setShowStickerPicker(false)}
+          className="fixed inset-0 z-60 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh] animate-scale-up"
+          >
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-pink-500/10 text-pink-600 flex items-center justify-center">
+                  <Smile className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                    Nhãn dán & Emojis
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Chạm để thêm vào bảng tin của bạn
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStickerPicker(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Danh mục tab */}
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 bg-slate-50/50 dark:bg-slate-800/20">
+              {STICKER_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setSelectedStickerCategory(cat.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                    selectedStickerCategory === cat.id
+                      ? 'bg-pink-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Nội dung danh sách stickers */}
+            <div className="p-4 overflow-y-auto flex-1 min-h-[300px]">
+              {selectedStickerCategory === 'emoji' && (
+                <div className="grid grid-cols-6 sm:grid-cols-7 gap-2">
+                  {STORY_STICKERS.filter((s) => s.type === 'emoji').map((stk) => (
+                    <button
+                      key={stk.id}
+                      type="button"
+                      onClick={() => handleAddSticker(stk)}
+                      className="h-12 flex items-center justify-center rounded-2xl hover:bg-pink-50 dark:hover:bg-pink-950/30 hover:scale-115 active:scale-95 transition-all text-2xl select-none cursor-pointer"
+                      title={stk.label || stk.content}
+                    >
+                      {stk.content}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedStickerCategory === 'badges' && (
+                <div className="grid grid-cols-2 gap-3">
+                  {STORY_STICKERS.filter((s) => s.type === 'badge').map((stk) => (
+                    <button
+                      key={stk.id}
+                      type="button"
+                      onClick={() => handleAddSticker(stk)}
+                      className={`p-3 rounded-2xl text-white font-black text-xs tracking-wider shadow-md hover:scale-102 active:scale-98 transition select-none cursor-pointer text-center ${stk.bg}`}
+                    >
+                      {stk.text}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedStickerCategory === 'vibes' && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Icon tâm trạng & Hoạt động</p>
+                    <div className="grid grid-cols-6 sm:grid-cols-7 gap-2">
+                      {STORY_STICKERS.filter((s) => s.type === 'emoji' && ['emoji-sun', 'emoji-rainbow', 'emoji-lightning', 'emoji-coffee', 'emoji-pizza', 'emoji-music-notes', 'emoji-camera', 'emoji-rocket', 'emoji-fire', 'emoji-sparkles'].includes(s.id)).map((stk) => (
+                        <button
+                          key={stk.id}
+                          type="button"
+                          onClick={() => handleAddSticker(stk)}
+                          className="h-12 flex items-center justify-center rounded-2xl hover:bg-pink-50 dark:hover:bg-pink-950/30 hover:scale-115 active:scale-95 transition-all text-2xl select-none cursor-pointer"
+                          title={stk.label || stk.content}
+                        >
+                          {stk.content}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Huy hiệu cảm xúc</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {STORY_STICKERS.filter((s) => s.type === 'badge').slice(0, 4).map((stk) => (
+                        <button
+                          key={stk.id}
+                          type="button"
+                          onClick={() => handleAddSticker(stk)}
+                          className={`p-3 rounded-2xl text-white font-black text-xs tracking-wider shadow-md hover:scale-102 active:scale-98 transition select-none cursor-pointer text-center ${stk.bg}`}
+                        >
+                          {stk.text}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
