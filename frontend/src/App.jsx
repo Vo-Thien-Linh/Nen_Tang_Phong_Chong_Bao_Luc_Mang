@@ -81,6 +81,7 @@ export default function App() {
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
   const [profileInitialTab, setProfileInitialTab] = useState('all');
+  const [friendsInitialTab, setFriendsInitialTab] = useState('requests');
   const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
@@ -542,6 +543,11 @@ export default function App() {
     } else {
       setViewedProfileUser(null);
       setProfileInitialTab('all');
+    }
+    if (effectiveTab === 'friends') {
+      setFriendsInitialTab(subTab || 'requests');
+    } else {
+      setFriendsInitialTab('requests');
     }
     if (effectiveTab !== 'post') {
       setViewedPostDetail(null);
@@ -2046,6 +2052,7 @@ export default function App() {
           <FriendsView 
             onOpenChat={handleOpenChatFromFriends} 
             onOpenProfile={handleOpenUserProfile}
+            initialTab={friendsInitialTab}
           />
         )}
 
