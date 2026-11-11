@@ -36,6 +36,24 @@ export const messageService = {
   },
 
   /**
+   * Lấy trạng thái hoạt động thực tế (online / last_seen) của danh sách người dùng
+   */
+  async getUsersOnlineStatus(userIds) {
+    if (!hasValidToken() || !Array.isArray(userIds) || userIds.length === 0) return {};
+    try {
+      const idsParam = encodeURIComponent(userIds.join(','));
+      const res = await fetch(`${API_BASE_URL}/users/online-status?user_ids=${idsParam}`, {
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) throw new Error('Không thể tải trạng thái hoạt động');
+      return await res.json();
+    } catch (err) {
+      console.warn('Lỗi getUsersOnlineStatus:', err.message);
+      return {};
+    }
+  },
+
+  /**
    * Lấy tin nhắn trong cuộc trò chuyện (tự động cập nhật 'read')
    */
   async getMessages(conversationId) {

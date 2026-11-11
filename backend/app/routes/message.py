@@ -27,18 +27,23 @@ active_group_calls: dict[int, dict] = {}
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, set[WebSocket]] = {}
+        self.last_seen_times: dict[str, str] = {}
 
     async def connect(self, user_id: str, websocket: WebSocket, subprotocol: Optional[str] = None):
         await websocket.accept(subprotocol=subprotocol)
-        if user_id not in self.active_connections:
-            self.active_connections[user_id] = set()
-        self.active_connections[user_id].add(websocket)
+        target_str = str(user_id).strip()
+        if target_str not in self.active_connections:
+            self.active_connections[target_str] = set()
+        self.active_connections[target_str].add(websocket)
+        self.last_seen_times.pop(target_str, None)
 
     def disconnect(self, user_id: str, websocket: WebSocket):
-        if user_id in self.active_connections:
-            self.active_connections[user_id].discard(websocket)
-            if not self.active_connections[user_id]:
-                del self.active_connections[user_id]
+        target_str = str(user_id).strip()
+        if target_str in self.active_connections:
+            self.active_connections[target_str].discard(websocket)
+            if not self.active_connections[target_str]:
+                del self.active_connections[target_str]
+                self.last_seen_times[target_str] = datetime.now(timezone.utc).isoformat()
 
     def is_user_online(self, user_id: str) -> bool:
         target_str = str(user_id).strip().lower()
@@ -46,6 +51,17 @@ class ConnectionManager:
             if str(uid).strip().lower() == target_str and len(conns) > 0:
                 return True
         return False
+
+    def get_last_seen(self, user_id: str) -> Optional[str]:
+        target_str = str(user_id).strip()
+        return self.last_seen_times.get(target_str)
+
+    async def broadcast(self, message: dict, exclude_user_id: Optional[str] = None):
+        exclude_str = str(exclude_user_id).strip().lower() if exclude_user_id else None
+        for uid in list(self.active_connections.keys()):
+            if exclude_str and str(uid).strip().lower() == exclude_str:
+                continue
+            await self.send_to_user(uid, message)
 
     async def send_to_user(self, user_id: str, message: dict) -> bool:
         target_str = str(user_id).strip().lower()
@@ -181,6 +197,18 @@ def get_websocket_bearer_token(websocket: WebSocket) -> Optional[str]:
             return token or None
     return None
 
+def update_user_db_last_seen(user_id: str, last_seen_dt: datetime):
+    try:
+        from ..database import SessionLocal
+        from ..models.user import User
+        with SessionLocal() as db_session:
+            db_u = db_session.query(User).filter(User.id == str(user_id)).first()
+            if db_u:
+                db_u.last_seen = last_seen_dt
+                db_session.commit()
+    except Exception as e:
+        logger.warning(f"Could not persist last_seen for {user_id}: {e}")
+
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     token = get_websocket_bearer_token(websocket)
@@ -191,7 +219,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         return
 
     await manager.connect(user_id, websocket, subprotocol="nexussocial")
+    update_user_db_last_seen(str(user_id), datetime.now(timezone.utc))
     try:
+        # Thông báo trạng thái Trực tuyến (Online) tới các người dùng khác
+        await manager.broadcast({
+            "type": "USER_STATUS",
+            "user_id": str(user_id),
+            "is_online": True
+        }, exclude_user_id=str(user_id))
+
         while True:
             data = await websocket.receive_text()
             if data == "ping":
@@ -409,10 +445,30 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     await handle_group_call_leave(int(conv_id), str(user_id))
     except WebSocketDisconnect:
         manager.disconnect(user_id, websocket)
+        if not manager.is_user_online(user_id):
+            now_dt = datetime.now(timezone.utc)
+            now_iso = now_dt.isoformat()
+            update_user_db_last_seen(str(user_id), now_dt)
+            await manager.broadcast({
+                "type": "USER_STATUS",
+                "user_id": str(user_id),
+                "is_online": False,
+                "last_seen": now_iso
+            })
         for c_id in list(active_group_calls.keys()):
             await handle_group_call_leave(c_id, str(user_id))
     except Exception:
         manager.disconnect(user_id, websocket)
+        if not manager.is_user_online(user_id):
+            now_dt = datetime.now(timezone.utc)
+            now_iso = now_dt.isoformat()
+            update_user_db_last_seen(str(user_id), now_dt)
+            await manager.broadcast({
+                "type": "USER_STATUS",
+                "user_id": str(user_id),
+                "is_online": False,
+                "last_seen": now_iso
+            })
         for c_id in list(active_group_calls.keys()):
             await handle_group_call_leave(c_id, str(user_id))
 
@@ -447,7 +503,43 @@ def get_conversations(
     current_user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
-    return MessageService.get_conversations(current_user_id, tab, db)
+    return MessageService.get_conversations(
+        current_user_id,
+        tab,
+        db,
+        is_online_func=manager.is_user_online,
+        get_last_seen_func=manager.get_last_seen
+    )
+
+@router.get(
+    "/users/online-status",
+    summary="Lấy trạng thái hoạt động thực tế của danh sách người dùng"
+)
+def get_users_online_status(
+    user_ids: str = Query(..., description="Danh sách ID người dùng cách nhau bởi dấu phẩy"),
+    current_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    ids = [uid.strip() for uid in user_ids.split(",") if uid.strip()]
+    statuses = {}
+    for uid in ids:
+        online = manager.is_user_online(uid)
+        last_dt = manager.get_last_seen(uid)
+        if not last_dt and not online:
+            u = db.query(User).filter(User.id == uid).first()
+            if u and getattr(u, "last_seen", None):
+                last_dt = u.last_seen.isoformat()
+            else:
+                last_sent_msg = db.query(Message.created_at).filter(Message.sender_id == uid).order_by(Message.id.desc()).first()
+                if last_sent_msg and last_sent_msg[0]:
+                    last_dt = last_sent_msg[0].isoformat()
+                elif u and getattr(u, "updated_at", None):
+                    last_dt = u.updated_at.isoformat()
+        statuses[uid] = {
+            "is_online": online,
+            "last_seen": last_dt
+        }
+    return statuses
 
 @router.get(
     "/conversations/{conversation_id}",
@@ -507,6 +599,17 @@ def get_or_create_conversation(
             conv.status = "accepted"
             db.commit()
 
+    partner_last_seen = manager.get_last_seen(str(partner.id))
+    if not partner_last_seen and not manager.is_user_online(str(partner.id)):
+        if getattr(partner, "last_seen", None):
+            partner_last_seen = partner.last_seen.isoformat()
+        else:
+            last_sent = db.query(Message.created_at).filter(Message.sender_id == str(partner.id)).order_by(Message.id.desc()).first()
+            if last_sent and last_sent[0]:
+                partner_last_seen = last_sent[0].isoformat()
+            elif getattr(partner, "updated_at", None):
+                partner_last_seen = partner.updated_at.isoformat()
+
     return {
         "conversation_id": conv.id if (conv and (has_msg or is_friend or conv.status == "blocked")) else None,
         "status": conv.status if conv else ("accepted" if is_friend else "pending"),
@@ -520,8 +623,9 @@ def get_or_create_conversation(
             "username": partner.username,
             "avatar": partner.avatar_url,
             "bio": partner.bio,
-            "is_online": True,
-            "is_friend": is_friend
+            "is_online": manager.is_user_online(str(partner.id)),
+            "is_friend": is_friend,
+            "last_seen": partner_last_seen
         }
     }
 
