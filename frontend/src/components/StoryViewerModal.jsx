@@ -56,6 +56,7 @@ export default function StoryViewerModal({
   onNextTray,
   onPrevTray,
   initialStoryId,
+  initialStoryIndex,
   initialShowViewers = false,
   targetViewerId = null,
   onOpenReportModal,
@@ -277,13 +278,21 @@ export default function StoryViewerModal({
     }
   }, [isMuted]);
 
-  // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
+  // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu / chuyển tray Next-Prev
   useEffect(() => {
     if (isOpen && stories.length > 0) {
       let startIndex = 0;
       if (initialStoryId) {
         const foundIdx = stories.findIndex((s) => String(s.id) === String(initialStoryId));
         if (foundIdx >= 0) startIndex = foundIdx;
+      } else if (typeof initialStoryIndex === 'number' && initialStoryIndex >= 0 && initialStoryIndex < stories.length) {
+        startIndex = initialStoryIndex;
+      } else if (tray?.startAtEnd || typeof tray?.initialStoryIndex === 'number') {
+        if (typeof tray.initialStoryIndex === 'number') {
+          startIndex = Math.min(Math.max(0, tray.initialStoryIndex), stories.length - 1);
+        } else if (tray.startAtEnd) {
+          startIndex = Math.max(0, stories.length - 1);
+        }
       } else {
         const firstUnviewedIndex = stories.findIndex((s) => !s.isViewed);
         if (firstUnviewedIndex >= 0) startIndex = firstUnviewedIndex;
@@ -314,7 +323,7 @@ export default function StoryViewerModal({
         setShowViewers(false);
       }
     }
-  }, [isOpen, tray, initialStoryId, initialShowViewers, currentUser?.id]);
+  }, [isOpen, tray?.author?.id, tray?.navId, initialStoryId, initialStoryIndex, initialShowViewers, currentUser?.id]);
 
   // Khóa cuộn trang nền và hỗ trợ phím Escape / Mũi tên trái phải
   useEffect(() => {
