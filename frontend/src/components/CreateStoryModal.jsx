@@ -4,10 +4,11 @@ import {
   X, Image as ImageIcon, Type, Sparkles, AlertCircle, 
   Globe, Users, Lock, Loader2, ArrowLeft,
   RotateCw, Settings, Clock, ChevronDown, Check, Smile, Minus, Plus,
-  FileText, Move, RotateCcw
+  FileText, Move, RotateCcw, Music, Volume2, VolumeX, Play, Pause, Disc, Search
 } from 'lucide-react';
 import { createStoryApi, uploadStoryMedia } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import { STORY_MUSIC_LIBRARY } from '../constants/storyMusicList';
 
 // Danh sách phông nền chuyển sắc & đơn sắc phong cách Facebook Story
 const GRADIENT_PRESETS = [
@@ -228,6 +229,14 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [textScale, setTextScale] = useState(1);
   const [isResizing, setIsResizing] = useState(false);
 
+  // Cấu hình Âm nhạc Story (Music Soundtrack)
+  const [selectedMusic, setSelectedMusic] = useState(null);
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [musicSearchQuery, setMusicSearchQuery] = useState('');
+  const [previewingSongId, setPreviewingSongId] = useState(null);
+  const [musicPos, setMusicPos] = useState({ x: 50, y: 84 });
+  const previewAudioRef = useRef(null);
+
   const fileInputRef = useRef(null);
   const cardRef = useRef(null);
 
@@ -289,6 +298,91 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     setTextPos({ x: 50, y: 50 });
     setTextScale(1);
     setIsResizing(false);
+
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    setSelectedMusic(null);
+    setShowMusicPicker(false);
+    setPreviewingSongId(null);
+    setMusicPos({ x: 50, y: 84 });
+  };
+
+  const handleTogglePreviewMusic = (song, e) => {
+    if (e) e.stopPropagation();
+    if (previewingSongId === song.id) {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+      setPreviewingSongId(null);
+    } else {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+      const audio = new Audio(song.audioUrl);
+      previewAudioRef.current = audio;
+      audio.play().catch(() => {});
+      audio.onended = () => setPreviewingSongId(null);
+      setPreviewingSongId(song.id);
+    }
+  };
+
+  const handleSelectSong = (song) => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    setPreviewingSongId(null);
+    setSelectedMusic(song);
+    setShowMusicPicker(false);
+  };
+
+  const handleRemoveSong = () => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    setPreviewingSongId(null);
+    setSelectedMusic(null);
+  };
+
+  const handleMusicDragStart = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const cardEl = cardRef.current;
+    if (!cardEl) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialPos = { ...musicPos };
+    const rect = cardEl.getBoundingClientRect();
+
+    const onPointerMove = (moveEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      let newXPercent = initialPos.x + (deltaX / rect.width) * 100;
+      let newYPercent = initialPos.y + (deltaY / rect.height) * 100;
+
+      newXPercent = Math.max(15, Math.min(85, newXPercent));
+      newYPercent = Math.max(15, Math.min(88, newYPercent));
+
+      setMusicPos({
+        x: Math.round(newXPercent),
+        y: Math.round(newYPercent),
+      });
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   const handleClose = () => {
@@ -461,6 +555,15 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           textPos,
           textScale,
           isAiGenerated,
+          music: selectedMusic ? {
+            id: selectedMusic.id,
+            title: selectedMusic.title,
+            artist: selectedMusic.artist,
+            category: selectedMusic.category,
+            coverUrl: selectedMusic.coverUrl,
+            audioUrl: selectedMusic.audioUrl,
+            musicPos,
+          } : null,
         } : {
           zoomLevel,
           rotation,
@@ -473,6 +576,15 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           textScale,
           altText: altText.trim() || null,
           isAiGenerated,
+          music: selectedMusic ? {
+            id: selectedMusic.id,
+            title: selectedMusic.title,
+            artist: selectedMusic.artist,
+            category: selectedMusic.category,
+            coverUrl: selectedMusic.coverUrl,
+            audioUrl: selectedMusic.audioUrl,
+            musicPos,
+          } : null,
         },
         privacy,
         forcePost: force,
@@ -1126,6 +1238,54 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                 </div>
               )}
 
+              {/* MỤC ÂM NHẠC CHO STORY (CHÈN NHẠC NỀN CHUẨN FACEBOOK & INSTAGRAM) */}
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/50 dark:bg-slate-850">
+                <div className="p-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`p-2 rounded-xl shrink-0 ${selectedMusic ? 'bg-gradient-to-tr from-purple-600 to-pink-600 text-white shadow-sm' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}`}>
+                      <Music className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[140px]">
+                        {selectedMusic ? selectedMusic.title : 'Âm nhạc cho tin'}
+                      </p>
+                      <p className="text-[11px] text-slate-400 truncate max-w-[140px]">
+                        {selectedMusic ? `${selectedMusic.artist}` : 'Chèn giai điệu bài hát vào Story'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedMusic ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowMusicPicker(true)}
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 hover:bg-purple-100 transition cursor-pointer"
+                      >
+                        Đổi bài
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRemoveSong}
+                        className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                        title="Gỡ bài hát"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowMusicPicker(true)}
+                      className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Chọn nhạc</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* MỤC CHUNG: THÊM NHÃN AI (AI LABELING TOGGLE) */}
               <div className="pt-2">
                 <div className="flex items-start justify-between gap-3 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
@@ -1463,6 +1623,39 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     )}
                   </div>
                 )}
+
+                {/* 3. STICKER ÂM NHẠC TRÊN CANVAS STORY (Kéo thả di chuyển được) */}
+                {selectedMusic && (
+                  <div
+                    onPointerDown={handleMusicDragStart}
+                    style={{
+                      left: `${musicPos.x}%`,
+                      top: `${musicPos.y}%`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                    className="absolute z-40 cursor-grab active:cursor-grabbing select-none touch-none group/music"
+                    title="Kéo thả để di chuyển nhãn bài hát"
+                  >
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/25 shadow-2xl text-white group-hover/music:scale-105 transition-transform">
+                      <div className="w-5 h-5 rounded-full overflow-hidden bg-purple-600 flex items-center justify-center shrink-0 border border-white/40 animate-spin" style={{ animationDuration: '4s' }}>
+                        <Music className="w-3 h-3 text-white" />
+                      </div>
+                      <div className="min-w-0 pr-1">
+                        <p className="text-[11px] font-bold truncate max-w-[130px] leading-tight drop-shadow-xs">
+                          {selectedMusic.title}
+                        </p>
+                        <div className="flex items-center gap-1.5 text-[9px] text-white/80 leading-tight">
+                          <span className="truncate max-w-[90px]">{selectedMusic.artist}</span>
+                          <div className="flex items-end gap-0.5 h-2">
+                            <span className="w-0.5 h-full bg-white rounded-full animate-pulse" />
+                            <span className="w-0.5 h-1.5 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                            <span className="w-0.5 h-1 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* THANH ĐIỀU KHIỂN PHÓNG TO & XOAY ẢNH DƯỚI KHUNG PREVIEW */}
@@ -1518,6 +1711,122 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
 
           </div>
 
+        </div>
+      )}
+
+      {/* MODAL KHO ÂM NHẠC CHO TIN (FACEBOOK & INSTAGRAM MUSIC PICKER) */}
+      {showMusicPicker && (
+        <div 
+          className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-fade-in"
+          onClick={() => {
+            if (previewAudioRef.current) previewAudioRef.current.pause();
+            setPreviewingSongId(null);
+            setShowMusicPicker(false);
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh] animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-xs">
+                  <Music className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Kho Âm Nhạc cho Tin</h3>
+                  <p className="text-[11px] text-slate-400">Chọn giai điệu phù hợp cho Story của bạn</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (previewAudioRef.current) previewAudioRef.current.pause();
+                  setPreviewingSongId(null);
+                  setShowMusicPicker(false);
+                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tìm kiếm */}
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-850">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={musicSearchQuery}
+                  onChange={(e) => setMusicSearchQuery(e.target.value)}
+                  placeholder="Tìm bài hát, nghệ sĩ, thể loại..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                />
+              </div>
+            </div>
+
+            {/* Danh sách bài hát */}
+            <div className="p-2 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 flex-1">
+              {STORY_MUSIC_LIBRARY
+                .filter((s) => {
+                  if (!musicSearchQuery.trim()) return true;
+                  const q = musicSearchQuery.toLowerCase();
+                  return s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q) || s.category.toLowerCase().includes(q);
+                })
+                .map((song) => {
+                  const isPlaying = previewingSongId === song.id;
+                  const isCurrentSelected = selectedMusic?.id === song.id;
+
+                  return (
+                    <div 
+                      key={song.id}
+                      className={`p-2.5 rounded-2xl flex items-center justify-between gap-3 transition ${
+                        isCurrentSelected ? 'bg-purple-50/70 dark:bg-purple-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 shadow-xs group">
+                          <img src={song.coverUrl} alt={song.title} className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={(e) => handleTogglePreviewMusic(song, e)}
+                            className="absolute inset-0 bg-black/40 hover:bg-black/60 flex items-center justify-center text-white transition cursor-pointer"
+                            title={isPlaying ? "Dừng nghe thử" : "Nghe thử"}
+                          >
+                            {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white translate-x-0.5" />}
+                          </button>
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {song.title}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {song.artist}
+                          </p>
+                          <span className="inline-block mt-0.5 px-2 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-medium text-slate-600 dark:text-slate-300">
+                            {song.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSong(song)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+                          isCurrentSelected 
+                            ? 'bg-purple-600 text-white shadow-xs' 
+                            : 'bg-slate-100 dark:bg-slate-800 hover:bg-purple-600 hover:text-white text-slate-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {isCurrentSelected ? 'Đang chọn' : 'Chọn'}
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
         </div>
       )}
 

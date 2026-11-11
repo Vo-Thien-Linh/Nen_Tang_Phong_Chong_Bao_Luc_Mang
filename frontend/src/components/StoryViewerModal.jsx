@@ -3,10 +3,12 @@ import { createPortal } from 'react-dom';
 import { 
   X, ChevronLeft, ChevronRight, Eye, EyeOff, Trash2, Heart, 
   ThumbsUp, Smile, AlertCircle, Play, Pause, Volume2, VolumeX, ShieldAlert,
-  Send, Loader2, Clock, MoreHorizontal, Link, BellOff, AlertTriangle
+  Send, Loader2, Clock, MoreHorizontal, Link, BellOff, AlertTriangle,
+  Share2, Music, Search, Check, Copy, ExternalLink
 } from 'lucide-react';
 import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
 import { messageService } from '../services/messageService';
+import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 
 const REACTION_ICONS = [
@@ -103,6 +105,18 @@ export default function StoryViewerModal({
   const [isHolding, setIsHolding] = useState(false);
   const pressStartTimeRef = useRef(0);
 
+  // Quản lý Âm nhạc nền cho Story
+  const storyAudioRef = useRef(null);
+
+  // Quản lý Modal Chia sẻ tin đăng (Instagram Story Share)
+  const [showShareStoryModal, setShowShareStoryModal] = useState(false);
+  const [friendsList, setFriendsList] = useState([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+  const [friendSearch, setFriendSearch] = useState('');
+  const [storySendingStatus, setStorySendingStatus] = useState({});
+  const [storyShareMsg, setStoryShareMsg] = useState('');
+  const [isCopiedStoryLink, setIsCopiedStoryLink] = useState(false);
+
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
 
@@ -110,6 +124,10 @@ export default function StoryViewerModal({
   const safeIndex = stories.length > 0 ? Math.min(currentIndex, stories.length - 1) : 0;
   const currentStory = stories[safeIndex] || null;
   const isAuthor = Boolean(currentUser?.id && String(tray?.author?.id) === String(currentUser?.id));
+
+  const storyMusic = useMemo(() => {
+    return currentStory?.backgroundStyle?.music || currentStory?.music || null;
+  }, [currentStory]);
 
   // Kiểm tra mức độ kiểm duyệt của tin hiện tại (Áp dụng Phương án A: Bạo lực ẩn cứng, Toxic/NSFW che mờ)
   const isHardHidden = Boolean(
@@ -154,7 +172,7 @@ export default function StoryViewerModal({
 
   const badgeText = isToxic && isNsfw ? 'Toxic & NSFW' : isToxic ? 'Toxic' : 'NSFW';
 
-  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn, danh sách người xem hoặc khi gặp tin nhạy cảm đang bị che cảnh báo
+  // Trạng thái tạm dừng hiệu lực: khi tạm dừng, giữ chuột, đang focus nhập tin nhắn, có nội dung tin nhắn, đang mở menu tùy chọn, modal chia sẻ, danh sách người xem hoặc khi gặp tin nhạy cảm đang bị che cảnh báo
   const isEffectivePaused = Boolean(
     isPaused || 
     isHolding || 
@@ -162,6 +180,7 @@ export default function StoryViewerModal({
     replyMessage.trim().length > 0 || 
     showViewers ||
     showStoryMenu ||
+    showShareStoryModal ||
     isStoryCovered
   );
 
@@ -174,6 +193,48 @@ export default function StoryViewerModal({
       videoRef.current.play().catch(() => {});
     }
   }, [isEffectivePaused]);
+
+  // Quản lý phát nhạc nền Story
+  useEffect(() => {
+    if (!storyMusic?.audioUrl) {
+      if (storyAudioRef.current) {
+        storyAudioRef.current.pause();
+        storyAudioRef.current = null;
+      }
+      return;
+    }
+
+    const audio = new Audio(storyMusic.audioUrl);
+    audio.loop = true;
+    audio.muted = isMuted;
+    storyAudioRef.current = audio;
+
+    if (!isEffectivePaused) {
+      audio.play().catch(() => {});
+    }
+
+    return () => {
+      audio.pause();
+      storyAudioRef.current = null;
+    };
+  }, [currentStory?.id, storyMusic?.audioUrl]);
+
+  // Đồng bộ tạm dừng/phát nhạc theo trạng thái Story
+  useEffect(() => {
+    if (!storyAudioRef.current) return;
+    if (isEffectivePaused) {
+      storyAudioRef.current.pause();
+    } else {
+      storyAudioRef.current.play().catch(() => {});
+    }
+  }, [isEffectivePaused]);
+
+  // Đồng bộ Mute/Unmute
+  useEffect(() => {
+    if (storyAudioRef.current) {
+      storyAudioRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
   useEffect(() => {
@@ -265,6 +326,65 @@ export default function StoryViewerModal({
       onStoryViewed?.(currentStory.id, tray?.author?.id);
     }
   }, [currentStory?.id]);
+
+  const handleOpenStoryShare = () => {
+    setIsPaused(true);
+    setShowStoryMenu(false);
+    setShowShareStoryModal(true);
+    if (friendsList.length === 0) {
+      setIsLoadingFriends(true);
+      friendService.getFriendsList()
+        .then((data) => {
+          if (Array.isArray(data)) setFriendsList(data);
+          else if (data?.friends && Array.isArray(data.friends)) setFriendsList(data.friends);
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingFriends(false));
+    }
+  };
+
+  const handleSendStoryToFriend = async (friend) => {
+    const friendId = friend.id;
+    if (storySendingStatus[friendId] === 'sending' || storySendingStatus[friendId] === 'sent') return;
+
+    setStorySendingStatus(prev => ({ ...prev, [friendId]: 'sending' }));
+    try {
+      const storyUrl = `${window.location.origin}?story=${currentStory?.id}`;
+      const authorName = tray?.author?.name || 'thành viên';
+      const textMsg = storyShareMsg.trim() 
+        ? `${storyShareMsg.trim()}\n\n🔗 Tin của ${authorName}: ${storyUrl}`
+        : `Xem tin của ${authorName} nhé:\n\n🔗 ${storyUrl}`;
+
+      await messageService.sendMessage(friendId, textMsg);
+      setStorySendingStatus(prev => ({ ...prev, [friendId]: 'sent' }));
+      setReplySuccessMsg(`Đã gửi tin tới ${friend.name || friend.username}!`);
+      setTimeout(() => setReplySuccessMsg(''), 2500);
+    } catch (err) {
+      setStorySendingStatus(prev => ({ ...prev, [friendId]: 'error' }));
+      setReplyErrorMsg('Gửi tin thất bại, vui lòng thử lại');
+      setTimeout(() => setReplyErrorMsg(''), 2500);
+    }
+  };
+
+  const handleShareStoryExternal = async () => {
+    const storyUrl = `${window.location.origin}?story=${currentStory?.id}`;
+    const authorName = tray?.author?.name || 'thành viên';
+    if (navigator?.share) {
+      try {
+        await navigator.share({
+          title: `Tin của ${authorName} trên WINGS`,
+          text: `Xem tin của ${authorName} trên WINGS:`,
+          url: storyUrl,
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          handleCopyStoryLink();
+        }
+      }
+    } else {
+      handleCopyStoryLink();
+    }
+  };
 
   const handleCopyStoryLink = () => {
     const url = `${window.location.origin}?story=${currentStory?.id}`;
@@ -630,13 +750,28 @@ export default function StoryViewerModal({
                   }
                 })()}
               </p>
+
+              {/* Nhãn âm nhạc đang phát chuẩn Facebook/Instagram */}
+              {storyMusic && (
+                <div className="flex items-center gap-1.5 text-white/95 text-[11px] font-medium bg-black/40 backdrop-blur-md px-2.5 py-0.5 rounded-full mt-1 w-fit max-w-[210px] border border-white/10 shadow-xs">
+                  <Music className="w-3 h-3 text-purple-400 shrink-0" />
+                  <span className="truncate">{storyMusic.title} • {storyMusic.artist}</span>
+                  {!isMuted && !isEffectivePaused && (
+                    <div className="flex items-end gap-0.5 h-2 shrink-0">
+                      <span className="w-0.5 h-full bg-purple-400 rounded-full animate-pulse" />
+                      <span className="w-0.5 h-1.5 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                      <span className="w-0.5 h-1 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Cụm công cụ góc phải trên (Play/Pause, Âm thanh, Menu 3 chấm ... chuẩn Facebook Story) */}
           <div className="flex items-center gap-1.5 z-40 relative">
-            {/* Nút Bật/Tắt âm thanh (khi là Video) */}
-            {currentStory.storyType === 'video' && (
+            {/* Nút Bật/Tắt âm thanh (khi là Video hoặc Story có Âm nhạc) */}
+            {(currentStory.storyType === 'video' || storyMusic) && (
               <button
                 onClick={() => setIsMuted(!isMuted)}
                 className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-sm transition cursor-pointer"
@@ -678,20 +813,20 @@ export default function StoryViewerModal({
                   onClick={(e) => e.stopPropagation()}
                   className="absolute right-0 top-10 w-72 sm:w-80 p-2 bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/15 text-white z-50 animate-scale-up space-y-1 select-none"
                 >
-                  {/* Mục 1: Sao chép liên kết */}
+                  {/* Mục 1: Chia sẻ tin đăng (Instagram Story Share) */}
                   <button
-                    onClick={handleCopyStoryLink}
+                    onClick={handleOpenStoryShare}
                     className="w-full flex items-start gap-3 p-2.5 rounded-xl hover:bg-white/10 transition text-left cursor-pointer group"
                   >
                     <div className="p-2 rounded-full bg-white/10 group-hover:bg-blue-600/30 text-white transition shrink-0 mt-0.5">
-                      <Link className="w-4 h-4 text-blue-400" />
+                      <Share2 className="w-4 h-4 text-blue-400" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-white group-hover:text-blue-300 transition">
-                        Sao chép liên kết để chia sẻ tin này
+                        Chia sẻ tin đăng
                       </p>
                       <p className="text-[10px] text-white/60 leading-tight mt-0.5">
-                        Tin sẽ hiển thị với đối tượng của {tray.author?.name} trong 24 giờ.
+                        Gửi tin này cho bạn bè qua tin nhắn hoặc chia sẻ ra ngoài
                       </p>
                     </div>
                   </button>
@@ -1279,6 +1414,148 @@ export default function StoryViewerModal({
                   );
                 })
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Modal Chia sẻ tin đăng (Instagram Story Share) */}
+        {showShareStoryModal && (
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex flex-col p-5 text-white animate-fade-in justify-between"
+          >
+            {/* Header */}
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-blue-600/30 text-blue-400">
+                    <Share2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-white">Chia sẻ tin đăng</h3>
+                    <p className="text-[11px] text-white/60">Gửi tin của {tray.author?.name} tới bạn bè</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowShareStoryModal(false); setIsPaused(false); }}
+                  className="p-1 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Ô tìm kiếm bạn bè */}
+              <div className="mt-3 relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-white/40" />
+                <input
+                  type="text"
+                  value={friendSearch}
+                  onChange={(e) => setFriendSearch(e.target.value)}
+                  placeholder="Tìm kiếm bạn bè..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white/10 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+
+              {/* Ô ghi chú đính kèm */}
+              <div className="mt-2">
+                <input
+                  type="text"
+                  value={storyShareMsg}
+                  onChange={(e) => setStoryShareMsg(e.target.value)}
+                  placeholder="Viết tin nhắn kèm theo (tùy chọn)..."
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-white/10 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+            </div>
+
+            {/* Danh sách bạn bè */}
+            <div className="flex-1 my-3 overflow-y-auto divide-y divide-white/5 pr-1">
+              {isLoadingFriends ? (
+                <div className="py-12 flex flex-col items-center justify-center text-white/50 gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                  <span className="text-xs">Đang tải bạn bè...</span>
+                </div>
+              ) : friendsList.filter(f => {
+                  if (!friendSearch.trim()) return true;
+                  const q = friendSearch.toLowerCase();
+                  return (f.name && f.name.toLowerCase().includes(q)) || (f.username && f.username.toLowerCase().includes(q));
+                }).length === 0 ? (
+                <div className="py-10 text-center text-white/50 text-xs">
+                  {friendSearch ? 'Không tìm thấy bạn bè phù hợp' : 'Chưa có bạn bè nào'}
+                </div>
+              ) : (
+                friendsList
+                  .filter(f => {
+                    if (!friendSearch.trim()) return true;
+                    const q = friendSearch.toLowerCase();
+                    return (f.name && f.name.toLowerCase().includes(q)) || (f.username && f.username.toLowerCase().includes(q));
+                  })
+                  .map((friend) => {
+                    const status = storySendingStatus[friend.id];
+                    return (
+                      <div key={friend.id} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={friend.avatar || friend.avatar_url || DEFAULT_AVATAR}
+                            alt={friend.name}
+                            className="w-8 h-8 rounded-full object-cover border border-white/20"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-white truncate">{friend.name || friend.username}</p>
+                            <p className="text-[10px] text-white/50 truncate">@{friend.username || 'user'}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={status === 'sending' || status === 'sent'}
+                          onClick={() => handleSendStoryToFriend(friend)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0 ${
+                            status === 'sent'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
+                          }`}
+                        >
+                          {status === 'sending' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : status === 'sent' ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              <span>Đã gửi</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3 h-3" />
+                              <span>Gửi</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* Footer hành động bổ sung */}
+            <div className="pt-3 border-t border-white/10 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleShareStoryExternal}
+                className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Chia sẻ ra ngoài</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyStoryLink}
+                className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Sao chép link</span>
+              </button>
             </div>
           </div>
         )}
