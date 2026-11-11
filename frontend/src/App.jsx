@@ -48,7 +48,9 @@ import {
   resolveAppealApi,
   fetchAiOverridesList,
   createAiOverrideApi,
-  fetchStories
+  fetchStories,
+  fetchStoryByIdApi,
+  fetchUserStoriesApi
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
@@ -777,6 +779,43 @@ export default function App() {
   const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
     try {
       let targetTray = tray;
+
+      // 1. Nếu có storyId cụ thể, ưu tiên tải trực tiếp story theo ID
+      if (!targetTray && storyId) {
+        try {
+          const singleStoryRes = await fetchStoryByIdApi(storyId);
+          const singleStory = singleStoryRes?.data || singleStoryRes;
+          if (singleStory?.id) {
+            targetTray = {
+              author: {
+                id: singleStory.author_id,
+                name: singleStory.author_name || singleStory.username || 'Người dùng',
+                username: singleStory.author_username || singleStory.username || '',
+                avatar: singleStory.author_avatar || singleStory.avatar_url,
+              },
+              isSelf: currentUser?.id ? String(currentUser.id) === String(singleStory.author_id) : false,
+              hasUnviewedStories: false,
+              stories: [singleStory],
+            };
+          }
+        } catch (fetchErr) {
+          console.warn('Không thể tải tin theo ID, thử tìm qua feed/user:', fetchErr.message);
+        }
+      }
+
+      // 2. Nếu chưa có tray và có userId, thử gọi API lấy tin của user đó
+      if (!targetTray && userId) {
+        try {
+          const userStoriesRes = await fetchUserStoriesApi(userId);
+          if (userStoriesRes?.data?.stories?.length > 0) {
+            targetTray = userStoriesRes.data;
+          }
+        } catch (uErr) {
+          console.warn('Không thể tải tin của user:', uErr.message);
+        }
+      }
+
+      // 3. Fallback: tìm trong feed stories chung
       if (!targetTray) {
         const res = await fetchStories();
         const allTrays = res?.data || [];
@@ -793,6 +832,19 @@ export default function App() {
           targetTray = allTrays[0];
         }
       }
+
+      // 4. Nếu vẫn chưa có và người dùng đang click vào thông báo tin của chính mình
+      if (!targetTray && currentUser?.id) {
+        try {
+          const myStoriesRes = await fetchUserStoriesApi(currentUser.id);
+          if (myStoriesRes?.data?.stories?.length > 0) {
+            targetTray = myStoriesRes.data;
+          }
+        } catch (myErr) {
+          console.warn('Không thể tải tin cá nhân:', myErr.message);
+        }
+      }
+
       if (targetTray) {
         setActiveStoryViewerTarget({
           tray: targetTray,

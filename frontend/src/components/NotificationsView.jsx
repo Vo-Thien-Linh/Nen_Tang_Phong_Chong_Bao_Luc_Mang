@@ -390,9 +390,10 @@ export default function NotificationsView({
 
                     if (isStory && onOpenStoryViewer) {
                       onOpenStoryViewer({
-                        storyId: payload.storyId || null,
+                        storyId: payload?.storyId || item.target_post_id || null,
+                        userId: item.recipient_id || null,
                         initialShowViewers: true,
-                        targetViewerId: payload.actorId || item.actor_id || actor.id,
+                        targetViewerId: payload?.actorId || item.actor_id || actor.id,
                       });
                       return;
                     }
@@ -526,9 +527,10 @@ export default function NotificationsView({
                             onMarkAsRead(item.id);
                             if (onOpenStoryViewer) {
                               onOpenStoryViewer({
-                                storyId: payload.storyId || null,
+                                storyId: payload?.storyId || item.target_post_id || null,
+                                userId: item.recipient_id || null,
                                 initialShowViewers: true,
-                                targetViewerId: payload.actorId || item.actor_id || actor.id,
+                                targetViewerId: payload?.actorId || item.actor_id || actor.id,
                               });
                             }
                           }}
