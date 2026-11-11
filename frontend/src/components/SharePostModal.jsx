@@ -130,8 +130,10 @@ export default function SharePostModal({ post, currentUser, onConfirm, onClose }
           isSharedPost: true,
           originalPostId: post?.id,
           originalAuthor: authorName,
+          originalUsername: post?.author?.username || authorName,
           originalAvatar: post?.author?.avatar || post?.author?.avatar_url || DEFAULT_AVATAR,
           originalContent: post?.content || '',
+          originalImage: post?.imageUrl || null,
         },
         privacy: 'public',
       });
@@ -427,34 +429,49 @@ export default function SharePostModal({ post, currentUser, onConfirm, onClose }
                   </span>
                 </div>
 
-                {/* Thẻ bài viết trích dẫn mờ kính sang trọng (Instagram Card) */}
-                <div className="my-auto bg-black/45 backdrop-blur-md rounded-2xl p-3 border border-white/20 text-white space-y-2 shadow-lg">
-                  <div className="flex items-center gap-2">
-                    <img
-                      src={post?.author?.avatar || post?.author?.avatar_url || DEFAULT_AVATAR}
-                      alt="Author"
-                      className="w-6 h-6 rounded-full object-cover border border-white/40"
-                    />
-                    <span className="text-xs font-bold truncate">
-                      {post?.author?.name || 'Người dùng'}
-                    </span>
+                {/* Thẻ bài viết trích dẫn chuẩn Instagram Story (Ảnh 2) */}
+                <div className="my-auto w-full bg-black/40 backdrop-blur-xl rounded-2xl border border-white/20 text-white overflow-hidden shadow-2xl">
+                  {/* Header bài viết nhỏ trên ảnh */}
+                  <div className="px-3 py-2 flex items-center justify-between bg-black/30 backdrop-blur-sm border-b border-white/10">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <img
+                        src={post?.author?.avatar || post?.author?.avatar_url || DEFAULT_AVATAR}
+                        alt="Author"
+                        className="w-5 h-5 rounded-full object-cover border border-white/40 shrink-0"
+                      />
+                      <span className="text-[11px] font-bold truncate">
+                        {post?.author?.username || post?.author?.name || 'Người dùng'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[9px] font-semibold text-white/80 bg-white/15 px-1.5 py-0.5 rounded-full">
+                      <ExternalLink className="w-2.5 h-2.5" />
+                      <span>Xem bài viết</span>
+                    </div>
                   </div>
 
-                  {post?.content && (
-                    <p className="text-xs text-white/90 line-clamp-3 leading-relaxed drop-shadow-xs">
-                      {post.content}
-                    </p>
-                  )}
-
-                  {post?.imageUrl && (
-                    <div className="w-full h-28 rounded-xl overflow-hidden bg-black/30">
+                  {post?.imageUrl ? (
+                    <div className="w-full relative bg-black/30 overflow-hidden flex items-center justify-center max-h-36">
                       <img
                         src={post.imageUrl}
                         alt="Post media"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover max-h-36"
                       />
+                      {post?.content && (
+                        <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white line-clamp-1">
+                          {post.content}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 text-[11px] text-white/90 italic line-clamp-3">
+                      "{post?.content}"
                     </div>
                   )}
+
+                  <div className="px-2.5 py-1.5 bg-black/50 text-[9px] text-white/70 flex items-center justify-between border-t border-white/10">
+                    <span>Nhấn để mở bài viết gốc</span>
+                    <span>→</span>
+                  </div>
                 </div>
 
                 {/* Ghi chú thêm vào Story nếu có */}
