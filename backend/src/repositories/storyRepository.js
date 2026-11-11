@@ -684,6 +684,89 @@ export function createStoryRepository({ pool }) {
       `);
       return res.rowCount;
     },
+
+    async interactWidget({ storyId, userId, widgetType, stickerId, option, value, text, userName, userAvatar }) {
+      const checkRes = await pool.query(
+        'SELECT id, background_style FROM stories WHERE id = $1 AND is_deleted = FALSE',
+        [storyId]
+      );
+      if (checkRes.rows.length === 0) {
+        const error = new Error('Không tìm thấy tin');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      let bgStyle = checkRes.rows[0].background_style;
+      if (typeof bgStyle === 'string') {
+        try { bgStyle = JSON.parse(bgStyle); } catch { bgStyle = {}; }
+      }
+      bgStyle = bgStyle || {};
+      const stickers = Array.isArray(bgStyle.stickers) ? [...bgStyle.stickers] : [];
+
+      let targetSticker = stickers.find(s => String(s.id) === String(stickerId));
+      if (!targetSticker && widgetType) {
+        targetSticker = stickers.find(s => s.widgetType === widgetType);
+      }
+
+      if (!targetSticker) {
+        targetSticker = { id: stickerId || `widget-${Date.now()}`, type: 'widget', widgetType };
+        stickers.push(targetSticker);
+      }
+
+      if (widgetType === 'poll') {
+        targetSticker.pollData = targetSticker.pollData || { countA: 0, countB: 0, votes: {} };
+        const votes = targetSticker.pollData.votes || {};
+        const prevVote = votes[userId];
+        if (!prevVote) {
+          if (option === 'A') targetSticker.pollData.countA = (targetSticker.pollData.countA || 0) + 1;
+          if (option === 'B') targetSticker.pollData.countB = (targetSticker.pollData.countB || 0) + 1;
+          votes[userId] = option;
+          targetSticker.pollData.votes = votes;
+        }
+      } else if (widgetType === 'slider') {
+        targetSticker.sliderData = targetSticker.sliderData || { totalScore: 0, scoreCount: 0, averageScore: 50, votes: {} };
+        const votes = targetSticker.sliderData.votes || {};
+        const numericVal = Math.min(100, Math.max(0, Number(value) || 0));
+        const prevVal = votes[userId];
+        if (prevVal === undefined) {
+          targetSticker.sliderData.totalScore = (targetSticker.sliderData.totalScore || 0) + numericVal;
+          targetSticker.sliderData.scoreCount = (targetSticker.sliderData.scoreCount || 0) + 1;
+        } else {
+          targetSticker.sliderData.totalScore = (targetSticker.sliderData.totalScore || 0) - prevVal + numericVal;
+        }
+        votes[userId] = numericVal;
+        targetSticker.sliderData.votes = votes;
+        targetSticker.sliderData.averageScore = targetSticker.sliderData.scoreCount > 0
+          ? Math.round(targetSticker.sliderData.totalScore / targetSticker.sliderData.scoreCount)
+          : numericVal;
+      } else if (widgetType === 'question') {
+        targetSticker.questionData = targetSticker.questionData || { answers: [] };
+        const answers = Array.isArray(targetSticker.questionData.answers) ? targetSticker.questionData.answers : [];
+        answers.push({
+          userId,
+          userName: userName || 'Người dùng',
+          userAvatar: userAvatar || null,
+          text: String(text || '').slice(0, 500),
+          createdAt: new Date().toISOString(),
+        });
+        targetSticker.questionData.answers = answers;
+      }
+
+      bgStyle.stickers = stickers;
+      await pool.query(
+        'UPDATE stories SET background_style = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [JSON.stringify(bgStyle), storyId]
+      );
+
+      return {
+        storyId,
+        stickerId: targetSticker.id,
+        widgetType,
+        pollData: targetSticker.pollData || null,
+        sliderData: targetSticker.sliderData || null,
+        questionData: targetSticker.questionData || null,
+      };
+    },
   };
 }
 

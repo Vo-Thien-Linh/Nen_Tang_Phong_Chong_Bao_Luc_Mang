@@ -257,6 +257,30 @@ export function createStoryService({
         });
       }
 
+      // Gửi thông báo nhắc tên đến những người bạn được gắn thẻ trong tin
+      if (storyRepository.pool && createdStory.ai_status !== 'hidden') {
+        const stickers = backgroundStyle?.stickers || [];
+        const mentions = stickers.filter((s) => s.type === 'widget' && s.widgetType === 'mention' && s.userId);
+        for (const m of mentions) {
+          if (m.userId && String(m.userId) !== String(user.id)) {
+            try {
+              await storyRepository.pool.query(
+                `INSERT INTO notifications (recipient_id, actor_id, type, content, payload)
+                 VALUES ($1, $2, 'story_mention', $3, $4::jsonb)`,
+                [
+                  m.userId,
+                  user.id,
+                  `${user.full_name || 'Một người bạn'} đã nhắc đến bạn trong một tin mới.`,
+                  JSON.stringify({ storyId: String(createdStory.id), authorName: user.full_name, authorAvatar: user.avatar_url })
+                ]
+              );
+            } catch (mentionNotifErr) {
+              console.error('Lỗi gửi thông báo nhắc tên trong tin:', mentionNotifErr.message);
+            }
+          }
+        }
+      }
+
       return createdStory;
     },
 
@@ -416,6 +440,35 @@ export function createStoryService({
       });
 
       return true;
+    },
+
+    async interactWidget({ user, storyId, widgetType, stickerId, option, value, text }) {
+      if (!user?.id) {
+        const error = new Error('Bạn cần đăng nhập để tương tác với tin');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      const result = await storyRepository.interactWidget({
+        storyId,
+        userId: user.id,
+        widgetType,
+        stickerId,
+        option,
+        value,
+        text,
+        userName: user.name || user.full_name || 'Người dùng',
+        userAvatar: user.avatar_url || user.avatar || null,
+      });
+
+      realtimeService.broadcast({
+        type: 'STORY_WIDGET_INTERACT',
+        storyId: String(storyId),
+        userId: user.id,
+        data: result,
+      });
+
+      return result;
     },
   };
 }

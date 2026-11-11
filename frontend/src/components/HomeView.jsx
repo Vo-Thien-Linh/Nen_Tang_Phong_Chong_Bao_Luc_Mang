@@ -95,7 +95,7 @@ export default function HomeView({
 
   const handleStoryViewed = (storyId, authorId) => {
     setStoryTrays(prevTrays => {
-      const updated = prevTrays.map(tray => {
+      return prevTrays.map(tray => {
         if (String(tray.author?.id) === String(authorId)) {
           const updatedStories = tray.stories.map(s => 
             String(s.id) === String(storyId) ? { ...s, isViewed: true } : s
@@ -108,14 +108,6 @@ export default function HomeView({
           };
         }
         return tray;
-      });
-
-      return [...updated].sort((a, b) => {
-        if (a.hasUnviewedStories && !b.hasUnviewedStories) return -1;
-        if (!a.hasUnviewedStories && b.hasUnviewedStories) return 1;
-        if (a.isSelf && !b.isSelf) return -1;
-        if (!a.isSelf && b.isSelf) return 1;
-        return new Date(b.latestStoryTime) - new Date(a.latestStoryTime);
       });
     });
   };
@@ -896,7 +888,13 @@ export default function HomeView({
           onNextTray={() => {
             const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
             if (idx >= 0 && idx < storyTrays.length - 1) {
-              setActiveStoryTray(storyTrays[idx + 1]);
+              const nextTray = storyTrays[idx + 1];
+              setActiveStoryTray({
+                ...nextTray,
+                navId: Date.now(),
+                startAtEnd: false,
+                initialStoryIndex: 0,
+              });
             } else {
               setActiveStoryTray(null);
             }
@@ -904,7 +902,14 @@ export default function HomeView({
           onPrevTray={() => {
             const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
             if (idx > 0) {
-              setActiveStoryTray(storyTrays[idx - 1]);
+              const prevTray = storyTrays[idx - 1];
+              const lastStoryIndex = Math.max(0, (prevTray.stories?.length || 1) - 1);
+              setActiveStoryTray({
+                ...prevTray,
+                navId: Date.now(),
+                startAtEnd: true,
+                initialStoryIndex: lastStoryIndex,
+              });
             }
           }}
         />

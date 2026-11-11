@@ -7,7 +7,7 @@ import {
   Share2, Music, Search, Check, Copy, ExternalLink,
   MapPin, AtSign, MessageCircle
 } from 'lucide-react';
-import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi } from '../api/client';
+import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi, interactStoryWidgetApi } from '../api/client';
 import { messageService } from '../services/messageService';
 import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
@@ -47,6 +47,58 @@ function getViewerReactionsSummary(viewer) {
   });
 }
 
+function StoryCountdownLive({ stk, expiresAt, createdAt }) {
+  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0, isExpired: false });
+
+  useEffect(() => {
+    // Tính mốc kết thúc: Ưu tiên targetDate, hoặc expiresAt, hoặc 24h từ lúc tạo
+    let target = null;
+    if (stk.targetDate) {
+      target = new Date(stk.targetDate).getTime();
+    } else if (expiresAt) {
+      target = new Date(expiresAt).getTime();
+    } else if (createdAt) {
+      target = new Date(createdAt).getTime() + 24 * 60 * 60 * 1000;
+    } else {
+      target = Date.now() + 3 * 3600 * 1000 + 12 * 60 * 1000 + 45 * 1000;
+    }
+
+    const calcTime = () => {
+      const now = Date.now();
+      const diff = Math.max(0, target - now);
+      if (diff <= 0) {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0, isExpired: true });
+        return;
+      }
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft({ hours, minutes, seconds, isExpired: false });
+    };
+
+    calcTime();
+    const timer = setInterval(calcTime, 1000);
+    return () => clearInterval(timer);
+  }, [stk.targetDate, expiresAt, createdAt]);
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  return (
+    <div className="w-56 p-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-2xl border border-white/30 select-none text-center">
+      <p className="font-extrabold text-[11px] tracking-wider uppercase mb-1 drop-shadow-sm truncate">
+        {stk.title || 'SỰ KIỆN ĐẶC BIỆT'}
+      </p>
+      <div className="font-black text-xl tracking-widest bg-black/25 rounded-xl py-1.5 shadow-inner">
+        {timeLeft.isExpired ? (
+          <span className="text-xs font-bold tracking-normal">ĐÃ KẾT THÚC 🎉</span>
+        ) : (
+          `${pad(timeLeft.hours)} : ${pad(timeLeft.minutes)} : ${pad(timeLeft.seconds)}`
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function StoryViewerModal({ 
   currentUser, 
   tray, 
@@ -56,6 +108,7 @@ export default function StoryViewerModal({
   onNextTray,
   onPrevTray,
   initialStoryId,
+  initialStoryIndex,
   initialShowViewers = false,
   targetViewerId = null,
   onOpenReportModal,
@@ -119,6 +172,13 @@ export default function StoryViewerModal({
   const [storySendingStatus, setStorySendingStatus] = useState({});
   const [storyShareMsg, setStoryShareMsg] = useState('');
   const [isCopiedStoryLink, setIsCopiedStoryLink] = useState(false);
+
+  // Quản lý tương tác thực tế với các Widgets (Poll, Question, Slider)
+  const [pollVotes, setPollVotes] = useState({});
+  const [questionInputs, setQuestionInputs] = useState({});
+  const [isSendingQuestion, setIsSendingQuestion] = useState({});
+  const [questionSent, setQuestionSent] = useState({});
+  const [sliderValues, setSliderValues] = useState({});
 
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
@@ -270,13 +330,21 @@ export default function StoryViewerModal({
     }
   }, [isMuted]);
 
-  // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu
+  // Reset khi mở tray mới hoặc điều hướng từ thông báo mục tiêu / chuyển tray Next-Prev
   useEffect(() => {
     if (isOpen && stories.length > 0) {
       let startIndex = 0;
       if (initialStoryId) {
         const foundIdx = stories.findIndex((s) => String(s.id) === String(initialStoryId));
         if (foundIdx >= 0) startIndex = foundIdx;
+      } else if (typeof initialStoryIndex === 'number' && initialStoryIndex >= 0 && initialStoryIndex < stories.length) {
+        startIndex = initialStoryIndex;
+      } else if (tray?.startAtEnd || typeof tray?.initialStoryIndex === 'number') {
+        if (typeof tray.initialStoryIndex === 'number') {
+          startIndex = Math.min(Math.max(0, tray.initialStoryIndex), stories.length - 1);
+        } else if (tray.startAtEnd) {
+          startIndex = Math.max(0, stories.length - 1);
+        }
       } else {
         const firstUnviewedIndex = stories.findIndex((s) => !s.isViewed);
         if (firstUnviewedIndex >= 0) startIndex = firstUnviewedIndex;
@@ -307,7 +375,7 @@ export default function StoryViewerModal({
         setShowViewers(false);
       }
     }
-  }, [isOpen, tray, initialStoryId, initialShowViewers, currentUser?.id]);
+  }, [isOpen, tray?.author?.id, tray?.navId, initialStoryId, initialStoryIndex, initialShowViewers, currentUser?.id]);
 
   // Khóa cuộn trang nền và hỗ trợ phím Escape / Mũi tên trái phải
   useEffect(() => {
@@ -590,6 +658,148 @@ export default function StoryViewerModal({
     } catch (err) {
       console.warn('Lỗi thả reaction:', err.message);
     }
+  };
+
+  // Tương tác Thăm dò ý kiến (Poll voting) - Chuẩn nghiệp vụ Instagram/Facebook
+  const handleVotePoll = async (stk, option) => {
+    const stickerId = stk.id;
+    const storyId = currentStory?.id;
+    if (!storyId || !stickerId) return;
+
+    if (!currentUser?.id) {
+      setReplyErrorMsg('Vui lòng đăng nhập để bình chọn');
+      setTimeout(() => setReplyErrorMsg(''), 2500);
+      return;
+    }
+
+    // Lấy dữ liệu bình chọn hiện tại (ưu tiên dữ liệu từ server hoặc state/local)
+    const localKey = `wings_poll_${storyId}_${stickerId}`;
+    let savedLocal = null;
+    try {
+      savedLocal = JSON.parse(localStorage.getItem(localKey) || 'null');
+    } catch {}
+
+    const existing = pollVotes[stickerId] || savedLocal || stk.pollData || { countA: 0, countB: 0, voted: null };
+    if (existing.voted) return; // Đã bình chọn rồi thì không bình chọn lại
+
+    const isA = option === 'A';
+    const updated = {
+      voted: option,
+      countA: (Number(existing.countA) || 0) + (isA ? 1 : 0),
+      countB: (Number(existing.countB) || 0) + (isA ? 0 : 1),
+    };
+
+    // Cập nhật UI ngay lập tức (Optimistic UI)
+    setPollVotes((prev) => ({ ...prev, [stickerId]: updated }));
+
+    // Lưu bền vững vào localStorage
+    try {
+      localStorage.setItem(localKey, JSON.stringify(updated));
+    } catch {}
+
+    // Gửi lên backend lưu vào CSDL
+    try {
+      await interactStoryWidgetApi(storyId, {
+        widgetType: 'poll',
+        stickerId,
+        option,
+      });
+    } catch (err) {
+      console.warn('Lỗi lưu kết quả bình chọn poll:', err.message);
+    }
+  };
+
+  // Tương tác Kéo thả thanh cảm xúc (Slider) khi người xem thả tay (onPointerUp / onTouchEnd)
+  const handleSliderCommit = async (stk, value) => {
+    const stickerId = stk.id;
+    const storyId = currentStory?.id;
+    if (!storyId || !stickerId) return;
+
+    const numericVal = Math.min(100, Math.max(0, Number(value) || 0));
+    setSliderValues((prev) => ({ ...prev, [stickerId]: numericVal }));
+
+    const localKey = `wings_slider_${storyId}_${stickerId}`;
+    try {
+      localStorage.setItem(localKey, String(numericVal));
+    } catch {}
+
+    // Kích hoạt hiệu ứng hạt Emoji (lửa 🔥) bay ngập màn hình chuẩn Instagram
+    const emoji = stk.emoji || '🔥';
+    const newParticles = Array.from({ length: 12 }).map((_, i) => ({
+      id: `slider-${Date.now()}-${i}-${Math.random()}`,
+      emoji,
+      left: 25 + Math.random() * 50,
+      scale: 1.0 + Math.random() * 0.8,
+      delay: i * 45,
+      duration: 1300 + Math.random() * 400,
+      rotate: -20 + Math.random() * 40,
+      driftX: -45 + Math.random() * 90,
+    }));
+    setFloatingParticles((prev) => [...prev, ...newParticles]);
+    setTimeout(() => {
+      setFloatingParticles((prev) => prev.filter((p) => !newParticles.find((np) => np.id === p.id)));
+    }, 2200);
+
+    // Gửi lên backend lưu vào CSDL
+    if (currentUser?.id) {
+      try {
+        await interactStoryWidgetApi(storyId, {
+          widgetType: 'slider',
+          stickerId,
+          value: numericVal,
+        });
+      } catch (err) {
+        console.warn('Lỗi lưu điểm thanh trượt:', err.message);
+      }
+    }
+  };
+
+  // Tương tác Gửi câu trả lời cho Hộp câu hỏi (Question answering)
+  const handleSendQuestion = async (stk) => {
+    const text = questionInputs[stk.id]?.trim();
+    const authorId = currentStory?.author_id || tray?.author?.id;
+    const storyId = currentStory?.id;
+    if (!text || !authorId || isSendingQuestion[stk.id]) return;
+
+    if (!currentUser?.id) {
+      setReplyErrorMsg('Vui lòng đăng nhập để gửi câu trả lời');
+      setTimeout(() => setReplyErrorMsg(''), 3000);
+      return;
+    }
+
+    setIsSendingQuestion((prev) => ({ ...prev, [stk.id]: true }));
+    try {
+      const messageContent = `[Story Q&A: "${stk.prompt || 'Hỏi tôi bất cứ điều gì'}"]\n${text}`;
+      await messageService.sendMessage(authorId, messageContent, currentStory.mediaUrl || null, 'text');
+
+      // Gửi lên backend lưu câu trả lời
+      await interactStoryWidgetApi(storyId, {
+        widgetType: 'question',
+        stickerId: stk.id,
+        text,
+      });
+
+      // Lưu bền vững vào localStorage
+      try {
+        localStorage.setItem(`wings_qa_${storyId}_${stk.id}`, text);
+      } catch {}
+
+      setQuestionSent((prev) => ({ ...prev, [stk.id]: text }));
+      setQuestionInputs((prev) => ({ ...prev, [stk.id]: '' }));
+      setReplySuccessMsg('Đã gửi câu trả lời đến tác giả!');
+      setTimeout(() => setReplySuccessMsg(''), 3000);
+    } catch (err) {
+      setReplyErrorMsg('Không thể gửi câu trả lời: ' + err.message);
+      setTimeout(() => setReplyErrorMsg(''), 3000);
+    } finally {
+      setIsSendingQuestion((prev) => ({ ...prev, [stk.id]: false }));
+      setIsPaused(false);
+    }
+  };
+
+  // Tương tác Kéo thả thanh cảm xúc (Slider)
+  const handleSliderChange = (stickerId, value) => {
+    setSliderValues((prev) => ({ ...prev, [stickerId]: Number(value) }));
   };
 
   // Xử lý gửi tin nhắn trả lời tin (Reply to Story)
@@ -1247,7 +1457,7 @@ export default function StoryViewerModal({
             </>
           )}
 
-          {/* LỚP STICKERS & NHÃN DÁN NGHỆ THUẬT (POINTER-EVENTS-NONE) */}
+          {/* LỚP STICKERS & NHÃN DÁN NGHỆ THUẬT (POINTER-EVENTS-NONE CHO KHUNG NGOÀI, POINTER-EVENTS-AUTO CHO WIDGET) */}
           {((bgStyle?.stickers) || (currentStory.backgroundStyle?.stickers)) && (
             <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
               {(bgStyle?.stickers || currentStory.backgroundStyle?.stickers).map((stk) => (
@@ -1258,7 +1468,7 @@ export default function StoryViewerModal({
                     top: `${stk.y}%`,
                     transform: `translate(-50%, -50%) scale(${stk.scale || 1})`,
                   }}
-                  className="absolute select-none pointer-events-none transition-transform"
+                  className={`absolute select-none transition-transform ${stk.type === 'widget' ? 'pointer-events-auto z-30' : 'pointer-events-none'}`}
                 >
                   {/* 1. Emoji native */}
                   {stk.type === 'emoji' && (
@@ -1267,79 +1477,316 @@ export default function StoryViewerModal({
                     </span>
                   )}
 
-                  {/* 2. Instagram Interactive Widgets */}
+                  {/* 2. Tiện ích tương tác (Interactive Widgets) */}
                   {stk.type === 'widget' && (
                     <>
-                      {/* Vị trí (Location) */}
+                      {/* Vị trí (Location) - Click mở Google Maps */}
                       {stk.widgetType === 'location' && (
-                        <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/95 dark:bg-black/80 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none">
-                          <MapPin className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0" />
-                          <span>{stk.text}</span>
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const query = stk.text || 'Việt Nam';
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                          }}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-white/95 dark:bg-black/85 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none cursor-pointer hover:scale-105 active:scale-95 transition-all group/loc"
+                          title="Nhấn để xem địa điểm trên Google Maps"
+                        >
+                          <MapPin className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0 group-hover/loc:animate-bounce" />
+                          <span className="truncate max-w-[180px]">{stk.text}</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400 group-hover/loc:text-rose-500 transition-colors shrink-0" />
                         </div>
                       )}
 
-                      {/* Giờ số (Time) */}
-                      {stk.widgetType === 'time' && (
-                        <div className="px-3 py-1 font-black text-2xl sm:text-3xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)] select-none">
-                          {stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      )}
+                      {/* Giờ số (Time) với 4 Styles */}
+                      {stk.widgetType === 'time' && (() => {
+                        const timeVal = stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const style = stk.timeStyle || 'digital';
 
-                      {/* Nhắc tên (Mention) */}
+                        if (style === 'badge') {
+                          return (
+                            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/25 text-white font-black text-xs tracking-wider shadow-xl">
+                              <Clock className="w-3.5 h-3.5 text-pink-400" />
+                              <span>{timeVal}</span>
+                            </div>
+                          );
+                        }
+                        if (style === 'neon') {
+                          return (
+                            <div className="px-3.5 py-1 rounded-2xl bg-black/70 backdrop-blur-sm border border-pink-500/80 text-pink-400 font-black text-2xl tracking-widest shadow-[0_0_20px_rgba(236,72,153,0.7)]">
+                              {timeVal}
+                            </div>
+                          );
+                        }
+                        if (style === 'date_time') {
+                          const dateStr = new Date().toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' });
+                          return (
+                            <div className="px-3 py-1.5 rounded-2xl bg-black/65 backdrop-blur-md border border-white/20 text-white text-center shadow-xl">
+                              <p className="text-[10px] font-bold text-white/75 uppercase tracking-wider">{dateStr}</p>
+                              <p className="text-xl font-black tracking-widest leading-none mt-0.5">{timeVal}</p>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="px-3 py-1 font-black text-3xl sm:text-4xl text-white tracking-widest drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] select-none">
+                            {timeVal}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Nhắc tên (Mention) - Click xem Profile bạn bè */}
                       {stk.widgetType === 'mention' && (
-                        <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide select-none">
-                          <AtSign className="w-3 h-3 text-white shrink-0" />
-                          <span>{stk.text?.replace(/^@/, '') || 'banbe'}</span>
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (stk.friendId) {
+                              window.open(`/profile/${stk.friendId}`, '_blank');
+                            }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide cursor-pointer hover:scale-105 active:scale-95 transition-all select-none"
+                          title="Nhấn để xem trang cá nhân"
+                        >
+                          {stk.avatarUrl && (
+                            <img 
+                              src={stk.avatarUrl} 
+                              alt="" 
+                              className="w-4 h-4 rounded-full object-cover border border-white/60"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          )}
+                          <AtSign className="w-3.5 h-3.5 text-white shrink-0" />
+                          <span className="truncate max-w-[140px]">{stk.text?.replace(/^@/, '') || 'banbe'}</span>
                         </div>
                       )}
 
-                      {/* Thăm dò ý kiến (Poll) */}
-                      {stk.widgetType === 'poll' && (
-                        <div className="w-56 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
-                          <p className="font-extrabold text-xs mb-2">{stk.question || 'Bạn thích không?'}</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-                              {stk.optionA || 'Có 👍'}
+                      {/* Thăm dò ý kiến (Poll) - Chuẩn nghiệp vụ Instagram/Facebook */}
+                      {stk.widgetType === 'poll' && (() => {
+                        const storyId = currentStory?.id;
+                        let localSaved = null;
+                        try {
+                          localSaved = JSON.parse(localStorage.getItem(`wings_poll_${storyId}_${stk.id}`) || 'null');
+                        } catch {}
+
+                        const pollData = pollVotes[stk.id] || localSaved || stk.pollData || { countA: 0, countB: 0, votes: {} };
+                        const myVote = pollData.votes?.[currentUser?.id] || localSaved?.voted || pollVotes[stk.id]?.voted || null;
+                        const isAuthor = Boolean(
+                          currentUser?.id && 
+                          ((currentStory?.author_id && String(currentUser.id) === String(currentStory.author_id)) ||
+                           (tray?.author?.id && String(currentUser.id) === String(tray.author.id)))
+                        );
+                        const hasVoted = Boolean(myVote) || isAuthor;
+
+                        const countA = Number(pollData.countA) || 0;
+                        const countB = Number(pollData.countB) || 0;
+                        const totalVotes = countA + countB;
+                        const pctA = totalVotes > 0 ? Math.round((countA / totalVotes) * 100) : (hasVoted ? 50 : 0);
+                        const pctB = totalVotes > 0 ? (100 - pctA) : (hasVoted ? 50 : 0);
+
+                        const optA = stk.optionA || 'Có 👍';
+                        const optB = stk.optionB || 'Không 👎';
+
+                        return (
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-64 p-3.5 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center animate-scale-up"
+                          >
+                            <p className="font-extrabold text-xs mb-2.5 leading-snug px-1 text-slate-900 dark:text-white">
+                              {stk.question || 'Bạn thấy thế nào?'}
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {/* Option A */}
+                              <button
+                                type="button"
+                                disabled={Boolean(myVote)}
+                                onClick={() => handleVotePoll(stk, 'A')}
+                                className={`relative overflow-hidden py-2 px-2.5 rounded-2xl font-bold text-xs transition cursor-pointer border ${
+                                  hasVoted
+                                    ? myVote === 'A'
+                                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                                      : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
+                                    : 'border-emerald-400/40 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-700 dark:text-emerald-300'
+                                }`}
+                              >
+                                {hasVoted && (
+                                  <div 
+                                    className="absolute inset-y-0 left-0 bg-emerald-500/30 transition-all duration-700 ease-out"
+                                    style={{ width: `${pctA}%` }}
+                                  />
+                                )}
+                                <div className="relative z-10 flex flex-col items-center gap-0.5">
+                                  <span className="truncate max-w-full">{optA}</span>
+                                  {hasVoted && (
+                                    <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                                      {pctA}% {myVote === 'A' && '✓'}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+
+                              {/* Option B */}
+                              <button
+                                type="button"
+                                disabled={Boolean(myVote)}
+                                onClick={() => handleVotePoll(stk, 'B')}
+                                className={`relative overflow-hidden py-2 px-2.5 rounded-2xl font-bold text-xs transition cursor-pointer border ${
+                                  hasVoted
+                                    ? myVote === 'B'
+                                      ? 'border-rose-500 bg-rose-500/20 text-rose-700 dark:text-rose-300 shadow-xs'
+                                      : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
+                                    : 'border-rose-400/40 bg-rose-500/15 hover:bg-rose-500/25 active:scale-95 text-rose-700 dark:text-rose-300'
+                                }`}
+                              >
+                                {hasVoted && (
+                                  <div 
+                                    className="absolute inset-y-0 left-0 bg-rose-500/30 transition-all duration-700 ease-out"
+                                    style={{ width: `${pctB}%` }}
+                                  />
+                                )}
+                                <div className="relative z-10 flex flex-col items-center gap-0.5">
+                                  <span className="truncate max-w-full">{optB}</span>
+                                  {hasVoted && (
+                                    <span className="text-[11px] font-black text-rose-600 dark:text-rose-400">
+                                      {pctB}% {myVote === 'B' && '✓'}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
                             </div>
-                            <div className="py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-bold text-xs">
-                              {stk.optionB || 'Không 👎'}
+                            {hasVoted && (
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2">
+                                {totalVotes > 0 ? `${totalVotes} lượt bình chọn` : 'Chưa có lượt bình chọn'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Hộp câu hỏi (Question) - Người xem gửi câu trả lời về chat tác giả */}
+                      {stk.widgetType === 'question' && (() => {
+                        const storyId = currentStory?.id;
+                        let savedAnswer = null;
+                        try {
+                          savedAnswer = localStorage.getItem(`wings_qa_${storyId}_${stk.id}`);
+                        } catch {}
+                        const hasAnswered = Boolean(savedAnswer || questionSent[stk.id]);
+
+                        return (
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-64 p-3.5 rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-100 dark:border-slate-800 select-none text-center animate-scale-up"
+                          >
+                            <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 mb-2">
+                              <MessageCircle className="w-4 h-4" />
+                              <span className="truncate max-w-[200px]">{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
                             </div>
+                            {hasAnswered ? (
+                              <div className="space-y-1.5">
+                                <div className="py-2 px-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Đã gửi câu trả lời!</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate italic">
+                                  "{savedAnswer || questionSent[stk.id]}"
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={questionInputs[stk.id] || ''}
+                                  onChange={(e) => setQuestionInputs((prev) => ({ ...prev, [stk.id]: e.target.value }))}
+                                  onFocus={() => setIsPaused(true)}
+                                  onBlur={() => setIsPaused(false)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleSendQuestion(stk);
+                                    }
+                                  }}
+                                  placeholder="Nhập câu trả lời..."
+                                  className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-0 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={!questionInputs[stk.id]?.trim() || isSendingQuestion[stk.id]}
+                                  onClick={() => handleSendQuestion(stk)}
+                                  className="p-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white transition disabled:opacity-40 cursor-pointer shrink-0"
+                                  title="Gửi"
+                                >
+                                  {isSendingQuestion[stk.id] ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
-                      {/* Hộp câu hỏi (Question) */}
-                      {stk.widgetType === 'question' && (
-                        <div className="w-56 p-3 rounded-2xl bg-white text-slate-900 shadow-2xl border border-slate-100 select-none text-center">
-                          <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-600 mb-1.5">
-                            <MessageCircle className="w-3.5 h-3.5 text-purple-600" />
-                            <span>{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
-                          </div>
-                          <div className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-400 text-xs font-medium">
-                            Nhập câu trả lời...
-                          </div>
-                        </div>
-                      )}
+                      {/* Thanh trượt cảm xúc (Slider) - Chuẩn kéo thả & lưu bền vững Instagram */}
+                      {stk.widgetType === 'slider' && (() => {
+                        const storyId = currentStory?.id;
+                        let localSaved = null;
+                        try {
+                          localSaved = localStorage.getItem(`wings_slider_${storyId}_${stk.id}`);
+                        } catch {}
 
-                      {/* Thanh trượt cảm xúc (Slider) */}
-                      {stk.widgetType === 'slider' && (
-                        <div className="w-52 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
-                          <div className="relative h-2 bg-slate-200 dark:bg-slate-700 rounded-full my-2">
-                            <div className="absolute left-3/4 -top-3 text-2xl -translate-x-1/2">
-                              {stk.emoji || '🔥'}
+                        const serverScore = stk.sliderData?.votes?.[currentUser?.id];
+                        const myScore = localSaved !== null 
+                          ? Number(localSaved) 
+                          : (serverScore !== undefined ? Number(serverScore) : (sliderValues[stk.id] ?? null));
+
+                        const hasSlid = myScore !== null && myScore !== undefined;
+                        const currentVal = sliderValues[stk.id] ?? (hasSlid ? myScore : 20);
+
+                        return (
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-60 p-3.5 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border border-black/10 dark:border-white/20 select-none text-center"
+                          >
+                            <div className="relative flex items-center justify-center mb-1">
+                              <span 
+                                className="text-3xl transition-transform filter drop-shadow-md cursor-grab active:cursor-grabbing"
+                                style={{ transform: `scale(${0.9 + (currentVal / 100) * 0.7})` }}
+                              >
+                                {stk.emoji || '🔥'}
+                              </span>
+                              {hasSlid && (
+                                <span className="absolute right-2 top-0 text-[10px] font-extrabold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/50 px-1.5 py-0.5 rounded-md">
+                                  {currentVal}%
+                                </span>
+                              )}
                             </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={currentVal}
+                              onFocus={() => setIsPaused(true)}
+                              onBlur={() => setIsPaused(false)}
+                              onChange={(e) => handleSliderChange(stk.id, e.target.value)}
+                              onPointerUp={(e) => handleSliderCommit(stk, e.target.value)}
+                              onTouchEnd={(e) => handleSliderCommit(stk, e.target.value)}
+                              onMouseUp={(e) => handleSliderCommit(stk, e.target.value)}
+                              className="w-full h-2.5 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-pink-600"
+                            />
+                            {hasSlid && (
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">
+                                Điểm bạn đã kéo: <span className="font-bold text-slate-700 dark:text-slate-300">{currentVal}%</span>
+                              </p>
+                            )}
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
-                      {/* Đếm ngược (Countdown) */}
+                      {/* Đếm ngược (Countdown) - Đếm ngược thời gian thực sống động từng giây */}
                       {stk.widgetType === 'countdown' && (
-                        <div className="w-52 p-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-2xl border border-white/30 select-none text-center">
-                          <p className="font-extrabold text-[11px] tracking-wider mb-1">{stk.title || 'ĐẾM NGƯỢC'}</p>
-                          <div className="font-black text-lg tracking-widest bg-black/20 rounded-xl py-1">
-                            {stk.timeText || '03 : 12 : 45'}
-                          </div>
-                        </div>
+                        <StoryCountdownLive 
+                          stk={stk} 
+                          expiresAt={currentStory?.expiresAt || currentStory?.expires_at} 
+                          createdAt={currentStory?.createdAt || currentStory?.created_at} 
+                        />
                       )}
                     </>
                   )}
@@ -1351,59 +1798,7 @@ export default function StoryViewerModal({
           {/* HIỂN THỊ ÂM NHẠC TRÊN KHUNG STORY THEO STYLE (POINTER-EVENTS-NONE) */}
           {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (
             <div className="absolute inset-0 pointer-events-none z-25 overflow-hidden">
-              {/* Style 1: Chạy chữ Lyric Karaoke đồng bộ theo progress Story - KHÔNG KHUNG, CHỈ CẦN CHỮ CHẠY */}
-              {storyMusic.displayMode === 'lyrics' && (
-                <div
-                  style={{
-                    left: `${storyMusic.musicPos?.x ?? 50}%`,
-                    top: `${storyMusic.musicPos?.y ?? 65}%`,
-                    transform: `translate(-50%, -50%) scale(${storyMusic.scale || storyMusic.musicScale || 1})`,
-                  }}
-                  className="absolute pointer-events-none w-[90%] max-w-[380px] text-center select-none"
-                >
-                  {/* Tên bài hát & ca sĩ nhỏ tinh tế (không khung) */}
-                  <div className="flex items-center justify-center gap-1.5 text-xs text-white/80 font-bold mb-2.5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
-                    <Music className="w-3.5 h-3.5 text-pink-400 animate-spin" style={{ animationDuration: '4s' }} />
-                    <span className="truncate max-w-[220px]">{storyMusic.title} • {storyMusic.artist}</span>
-                  </div>
-
-                  {/* Lời bài hát chạy chữ trực tiếp trên màn hình KHÔNG KHUNG BẢO VỆ */}
-                  <div className="space-y-2">
-                    {(() => {
-                      const lyrics = storyMusic.lyrics || [];
-                      if (lyrics.length === 0) {
-                        return (
-                          <p className="text-2xl font-black text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
-                            {storyMusic.title}
-                          </p>
-                        );
-                      }
-                      const activeIdx = Math.min(lyrics.length - 1, Math.floor((progress / 100) * lyrics.length));
-                      return lyrics.map((line, idx) => {
-                        const isActive = idx === activeIdx;
-                        const isPast = idx < activeIdx;
-                        if (Math.abs(idx - activeIdx) > 1) return null;
-                        return (
-                          <p
-                            key={idx}
-                            className={`font-black tracking-wide leading-tight transition-all duration-300 drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] ${
-                              isActive 
-                                ? 'text-2xl sm:text-3xl text-white scale-105' 
-                                : isPast
-                                ? 'text-base sm:text-lg text-white/35 -translate-y-1'
-                                : 'text-base sm:text-lg text-white/45 translate-y-1'
-                            }`}
-                          >
-                            {line}
-                          </p>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {/* Style 2: Thẻ Bìa Album Card (Spotify/Instagram style) */}
+              {/* Style 1: Thẻ Bìa Album Card (Spotify/Instagram style) */}
               {storyMusic.displayMode === 'card' && (
                 <div
                   style={{
@@ -1441,8 +1836,8 @@ export default function StoryViewerModal({
                 </div>
               )}
 
-              {/* Style 3: Huy hiệu Đĩa quay kinh điển (Badge pill) */}
-              {(storyMusic.displayMode === 'badge' || (!storyMusic.displayMode && storyMusic.musicPos)) && (
+              {/* Style 2: Huy hiệu Đĩa quay kinh điển (Badge pill - Áp dụng cả khi displayMode là lyrics để giao diện gọn gàng) */}
+              {(storyMusic.displayMode === 'badge' || storyMusic.displayMode === 'lyrics' || (!storyMusic.displayMode && storyMusic.musicPos)) && (
                 <div
                   style={{
                     left: `${storyMusic.musicPos?.x ?? 50}%`,

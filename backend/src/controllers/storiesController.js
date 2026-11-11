@@ -156,6 +156,26 @@ export function createStoriesController({ storyService }) {
         next(error);
       }
     },
+
+    async interactWidget(req, res, next) {
+      try {
+        const result = await storyService.interactWidget({
+          user: req.user,
+          storyId: req.params.storyId,
+          widgetType: req.body?.widgetType,
+          stickerId: req.body?.stickerId,
+          option: req.body?.option,
+          value: req.body?.value,
+          text: req.body?.text,
+        });
+        res.json({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
   };
 }
 

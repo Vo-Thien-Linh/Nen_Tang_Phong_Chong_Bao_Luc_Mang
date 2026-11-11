@@ -41,6 +41,9 @@ export function createStoriesRouter({ pool }) {
   // 7. Thả/cập nhật cảm xúc cho tin
   router.post('/:storyId/reactions', requireAuth, storiesController.reactToStory);
 
+  // 7.1 Tương tác với các tiện ích Story (Poll, Slider, Question)
+  router.post('/:storyId/interact', requireAuth, storiesController.interactWidget);
+
   // 8. Xóa tin
   router.delete('/:storyId', requireAuth, storiesController.deleteStory);
 

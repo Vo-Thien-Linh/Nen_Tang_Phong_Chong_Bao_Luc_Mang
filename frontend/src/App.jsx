@@ -2307,6 +2307,7 @@ export default function App() {
           isOpen={Boolean(activeStoryViewerTarget)}
           tray={activeStoryViewerTarget.tray}
           initialStoryId={activeStoryViewerTarget.initialStoryId}
+          initialStoryIndex={activeStoryViewerTarget.initialStoryIndex}
           initialShowViewers={activeStoryViewerTarget.initialShowViewers}
           targetViewerId={activeStoryViewerTarget.targetViewerId}
           currentUser={currentUser}

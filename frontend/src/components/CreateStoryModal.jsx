@@ -6,13 +6,15 @@ import {
   RotateCw, Settings, Clock, ChevronDown, Check, Smile, Minus, Plus,
   FileText, Move, RotateCcw, Music, Volume2, VolumeX, Play, Pause, Disc, Search,
   Sliders, Eye, EyeOff, Tag, ListMusic, Heart,
-  MapPin, AtSign, MessageCircle, BarChart2, Edit3
+  MapPin, AtSign, MessageCircle, BarChart2, Edit3, Send, Navigation
 } from 'lucide-react';
 import { createStoryApi, uploadStoryMedia } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { STORY_MUSIC_LIBRARY } from '../constants/storyMusicList';
 import { searchMusic, getTrendingMusic, MUSIC_CATEGORIES } from '../services/musicService';
 import { STORY_STICKERS, STICKER_CATEGORIES, generateSampleLyrics } from '../constants/storyStickers';
+import { friendService } from '../services/friendService';
+import { messageService } from '../services/messageService';
 
 // Danh sách phông nền chuyển sắc & đơn sắc phong cách Facebook Story
 const GRADIENT_PRESETS = [
@@ -252,12 +254,35 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
   const [musicLyrics, setMusicLyrics] = useState([]); // Danh sách câu hát
   const [musicScale, setMusicScale] = useState(1); // Tùy chỉnh kích thước nhãn dán nhạc (0.5x -> 2.5x)
 
-  // 2. Bộ sưu tập Stickers & Icons cho Story (Chuẩn Instagram)
+  // 2. Bộ sưu tập Stickers & Icons cho Story
   const [stickers, setStickers] = useState([]); // [{ id, type, widgetType, content, text, question, prompt, optionA, optionB, emoji, timeText, bg, x, y, scale }]
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [selectedStickerCategory, setSelectedStickerCategory] = useState('widgets');
   const [stickerSearchQuery, setStickerSearchQuery] = useState('');
   const [activeStickerId, setActiveStickerId] = useState(null);
+
+  // Gắn thẻ bạn bè (@ Mention Picker)
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [friendsList, setFriendsList] = useState([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+  const [mentionSearchQuery, setMentionSearchQuery] = useState('');
+
+  // Định vị vị trí hiện tại (GPS) & Địa điểm tùy chỉnh
+  const [isLocating, setIsLocating] = useState(false);
+  const [customLocationText, setCustomLocationText] = useState('');
+
+  // Tải danh sách bạn bè khi mở popup gắn thẻ
+  useEffect(() => {
+    if (showMentionPicker) {
+      setIsLoadingFriends(true);
+      friendService.getFriendsList()
+        .then((res) => {
+          setFriendsList(Array.isArray(res) ? res : res?.friends || res?.data || []);
+        })
+        .catch(() => setFriendsList([]))
+        .finally(() => setIsLoadingFriends(false));
+    }
+  }, [showMentionPicker]);
 
   // Tải danh sách nhạc theo danh mục gợi ý khi mở picker hoặc chuyển tab
   useEffect(() => {
@@ -431,7 +456,134 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     }
   };
 
+  const handleGetLiveLocation = () => {
+    if (!navigator.geolocation) {
+      setErrorMsg('Trình duyệt không hỗ trợ định vị GPS');
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`);
+          const data = await res.json();
+          const city = data.address?.city || data.address?.town || data.address?.county || data.address?.suburb || 'Vị trí hiện tại';
+          const newStk = {
+            id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            type: 'widget',
+            widgetType: 'location',
+            text: city,
+            x: 50,
+            y: 40,
+            scale: 1,
+          };
+          setStickers((prev) => [...prev, newStk]);
+          setActiveStickerId(newStk.id);
+        } catch {
+          const newStk = {
+            id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            type: 'widget',
+            widgetType: 'location',
+            text: '📍 Vị trí của tôi',
+            x: 50,
+            y: 40,
+            scale: 1,
+          };
+          setStickers((prev) => [...prev, newStk]);
+          setActiveStickerId(newStk.id);
+        } finally {
+          setIsLocating(false);
+          setShowStickerPicker(false);
+        }
+      },
+      () => {
+        setIsLocating(false);
+        const newStk = {
+          id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          type: 'widget',
+          widgetType: 'location',
+          text: 'TP. Hồ Chí Minh',
+          x: 50,
+          y: 40,
+          scale: 1,
+        };
+        setStickers((prev) => [...prev, newStk]);
+        setActiveStickerId(newStk.id);
+        setShowStickerPicker(false);
+      },
+      { timeout: 7000 }
+    );
+  };
+
+  const handleAddCustomLocation = () => {
+    if (!customLocationText.trim()) return;
+    const newStk = {
+      id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      type: 'widget',
+      widgetType: 'location',
+      text: customLocationText.trim(),
+      x: 50,
+      y: 40,
+      scale: 1,
+    };
+    setStickers((prev) => [...prev, newStk]);
+    setActiveStickerId(newStk.id);
+    setCustomLocationText('');
+    setShowStickerPicker(false);
+  };
+
+  const handleSelectMentionFriend = (friend) => {
+    const friendName = friend.name || friend.full_name || friend.username || 'Bạn bè';
+    const friendHandle = friend.username || friendName.replace(/\s+/g, '').toLowerCase();
+    const newStk = {
+      id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      type: 'widget',
+      widgetType: 'mention',
+      userId: friend.id,
+      name: friendName,
+      username: friendHandle,
+      avatar: friend.avatar || friend.avatar_url || DEFAULT_AVATAR,
+      text: `@${friendHandle}`,
+      x: 50,
+      y: 40,
+      scale: 1,
+    };
+    setStickers((prev) => [...prev, newStk]);
+    setActiveStickerId(newStk.id);
+    setShowMentionPicker(false);
+  };
+
+  const handleCycleTimeStyle = (id, e) => {
+    if (e) e.stopPropagation();
+    const STYLES = ['digital', 'badge', 'neon', 'date_time'];
+    setStickers((prev) =>
+      prev.map((s) => {
+        if (s.id !== id || s.widgetType !== 'time') return s;
+        const currentStyle = s.timeStyle || 'digital';
+        const nextStyle = STYLES[(STYLES.indexOf(currentStyle) + 1) % STYLES.length];
+        return { ...s, timeStyle: nextStyle };
+      })
+    );
+  };
+
+  const handleEditStickerText = (id, field, value) => {
+    setStickers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+    );
+  };
+
   const handleAddSticker = (item) => {
+    if (item.isCurrentLocation) {
+      handleGetLiveLocation();
+      return;
+    }
+    if (item.widgetType === 'mention') {
+      setShowStickerPicker(false);
+      setShowMentionPicker(true);
+      return;
+    }
+
     const newStk = {
       id: `stk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       type: item.type,
@@ -444,6 +596,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       optionB: item.optionB || null,
       emoji: item.emoji || null,
       title: item.title || null,
+      timeStyle: item.timeStyle || (item.widgetType === 'time' ? 'digital' : null),
       timeText: item.timeText || (item.widgetType === 'time' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null),
       bg: item.bg || null,
       x: 50,
@@ -775,6 +928,22 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       }
 
       if (res?.success) {
+        // Tự động gửi tin nhắn đến các bạn bè được nhắc tên (@ mention)
+        const mentions = stickers.filter((s) => s.type === 'widget' && s.widgetType === 'mention' && s.userId);
+        for (const m of mentions) {
+          if (m.userId && String(m.userId) !== String(currentUser?.id)) {
+            try {
+              const storyLink = `${window.location.origin}/?storyId=${res?.data?.id || ''}`;
+              messageService.sendMessage(
+                m.userId,
+                `📸 Tôi vừa nhắc đến bạn trong một tin mới trên Story! Vào xem ngay nhé: ${storyLink}`
+              ).catch(() => {});
+            } catch (mentionMsgErr) {
+              console.warn('Lỗi gửi tin nhắn nhắc tên:', mentionMsgErr);
+            }
+          }
+        }
+
         if (onStoryCreated) onStoryCreated(res.data);
         handleClose();
       }
@@ -1488,45 +1657,34 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       </button>
                     </div>
 
-                    {/* 2. Kiểu hiển thị (Display Mode): Nhãn đĩa / Lyric chạy chữ / Bìa Album / Ẩn */}
+                    {/* 2. Kiểu hiển thị (Display Mode): Nhãn đĩa / Bìa Album */}
                     {musicShowSticker && (
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                           Kiểu hiển thị trên Story:
                         </label>
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
                             onClick={() => setMusicDisplayMode('badge')}
-                            className={`px-2 py-1.5 rounded-xl font-bold text-[11px] border transition flex items-center justify-center gap-1 cursor-pointer ${
+                            className={`px-3 py-2 rounded-xl font-bold text-xs border transition flex items-center justify-center gap-1.5 cursor-pointer ${
                               musicDisplayMode === 'badge'
                                 ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
                                 : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
                             }`}
                           >
-                            <span>🎵 Đĩa quay</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMusicDisplayMode('lyrics')}
-                            className={`px-2 py-1.5 rounded-xl font-bold text-[11px] border transition flex items-center justify-center gap-1 cursor-pointer ${
-                              musicDisplayMode === 'lyrics'
-                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                            }`}
-                          >
-                            <span>🎤 Chạy chữ</span>
+                            <span>🎵 Đĩa quay Vinyl</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => setMusicDisplayMode('card')}
-                            className={`px-2 py-1.5 rounded-xl font-bold text-[11px] border transition flex items-center justify-center gap-1 cursor-pointer ${
+                            className={`px-3 py-2 rounded-xl font-bold text-xs border transition flex items-center justify-center gap-1.5 cursor-pointer ${
                               musicDisplayMode === 'card'
                                 ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
                                 : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
                             }`}
                           >
-                            <span>💽 Bìa Album</span>
+                            <span>💽 Thẻ Album</span>
                           </button>
                         </div>
                       </div>
@@ -1571,38 +1729,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       </div>
                     )}
 
-                    {/* 3. Tùy chỉnh câu hát / lời bài hát chạy chữ (Lyrics Text) */}
-                    {musicShowSticker && musicDisplayMode === 'lyrics' && (
-                      <div className="space-y-1.5 p-2.5 rounded-2xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/50">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
-                            Lời bài hát (mỗi dòng 1 câu):
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setMusicLyrics(generateSampleLyrics(selectedMusic))}
-                            className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline font-semibold cursor-pointer"
-                          >
-                            Tự động sinh lời
-                          </button>
-                        </div>
-                        <textarea
-                          rows={3}
-                          value={musicLyrics.join('\n')}
-                          onChange={(e) => {
-                            const lines = e.target.value.split('\n');
-                            setMusicLyrics(lines);
-                          }}
-                          placeholder="Nhập các câu hát (mỗi dòng 1 câu)..."
-                          className="w-full p-2 text-xs rounded-xl border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white resize-none leading-relaxed"
-                        />
-                        <p className="text-[10px] text-slate-400 leading-tight">
-                          💡 Khi đăng tin, câu hát sẽ tự động chạy chữ trực tiếp nổi bật trên màn hình mà không có khung viền che khuất.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* 4. Chọn thời lượng phát nhạc & Đoạn nhạc bắt đầu */}
+                    {/* 3. Chọn thời lượng phát nhạc & Đoạn nhạc bắt đầu */}
                     <div className="space-y-2 pt-1">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Thời lượng phát:</span>
@@ -1676,27 +1803,6 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     <span>Thêm sticker</span>
                   </button>
                 </div>
-
-                {stickers.length > 0 && (
-                  <div className="px-3.5 pb-3 flex items-center gap-2 overflow-x-auto scrollbar-none border-t border-slate-100 dark:border-slate-800/60 pt-2">
-                    {stickers.map((stk) => (
-                      <div
-                        key={stk.id}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs shrink-0 shadow-xs"
-                      >
-                        <span>{stk.type === 'badge' ? stk.text : stk.content}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => handleRemoveSticker(stk.id, e)}
-                          className="text-slate-400 hover:text-rose-500 cursor-pointer ml-0.5"
-                          title="Xóa sticker này"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* MỤC CHUNG: THÊM NHÃN AI (AI LABELING TOGGLE) */}
@@ -2058,9 +2164,19 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       }`}
                       title="Kéo thả hoặc chạm để điều chỉnh sticker"
                     >
-                      {/* Nút Phóng to / Thu nhỏ / Xóa khi đang active */}
+                      {/* Nút Phóng to / Thu nhỏ / Đổi kiểu / Xóa khi đang active */}
                       {isSelected && (
-                        <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/20 shadow-xl z-50">
+                        <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/90 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/25 shadow-xl z-50">
+                          {stk.widgetType === 'time' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCycleTimeStyle(stk.id, e)}
+                              className="text-[10px] text-amber-300 hover:text-white px-1.5 py-0.5 rounded font-bold transition cursor-pointer"
+                              title="Đổi kiểu đồng hồ"
+                            >
+                              Đổi kiểu
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => handleScaleSticker(stk.id, -0.2, e)}
@@ -2083,15 +2199,15 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                           <button
                             type="button"
                             onClick={(e) => handleRemoveSticker(stk.id, e)}
-                            className="w-5 h-5 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-xs ml-1 transition cursor-pointer"
-                            title="Xóa sticker"
+                            className="w-5 h-5 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center text-xs ml-1 transition cursor-pointer font-bold"
+                            title="Xóa sticker này"
                           >
                             ×
                           </button>
                         </div>
                       )}
 
-                      {/* Nội dung Sticker: Emoji native hoặc Instagram Widgets */}
+                      {/* Nội dung Sticker: Emoji native hoặc Interactive Widgets */}
                       {stk.type === 'emoji' && (
                         <span className="text-5xl select-none filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] leading-none inline-block hover:scale-105 transition-transform">
                           {stk.content}
@@ -2102,48 +2218,95 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                         <>
                           {/* Vị trí (Location) */}
                           {stk.widgetType === 'location' && (
-                            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/95 dark:bg-black/80 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none">
+                            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-black/85 backdrop-blur-md shadow-2xl text-slate-900 dark:text-white font-extrabold text-xs tracking-wide border border-black/10 dark:border-white/20 select-none">
                               <MapPin className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0" />
                               <span>{stk.text}</span>
                             </div>
                           )}
 
-                          {/* Giờ số (Time) */}
+                          {/* Giờ số (Time) - Hỗ trợ 4 kiểu hiển thị */}
                           {stk.widgetType === 'time' && (
-                            <div className="px-3 py-1 font-black text-2xl sm:text-3xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)] select-none">
-                              {stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
+                            <>
+                              {(!stk.timeStyle || stk.timeStyle === 'digital') && (
+                                <div className="px-3 py-1 font-black text-3xl sm:text-4xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)] select-none">
+                                  {stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              )}
+                              {stk.timeStyle === 'badge' && (
+                                <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-black/75 dark:bg-black/90 backdrop-blur-md text-white font-black text-sm tracking-wide border border-white/30 shadow-2xl select-none">
+                                  <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                                  <span>{stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                              )}
+                              {stk.timeStyle === 'neon' && (
+                                <div className="px-4 py-1.5 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 text-white font-black text-xl tracking-wider shadow-[0_0_20px_rgba(236,72,153,0.8)] border border-white/40 select-none">
+                                  {stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              )}
+                              {stk.timeStyle === 'date_time' && (
+                                <div className="px-3.5 py-1.5 rounded-2xl bg-white/95 dark:bg-slate-900/95 text-slate-900 dark:text-white font-black text-xs text-center shadow-2xl border border-slate-200 dark:border-slate-700 select-none">
+                                  <div className="text-sm font-black">{stk.timeText || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                  <div className="text-[10px] text-pink-600 dark:text-pink-400 font-extrabold uppercase mt-0.5">{new Date().toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}</div>
+                                </div>
+                              )}
+                            </>
                           )}
 
                           {/* Nhắc tên (Mention) */}
                           {stk.widgetType === 'mention' && (
-                            <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide select-none">
-                              <AtSign className="w-3 h-3 text-white shrink-0" />
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-extrabold text-xs shadow-xl border border-white/30 tracking-wide select-none">
+                              {stk.avatar ? (
+                                <img src={stk.avatar} alt={stk.name} className="w-4 h-4 rounded-full object-cover border border-white/50 shrink-0" />
+                              ) : (
+                                <AtSign className="w-3.5 h-3.5 text-white shrink-0" />
+                              )}
                               <span>{stk.text?.replace(/^@/, '') || 'banbe'}</span>
                             </div>
                           )}
 
-                          {/* Thăm dò ý kiến (Poll) */}
+                          {/* Thăm dò ý kiến (Poll) - Cho phép sửa trực tiếp */}
                           {stk.widgetType === 'poll' && (
                             <div className="w-56 p-3 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-slate-900 dark:text-white shadow-2xl border border-black/10 dark:border-white/20 select-none text-center">
-                              <p className="font-extrabold text-xs mb-2">{stk.question || 'Bạn thích không?'}</p>
+                              <input
+                                type="text"
+                                value={stk.question || ''}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => handleEditStickerText(stk.id, 'question', e.target.value)}
+                                placeholder="Đặt câu hỏi bình chọn..."
+                                className="w-full text-center font-extrabold text-xs mb-2 bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 focus:outline-none focus:border-pink-500"
+                              />
                               <div className="grid grid-cols-2 gap-2">
-                                <div className="py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-                                  {stk.optionA || 'Có 👍'}
-                                </div>
-                                <div className="py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-bold text-xs">
-                                  {stk.optionB || 'Không 👎'}
-                                </div>
+                                <input
+                                  type="text"
+                                  value={stk.optionA || ''}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleEditStickerText(stk.id, 'optionA', e.target.value)}
+                                  className="py-1.5 px-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-xs text-center focus:outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  value={stk.optionB || ''}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleEditStickerText(stk.id, 'optionB', e.target.value)}
+                                  className="py-1.5 px-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-bold text-xs text-center focus:outline-none"
+                                />
                               </div>
                             </div>
                           )}
 
-                          {/* Hộp câu hỏi (Question) */}
+                          {/* Hộp câu hỏi (Question) - Cho phép sửa prompt */}
                           {stk.widgetType === 'question' && (
                             <div className="w-56 p-3 rounded-2xl bg-white text-slate-900 shadow-2xl border border-slate-100 select-none text-center">
                               <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-600 mb-1.5">
-                                <MessageCircle className="w-3.5 h-3.5 text-purple-600" />
-                                <span>{stk.prompt || 'Hỏi tôi bất cứ điều gì'}</span>
+                                <MessageCircle className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                <input
+                                  type="text"
+                                  value={stk.prompt || ''}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleEditStickerText(stk.id, 'prompt', e.target.value)}
+                                  placeholder="Hỏi tôi bất cứ điều gì..."
+                                  className="w-full text-center font-bold text-xs bg-transparent border-b border-dashed border-slate-300 focus:outline-none focus:border-purple-500"
+                                />
                               </div>
                               <div className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-400 text-xs font-medium">
                                 Nhập câu trả lời...
@@ -2699,7 +2862,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh] animate-scale-up"
           >
-            {/* Header phong cách Instagram Stories */}
+            {/* Header phong cách Stories */}
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-purple-500 to-pink-500 text-white flex items-center justify-center shadow-md">
@@ -2710,7 +2873,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                     Nhãn dán & Tiện ích Story
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Chuẩn phong cách Instagram & Facebook
+                    Tiện ích tương tác trực quan cho tin của bạn
                   </p>
                 </div>
               </div>
@@ -2803,41 +2966,85 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                 })()
               ) : (
                 <>
-                  {/* Tab 1: Tiện ích Instagram (Widgets) */}
+                  {/* Tab 1: Tiện ích tương tác (Widgets) */}
                   {selectedStickerCategory === 'widgets' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {STORY_STICKERS.filter((s) => s.category === 'widgets').map((stk) => (
-                        <button
-                          key={stk.id}
-                          type="button"
-                          onClick={() => handleAddSticker(stk)}
-                          className="p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 hover:border-pink-500 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-pink-50/50 dark:hover:bg-pink-950/20 transition-all flex items-center justify-between text-left cursor-pointer group shadow-xs hover:shadow-md"
-                        >
-                          <div className="min-w-0 pr-2">
-                            <p className="font-extrabold text-xs text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors">
-                              {stk.label}
-                            </p>
-                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">
-                              {stk.widgetType === 'location'
-                                ? 'Định vị địa điểm check-in'
-                                : stk.widgetType === 'time'
-                                ? 'Đồng hồ số phong cách Story'
-                                : stk.widgetType === 'mention'
-                                ? 'Gắn thẻ tên bạn bè'
-                                : stk.widgetType === 'poll'
-                                ? 'Bình chọn 2 lựa chọn Có / Không'
-                                : stk.widgetType === 'question'
-                                ? 'Khung hỏi đáp cho người xem'
-                                : stk.widgetType === 'slider'
-                                ? 'Thanh kéo thả mức độ thích'
-                                : 'Đồng hồ đếm ngược ngày'}
-                            </p>
-                          </div>
-                          <span className="w-7 h-7 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-xs shrink-0 group-hover:scale-110 transition">
-                            +
+                    <div className="space-y-3">
+                      {/* Tiện ích Vị trí GPS & Tùy chỉnh */}
+                      <div className="p-3 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <MapPin className="w-4 h-4 text-pink-600" />
+                            Định vị & Check-in
                           </span>
-                        </button>
-                      ))}
+                          <button
+                            type="button"
+                            disabled={isLocating}
+                            onClick={handleGetLiveLocation}
+                            className="px-2.5 py-1 text-[11px] font-bold bg-pink-600 hover:bg-pink-700 text-white rounded-xl transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                          >
+                            <Navigation className={`w-3 h-3 ${isLocating ? 'animate-spin' : ''}`} />
+                            {isLocating ? 'Đang lấy vị trí...' : '📍 Lấy vị trí GPS'}
+                          </button>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={customLocationText}
+                            onChange={(e) => setCustomLocationText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustomLocation();
+                              }
+                            }}
+                            placeholder="Nhập tên địa điểm check-in tùy ý..."
+                            className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddCustomLocation}
+                            className="px-3 py-1.5 text-xs font-bold bg-slate-900 dark:bg-slate-700 text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            Thêm
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Danh sách các widget tiện ích */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {STORY_STICKERS.filter((s) => s.category === 'widgets' && !s.isCurrentLocation).map((stk) => (
+                          <button
+                            key={stk.id}
+                            type="button"
+                            onClick={() => handleAddSticker(stk)}
+                            className="p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 hover:border-pink-500 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-pink-50/50 dark:hover:bg-pink-950/20 transition-all flex items-center justify-between text-left cursor-pointer group shadow-xs hover:shadow-md"
+                          >
+                            <div className="min-w-0 pr-2">
+                              <p className="font-extrabold text-xs text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors">
+                                {stk.label}
+                              </p>
+                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                {stk.widgetType === 'location'
+                                  ? 'Định vị địa điểm check-in'
+                                  : stk.widgetType === 'time'
+                                  ? 'Đồng hồ số (click đổi kiểu)'
+                                  : stk.widgetType === 'mention'
+                                  ? 'Gắn thẻ bạn bè (thông báo & tin nhắn)'
+                                  : stk.widgetType === 'poll'
+                                  ? 'Bình chọn Có / Không tương tác thật'
+                                  : stk.widgetType === 'question'
+                                  ? 'Hỏi đáp (người xem gửi câu trả lời)'
+                                  : stk.widgetType === 'slider'
+                                  ? 'Thanh kéo thả mức độ cảm xúc'
+                                  : 'Đồng hồ đếm ngược sự kiện'}
+                              </p>
+                            </div>
+                            <span className="w-7 h-7 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-xs shrink-0 group-hover:scale-110 transition">
+                              +
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -2876,6 +3083,117 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GẮN THẺ BẠN BÈ (@ MENTION PICKER) */}
+      {showMentionPicker && (
+        <div 
+          onClick={() => setShowMentionPicker(false)}
+          className="fixed inset-0 z-70 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[75vh] animate-scale-up"
+          >
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center shadow-md">
+                  <AtSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                    Gắn thẻ bạn bè
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Người được tag sẽ nhận thông báo & tin nhắn
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMentionPicker(false);
+                  setMentionSearchQuery('');
+                }}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ô tìm kiếm bạn bè */}
+            <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={mentionSearchQuery}
+                  onChange={(e) => setMentionSearchQuery(e.target.value)}
+                  placeholder="Tìm bạn bè theo tên..."
+                  className="w-full pl-9 pr-4 py-2 rounded-xl bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Danh sách bạn bè */}
+            <div className="p-3 overflow-y-auto flex-1 min-h-[250px] space-y-1">
+              {isLoadingFriends ? (
+                <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                  <span className="text-xs">Đang tải danh sách bạn bè...</span>
+                </div>
+              ) : (() => {
+                const q = mentionSearchQuery.trim().toLowerCase();
+                const filtered = friendsList.filter((f) => {
+                  const name = (f.name || f.full_name || f.username || '').toLowerCase();
+                  return name.includes(q);
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-400 text-xs">
+                      {q ? `Không tìm thấy bạn bè nào khớp với "${mentionSearchQuery}".` : 'Bạn chưa có bạn bè nào để gắn thẻ.'}
+                    </div>
+                  );
+                }
+
+                return filtered.map((friend) => {
+                  const friendId = friend.id || friend.user_id;
+                  const friendName = friend.name || friend.full_name || friend.username || 'Người dùng';
+                  const avatar = friend.avatar_url || friend.avatar || DEFAULT_AVATAR;
+
+                  return (
+                    <button
+                      key={friendId}
+                      type="button"
+                      onClick={() => handleSelectMentionFriend(friend)}
+                      className="w-full p-2.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition flex items-center gap-3 text-left cursor-pointer group"
+                    >
+                      <img
+                        src={avatar}
+                        alt={friendName}
+                        className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700 shadow-xs"
+                        onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                          {friendName}
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate">
+                          @{friend.username || friendName.toLowerCase().replace(/\s+/g, '')}
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-1 text-[11px] font-bold text-blue-600 bg-blue-50 dark:bg-blue-950/40 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition">
+                        Gắn thẻ
+                      </span>
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
