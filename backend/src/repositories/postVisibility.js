@@ -20,14 +20,19 @@ export function canViewerSeePost({
   const isAuthor = viewerId != null && authorId != null && String(viewerId) === String(authorId);
   if (imageModerationStatus === 'rejected_final') return false;
 
-  const moderationVisible = aiStatus === 'approved'
+  const imageAllowed = imageModerationStatus == null
+    || ['safe', 'sensitive'].includes(imageModerationStatus)
     || (isAuthor && ['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending'].includes(imageModerationStatus));
+  if (!imageAllowed) return false;
+
+  const moderationVisible = aiStatus === 'approved' || isAuthor;
   if (!moderationVisible) return false;
   if (isAuthor) return true;
   if (blocked) return false;
 
   const normalizedPrivacy = normalizePostPrivacy(privacy);
   if (normalizedPrivacy === 'public') return true;
+
   return normalizedPrivacy === 'friends' && friendshipStatus === 'accepted';
 }
 

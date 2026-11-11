@@ -1005,24 +1005,30 @@ export default function PostCard({
           </div>
           <div className="max-w-md">
             <h4 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-100">
-              {adminImageReviewStatus ? 'Nội dung nhạy cảm' : 'Cảnh báo: Nội dung nhạy cảm'}
+              {adminImageReviewStatus ? 'Hình ảnh đang được kiểm duyệt' : 'Cảnh báo: Nội dung nhạy cảm'}
             </h4>
             <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1 leading-relaxed">
-              {isToxicText && isNsfwImage
-                ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
-                : isNsfwImage
-                ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
-                : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).'}
+              {adminImageReviewStatus
+                ? (isAuthor
+                    ? 'Hình ảnh của bài viết đang được kiểm duyệt AI hoặc Quản trị viên xét duyệt. Chỉ bạn có thể nhìn thấy.'
+                    : 'Hình ảnh bài viết này đang trong quá trình kiểm duyệt hoặc đã bị ẩn do vi phạm tiêu chuẩn cộng đồng.')
+                : (isToxicText && isNsfwImage
+                    ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
+                    : isNsfwImage
+                    ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
+                    : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).')}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setRevealedSensitivePost(true)}
-            className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
-          >
-            <Eye className="w-4 h-4" />
-            <span>{adminImageReviewStatus ? 'Xem' : 'Xem toàn bộ bài viết'}</span>
-          </button>
+          {(!adminImageReviewStatus || isAuthor) && (
+            <button
+              type="button"
+              onClick={() => setRevealedSensitivePost(true)}
+              className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
+            >
+              <Eye className="w-4 h-4" />
+              <span>{adminImageReviewStatus ? 'Xem ảnh của tôi' : 'Xem toàn bộ bài viết'}</span>
+            </button>
+          )}
         </div>
       ) : (
         <>
