@@ -299,7 +299,7 @@ export function createCommunityGroupsService({
         throw fail('Bình luận của nhóm riêng tư chỉ dành cho thành viên', 403);
       }
       await requireApprovedPost({ groupId, postId });
-      return repository.listPostComments({ groupId, postId });
+      return repository.listPostComments({ groupId, postId, viewerId: user?.id || null });
     },
 
     async listPostReactions({ groupId, postId, user }) {
@@ -324,6 +324,21 @@ export function createCommunityGroupsService({
       await requireApprovedPost({ groupId, postId });
       const result = await repository.setPostReaction({ groupId, postId, userId: user.id, reactionType, action });
       if (!result) throw fail('Không tìm thấy bài viết đã được duyệt trong nhóm này', 404);
+      return result;
+    },
+
+    async setCommentReaction({ groupId, postId, commentId, user, reactionType, action }) {
+      requireUser(user);
+      requireGroupId(groupId);
+      requirePostId(postId);
+      requireId(commentId, 'Mã bình luận');
+      if (!['set', 'remove'].includes(action)) throw fail('Thao tác cảm xúc không hợp lệ', 400);
+      if (action === 'set' && !allowedReactions.has(reactionType)) throw fail('Cảm xúc không hợp lệ', 400);
+      const group = await requireGroup(groupId, user.id);
+      requireActiveGroupMember(group);
+      await requireApprovedPost({ groupId, postId });
+      const result = await repository.setCommentReaction({ groupId, postId, commentId, userId: user.id, reactionType, action });
+      if (!result) throw fail('Không tìm thấy bình luận trong bài viết này', 404);
       return result;
     },
 

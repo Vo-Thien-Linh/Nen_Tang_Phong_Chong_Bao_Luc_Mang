@@ -28,6 +28,7 @@ import {
   shareCommunityGroupPost,
   toggleSaveCommunityGroupPost,
   updateCommunityGroupPost,
+  updateCommunityGroupCommentReaction,
   updateCommunityGroupPostReaction,
   uploadCommunityGroupPostImage,
 } from '../api/client';
@@ -43,6 +44,9 @@ import ReportModal from './ReportModal';
 import SharePostModal from './SharePostModal';
 import AppealModal from './AppealModal';
 import VerifiedBadge from './VerifiedBadge';
+import CommentEmojiPicker from './CommentEmojiPicker';
+import CommentReactionButton from './CommentReactionButton';
+import { buildCommentTree } from '../utils/commentThreadLogic';
 
 const moderationLabels = {
   Normal: 'Nội dung văn bản',
@@ -490,15 +494,7 @@ export default function GroupPostCard({
   shareUrl.hash = 'groups';
   const sharePost = { ...post, id: `group-post-${post.id}`, author: { name: authorName, avatar: authorAvatar } };
   const summaryReactions = getSummaryReactions({ counts: reactionCounts, myReaction: reaction });
-  const rootComments = comments.filter((comment) => !comment.parentId);
-  const repliesByParent = comments.reduce((map, comment) => {
-    if (!comment.parentId) return map;
-    const key = String(comment.parentId);
-    const list = map.get(key) || [];
-    list.push(comment);
-    map.set(key, list);
-    return map;
-  }, new Map());
+  const commentTree = buildCommentTree(comments);
   const openAuthorProfile = (targetUser) => {
     if (!onOpenProfile || !targetUser?.id) return;
     onOpenProfile(targetUser);
@@ -677,82 +673,9 @@ export default function GroupPostCard({
         {(error || notice) && <p role={error ? 'alert' : 'status'} className={`mt-2 text-xs ${error ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'}`}>{error || notice}</p>}
 
         {commentsOpen && <section aria-label="Bình luận" className="mt-3 space-y-3 bg-slate-50/70 px-3 py-4 dark:bg-slate-950/30">
-          {loadingComments ? <p className="flex items-center gap-2 py-3 text-xs text-slate-500"><Loader2 size={14} className="animate-spin" />Đang tải bình luận…</p> : rootComments.length ? <ul className="space-y-3">
-            {rootComments.map((rootComment) => {
-              const replies = repliesByParent.get(String(rootComment.id)) || [];
-              const renderCommentItem = (comment, isReply = false) => {
-                const isOwnComment = Boolean(currentUser?.id && String(currentUser.id) === String(comment.authorId));
-                const blurCommentImg = ['sensitive', 'pending_review', 'rejected'].includes(comment.imageModeration?.decision);
-                return (
-                  <div key={comment.id} className={`flex gap-2.5 ${isReply ? 'ml-9 mt-2 border-l-2 border-slate-200 pl-3 dark:border-slate-700' : ''}`}>
-                    <button
-                      type="button"
-                      onClick={() => openAuthorProfile({ id: comment.authorId, name: comment.authorName, username: comment.username, avatar: comment.authorAvatar, isVerified: comment.authorIsVerified })}
-                      className="mt-0.5 shrink-0 rounded-full"
-                    >
-                      <img src={comment.authorAvatar || DEFAULT_AVATAR} alt={comment.authorName || 'Thành viên'} onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="inline-block max-w-full rounded-2xl bg-white px-3 py-2 shadow-xs dark:bg-slate-800/80">
-                        <div className="flex flex-wrap items-center gap-x-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openAuthorProfile({ id: comment.authorId, name: comment.authorName, username: comment.username, avatar: comment.authorAvatar, isVerified: comment.authorIsVerified })}
-                            className="text-xs font-bold text-slate-800 hover:underline dark:text-slate-100"
-                          >
-                            {comment.authorName || 'Thành viên'}
-                          </button>
-                          {comment.authorIsVerified && <VerifiedBadge size="xs" />}
-                          <time className="text-[10px] text-slate-400">{formatDate(comment.createdAt)}</time>
-                        </div>
-                        {comment.content && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 dark:text-slate-200"><HashtagText text={comment.content} /></p>}
-                        {comment.imageUrl && (
-                          <img src={comment.imageUrl} alt="Ảnh bình luận" loading="lazy" className={`mt-2 max-h-56 rounded-xl object-contain ${blurCommentImg ? 'blur-md' : ''}`} />
-                        )}
-                      </div>
-                      <div className="mt-1 flex items-center gap-3 px-2 text-[11px] font-semibold text-slate-500">
-                        {canInteract && (
-                          <button
-                            type="button"
-                            onClick={() => setReplyingTo({ id: isReply ? comment.parentId : comment.id, authorName: comment.authorName || 'Thành viên' })}
-                            className="inline-flex items-center gap-1 hover:text-blue-600"
-                          >
-                            <Reply size={12} />Trả lời
-                          </button>
-                        )}
-                        {canInteract && !isOwnComment && (
-                          <button
-                            type="button"
-                            onClick={() => setReportTarget({
-                              targetType: 'comment',
-                              targetId: comment.id,
-                              parentPostId: post.id,
-                              targetAuthor: { name: comment.authorName || 'Thành viên', username: comment.username },
-                              contentExcerpt: comment.content || '[Hình ảnh]',
-                              imageUrl: comment.imageUrl || null,
-                              aiStatus: { label: comment.aiLabel || 'Normal', confidence: 0.9 },
-                            })}
-                            className="text-rose-600 hover:underline"
-                          >
-                            Báo cáo
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              };
-              return (
-                <li key={rootComment.id}>
-                  {renderCommentItem(rootComment, false)}
-                  {replies.map((reply) => renderCommentItem(reply, true))}
-                </li>
-              );
-            })}
-          </ul> : <p className="py-2 text-center text-xs text-slate-500">Chưa có bình luận. Hãy mở đầu cuộc trò chuyện.</p>}
           {replyingTo && (
             <div className="flex items-center justify-between rounded-xl bg-blue-50 px-3 py-1.5 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
-              <span>Đang trả lời <strong>{replyingTo.authorName}</strong></span>
+              <span>Đang trả lời <strong>@{replyingTo.authorName}</strong></span>
               <button type="button" onClick={() => setReplyingTo(null)} aria-label="Hủy trả lời"><X size={14} /></button>
             </div>
           )}
@@ -766,11 +689,120 @@ export default function GroupPostCard({
             <img src={currentUser?.avatar || DEFAULT_AVATAR} alt={currentUser?.name || 'Bạn'} onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
             <input ref={commentFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleCommentImageChange} />
             <div className="flex min-w-0 flex-1 items-center rounded-full border border-slate-200 bg-white pr-2 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:focus-within:ring-blue-950">
-              <input value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={2000} placeholder={replyingTo ? `Trả lời ${replyingTo.authorName}...` : 'Viết bình luận công khai…'} className="min-w-0 flex-1 bg-transparent px-4 py-2 text-sm outline-none dark:text-white" />
+              <input value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={2000} placeholder={replyingTo ? `Trả lời @${replyingTo.authorName}...` : 'Viết bình luận công khai…'} className="min-w-0 flex-1 bg-transparent px-4 py-2 text-sm outline-none dark:text-white" />
+              <CommentEmojiPicker onSelectEmoji={(emoji) => setCommentText((prev) => `${prev || ''}${emoji}`)} />
               <button type="button" onClick={() => { if (ensureMember()) commentFileInputRef.current?.click(); }} aria-label="Đính kèm ảnh bình luận" className="rounded-full p-1.5 text-slate-400 hover:text-blue-600"><ImageIcon size={16} /></button>
             </div>
             <button type="submit" disabled={submittingComment || (!commentText.trim() && !commentImageFile)} aria-label="Gửi bình luận" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{submittingComment ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}</button>
           </form>
+
+          {loadingComments ? <p className="flex items-center gap-2 py-3 text-xs text-slate-500"><Loader2 size={14} className="animate-spin" />Đang tải bình luận…</p> : commentTree.length ? <ul className="space-y-3">
+            {commentTree.map((rootComment) => {
+              const renderCommentItem = (comment, depth = 0) => {
+                const isOwnComment = Boolean(currentUser?.id && String(currentUser.id) === String(comment.authorId));
+                const blurCommentImg = ['sensitive', 'pending_review', 'rejected'].includes(comment.imageModeration?.decision);
+                return (
+                  <div key={comment.id} className={depth > 0 ? `${depth <= 2 ? 'ml-7 sm:ml-9 pl-3 border-l-2 border-slate-200 dark:border-slate-700' : ''} mt-2` : ''}>
+                    <div className="flex gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => openAuthorProfile({ id: comment.authorId, name: comment.authorName, username: comment.username, avatar: comment.authorAvatar, isVerified: comment.authorIsVerified })}
+                        className="mt-0.5 shrink-0 rounded-full"
+                      >
+                        <img src={comment.authorAvatar || DEFAULT_AVATAR} alt={comment.authorName || 'Thành viên'} onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="inline-block max-w-full rounded-2xl bg-white px-3 py-2 shadow-xs dark:bg-slate-800/80">
+                          <div className="flex flex-wrap items-center gap-x-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openAuthorProfile({ id: comment.authorId, name: comment.authorName, username: comment.username, avatar: comment.authorAvatar, isVerified: comment.authorIsVerified })}
+                              className="text-xs font-bold text-slate-800 hover:underline dark:text-slate-100"
+                            >
+                              {comment.authorName || 'Thành viên'}
+                            </button>
+                            {comment.authorIsVerified && <VerifiedBadge size="xs" />}
+                            <time className="text-[10px] text-slate-400">{formatDate(comment.createdAt)}</time>
+                          </div>
+                          {comment.content && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 dark:text-slate-200"><HashtagText text={comment.content} /></p>}
+                          {comment.imageUrl && (
+                            <img src={comment.imageUrl} alt="Ảnh bình luận" loading="lazy" className={`mt-2 max-h-56 rounded-xl object-contain ${blurCommentImg ? 'blur-md' : ''}`} />
+                          )}
+                        </div>
+                        <div className="mt-1 flex items-center gap-3 px-2 text-[11px] font-semibold text-slate-500">
+                          <CommentReactionButton
+                            initialCounts={comment.reactionCounts || {}}
+                            initialMyReaction={comment.myReaction || null}
+                            disabled={!canInteract}
+                            canReact={Boolean(currentUser?.id && canInteract)}
+                            onRequireAuth={() => ensureMember()}
+                            onReact={async ({ type, action }) => {
+                              const result = await updateCommunityGroupCommentReaction({
+                                groupId,
+                                postId: post.id,
+                                commentId: comment.id,
+                                type,
+                                action,
+                              });
+                              if (result?.data) {
+                                setComments((prev) => prev.map((item) => (
+                                  String(item.id) === String(comment.id)
+                                    ? {
+                                        ...item,
+                                        reactionCounts: result.data.reactionCounts,
+                                        totalReactions: result.data.totalReactions,
+                                        myReaction: result.data.myReaction,
+                                      }
+                                    : item
+                                )));
+                              }
+                              return result?.data || null;
+                            }}
+                          />
+                          {canInteract && (
+                            <button
+                              type="button"
+                              onClick={() => setReplyingTo({ id: comment.id, authorName: comment.authorName || 'Thành viên' })}
+                              className="inline-flex items-center gap-1 hover:text-blue-600"
+                            >
+                              <Reply size={12} />Trả lời
+                            </button>
+                          )}
+                          {canInteract && !isOwnComment && (
+                            <button
+                              type="button"
+                              onClick={() => setReportTarget({
+                                targetType: 'comment',
+                                targetId: comment.id,
+                                parentPostId: post.id,
+                                targetAuthor: { name: comment.authorName || 'Thành viên', username: comment.username },
+                                contentExcerpt: comment.content || '[Hình ảnh]',
+                                imageUrl: comment.imageUrl || null,
+                                aiStatus: { label: comment.aiLabel || 'Normal', confidence: 0.9 },
+                              })}
+                              className="text-rose-600 hover:underline"
+                            >
+                              Báo cáo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {Array.isArray(comment.replies) && comment.replies.length > 0 && (
+                      <div className="space-y-2">
+                        {comment.replies.map((reply) => renderCommentItem(reply, depth + 1))}
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+              return (
+                <li key={rootComment.id}>
+                  {renderCommentItem(rootComment, 0)}
+                </li>
+              );
+            })}
+          </ul> : <p className="py-2 text-center text-xs text-slate-500">Chưa có bình luận. Hãy mở đầu cuộc trò chuyện.</p>}
         </section>}
       </div>
       {shareModalOpen && <SharePostModal

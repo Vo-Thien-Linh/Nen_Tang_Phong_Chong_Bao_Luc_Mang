@@ -1,12 +1,20 @@
 import { VALID_ROLES, normalizeRole } from '../../../../backend/src/utils/rbac.js';
 import { getTrustTier, getUserTrustHistory } from '../../../../backend/src/services/trustScoreService.js';
 import { formatImageModerationForViewer } from '../../../../backend/src/services/imageModerationResponse.js';
+import { validateBackendProfileUpdate } from '../../../../backend/src/utils/profileValidation.js';
 
 /**
  * Chuyển đổi dữ liệu user từ DB sang format chuẩn cho Frontend
  */
-export function formatUserProfile(row) {
+export function formatUserProfile(row, options = {}) {
   if (!row) return null;
+  const { viewerId } = options;
+  const isOwner = viewerId === undefined
+    ? true
+    : Boolean(viewerId && String(viewerId) === String(row.id));
+  const showEmail = Boolean(row.show_email);
+  const showPhone = Boolean(row.show_phone);
+
   return {
     id: row.id,
     username: row.username,
@@ -20,6 +28,9 @@ export function formatUserProfile(row) {
     isVerified: row.is_verified,
     is_verified: row.is_verified,
     bio: row.bio || '',
+    workplace: row.workplace || '',
+    jobTitle: row.job_title || '',
+    job_title: row.job_title || '',
     location: row.location || '',
     hometown: row.hometown || '',
     education: row.education || '',
@@ -27,6 +38,14 @@ export function formatUserProfile(row) {
     high_school: row.high_school || '',
     relationship: row.relationship_status || '',
     relationship_status: row.relationship_status || '',
+    email: (isOwner || showEmail) ? (row.email || '') : '',
+    phone: (isOwner || showPhone) ? (row.phone || '') : '',
+    show_email: showEmail,
+    show_phone: showPhone,
+    settings: {
+      show_email: showEmail,
+      show_phone: showPhone,
+    },
     status: row.status,
     cooldown_until: row.cooldown_until,
     cooldownUntil: row.cooldown_until,
@@ -251,13 +270,14 @@ export function createUsersController({ userRepository, pool }) {
     async getProfile(req, res, next) {
       try {
         const { userId } = req.params;
-        const row = await userRepository.findProfileById(userId, req.user?.id || null);
+        const viewerId = req.user?.id || null;
+        const row = await userRepository.findProfileById(userId, viewerId);
 
         if (!row) {
           return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
         }
 
-        res.json({ success: true, data: formatUserProfile(row) });
+        res.json({ success: true, data: formatUserProfile(row, { viewerId }) });
       } catch (err) {
         next(err);
       }
@@ -275,11 +295,16 @@ export function createUsersController({ userRepository, pool }) {
           return res.status(403).json({ success: false, message: 'Không có quyền chỉnh sửa trang cá nhân của người khác' });
         }
 
-        const { bio, location, hometown, education, relationship_status, avatar_url, cover_url } = req.body;
-        const high_school = req.body.high_school !== undefined ? req.body.high_school : req.body.highSchool;
-        const updated = await userRepository.updateProfile(userId, {
-          bio, location, hometown, education, high_school, relationship_status, avatar_url, cover_url,
-        });
+        const validation = validateBackendProfileUpdate(req.body || {});
+        if (!validation.valid) {
+          return res.status(400).json({
+            success: false,
+            message: validation.message || 'Thông tin hồ sơ không hợp lệ',
+            errors: validation.errors,
+          });
+        }
+
+        const updated = await userRepository.updateProfile(userId, validation.sanitized);
 
         if (!updated) {
           return res.status(400).json({ success: false, message: 'Không có trường nào được cập nhật' });
@@ -354,9 +379,18 @@ export function createUsersController({ userRepository, pool }) {
             aiStatusValue: p.ai_status || 'approved',
             comments: (p.comments || []).map((c) => ({
               id: c.id,
+              parentId: c.parentId || (c.parent_id ? String(c.parent_id) : null),
+              parent_id: c.parentId || (c.parent_id ? String(c.parent_id) : null),
               author: c.author,
               content: c.content,
               image: c.image || null,
+              is_hidden: Boolean(c.is_hidden),
+              is_soft_hidden: Boolean(c.is_soft_hidden),
+              ai_label: c.ai_label || 'Normal',
+              ai_status: c.ai_status || 'approved',
+              reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+              totalReactions: Number(c.totalReactions || 0),
+              myReaction: c.myReaction || null,
               imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
                 status: c.image_moderation_status,
                 scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
@@ -364,6 +398,7 @@ export function createUsersController({ userRepository, pool }) {
                 appealedAt: c.image_moderation_appealed_at || null,
               } : null), 'comment', c.author?.id, viewerId),
               time: c.created_at,
+              createdAt: c.created_at,
             })),
             originalPost: p.original_post_id && p.orig_id ? {
               id: String(p.orig_id),

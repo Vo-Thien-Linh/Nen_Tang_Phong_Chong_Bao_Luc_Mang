@@ -171,6 +171,18 @@ export function createCommunityGroupsRouter({ pool, realtimeService = null }) {
     res.json({ success: true, data });
   }));
 
+  router.put('/:groupId/posts/:postId/comments/:commentId/reaction', requireAuth, asyncRoute(async (req, res) => {
+    const data = await service.setCommentReaction({
+      groupId: req.params.groupId,
+      postId: req.params.postId,
+      commentId: req.params.commentId,
+      user: req.user,
+      reactionType: req.body?.type,
+      action: req.body?.action,
+    });
+    res.json({ success: true, data });
+  }));
+
   router.post('/:groupId/posts/:postId/share', requireAuth, asyncRoute(async (req, res) => {
     const data = await service.shareGroupPost({
       groupId: req.params.groupId,

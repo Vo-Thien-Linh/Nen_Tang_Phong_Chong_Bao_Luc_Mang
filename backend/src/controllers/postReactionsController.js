@@ -32,5 +32,24 @@ export function createPostReactionsController({ reactionService }) {
         next(error);
       }
     },
+
+    async reactToComment(req, res, next) {
+      try {
+        const result = await reactionService.reactToComment({
+          user: req.user,
+          postId: req.params.postId,
+          commentId: req.params.commentId,
+          type: req.body?.type,
+          action: req.body?.action,
+        });
+
+        res.json({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
   };
 }

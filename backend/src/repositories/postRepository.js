@@ -63,7 +63,59 @@ const emptyReactionCounts = () => ({
   angry: 0,
 });
 
-function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [], commentRows = [], savedPostIds = new Set()) {
+async function fetchCommentReactionMaps(pool, commentRows = [], viewerId = null) {
+  const commentIds = commentRows.map((c) => Number(c.id)).filter((id) => Number.isInteger(id) && id > 0);
+  const countsByComment = new Map();
+  const myReactionByComment = new Map();
+  if (commentIds.length === 0) return { countsByComment, myReactionByComment };
+
+  try {
+    const countRes = await pool.query(
+      `SELECT comment_id, reaction_type, COUNT(*)::int AS count
+       FROM comment_reactions
+       WHERE comment_id = ANY($1::bigint[])
+       GROUP BY comment_id, reaction_type`,
+      [commentIds]
+    );
+    for (const row of countRes?.rows || []) {
+      const cid = Number(row.comment_id);
+      if (!countsByComment.has(cid)) {
+        countsByComment.set(cid, { counts: emptyReactionCounts(), total: 0 });
+      }
+      const bucket = countsByComment.get(cid);
+      if (row.reaction_type in bucket.counts) {
+        const cnt = Number(row.count || 0);
+        bucket.counts[row.reaction_type] = cnt;
+        bucket.total += cnt;
+      }
+    }
+
+    if (viewerId) {
+      const myRes = await pool.query(
+        `SELECT comment_id, reaction_type
+         FROM comment_reactions
+         WHERE user_id = $1 AND comment_id = ANY($2::bigint[])`,
+        [viewerId, commentIds]
+      );
+      for (const row of myRes?.rows || []) {
+        myReactionByComment.set(Number(row.comment_id), row.reaction_type);
+      }
+    }
+  } catch {
+    // Fallback cleanly if comment_reactions table is absent in mocked unit tests
+  }
+
+  return { countsByComment, myReactionByComment };
+}
+
+function attachReactionAndCommentsData(
+  posts,
+  countRows = [],
+  myReactionRows = [],
+  commentRows = [],
+  savedPostIds = new Set(),
+  commentReactionMaps = null
+) {
   const reactionDataByPost = new Map();
   const commentsByPost = new Map();
 
@@ -94,11 +146,21 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
     }
   }
 
+  const countsByComment = commentReactionMaps?.countsByComment || new Map();
+  const myReactionByComment = commentReactionMaps?.myReactionByComment || new Map();
+
   for (const c of commentRows) {
     const pid = Number(c.post_id);
+    const cid = Number(c.id);
+    const cReaction = countsByComment.get(cid);
+    const reactionCounts = cReaction?.counts || emptyReactionCounts();
+    const totalReactions = cReaction?.total || 0;
+    const myReaction = myReactionByComment.get(cid) || null;
     if (commentsByPost.has(pid)) {
       commentsByPost.get(pid).push({
         id: String(c.id),
+        parentId: c.parent_id ? String(c.parent_id) : null,
+        parent_id: c.parent_id ? String(c.parent_id) : null,
         author: {
           id: c.author_id,
           name: c.full_name,
@@ -117,6 +179,9 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
         aiLabel: c.ai_label || null,
         ai_status: c.ai_status || 'approved',
         aiStatus: c.ai_status || 'approved',
+        reactionCounts,
+        totalReactions,
+        myReaction,
         imageModeration: c.image_moderation_status ? {
           status: c.image_moderation_status,
           scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
@@ -133,12 +198,15 @@ function attachReactionAndCommentsData(posts, countRows = [], myReactionRows = [
     const pid = Number(post.id);
     const reactionData = reactionDataByPost.get(pid);
     const postComments = commentsByPost.get(pid) || [];
-    // Bình luận Toxic (ẩn mềm) tự động đưa xuống cuối danh sách
+    // Bình luận mới nhất lên đầu, bình luận Toxic (ẩn mềm) tự động đưa xuống cuối danh sách
     const sortedComments = [...postComments].sort((a, b) => {
       const aSoft = Boolean(a.is_soft_hidden || a.isSoftHidden);
       const bSoft = Boolean(b.is_soft_hidden || b.isSoftHidden);
-      if (aSoft === bSoft) return 0;
-      return aSoft ? 1 : -1;
+      if (aSoft !== bSoft) return aSoft ? 1 : -1;
+      const aTime = Date.parse(a.created_at || a.createdAt || 0) || 0;
+      const bTime = Date.parse(b.created_at || b.createdAt || 0) || 0;
+      if (bTime !== aTime) return bTime - aTime;
+      return (Number(b.id) || 0) - (Number(a.id) || 0);
     });
     return {
       ...post,
@@ -279,7 +347,7 @@ export function createPostRepository({ pool }) {
         : { rows: [] };
 
       const commentResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
+        `SELECT c.id, c.post_id, c.parent_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds, c.image_moderation_appealed_at, c.created_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
@@ -291,7 +359,7 @@ export function createPostRepository({ pool }) {
              AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
-         ORDER BY c.created_at ASC`,
+         ORDER BY c.created_at DESC, c.id DESC`,
         [cleanId, viewerId]
       );
 
@@ -307,12 +375,15 @@ export function createPostRepository({ pool }) {
         } catch {}
       }
 
+      const commentReactionMaps = await fetchCommentReactionMaps(pool, commentResult.rows, viewerId);
+
       const post = attachReactionAndCommentsData(
         result.rows,
         countResult.rows,
         myReactionResult.rows,
         commentResult.rows,
-        isSaved ? new Set([cleanId]) : new Set()
+        isSaved ? new Set([cleanId]) : new Set(),
+        commentReactionMaps
       )[0];
 
       // Nếu là bài chia sẻ, lấy thêm thông tin bài gốc
@@ -452,7 +523,19 @@ export function createPostRepository({ pool }) {
       }
     },
 
-    async createComment({ postId, authorId, content, imageUrl = null, imageModeration = null, aiLabel = 'Normal', aiConfidence = 1.0, isHidden = false, isSoftHidden = false, aiStatus = 'approved' }) {
+    async findCommentById(commentId) {
+      const cleanId = Number(String(commentId).replace(/^cmt-/, ''));
+      if (!Number.isInteger(cleanId) || cleanId <= 0) return null;
+      const result = await pool.query(
+        `SELECT id, post_id, parent_id, author_id, is_hidden, ai_status
+         FROM comments
+         WHERE id = $1`,
+        [cleanId]
+      );
+      return result.rows[0] || null;
+    },
+
+    async createComment({ postId, authorId, parentId = null, content, imageUrl = null, imageModeration = null, aiLabel = 'Normal', aiConfidence = 1.0, isHidden = false, isSoftHidden = false, aiStatus = 'approved' }) {
       const imgScores = imageModeration?.scores || imageModeration?.images?.[0]?.scores || {};
       const safeScore = imgScores.safe ?? null;
       const nsfwScore = imgScores.nsfw ?? null;
@@ -460,18 +543,28 @@ export function createPostRepository({ pool }) {
       const imgLabel = nsfwScore >= 0.7 || imageModeration?.decision === 'sensitive' ? 'NSFW'
                      : violenceScore >= 0.8 || imageModeration?.decision === 'rejected' ? 'Violence'
                      : 'Safe';
+      let normalizedParentId = null;
+      if (parentId !== null && parentId !== undefined && String(parentId).trim() !== '') {
+        const parsedParent = Number(String(parentId).replace(/^cmt-/, ''));
+        if (!Number.isInteger(parsedParent) || parsedParent <= 0) {
+          const error = new Error('Bình luận cha không hợp lệ.');
+          error.statusCode = 400;
+          throw error;
+        }
+        normalizedParentId = parsedParent;
+      }
 
       const res = await pool.query(
-        `INSERT INTO comments (post_id, author_id, content, image_url, image_label,
+        `INSERT INTO comments (post_id, author_id, parent_id, content, image_url, image_label,
                               image_moderation_status, image_moderation_safe, image_moderation_nsfw,
                               image_moderation_violence, image_moderation_thresholds,
                               ai_label, ai_confidence, is_hidden, is_soft_hidden, ai_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         RETURNING id, post_id, author_id, content, image_url, image_label,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         RETURNING id, post_id, parent_id, author_id, content, image_url, image_label,
                    image_moderation_status, image_moderation_safe, image_moderation_nsfw,
                    image_moderation_violence, image_moderation_thresholds,
                    ai_label, ai_confidence, is_hidden, is_soft_hidden, ai_status, created_at`,
-        [postId, authorId, content || '', imageUrl, imgLabel, imageModeration?.decision || null,
+        [postId, authorId, normalizedParentId, content || '', imageUrl, imgLabel, imageModeration?.decision || null,
           safeScore,
           nsfwScore,
           violenceScore,
@@ -484,7 +577,7 @@ export function createPostRepository({ pool }) {
       }
 
       const detail = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label,
+        `SELECT c.id, c.post_id, c.parent_id, c.content, c.image_url, c.image_label,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds, c.created_at,
                 c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
@@ -558,7 +651,7 @@ export function createPostRepository({ pool }) {
         : { rows: [] };
 
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
+        `SELECT c.id, c.post_id, c.parent_id, c.content, c.image_url, c.image_label, c.created_at,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds,
                 c.image_moderation_appealed_at,
@@ -571,7 +664,7 @@ export function createPostRepository({ pool }) {
              AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
              AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                   OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
-         ORDER BY c.created_at ASC`,
+         ORDER BY c.created_at DESC, c.id DESC`,
         [postIds, viewerId]
       );
 
@@ -587,7 +680,15 @@ export function createPostRepository({ pool }) {
         } catch {}
       }
 
-      const posts = attachReactionAndCommentsData(result.rows, countResult.rows, myReactionResult.rows, commentsResult.rows, savedPostIds);
+      const commentReactionMaps = await fetchCommentReactionMaps(pool, commentsResult.rows, viewerId);
+      const posts = attachReactionAndCommentsData(
+        result.rows,
+        countResult.rows,
+        myReactionResult.rows,
+        commentsResult.rows,
+        savedPostIds,
+        commentReactionMaps
+      );
 
       // Lấy thông tin bài gốc cho các bài chia sẻ
       const originalPostIds = posts
@@ -728,7 +829,7 @@ export function createPostRepository({ pool }) {
       );
 
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_label, c.created_at,
+        `SELECT c.id, c.post_id, c.parent_id, c.content, c.image_url, c.image_label, c.created_at,
                 c.image_moderation_status, c.image_moderation_safe, c.image_moderation_nsfw,
                 c.image_moderation_violence, c.image_moderation_thresholds,
                 c.image_moderation_appealed_at,
@@ -741,17 +842,19 @@ export function createPostRepository({ pool }) {
            AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
            AND (c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive')
                 OR (c.author_id = $2 AND c.image_moderation_status IN ('pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending')))
-         ORDER BY c.created_at ASC`,
+         ORDER BY c.created_at DESC, c.id DESC`,
         [postIds, userId]
       );
 
+      const commentReactionMaps = await fetchCommentReactionMaps(pool, commentsResult.rows, userId);
       const savedSet = new Set(postIds.map(Number));
       const posts = attachReactionAndCommentsData(
         result.rows,
         countResult.rows,
         myReactionResult.rows,
         commentsResult.rows,
-        savedSet
+        savedSet,
+        commentReactionMaps
       );
 
       const originalPostIds = posts

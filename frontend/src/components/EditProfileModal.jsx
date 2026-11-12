@@ -1,20 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
-  X, Camera, Save, Loader2, MapPin, Home, GraduationCap, 
+  X, Camera, Save, Loader2, MapPin, Home, GraduationCap, Briefcase,
   Heart, Sparkles, CheckCircle2, User, UploadCloud, AlertCircle, Check, Trash2
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 import { useTranslation } from '../utils/i18n';
-
-const RELATIONSHIP_OPTIONS = [
-  'Độc thân',
-  'Đang hẹn hò',
-  'Đã đính hôn',
-  'Đã kết hôn',
-  'Đang tìm hiểu',
-  'Có mối quan hệ phức tạp'
-];
+import {
+  RELATIONSHIP_OPTIONS,
+  validateProfileField,
+  validateProfileForm
+} from '../utils/profileValidation';
 
 export default function EditProfileModal({
   isOpen,
@@ -22,19 +18,24 @@ export default function EditProfileModal({
   initialData = {},
   onSave,
   isSaving = false,
-  successMsg = ''
+  successMsg = '',
+  saveError = ''
 }) {
   const { t, isEn } = useTranslation();
   const [formData, setFormData] = useState({
     avatar_url: '',
     cover_url: '',
     bio: '',
+    workplace: '',
+    jobTitle: '',
     location: '',
     hometown: '',
     education: '',
     highSchool: '',
-    relationship: 'Độc thân'
+    relationship: ''
   });
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState('');
 
   const avatarInputRef = useRef(null);
   const coverInputRef = useRef(null);
@@ -54,12 +55,16 @@ export default function EditProfileModal({
         avatar_url: initialData.avatar || initialData.avatar_url || '',
         cover_url: initialData.cover || initialData.cover_url || initialData.coverImage || '',
         bio: initialData.bio || '',
+        workplace: initialData.workplace || '',
+        jobTitle: initialData.jobTitle || initialData.job_title || '',
         location: initialData.location || '',
         hometown: initialData.hometown || '',
         education: initialData.education || '',
         highSchool: initialData.highSchool || initialData.high_school || '',
-        relationship: initialData.relationship || initialData.relationship_status || 'Độc thân'
+        relationship: initialData.relationship || initialData.relationship_status || ''
       });
+      setFieldErrors({});
+      setFormError('');
       setAvatarUploadSuccess(false);
       setCoverUploadSuccess(false);
       setUploadError('');
@@ -70,7 +75,32 @@ export default function EditProfileModal({
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setFormError('');
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
   };
+
+  const handleFieldBlur = (field) => {
+    const err = validateProfileField(field, formData[field], isEn);
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      if (err) next[field] = err;
+      else delete next[field];
+      return next;
+    });
+  };
+
+  const getInputClass = (field, extra = '') =>
+    `w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border ${
+      fieldErrors[field]
+        ? 'border-rose-400 dark:border-rose-500 focus:border-rose-500 bg-rose-50/40 dark:bg-rose-950/20'
+        : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+    } text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:bg-white dark:focus:bg-slate-850 transition ${extra}`;
 
   // Upload ảnh đại diện từ máy tính lên Cloudinary
   const handleAvatarFileSelect = async (e) => {
@@ -139,11 +169,25 @@ export default function EditProfileModal({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (isUploadingAvatar || isUploadingCover) {
-      alert("Đang tải ảnh lên Cloudinary, vui lòng chờ trong giây lát...");
+      setFormError(isEn ? 'Images are still uploading, please wait a moment...' : 'Đang tải ảnh lên Cloudinary, vui lòng chờ trong giây lát...');
       return;
     }
+
+    const { valid, errors, sanitized } = validateProfileForm(formData, isEn);
+    setFieldErrors(errors);
+    if (!valid) {
+      setFormError(
+        isEn
+          ? 'Please review and fix the highlighted fields before saving.'
+          : 'Một số thông tin chưa hợp lệ hoặc chưa rõ ràng. Vui lòng kiểm tra các ô báo đỏ bên dưới.'
+      );
+      return;
+    }
+
+    setFormError('');
+    setFormData(sanitized);
     if (onSave) {
-      onSave(formData);
+      onSave(sanitized);
     }
   };
 
@@ -161,7 +205,11 @@ export default function EditProfileModal({
             </div>
             <div>
               <h2 className="text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight">{t('edit_profile.title')}</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Chọn ảnh trực tiếp từ máy tính, lưu trữ trên Cloudinary và Database</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {isEn
+                  ? 'Update accurate public details about your work, education, and places lived.'
+                  : 'Cập nhật đầy đủ, chính xác thông tin giới thiệu, công việc, học vấn và nơi ở của bạn.'}
+              </p>
             </div>
           </div>
           <button
@@ -181,11 +229,11 @@ export default function EditProfileModal({
           </div>
         )}
 
-        {/* Thông báo lỗi upload */}
-        {uploadError && (
+        {/* Thông báo lỗi upload / validation / server */}
+        {(uploadError || formError || saveError) && (
           <div className="mx-6 mt-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl flex items-center gap-2 text-rose-700 dark:text-rose-300 text-xs sm:text-sm font-semibold animate-fade-in shrink-0">
             <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
-            <span>{uploadError}</span>
+            <span>{uploadError || formError || saveError}</span>
           </div>
         )}
 
@@ -395,7 +443,7 @@ export default function EditProfileModal({
                 {t('edit_profile.bio')}
               </label>
               <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                {(formData.bio || '').length}/200 ký tự
+                {(formData.bio || '').length}/200 {isEn ? 'chars' : 'ký tự'}
               </span>
             </div>
             <textarea
@@ -403,77 +451,187 @@ export default function EditProfileModal({
               maxLength={200}
               value={formData.bio}
               onChange={(e) => handleChange('bio', e.target.value)}
-              placeholder="Mô tả ngắn về bản thân bạn..."
-              className="w-full p-3 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-850 transition resize-none"
+              onBlur={() => handleFieldBlur('bio')}
+              placeholder={isEn ? 'Describe your interests, expertise, or personal motto...' : 'Ví dụ: Yêu thích công nghệ, chia sẻ kiến thức lập trình & nhiếp ảnh...'}
+              className={`w-full p-3 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border ${
+                fieldErrors.bio
+                  ? 'border-rose-400 dark:border-rose-500 focus:border-rose-500 bg-rose-50/40 dark:bg-rose-950/20'
+                  : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+              } text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:bg-white dark:focus:bg-slate-850 transition resize-none`}
             />
+            {fieldErrors.bio && (
+              <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.bio}</p>
+            )}
           </div>
 
-          {/* Section 3: Chi tiết cá nhân */}
-          <div className="pt-5 space-y-4">
-            <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              {t("edit_profile.details")}
-            </h3>
+          {/* Section 3: Công việc và Học vấn */}
+          <div className="pt-5 space-y-3.5">
+            <div>
+              <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                {isEn ? 'Work & Education' : 'Công việc & Học vấn'}
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                {isEn
+                  ? 'Displayed under the Overview and Work & Education tabs (optional — leave blank if you prefer not to share).'
+                  : 'Hiển thị tại mục Tổng quan và Công việc & Học vấn (có thể bỏ trống nếu không muốn chia sẻ).'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Nơi làm việc */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                    {isEn ? 'Workplace / Company' : 'Nơi làm việc / Công ty'}
+                  </label>
+                  <span className="text-[10px] text-slate-400">{(formData.workplace || '').length}/150</span>
+                </div>
+                <input
+                  type="text"
+                  maxLength={150}
+                  value={formData.workplace}
+                  onChange={(e) => handleChange('workplace', e.target.value)}
+                  onBlur={() => handleFieldBlur('workplace')}
+                  placeholder={isEn ? 'e.g., FPT Software, Freelancer' : 'Ví dụ: Công ty Cổ phần FPT, Tự kinh doanh'}
+                  className={getInputClass('workplace')}
+                />
+                {fieldErrors.workplace && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.workplace}</p>
+                )}
+              </div>
+
+              {/* Chức vụ / Nghề nghiệp */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                    {isEn ? 'Job Title / Role' : 'Chức vụ / Nghề nghiệp'}
+                  </label>
+                  <span className="text-[10px] text-slate-400">{(formData.jobTitle || '').length}/150</span>
+                </div>
+                <input
+                  type="text"
+                  maxLength={150}
+                  value={formData.jobTitle}
+                  onChange={(e) => handleChange('jobTitle', e.target.value)}
+                  onBlur={() => handleFieldBlur('jobTitle')}
+                  placeholder={isEn ? 'e.g., Software Engineer, Student' : 'Ví dụ: Kỹ sư phần mềm, Sinh viên'}
+                  className={getInputClass('jobTitle')}
+                />
+                {fieldErrors.jobTitle && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.jobTitle}</p>
+                )}
+              </div>
+
+              {/* Trường Đại học / Chuyên ngành */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
+                    {isEn ? 'College / University & Major' : 'Đại học / Chuyên ngành'}
+                  </label>
+                  <span className="text-[10px] text-slate-400">{(formData.education || '').length}/150</span>
+                </div>
+                <input
+                  type="text"
+                  maxLength={150}
+                  value={formData.education}
+                  onChange={(e) => handleChange('education', e.target.value)}
+                  onBlur={() => handleFieldBlur('education')}
+                  placeholder={isEn ? 'e.g., HCMC University of Technology - IT' : 'Ví dụ: Đại học Bách Khoa - CNTT'}
+                  className={getInputClass('education')}
+                />
+                {fieldErrors.education && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.education}</p>
+                )}
+              </div>
+
+              {/* Trường THPT */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
+                    {isEn ? 'High School' : 'Trường THPT'}
+                  </label>
+                  <span className="text-[10px] text-slate-400">{(formData.highSchool || '').length}/150</span>
+                </div>
+                <input
+                  type="text"
+                  maxLength={150}
+                  value={formData.highSchool}
+                  onChange={(e) => handleChange('highSchool', e.target.value)}
+                  onBlur={() => handleFieldBlur('highSchool')}
+                  placeholder={isEn ? 'e.g., Central High School' : 'Ví dụ: Trường THPT Hòa Hội'}
+                  className={getInputClass('highSchool')}
+                />
+                {fieldErrors.highSchool && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.highSchool}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Nơi ở & Mối quan hệ */}
+          <div className="pt-5 space-y-3.5">
+            <div>
+              <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                {isEn ? 'Places & Relationship' : 'Nơi ở & Mối quan hệ'}
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                {isEn
+                  ? 'Enter real city or province names (at least 2 letters, no random symbols).'
+                  : 'Nhập tên tỉnh/thành phố hoặc địa danh thật rõ ràng (ít nhất 2 chữ cái, không nhập ký tự tào lao).'}
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Nơi sống */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  {t("edit_profile.city")}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    {isEn ? 'Current City / Residence' : 'Nơi ở hiện tại'}
+                  </label>
+                  <span className="text-[10px] text-slate-400">{(formData.location || '').length}/100</span>
+                </div>
                 <input
                   type="text"
+                  maxLength={100}
                   value={formData.location}
                   onChange={(e) => handleChange('location', e.target.value)}
-                  placeholder="Ví dụ: Vũng Tàu, TP. Hồ Chí Minh"
-                  className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-850 transition"
+                  onBlur={() => handleFieldBlur('location')}
+                  placeholder={isEn ? 'e.g., Ho Chi Minh City' : 'Ví dụ: Quận 1, TP. Hồ Chí Minh'}
+                  className={getInputClass('location')}
                 />
+                {fieldErrors.location && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.location}</p>
+                )}
               </div>
 
-              {/* {t("edit_profile.hometown")} */}
+              {/* Quê quán */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Home className="w-3.5 h-3.5 text-slate-400" />
-                  {t("edit_profile.hometown")}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Home className="w-3.5 h-3.5 text-slate-400" />
+                    {t("edit_profile.hometown")}
+                  </label>
+                  <span className="text-[10px] text-slate-400">{(formData.hometown || '').length}/100</span>
+                </div>
                 <input
                   type="text"
+                  maxLength={100}
                   value={formData.hometown}
                   onChange={(e) => handleChange('hometown', e.target.value)}
-                  placeholder="Ví dụ: Vũng Tàu, Hà Nội"
-                  className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-850 transition"
+                  onBlur={() => handleFieldBlur('hometown')}
+                  placeholder={isEn ? 'e.g., Vung Tau, Hanoi' : 'Ví dụ: Bà Rịa - Vũng Tàu, Hà Nội'}
+                  className={getInputClass('hometown')}
                 />
-              </div>
-
-              {/* Trường Đại học */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
-                  {t("edit_profile.education")}
-                </label>
-                <input
-                  type="text"
-                  value={formData.education}
-                  onChange={(e) => handleChange('education', e.target.value)}
-                  placeholder="Ví dụ: Đại học Bách Khoa"
-                  className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-850 transition"
-                />
-              </div>
-
-              {/* Trường Cấp 3 */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
-                  {isEn ? "High School" : "Trường THPT"}
-                </label>
-                <input
-                  type="text"
-                  value={formData.highSchool}
-                  onChange={(e) => handleChange('highSchool', e.target.value)}
-                  placeholder={isEn ? "e.g., Central High School" : "Ví dụ: Trường THPT Hòa Hội"}
-                  className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-850 transition"
-                />
+                {fieldErrors.hometown && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.hometown}</p>
+                )}
               </div>
 
               {/* Tình trạng mối quan hệ */}
@@ -487,10 +645,16 @@ export default function EditProfileModal({
                   onChange={(e) => handleChange('relationship', e.target.value)}
                   className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-850 transition cursor-pointer"
                 >
+                  <option value="" className="bg-white dark:bg-slate-800 text-slate-500">
+                    {isEn ? 'Not specified' : 'Chưa cập nhật'}
+                  </option>
                   {RELATIONSHIP_OPTIONS.map((opt) => (
                     <option key={opt} value={opt} className="bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">{opt}</option>
                   ))}
                 </select>
+                {fieldErrors.relationship && (
+                  <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.relationship}</p>
+                )}
               </div>
             </div>
           </div>
