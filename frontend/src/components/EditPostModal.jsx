@@ -38,15 +38,19 @@ export default function EditPostModal({ post, isOpen, onClose, onSave, hidePriva
     setIsUploadingImage(true);
     setImagePreview(URL.createObjectURL(file));
     try {
-      const uploaded = uploadImageFn ? await uploadImageFn(file) : await uploadPostImage(file);
+      let nextUrl = '';
+      let nextToken = null;
+      if (uploadImageFn) {
+        const uploaded = await uploadImageFn(file);
+        nextUrl = typeof uploaded === 'string' ? uploaded : (uploaded?.url || '');
+        nextToken = typeof uploaded === 'object' ? (uploaded?.cleanupToken || null) : null;
+      } else {
+        const uploadedUrl = await uploadPostImage(file);
+        nextUrl = uploadedUrl;
+      }
       if (uploadId === imageUploadIdRef.current) {
-        if (typeof uploaded === 'string') {
-          setImageUrl(uploaded);
-          setImageCleanupToken(null);
-        } else {
-          setImageUrl(uploaded?.url || '');
-          setImageCleanupToken(uploaded?.cleanupToken || null);
-        }
+        setImageUrl(nextUrl);
+        setImageCleanupToken(nextToken);
       }
     } catch (error) {
       if (uploadId !== imageUploadIdRef.current) return;
