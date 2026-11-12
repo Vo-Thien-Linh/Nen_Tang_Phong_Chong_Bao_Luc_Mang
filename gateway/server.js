@@ -58,6 +58,7 @@ const ROUTE_TARGETS = [
   { prefix: '/api/settings', target: SERVICE_URLS.platform, name: 'Platform API (FastAPI)' },
   { prefix: '/api/search', target: SERVICE_URLS.platform, name: 'Platform API (FastAPI)' },
   { prefix: '/api/users', target: SERVICE_URLS.users, name: 'User Service (Express; profile and role APIs)' },
+  { prefix: '/api/groups', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; community groups)' },
   { prefix: '/api/posts', target: SERVICE_URLS.posts, name: 'Social Content Service (Express)' },
   { prefix: '/api/hashtags', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; hashtags)' },
   { prefix: '/api/stories', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; stories)' },

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users, ShieldAlert, ShieldCheck, Clock, Loader2 } from 'lucide-react';
+import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users, ShieldAlert, ShieldCheck, Clock, Loader2, Radio } from 'lucide-react';
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
@@ -21,7 +21,7 @@ const getInitialDefaultPrivacy = () => {
   return 'public';
 };
 
-export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
+export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin, onOpenLiveStream }) {
   const { t, isEn } = useTranslation();
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
@@ -452,7 +452,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
           )}
 
           <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
               <button
                 type="button"
                 disabled={isBanned || isCooldown}
@@ -464,6 +464,19 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 <Image className="w-4 h-4 text-emerald-500" />
                 <span>Ảnh / Media</span>
               </button>
+
+              {onOpenLiveStream && (
+                <button
+                  type="button"
+                  onClick={onOpenLiveStream}
+                  disabled={isBanned || isCooldown}
+                  title="Phát trực tiếp an toàn (Phòng chống bạo lực mạng)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <Radio className="w-4 h-4 text-rose-500 shrink-0" />
+                  <span>{t('nav.live')}</span>
+                </button>
+              )}
 
               <button
                 type="button"

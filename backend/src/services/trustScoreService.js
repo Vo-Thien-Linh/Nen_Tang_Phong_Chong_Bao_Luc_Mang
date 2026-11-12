@@ -38,6 +38,7 @@ export function calculateTrustDeduction(textLabel, imageStatus) {
     'safe': 0,
     'pending_review': 0, // Đang phân vân chờ duyệt thì chưa trừ
     'sensitive': 10,     // Ảnh nhạy cảm (NSFW)
+    'rejected': 35,
     'rejected_hold': 35, // Ảnh bạo lực
     'rejected_admin': 35,
     'rejected_final': 35,
@@ -58,7 +59,7 @@ export function calculateTrustDeduction(textLabel, imageStatus) {
 /**
  * Trừ điểm uy tín người dùng và ghi nhật ký
  */
-export async function applyTrustPenalty({ pool, userId, amount, reason, actionType = 'violation', contentId = null }) {
+export async function applyTrustPenalty({ pool, userId, amount, reason, actionType = 'violation', contentId = null, notify = true, rethrow = false }) {
   if (!pool || !userId || !amount || amount <= 0) return null;
 
   try {
@@ -97,20 +98,21 @@ export async function applyTrustPenalty({ pool, userId, amount, reason, actionTy
       );
     }
 
-    // Gửi thông báo hệ thống về việc trừ điểm
-    try {
-      await pool.query(
-        `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
-         VALUES ($1, $2, 'ai_moderation', $3, $4)`,
-        [
-          userId,
-          null,
-          `Điểm uy tín của bạn bị trừ ${amount} điểm do: ${reason}. Điểm hiện tại: ${newScore}/100.`,
-          contentId ? Number(String(contentId).replace(/\D/g, '')) || null : null
-        ]
-      );
-    } catch (notifErr) {
-      console.warn('Không thể gửi thông báo trừ điểm:', notifErr.message);
+    if (notify) {
+      try {
+        await pool.query(
+          `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+           VALUES ($1, $2, 'ai_moderation', $3, $4)`,
+          [
+            userId,
+            null,
+            `Điểm uy tín của bạn bị trừ ${amount} điểm do: ${reason}. Điểm hiện tại: ${newScore}/100.`,
+            contentId ? Number(String(contentId).replace(/\D/g, '')) || null : null
+          ]
+        );
+      } catch (notifErr) {
+        console.warn('Không thể gửi thông báo trừ điểm:', notifErr.message);
+      }
     }
 
     return {
@@ -121,6 +123,7 @@ export async function applyTrustPenalty({ pool, userId, amount, reason, actionTy
     };
   } catch (error) {
     console.error('Lỗi khi trừ điểm uy tín:', error.message);
+    if (rethrow) throw error;
     return null;
   }
 }

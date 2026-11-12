@@ -13,11 +13,12 @@ import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
 import { settingsService } from '../services/settingsService';
-import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchUserStoriesApi, fetchSavedPostsApi } from '../api/client';
+import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchUserStoriesApi, fetchSavedPostsApi, fetchSavedCommunityGroupPosts } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
+import GroupPostCard from './GroupPostCard';
 import OriginalPostModal from './OriginalPostModal';
 import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
@@ -57,6 +58,7 @@ export default function ProfileView({
   onSharePost,
   onOpenStoryViewer,
   onToggleSave,
+  onOpenLiveStream,
   initialTab = 'all'
 }) {
   const { t, isEn } = useTranslation();
@@ -81,11 +83,18 @@ export default function ProfileView({
   useEffect(() => {
     if (activeTab === 'saved' && isOwnProfile && currentUser?.id) {
       setIsLoadingSaved(true);
-      fetchSavedPostsApi()
-        .then((res) => {
-          if (res?.success && Array.isArray(res.data)) {
-            setSavedPosts(res.data);
-          }
+      Promise.allSettled([fetchSavedPostsApi(), fetchSavedCommunityGroupPosts()])
+        .then(([postsRes, groupPostsRes]) => {
+          const regular = postsRes.status === 'fulfilled' && postsRes.value?.success && Array.isArray(postsRes.value.data)
+            ? postsRes.value.data
+            : [];
+          const groupSaved = groupPostsRes.status === 'fulfilled' && groupPostsRes.value?.success && Array.isArray(groupPostsRes.value.data)
+            ? groupPostsRes.value.data.map((post) => ({ ...post, isGroupPost: true, isSaved: true }))
+            : [];
+          const merged = [...regular, ...groupSaved].sort(
+            (a, b) => Date.parse(b.savedAt || b.createdAt || 0) - Date.parse(a.savedAt || a.createdAt || 0)
+          );
+          setSavedPosts(merged);
         })
         .catch((err) => console.warn('Lỗi lấy bài viết đã lưu:', err.message))
         .finally(() => setIsLoadingSaved(false));
@@ -1477,6 +1486,7 @@ export default function ProfileView({
                     }}
                     onRequireAuth={onRequireAuth}
                     onRequireLogin={onRequireAuth}
+                    onOpenLiveStream={onOpenLiveStream}
                   />
                 </div>
               )}
@@ -2037,24 +2047,44 @@ export default function ProfileView({
             ) : savedPosts.length > 0 ? (
               <div className="space-y-4">
                 {savedPosts.map((post) => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    currentUser={currentUser}
-                    onToggleLike={onToggleLike}
-                    onAddComment={onAddComment}
-                    onOpenReportModal={onOpenReportModal}
-                    onOpenAppealModal={onOpenAppealModal}
-                    onRequireAuth={onRequireAuth}
-                    onRequireLogin={onRequireAuth}
-                    onOpenProfile={onOpenUserProfile}
-                    onEditPost={onEditPost}
-                    onUpdatePost={handleProfilePostUpdate}
-                    onDeletePost={onDeletePost}
-                    onSharePost={onSharePost}
-                    onToggleSave={handleToggleSavePost}
-                    allPosts={posts}
-                  />
+                  post.isGroupPost ? (
+                    <GroupPostCard
+                      key={`group-${post.groupId}-${post.id}`}
+                      post={post}
+                      currentUser={currentUser}
+                      canInteract={Boolean(post.canInteract)}
+                      onRequireAuth={onRequireAuth}
+                      onOpenProfile={onOpenUserProfile}
+                      onToggleSave={(postId, nextSaved) => {
+                        if (!nextSaved) {
+                          setSavedPosts((prev) => prev.filter((item) => !(item.isGroupPost && String(item.id) === String(postId))));
+                        }
+                      }}
+                      onPostDeleted={(postId) => {
+                        setSavedPosts((prev) => prev.filter((item) => !(item.isGroupPost && String(item.id) === String(postId))));
+                      }}
+                      showGroup
+                    />
+                  ) : (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      currentUser={currentUser}
+                      onToggleLike={onToggleLike}
+                      onAddComment={onAddComment}
+                      onOpenReportModal={onOpenReportModal}
+                      onOpenAppealModal={onOpenAppealModal}
+                      onRequireAuth={onRequireAuth}
+                      onRequireLogin={onRequireAuth}
+                      onOpenProfile={onOpenUserProfile}
+                      onEditPost={onEditPost}
+                      onUpdatePost={handleProfilePostUpdate}
+                      onDeletePost={onDeletePost}
+                      onSharePost={onSharePost}
+                      onToggleSave={handleToggleSavePost}
+                      allPosts={posts}
+                    />
+                  )
                 ))}
               </div>
             ) : (

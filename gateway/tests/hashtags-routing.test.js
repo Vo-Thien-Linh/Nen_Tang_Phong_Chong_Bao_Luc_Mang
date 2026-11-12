@@ -8,8 +8,22 @@ const postServiceSource = readFileSync(new URL('../../services/post-service/serv
 
 const routes = [
   { prefix: '/api/posts', target: 'posts' },
+  { prefix: '/api/groups', target: 'posts' },
   { prefix: '/api/hashtags', target: 'posts' },
 ];
+
+test('gateway maps community group endpoints to the post service', () => {
+  for (const path of [
+    '/api/groups',
+    '/api/groups?search=books',
+    '/api/groups/12/posts',
+    '/api/groups/12/review-queue',
+  ]) {
+    assert.equal(findRouteTarget(path, routes)?.target, 'posts', path);
+  }
+  assert.match(gatewaySource, /prefix: '\/api\/groups', target: SERVICE_URLS\.posts/);
+  assert.match(postServiceSource, /app\.use\('\/api\/groups', createCommunityGroupsRouter/);
+});
 
 test('gateway maps hashtag endpoints to the post service', () => {
   for (const path of [

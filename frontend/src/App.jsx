@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
+import CommunityGroupsView from './components/CommunityGroupsView';
 import HashtagView from './components/HashtagView';
 import FriendsView from './components/FriendsView';
 import MessagesView from './components/MessagesView';
@@ -79,9 +80,10 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
-  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'groups' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
   const [profileInitialTab, setProfileInitialTab] = useState('all');
   const [friendsInitialTab, setFriendsInitialTab] = useState('requests');
+  const [groupOpenRequest, setGroupOpenRequest] = useState(null);
   const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
@@ -346,8 +348,20 @@ export default function App() {
   // Lắng nghe sự kiện Back/Forward của trình duyệt để điều hướng trang
   useEffect(() => {
     const rawHash = window.location.hash.replace('#', '') || 'home';
+    const urlParams = new URLSearchParams(window.location.search);
+    const groupIdFromUrl = urlParams.get('groupId');
+    const groupPostIdFromUrl = urlParams.get('groupPostId');
     let initialHash = rawHash;
     let initialPostId = null;
+
+    if (/^[1-9]\d*$/.test(groupIdFromUrl || '')) {
+      initialHash = 'groups';
+      setGroupOpenRequest({
+        groupId: groupIdFromUrl,
+        postId: /^[1-9]\d*$/.test(groupPostIdFromUrl || '') ? groupPostIdFromUrl : '',
+        requestId: 1,
+      });
+    }
 
     if (rawHash.startsWith('post-')) {
       initialHash = 'post';
@@ -560,6 +574,22 @@ export default function App() {
       window.history.pushState(stateObj, '', `#${effectiveTab}`);
     }
   };
+
+  const handleOpenGroupFromFeed = (groupId, postId = '') => {
+    const normalizedGroupId = String(groupId ?? '').trim();
+    if (!/^[1-9]\d*$/.test(normalizedGroupId)) return;
+    const normalizedPostId = String(postId ?? '').trim();
+    setGroupOpenRequest((request) => ({
+      groupId: normalizedGroupId,
+      postId: /^[1-9]\d*$/.test(normalizedPostId) ? normalizedPostId : '',
+      requestId: (request?.requestId || 0) + 1,
+    }));
+    handleTabChange('groups');
+  };
+
+  const clearGroupOpenRequest = useCallback((requestId) => {
+    setGroupOpenRequest((request) => request?.requestId === requestId ? null : request);
+  }, []);
 
   const handleOpenHashtag = (tag) => {
     const normalized = normalizeHashtag(tag);
@@ -885,7 +915,11 @@ export default function App() {
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          setPosts((prev) => handleRealtimeFeedEvent(prev, payload));
+          if (payload?.type?.startsWith('GROUP_')) {
+            window.dispatchEvent(new CustomEvent('nexussocial:group-realtime', { detail: payload }));
+          } else {
+            setPosts((prev) => handleRealtimeFeedEvent(prev, payload));
+          }
         } catch (parseErr) {
           console.warn('Realtime parse error:', parseErr);
         }
@@ -1935,7 +1969,6 @@ export default function App() {
         onClearFilter={() => setHomeSearchQuery('')}
         onRefreshHome={handleRefreshHome}
         isLoadingPosts={isLoadingPosts}
-        onOpenLiveStream={handleOpenLiveStreamAction}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -1981,6 +2014,7 @@ export default function App() {
             onOpenLiveStream={handleOpenLiveStreamAction}
             onToggleSave={handleToggleSavePost}
             onViewPost={handleViewPost}
+            onOpenGroup={handleOpenGroupFromFeed}
           />
         )}
 
@@ -2052,6 +2086,16 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'groups' && (
+          <CommunityGroupsView
+            currentUser={currentUser}
+            onRequireAuth={handleRequireAuth}
+            onOpenProfile={handleOpenUserProfile}
+            initialGroupRequest={groupOpenRequest}
+            onInitialGroupOpened={clearGroupOpenRequest}
+          />
+        )}
+
         {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn, giữ DOM để chuyển tab tức thì 0s) */}
         <div className={activeTab === 'messages' ? 'h-full flex flex-col flex-1' : 'hidden'}>
           {hasVisitedMessages && currentUser && (
@@ -2111,6 +2155,7 @@ export default function App() {
             onOpenStoryViewer={handleOpenStoryViewer}
             initialTab={profileInitialTab}
             onToggleSave={handleToggleSavePost}
+            onOpenLiveStream={handleOpenLiveStreamAction}
           />
         )}
 
