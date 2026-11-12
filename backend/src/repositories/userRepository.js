@@ -5,7 +5,7 @@ export function createUserRepository({ pool }) {
     async findById(userId) {
       const result = await pool.query(
         `SELECT id, username, full_name, avatar_url, cover_url, role, is_verified,
-                bio, location, hometown, education, high_school, relationship_status,
+                bio, workplace, job_title, location, hometown, education, high_school, relationship_status,
                 phone, status, cooldown_until, cooldown_reason, cooldown_violation_text,
                 banned_until, ban_reason, COALESCE(trust_score, 100) AS trust_score, last_trust_recovery_at, created_at
          FROM users
@@ -48,7 +48,7 @@ export function createUserRepository({ pool }) {
          VALUES ($1, $2, $3, $4, 'USER', 'active')
          ON CONFLICT (id) DO UPDATE SET full_name = COALESCE(EXCLUDED.full_name, users.full_name)
          RETURNING id, username, full_name, avatar_url, cover_url, role, is_verified,
-                   bio, location, hometown, education, high_school, relationship_status,
+                   bio, workplace, job_title, location, hometown, education, high_school, relationship_status,
                    phone, status, cooldown_until, created_at`,
         [id, cleanUsername, cleanFullName, avatarUrl || null]
       );
@@ -61,9 +61,11 @@ export function createUserRepository({ pool }) {
       const result = await pool.query(
         `SELECT
            u.id, u.username, u.full_name, u.avatar_url, u.cover_url,
-           u.role, u.is_verified, u.bio, u.location, u.hometown,
+           u.role, u.is_verified, u.bio, u.workplace, u.job_title, u.location, u.hometown,
            u.education, u.high_school, u.relationship_status,
-           u.phone, u.status, u.created_at,
+           u.email, u.phone, u.status, u.created_at,
+           COALESCE(us.show_email, FALSE) AS show_email,
+           COALESCE(us.show_phone, FALSE) AS show_phone,
            u.cooldown_until, u.cooldown_reason, u.cooldown_violation_text,
            u.banned_until, u.ban_reason, COALESCE(u.trust_score, 100) AS trust_score, u.last_trust_recovery_at,
            (SELECT COUNT(*) FROM posts p
@@ -73,6 +75,7 @@ export function createUserRepository({ pool }) {
             WHERE (requester_id = u.id OR addressee_id = u.id)
               AND status = 'accepted')::int AS friends_count
          FROM users u
+         LEFT JOIN user_settings us ON us.user_id = u.id
          WHERE u.id = $1`,
         [userId, viewerId]
       );
@@ -102,7 +105,7 @@ export function createUserRepository({ pool }) {
 
     async updateProfile(userId, fields) {
       // Chỉ cho phép cập nhật các trường an toàn
-      const allowed = ['bio', 'location', 'hometown', 'education', 'high_school', 'relationship_status', 'avatar_url', 'cover_url'];
+      const allowed = ['bio', 'workplace', 'job_title', 'location', 'hometown', 'education', 'high_school', 'relationship_status', 'avatar_url', 'cover_url'];
       const updates = [];
       const values = [];
       let paramCount = 1;
@@ -122,8 +125,9 @@ export function createUserRepository({ pool }) {
         `UPDATE users
          SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
          WHERE id = $${paramCount}
-         RETURNING id, username, full_name, avatar_url, cover_url, bio,
-                   location, hometown, education, high_school, relationship_status, is_verified`,
+         RETURNING id, username, full_name, avatar_url, cover_url, bio, workplace, job_title,
+                   location, hometown, education, high_school, relationship_status, is_verified,
+                   email, phone, created_at`,
         values
       );
 

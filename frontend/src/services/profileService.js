@@ -21,6 +21,7 @@ async function request(path, options = {}) {
   if (!response.ok) {
     const error = new Error(data.message || 'Yêu cầu thất bại');
     error.status = response.status;
+    error.errors = data.errors || null;
     throw error;
   }
 
@@ -42,11 +43,16 @@ export const profileService = {
     // Map frontend field names sang DB field names
     const body = {};
     if (fields.bio !== undefined)      body.bio = fields.bio;
+    if (fields.workplace !== undefined) body.workplace = fields.workplace;
+    if (fields.jobTitle !== undefined) body.job_title = fields.jobTitle;
+    else if (fields.job_title !== undefined) body.job_title = fields.job_title;
     if (fields.location !== undefined) body.location = fields.location;
     if (fields.hometown !== undefined) body.hometown = fields.hometown;
     if (fields.education !== undefined) body.education = fields.education;
     if (fields.highSchool !== undefined) body.high_school = fields.highSchool;
+    else if (fields.high_school !== undefined) body.high_school = fields.high_school;
     if (fields.relationship !== undefined) body.relationship_status = fields.relationship;
+    else if (fields.relationship_status !== undefined) body.relationship_status = fields.relationship_status;
     if (fields.avatar_url !== undefined) body.avatar_url = fields.avatar_url;
     if (fields.cover_url !== undefined) body.cover_url = fields.cover_url;
 

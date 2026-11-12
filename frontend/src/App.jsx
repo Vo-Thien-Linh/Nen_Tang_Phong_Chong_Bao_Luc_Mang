@@ -2143,7 +2143,20 @@ export default function App() {
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
-            onOpenSettings={() => setActiveTab('settings')}
+            onOpenSettings={
+              (!viewedProfileUser ||
+                (currentUser?.id &&
+                  String(
+                    viewedProfileUser.id ??
+                      viewedProfileUser.userId ??
+                      viewedProfileUser.user_id ??
+                      viewedProfileUser.authorId ??
+                      viewedProfileUser.author_id ??
+                      ''
+                  ) === String(currentUser.id)))
+                ? () => handleTabChange('settings')
+                : undefined
+            }
             onOpenChat={handleOpenChatFromFriends}
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}

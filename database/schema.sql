@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
 
     -- 3. Thông tin cá nhân / Profile (Hoàn toàn NULL khi tạo tài khoản)
     bio TEXT,
+    workplace VARCHAR(150),
+    job_title VARCHAR(150),
     location VARCHAR(100),
     hometown VARCHAR(100),
     education VARCHAR(150),

@@ -62,13 +62,37 @@ export default function ProfileView({
   initialTab = 'all'
 }) {
   const { t, isEn } = useTranslation();
-  const targetUserId = viewedUser?.id || currentUser?.id;
-  const isOwnProfile = !viewedUser || (currentUser && String(viewedUser.id) === String(currentUser.id));
+  const resolvedViewedUserId =
+    viewedUser?.id ??
+    viewedUser?.userId ??
+    viewedUser?.user_id ??
+    viewedUser?.authorId ??
+    viewedUser?.author_id ??
+    null;
+  const targetUserId = resolvedViewedUserId || currentUser?.id;
+  const isViewingOtherUserByProp = Boolean(
+    viewedUser &&
+    (!resolvedViewedUserId || !currentUser?.id || String(resolvedViewedUserId) !== String(currentUser.id))
+  );
 
   const [activeTab, setActiveTab] = useState(initialTab || 'all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels' | 'saved'
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
+  const [postFilter, setPostFilter] = useState('all'); // 'all' | 'with_image' | 'text_only'
   const [aboutSubTab, setAboutSubTab] = useState('overview'); // 'overview' | 'work_edu' | 'places' | 'contact' | 'family'
   const [friendsSearchQuery, setFriendsSearchQuery] = useState('');
+
+  // ── State dữ liệu từ Database API ───────────────────────────
+  const [profileData, setProfileData] = useState(null);
+  const [profileFriends, setProfileFriends] = useState([]);
+  const [profilePosts, setProfilePosts] = useState(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [isLoadingPosts, setIsLoadingPosts] = useState(true);
+
+  const isOwnProfile = Boolean(
+    currentUser?.id &&
+    !isViewingOtherUserByProp &&
+    (!profileData?.id || String(profileData.id) === String(currentUser.id))
+  );
 
   // ── State bài viết đã lưu (Bookmarks) ───────────────────────
   const [savedPosts, setSavedPosts] = useState([]);
@@ -101,17 +125,11 @@ export default function ProfileView({
     }
   }, [activeTab, isOwnProfile, currentUser?.id]);
 
-  // ── State dữ liệu từ Database API ───────────────────────────
-  const [profileData, setProfileData] = useState(null);
-  const [profileFriends, setProfileFriends] = useState([]);
-  const [profilePosts, setProfilePosts] = useState(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
-  const [isLoadingPosts, setIsLoadingPosts] = useState(true);
-
   // ── Modal chỉnh sửa trang cá nhân ──────────────────────────
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [saveProfileError, setSaveProfileError] = useState('');
 
   // ── Modal xem ảnh phóng to (Lightbox) ──────────────────────
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -320,6 +338,13 @@ export default function ProfileView({
     setProfileData(null);
     setProfileFriends([]);
     setProfilePosts(null);
+    setActiveTab(initialTab || 'all');
+    setAboutSubTab('overview');
+    setPostFilter('all');
+    setFriendsSearchQuery('');
+    setIsEditProfileOpen(false);
+    setSaveProfileError('');
+    setSaveSuccessMsg('');
 
     if (!targetUserId) {
       setIsLoadingProfile(false);
@@ -532,25 +557,19 @@ export default function ProfileView({
 
   // Danh sách bài viết hiển thị
   const userPosts = getProfilePosts({ isOwnProfile, posts, profilePosts, targetUserId });
+  const filteredUserPosts = (userPosts || []).filter((post) => {
+    const hasImage = Boolean(post.image || post.image_url);
+    if (postFilter === 'with_image') return hasImage;
+    if (postFilter === 'text_only') return !hasImage;
+    return true;
+  });
 
   // Trích xuất toàn bộ ảnh thực tế từ các bài viết trong Database
-  const realUserPhotos = [
+  const displayPhotos = [...new Set([
     ...(userPosts || []).filter(p => p.image || p.image_url).map(p => p.image || p.image_url),
     activeUser.avatar || activeUser.avatar_url,
     activeUser.cover || activeUser.cover_url
-  ].filter(Boolean);
-
-  // Bộ sưu tập ảnh mẫu nếu tài khoản mới chưa đăng ảnh nào
-  const samplePhotoGrid = [
-    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=600&auto=format&fit=crop&q=80"
-  ];
-
-  const displayPhotos = realUserPhotos.length > 0 ? realUserPhotos : samplePhotoGrid;
+  ].filter(Boolean))];
 
   // Lọc bạn bè theo ô tìm kiếm
   const filteredFriends = profileFriends.filter(f => {
@@ -650,15 +669,24 @@ export default function ProfileView({
     setShowImageInput(false);
   };
 
+  const openEditProfileModal = () => {
+    setSaveProfileError('');
+    setSaveSuccessMsg('');
+    setIsEditProfileOpen(true);
+  };
+
   // Lưu thông tin từ Modal chỉnh sửa Profile trực tiếp vào PostgreSQL
   const handleSaveProfileModal = async (updatedFields) => {
     if (!currentUser || !isOwnProfile) return;
     setIsSavingProfile(true);
     setSaveSuccessMsg('');
+    setSaveProfileError('');
 
     try {
       const res = await profileService.updateProfile(currentUser.id, {
         bio: updatedFields.bio,
+        workplace: updatedFields.workplace,
+        jobTitle: updatedFields.jobTitle,
         location: updatedFields.location,
         hometown: updatedFields.hometown,
         education: updatedFields.education,
@@ -685,6 +713,9 @@ export default function ProfileView({
             cover: updatedFields.cover_url || activeUser.cover,
             cover_url: updatedFields.cover_url || activeUser.cover,
             bio: updatedFields.bio,
+            workplace: updatedFields.workplace,
+            jobTitle: updatedFields.jobTitle,
+            job_title: updatedFields.jobTitle,
             location: updatedFields.location,
             hometown: updatedFields.hometown,
             education: updatedFields.education,
@@ -700,7 +731,7 @@ export default function ProfileView({
         }, 1200);
       }
     } catch (err) {
-      alert(err.message || 'Lỗi khi lưu thông tin vào cơ sở dữ liệu');
+      setSaveProfileError(err.message || 'Lỗi khi lưu thông tin vào cơ sở dữ liệu');
     } finally {
       setIsSavingProfile(false);
     }
@@ -975,7 +1006,7 @@ export default function ProfileView({
 
               {isOwnProfile ? (
                 <button 
-                  onClick={() => setIsEditProfileOpen(true)}
+                  onClick={openEditProfileModal}
                   className="flex items-center gap-1.5 px-4.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-500/20 transition duration-150 cursor-pointer"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -1251,7 +1282,7 @@ export default function ProfileView({
                   <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Thông tin cá nhân</h2>
                   {isOwnProfile && (
                     <button 
-                      onClick={() => setIsEditProfileOpen(true)}
+                      onClick={openEditProfileModal}
                       className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       title="Chỉnh sửa chi tiết"
                     >
@@ -1286,7 +1317,21 @@ export default function ProfileView({
 
                   <div className="flex items-center gap-3">
                     <Briefcase className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>{isEn ? 'Works at ' : 'Làm việc tại '}<strong>TechVN</strong></span>
+                    <span>
+                      {activeUser.workplace ? (
+                        <>
+                          {activeUser.jobTitle || activeUser.job_title ? (
+                            <><strong>{activeUser.jobTitle || activeUser.job_title}</strong> {isEn ? 'at ' : 'tại '}<strong>{activeUser.workplace}</strong></>
+                          ) : (
+                            <>{isEn ? 'Works at ' : 'Làm việc tại '}<strong>{activeUser.workplace}</strong></>
+                          )}
+                        </>
+                      ) : activeUser.jobTitle || activeUser.job_title ? (
+                        <><strong>{activeUser.jobTitle || activeUser.job_title}</strong></>
+                      ) : (
+                        <>{isEn ? 'Workplace: ' : 'Nơi làm việc: '}<strong className="text-slate-500 dark:text-slate-400 font-semibold">{isEn ? 'Not specified' : 'Chưa cập nhật'}</strong></>
+                      )}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -1337,7 +1382,7 @@ export default function ProfileView({
                 {isOwnProfile && (
                   <div className="pt-2 space-y-2">
                     <button 
-                      onClick={() => setIsEditProfileOpen(true)}
+                      onClick={openEditProfileModal}
                       className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -1353,7 +1398,7 @@ export default function ProfileView({
                   <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Education' : 'Giáo dục'}</h2>
                   {isOwnProfile && (
                     <button 
-                      onClick={() => setIsEditProfileOpen(true)}
+                      onClick={openEditProfileModal}
                       className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -1382,7 +1427,7 @@ export default function ProfileView({
                 </div>
                 {isOwnProfile && (
                   <button
-                    onClick={() => setIsEditProfileOpen(true)}
+                    onClick={openEditProfileModal}
                     className="w-full mt-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-slate-200/60 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-500 transition cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
@@ -1406,24 +1451,30 @@ export default function ProfileView({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1.5 rounded-xl overflow-hidden">
-                  {displayPhotos.slice(0, 9).map((img, idx) => (
-                    <div 
-                      key={idx} 
-                      onClick={() => setLightboxImage(img)}
-                      className="aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden cursor-pointer group relative"
-                    >
-                      <img 
-                        src={img} 
-                        alt={`Photo ${idx}`} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                      />
-                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                        <Eye className="w-4 h-4" />
+                {displayPhotos.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-1.5 rounded-xl overflow-hidden">
+                    {displayPhotos.slice(0, 9).map((img, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => setLightboxImage(img)}
+                        className="aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden cursor-pointer group relative"
+                      >
+                        <img 
+                          src={img} 
+                          alt={`Photo ${idx}`} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                        />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                          <Eye className="w-4 h-4" />
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-xs text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                    {isEn ? 'No photos yet' : 'Chưa có ảnh nào'}
+                  </div>
+                )}
               </div>
 
               {/* Box 4: Bạn bè (Lấy từ bảng friendships trong DB) */}
@@ -1493,16 +1544,30 @@ export default function ProfileView({
 
               {/* Box 2: Header "Bài viết" & Chuyển đổi Danh sách / Lưới */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Posts' : 'Bài viết'} ({userPosts.length})</h3>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => alert(isEn ? "Open post filters" : "Mở bộ lọc bài viết")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Filters' : 'Bộ lọc'}</span>
-                    </button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                    {isEn ? 'Posts' : 'Bài viết'} ({filteredUserPosts.length})
+                  </h3>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 mr-0.5" />
+                    {[
+                      { id: 'all', label: isEn ? 'All' : 'Tất cả' },
+                      { id: 'with_image', label: isEn ? 'With photo' : 'Có ảnh' },
+                      { id: 'text_only', label: isEn ? 'Text only' : 'Chỉ chữ' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPostFilter(opt.id)}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                          postFilter === opt.id
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1552,8 +1617,8 @@ export default function ProfileView({
                 </div>
               ) : viewMode === 'list' ? (
                 <div className="space-y-4">
-                  {userPosts.length > 0 ? (
-                    userPosts.map((post) => (
+                  {filteredUserPosts.length > 0 ? (
+                    filteredUserPosts.map((post) => (
                       <PostCard
                         key={post.id}
                         post={post}
@@ -1575,14 +1640,19 @@ export default function ProfileView({
                     ))
                   ) : (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500">
-                      <p className="text-sm font-semibold">{isEn ? 'No posts yet.' : 'Chưa có bài viết nào.'}</p>
+                      <p className="text-sm font-semibold">
+                        {postFilter === 'all'
+                          ? (isEn ? 'No posts yet.' : 'Chưa có bài viết nào.')
+                          : (isEn ? 'No posts match the selected filter.' : 'Không có bài viết nào khớp với bộ lọc.')}
+                      </p>
                     </div>
                   )}
                 </div>
               ) : (
                 /* Chế độ xem lưới */
+                filteredUserPosts.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {userPosts.map(post => (
+                  {filteredUserPosts.map(post => (
                     <div 
                       key={post.id} 
                       onClick={() => (post.image || post.image_url) && setLightboxImage(post.image || post.image_url)}
@@ -1627,6 +1697,15 @@ export default function ProfileView({
                     </div>
                   ))}
                 </div>
+                ) : (
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500">
+                    <p className="text-sm font-semibold">
+                      {postFilter === 'all'
+                        ? (isEn ? 'No posts yet.' : 'Chưa có bài viết nào.')
+                        : (isEn ? 'No posts match the selected filter.' : 'Không có bài viết nào khớp với bộ lọc.')}
+                    </p>
+                  </div>
+                )
               )}
 
             </div>
@@ -1674,7 +1753,7 @@ export default function ProfileView({
                       <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Information Overview' : 'Tổng quan thông tin'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
+                          onClick={openEditProfileModal}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1687,8 +1766,18 @@ export default function ProfileView({
                       <div className="flex items-start gap-3">
                         <Briefcase className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{isEn ? 'Works at ' : 'Làm việc tại '}<strong>TechVN</strong></p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Software Engineer & AI Content Moderation' : 'Kỹ sư phần mềm & Kiểm duyệt nội dung AI'}</p>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {activeUser.workplace ? (
+                              <>{isEn ? 'Works at ' : 'Làm việc tại '}<strong>{activeUser.workplace}</strong></>
+                            ) : (
+                              isEn ? 'Workplace not specified' : 'Chưa cập nhật nơi làm việc'
+                            )}
+                          </p>
+                          {(activeUser.jobTitle || activeUser.job_title) ? (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{activeUser.jobTitle || activeUser.job_title}</p>
+                          ) : (
+                            <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Workplace & Role' : 'Nơi làm việc / Nghề nghiệp'}</p>
+                          )}
                         </div>
                       </div>
 
@@ -1751,7 +1840,7 @@ export default function ProfileView({
                       <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Work and Education' : 'Công việc và học vấn'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
+                          onClick={openEditProfileModal}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1763,14 +1852,20 @@ export default function ProfileView({
                     <div className="space-y-4">
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
                         <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'Workplace' : 'Nơi làm việc'}</span>
-                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">TechVN Corporation</h5>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Systems Engineer & Social Media AI Platform Developer' : 'Kỹ sư hệ thống & Phát triển mô hình mạng xã hội'}</p>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
+                          {activeUser.workplace || (isEn ? 'Not specified' : 'Chưa cập nhật')}
+                        </h5>
+                        {(activeUser.jobTitle || activeUser.job_title) ? (
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{activeUser.jobTitle || activeUser.job_title}</p>
+                        ) : (
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Job title / role not specified' : 'Chưa cập nhật chức vụ / nghề nghiệp'}</p>
+                        )}
                       </div>
 
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
                         <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'College / University' : 'Đại học'}</span>
                         <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.education || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Information Technology Major' : 'Chuyên ngành Công nghệ thông tin'}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'College / University & Major' : 'Trường đại học / Chuyên ngành'}</p>
                       </div>
 
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
@@ -1788,7 +1883,7 @@ export default function ProfileView({
                       <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Places Lived' : 'Nơi từng sống'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
+                          onClick={openEditProfileModal}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1832,13 +1927,21 @@ export default function ProfileView({
 
                       <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
                         <span className="font-semibold text-slate-500 dark:text-slate-400">Email</span>
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{activeUser.email || `${activeUser.username}@example.com`}</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100">
+                          {isOwnProfile
+                            ? (activeUser.email || currentUser?.email || (isEn ? 'Not specified' : 'Chưa cập nhật'))
+                            : ((activeUser.show_email || activeUser.settings?.show_email) && activeUser.email
+                                ? activeUser.email
+                                : (isEn ? 'Hidden for privacy' : 'Đã ẩn theo cài đặt riêng tư'))}
+                        </span>
                       </div>
 
-                      {activeUser.phone && (
+                      {(isOwnProfile ? (activeUser.phone || currentUser?.phone) : ((activeUser.show_phone || activeUser.settings?.show_phone) && activeUser.phone)) && (
                         <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
                           <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Phone number' : 'Số điện thoại'}</span>
-                          <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">{activeUser.phone}</span>
+                          <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">
+                            {isOwnProfile ? (activeUser.phone || currentUser?.phone) : activeUser.phone}
+                          </span>
                         </div>
                       )}
 
@@ -1857,7 +1960,7 @@ export default function ProfileView({
                       <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Relationships' : 'Mối quan hệ'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
+                          onClick={openEditProfileModal}
                           className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1871,7 +1974,7 @@ export default function ProfileView({
                         <Heart className="w-6 h-6" />
                       </div>
                       <div>
-                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Single' : 'Độc thân')}</h5>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
                         <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Relationship status' : 'Tình trạng mối quan hệ'}</p>
                       </div>
                     </div>
@@ -1978,7 +2081,11 @@ export default function ProfileView({
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-5 sm:p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">{isEn ? 'Your Photos' : 'Ảnh của bạn'}</h3>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                  {isOwnProfile
+                    ? (isEn ? 'Your Photos' : 'Ảnh của bạn')
+                    : (isEn ? `${activeUser.name || activeUser.full_name || 'User'}'s Photos` : `Ảnh của ${activeUser.name || activeUser.full_name || 'người dùng'}`)}
+                </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{isEn ? 'All photos uploaded from posts stored in the database' : 'Toàn bộ ảnh được tải lên từ các bài viết trong cơ sở dữ liệu'}</p>
               </div>
               <span className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
@@ -1987,24 +2094,31 @@ export default function ProfileView({
             </div>
 
             {/* Lưới ảnh */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {displayPhotos.map((img, idx) => (
-                <div 
-                  key={idx}
-                  onClick={() => setLightboxImage(img)}
-                  className="aspect-square rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 cursor-pointer group relative shadow-2xs"
-                >
-                  <img 
-                    src={img} 
-                    alt={`Photo gallery ${idx}`} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                  />
-                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center text-white">
-                    <Eye className="w-6 h-6 drop-shadow-md" />
+            {displayPhotos.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {displayPhotos.map((img, idx) => (
+                  <div 
+                    key={idx}
+                    onClick={() => setLightboxImage(img)}
+                    className="aspect-square rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 cursor-pointer group relative shadow-2xs"
+                  >
+                    <img 
+                      src={img} 
+                      alt={`Photo gallery ${idx}`} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center text-white">
+                      <Eye className="w-6 h-6 drop-shadow-md" />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-400 dark:text-slate-500 space-y-2">
+                <ImageIcon className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-sm font-semibold">{isEn ? 'No photos yet' : 'Chưa có ảnh nào'}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -2106,11 +2220,15 @@ export default function ProfileView({
       {/* ================= MODAL CHỈNH SỬA TRANG CÁ NHÂN ================= */}
       <EditProfileModal
         isOpen={isEditProfileOpen && isOwnProfile}
-        onClose={() => setIsEditProfileOpen(false)}
+        onClose={() => {
+          setSaveProfileError('');
+          setIsEditProfileOpen(false);
+        }}
         initialData={activeUser}
         onSave={handleSaveProfileModal}
         isSaving={isSavingProfile}
         successMsg={saveSuccessMsg}
+        saveError={saveProfileError}
       />
 
       {/* ================= POPUP LỰA CHỌN KHI NHẤN AVATAR CÓ STORY ĐÃ XEM ================= */}
