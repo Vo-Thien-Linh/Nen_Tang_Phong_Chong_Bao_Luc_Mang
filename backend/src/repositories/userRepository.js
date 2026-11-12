@@ -226,10 +226,11 @@ export function createUserRepository({ pool }) {
 
       // Lấy comments
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
+        `SELECT c.id, c.post_id, c.parent_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
                 c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
                 c.image_moderation_thresholds, c.image_moderation_appealed_at, c.created_at,
-                u.id AS author_id, u.full_name, u.username, u.avatar_url
+                c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
          WHERE c.post_id = ANY($1::bigint[])
@@ -237,7 +238,7 @@ export function createUserRepository({ pool }) {
            AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
            AND c.image_moderation_status IS DISTINCT FROM 'rejected_final'
            AND (c.author_id = $2 OR c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive'))
-         ORDER BY c.created_at ASC`,
+         ORDER BY c.created_at DESC, c.id DESC`,
         [postIds, viewerId]
       );
 
@@ -263,19 +264,66 @@ export function createUserRepository({ pool }) {
         myReactionByPost.set(Number(row.post_id), row.reaction_type);
       }
 
+      const commentReactionCounts = new Map();
+      const myCommentReaction = new Map();
+      const commentIds = commentsResult.rows.map((c) => Number(c.id)).filter((id) => Number.isInteger(id) && id > 0);
+      if (commentIds.length > 0) {
+        try {
+          const cReactRes = await pool.query(
+            `SELECT comment_id, reaction_type, COUNT(*)::int AS count
+             FROM comment_reactions
+             WHERE comment_id = ANY($1::bigint[])
+             GROUP BY comment_id, reaction_type`,
+            [commentIds]
+          );
+          for (const row of cReactRes.rows || []) {
+            const cid = Number(row.comment_id);
+            if (!commentReactionCounts.has(cid)) {
+              commentReactionCounts.set(cid, { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 });
+            }
+            const bucket = commentReactionCounts.get(cid);
+            if (row.reaction_type in bucket) bucket[row.reaction_type] = Number(row.count || 0);
+          }
+          if (viewerId) {
+            const myCRes = await pool.query(
+              `SELECT comment_id, reaction_type
+               FROM comment_reactions
+               WHERE user_id = $1 AND comment_id = ANY($2::bigint[])`,
+              [viewerId, commentIds]
+            );
+            for (const row of myCRes.rows || []) {
+              myCommentReaction.set(Number(row.comment_id), row.reaction_type);
+            }
+          }
+        } catch {}
+      }
+
       for (const c of commentsResult.rows) {
         const pid = Number(c.post_id);
+        const cid = Number(c.id);
+        const rCounts = commentReactionCounts.get(cid) || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+        const rTotal = Object.values(rCounts).reduce((sum, val) => sum + Number(val || 0), 0);
         if (commentsByPost.has(pid)) {
           commentsByPost.get(pid).push({
             id: String(c.id),
+            parentId: c.parent_id ? String(c.parent_id) : null,
+            parent_id: c.parent_id ? String(c.parent_id) : null,
             author: {
               id: c.author_id,
               name: c.full_name,
               username: c.username,
               avatar: c.avatar_url,
+              isVerified: Boolean(c.is_verified),
             },
             content: c.content,
             image: c.image_url || null,
+            is_hidden: Boolean(c.is_hidden),
+            is_soft_hidden: Boolean(c.is_soft_hidden),
+            ai_label: c.ai_label || 'Normal',
+            ai_status: c.ai_status || 'approved',
+            reactionCounts: rCounts,
+            totalReactions: rTotal,
+            myReaction: myCommentReaction.get(cid) || null,
             imageModeration: c.image_moderation_status ? {
               status: c.image_moderation_status,
               label: c.image_moderation_label || null,

@@ -379,9 +379,18 @@ export function createUsersController({ userRepository, pool }) {
             aiStatusValue: p.ai_status || 'approved',
             comments: (p.comments || []).map((c) => ({
               id: c.id,
+              parentId: c.parentId || (c.parent_id ? String(c.parent_id) : null),
+              parent_id: c.parentId || (c.parent_id ? String(c.parent_id) : null),
               author: c.author,
               content: c.content,
               image: c.image || null,
+              is_hidden: Boolean(c.is_hidden),
+              is_soft_hidden: Boolean(c.is_soft_hidden),
+              ai_label: c.ai_label || 'Normal',
+              ai_status: c.ai_status || 'approved',
+              reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+              totalReactions: Number(c.totalReactions || 0),
+              myReaction: c.myReaction || null,
               imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
                 status: c.image_moderation_status,
                 scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
@@ -389,6 +398,7 @@ export function createUsersController({ userRepository, pool }) {
                 appealedAt: c.image_moderation_appealed_at || null,
               } : null), 'comment', c.author?.id, viewerId),
               time: c.created_at,
+              createdAt: c.created_at,
             })),
             originalPost: p.original_post_id && p.orig_id ? {
               id: String(p.orig_id),

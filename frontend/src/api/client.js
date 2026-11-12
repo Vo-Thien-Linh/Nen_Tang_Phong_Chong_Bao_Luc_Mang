@@ -138,6 +138,13 @@ export async function updateCommunityGroupPostReaction({ groupId, postId, type, 
   });
 }
 
+export async function updateCommunityGroupCommentReaction({ groupId, postId, commentId, type, action }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/reaction`, {
+    method: 'PUT',
+    body: JSON.stringify({ type: type || null, action }),
+  });
+}
+
 export async function shareCommunityGroupPost({ groupId, postId }) {
   return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/share`, {
     method: 'POST',
@@ -305,11 +312,12 @@ export async function deletePost({ userId, postId }) {
   });
 }
 
-export async function createComment({ userId, postId, content, imageUrl, forceComment, authorFilterKeywords }) {
+export async function createComment({ userId, postId, parentId = null, content, imageUrl, forceComment, authorFilterKeywords }) {
   return request(`/api/posts/${postId}/comments`, {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
     body: JSON.stringify({
+      parentId: parentId || null,
       content,
       imageUrl: imageUrl || null,
       forceComment: Boolean(forceComment),
@@ -333,6 +341,18 @@ export async function updatePostReaction({ userId, postId, type, action }) {
 export async function fetchPostReactions({ userId, postId }) {
   return request(`/api/posts/${postId}/reactions`, {
     headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function updateCommentReaction({ userId, postId, commentId, type, action }) {
+  const resolvedAction = action || (type ? 'set' : 'remove');
+  return request(`/api/posts/${postId}/comments/${commentId}/reaction`, {
+    method: 'PUT',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({
+      type: type || null,
+      action: resolvedAction,
+    }),
   });
 }
 

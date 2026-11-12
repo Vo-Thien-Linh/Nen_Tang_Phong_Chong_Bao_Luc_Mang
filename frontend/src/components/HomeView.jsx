@@ -15,6 +15,7 @@ import { fetchCommunityGroupFeed, fetchStories, fetchTrendingHashtags } from '..
 import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
+import { selectHotPostIdsSnapshot, rankAndInterleaveFeed } from '../utils/homeFeedOrder';
 import { useTranslation } from '../utils/i18n';
 
 export default function HomeView({
@@ -63,6 +64,7 @@ export default function HomeView({
   const [activeStoryTray, setActiveStoryTray] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(false);
+  const [hotSnapshot, setHotSnapshot] = useState({ seed: -1, ids: null });
   const leftSidebarRef = useRef(null);
   const rightSidebarRef = useRef(null);
 
@@ -374,82 +376,6 @@ export default function HomeView({
     }
   };
 
-  // Tính điểm tương tác để xếp hạng bài viết nổi bật (Engagement / Hot ranking)
-  const getPostEngagementScore = (post) => {
-    const reactions = Number(post.reactionCount || post.likesCount || post.totalReactions ||
-      (post.reactionCounts ? Object.values(post.reactionCounts).reduce((a, b) => a + Number(b || 0), 0) : 0) || 0);
-    const comments = (Array.isArray(post.comments) ? post.comments.length : Number(post.commentsCount || 0)) || 0;
-    const shares = Number(post.sharesCount || 0);
-    return (reactions * 1.5) + (comments * 3) + (shares * 4);
-  };
-
-  // Phân bổ bảng tin thông minh: Xen kẽ bài mới nhất & bài có tương tác nổi trội với cơ chế xoay vòng động mỗi lần làm mới
-  const rankAndInterleaveFeed = (postsList, seed = 0) => {
-    if (!Array.isArray(postsList) || postsList.length <= 2) return postsList;
-
-    const scored = postsList.map(p => ({
-      ...p,
-      _score: getPostEngagementScore(p)
-    }));
-
-    // Bài viết hot có điểm tương tác >= 6
-    const hotPosts = scored
-      .filter(p => p._score >= 6 && !p.inlineNotice)
-      .sort((a, b) => b._score - a._score);
-
-    if (hotPosts.length === 0) return postsList;
-
-    const hotIds = new Set(hotPosts.map(p => String(p.id)));
-    const regularPosts = scored.filter(p => !hotIds.has(String(p.id)));
-
-    // Xoay vòng danh sách bài hot dựa trên số lần làm mới để người dùng luôn thấy bài viết đa dạng, không bị lặp 1 bài
-    const hotOffset = seed % Math.max(1, hotPosts.length);
-    const rotatedHotPosts = [
-      ...hotPosts.slice(hotOffset),
-      ...hotPosts.slice(0, hotOffset)
-    ];
-
-    const result = [];
-    const seenIds = new Set();
-    let rIdx = 0;
-    let hIdx = 0;
-
-    // Luân phiên vị trí mở đầu: Lần này bắt đầu bằng bài mới nhất, lần làm mới sau bắt đầu bằng bài viết nổi trội/thịnh hành
-    const startWithHot = (seed % 2 === 1) && rotatedHotPosts.length > 0;
-    if (startWithHot) {
-      const firstHot = { ...rotatedHotPosts[hIdx++], isHotPost: true };
-      seenIds.add(String(firstHot.id));
-      result.push(firstHot);
-    }
-
-    // Xen kẽ nhịp nhàng: Bài mới -> Bài hot -> 2 bài mới -> Bài hot...
-    while (rIdx < regularPosts.length || hIdx < rotatedHotPosts.length) {
-      if (rIdx < regularPosts.length) {
-        const reg = regularPosts[rIdx++];
-        if (!seenIds.has(String(reg.id))) {
-          seenIds.add(String(reg.id));
-          result.push(reg);
-        }
-      }
-      if (hIdx < rotatedHotPosts.length) {
-        const hot = { ...rotatedHotPosts[hIdx++], isHotPost: true };
-        if (!seenIds.has(String(hot.id))) {
-          seenIds.add(String(hot.id));
-          result.push(hot);
-        }
-      }
-      if (rIdx < regularPosts.length && hIdx % 2 === 0) {
-        const reg2 = regularPosts[rIdx++];
-        if (!seenIds.has(String(reg2.id))) {
-          seenIds.add(String(reg2.id));
-          result.push(reg2);
-        }
-      }
-    }
-
-    return result;
-  };
-
   const mainFeedPosts = [...(posts || []), ...groupPosts]
     .sort((left, right) => {
       const leftTime = Date.parse(left.createdAtIso || left.created_at || left.createdAt) || 0;
@@ -458,11 +384,21 @@ export default function HomeView({
     })
     .filter(p => !isHardHiddenPost(p));
 
+  useEffect(() => {
+    if (mainFeedPosts.length === 0) return;
+    if (hotSnapshot.seed === refreshKey && hotSnapshot.ids) return;
+    setHotSnapshot({
+      seed: refreshKey,
+      ids: selectHotPostIdsSnapshot(mainFeedPosts),
+    });
+  }, [refreshKey, mainFeedPosts.length, hotSnapshot.seed, hotSnapshot.ids]);
+
   const trimmedSearch = (searchQuery || '').trim().toLowerCase();
+  const activeHotIds = hotSnapshot.seed === refreshKey ? hotSnapshot.ids : null;
 
   let filteredPosts = feedFilter === 'following'
       ? mainFeedPosts.filter(p => !p.isGroupPost && (!currentUser || p.author?.id !== currentUser?.id))
-      : rankAndInterleaveFeed(mainFeedPosts, refreshKey);
+      : rankAndInterleaveFeed(mainFeedPosts, refreshKey, activeHotIds);
 
   if (trimmedSearch) {
     filteredPosts = filteredPosts.filter(p => {

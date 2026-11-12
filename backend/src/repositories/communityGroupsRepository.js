@@ -351,7 +351,7 @@ export function createCommunityGroupsRepository({ pool }) {
       return result.rows[0] || null;
     },
 
-    async listPostComments({ groupId, postId }) {
+    async listPostComments({ groupId, postId, viewerId = null }) {
       const result = await pool.query(
         `SELECT c.id::text AS id, c.post_id::text AS "postId",
                 c.parent_id::text AS "parentId",
@@ -365,10 +365,52 @@ export function createCommunityGroupsRepository({ pool }) {
          JOIN users u ON u.id = c.author_id
          JOIN community_group_posts p ON p.id = c.post_id
          WHERE c.post_id = $2 AND p.group_id = $1 AND p.review_status = 'approved'
-         ORDER BY c.created_at ASC, c.id ASC`,
+         ORDER BY c.created_at DESC, c.id DESC`,
         [groupId, postId]
       );
-      return result.rows;
+
+      const rows = result.rows || [];
+      const commentIds = rows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
+      if (commentIds.length === 0) return rows;
+
+      const countsByComment = new Map();
+      const myReactionByComment = new Map();
+      try {
+        const countRes = await pool.query(
+          `SELECT comment_id, reaction_type, COUNT(*)::int AS count
+           FROM community_group_comment_reactions
+           WHERE comment_id = ANY($1::bigint[])
+           GROUP BY comment_id, reaction_type`,
+          [commentIds]
+        );
+        for (const r of countRes.rows || []) {
+          const cid = String(r.comment_id);
+          if (!countsByComment.has(cid)) countsByComment.set(cid, {});
+          countsByComment.get(cid)[r.reaction_type] = Number(r.count || 0);
+        }
+        if (viewerId) {
+          const myRes = await pool.query(
+            `SELECT comment_id, reaction_type
+             FROM community_group_comment_reactions
+             WHERE user_id = $1 AND comment_id = ANY($2::bigint[])`,
+            [viewerId, commentIds]
+          );
+          for (const r of myRes.rows || []) {
+            myReactionByComment.set(String(r.comment_id), r.reaction_type);
+          }
+        }
+      } catch {}
+
+      return rows.map((row) => {
+        const reactionCounts = countsByComment.get(String(row.id)) || {};
+        const totalReactions = Object.values(reactionCounts).reduce((sum, n) => sum + Number(n || 0), 0);
+        return {
+          ...row,
+          reactionCounts,
+          totalReactions,
+          myReaction: myReactionByComment.get(String(row.id)) || null,
+        };
+      });
     },
 
     async findPostComment({ groupId, postId, commentId }) {
@@ -476,6 +518,60 @@ export function createCommunityGroupsRepository({ pool }) {
         ]
       );
       return result.rows[0] || null;
+    },
+
+    async setCommentReaction({ groupId, postId, commentId, userId, reactionType, action }) {
+      const validComment = await pool.query(
+        `SELECT c.id
+         FROM community_group_post_comments c
+         JOIN community_group_posts p ON p.id = c.post_id
+         WHERE p.group_id = $1 AND p.id = $2 AND c.id = $3 AND p.review_status = 'approved'`,
+        [groupId, postId, commentId]
+      );
+      if (!validComment.rows[0]) return null;
+
+      if (action === 'remove') {
+        await pool.query(
+          `DELETE FROM community_group_comment_reactions
+           WHERE comment_id = $1 AND user_id = $2`,
+          [commentId, userId]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO community_group_comment_reactions (comment_id, user_id, reaction_type)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (comment_id, user_id) DO UPDATE
+           SET reaction_type = EXCLUDED.reaction_type, created_at = CURRENT_TIMESTAMP`,
+          [commentId, userId, reactionType]
+        );
+      }
+
+      const countRes = await pool.query(
+        `SELECT reaction_type, COUNT(*)::int AS count
+         FROM community_group_comment_reactions
+         WHERE comment_id = $1
+         GROUP BY reaction_type`,
+        [commentId]
+      );
+      const myRes = await pool.query(
+        `SELECT reaction_type
+         FROM community_group_comment_reactions
+         WHERE comment_id = $1 AND user_id = $2`,
+        [commentId, userId]
+      );
+      const reactionCounts = {};
+      let totalReactions = 0;
+      for (const row of countRes.rows || []) {
+        const cnt = Number(row.count || 0);
+        reactionCounts[row.reaction_type] = cnt;
+        totalReactions += cnt;
+      }
+      return {
+        commentId: String(commentId),
+        myReaction: myRes.rows[0]?.reaction_type || null,
+        reactionCounts,
+        totalReactions,
+      };
     },
 
     async recordPostShare({ groupId, postId, userId }) {

@@ -89,6 +89,8 @@ export function mapPostToResponse(post, viewerId = null) {
     isSaved: Boolean(post.is_saved || post.isSaved),
     comments: (post.comments || []).map((c) => ({
       id: String(c.id),
+      parentId: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
+      parent_id: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
       author: {
         id: c.author?.id,
         name: c.author?.name || c.full_name || 'Người dùng',
@@ -114,6 +116,9 @@ export function mapPostToResponse(post, viewerId = null) {
       aiLabel: c.ai_label || c.aiLabel || 'Normal',
       ai_status: c.ai_status || c.aiStatus || 'approved',
       aiStatus: c.ai_status || c.aiStatus || 'approved',
+      reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+      totalReactions: Number(c.totalReactions || 0),
+      myReaction: c.myReaction || null,
       time: formatRelativeTime(c.created_at),
       createdAt: c.created_at,
     })),
@@ -338,6 +343,23 @@ export function createPostsController({ postService, postRepository, imageModera
 
         const normalizedContent = (content || '').trim();
         const forceComment = Boolean(req.body?.forceComment);
+        const rawParentId = req.body?.parentId ?? req.body?.parent_id ?? null;
+        const parentId = rawParentId !== null && rawParentId !== undefined && String(rawParentId).trim() !== ''
+          ? String(rawParentId).trim()
+          : null;
+
+        if (parentId && typeof postRepository?.findCommentById === 'function') {
+          const parentComment = await postRepository.findCommentById(parentId);
+          const normalizedPostId = Number(String(postId).replace(/^post-/, ''));
+          if (
+            !parentComment ||
+            parentComment.is_hidden ||
+            parentComment.ai_status === 'hidden' ||
+            (Number.isInteger(normalizedPostId) && Number(parentComment.post_id) !== normalizedPostId)
+          ) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy bình luận gốc để trả lời.' });
+          }
+        }
 
         // 1. Kiểm tra danh sách từ khóa cấm của chủ bài viết (Author Keyword Blacklist)
         let postAuthorId = targetPost?.author_id || targetPost?.author?.id;
@@ -409,6 +431,7 @@ export function createPostsController({ postService, postRepository, imageModera
           const hiddenComment = await postRepository.createComment({
             postId,
             authorId: req.user.id,
+            parentId,
             content: normalizedContent,
             imageUrl: imageUrl || null,
             aiLabel: 'Author Blacklist',
@@ -499,6 +522,7 @@ export function createPostsController({ postService, postRepository, imageModera
           const hiddenComment = await postRepository.createComment({
             postId,
             authorId: req.user.id,
+            parentId,
             content: normalizedContent,
             imageUrl: imageUrl || null,
             aiLabel: harmonized.finalLabel,
@@ -567,6 +591,7 @@ export function createPostsController({ postService, postRepository, imageModera
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
+          parentId,
           content: normalizedContent,
           imageUrl: imageUrl || null,
           imageModeration: heldModeration,
@@ -597,8 +622,13 @@ export function createPostsController({ postService, postRepository, imageModera
           }
         }
 
+        const resolvedParentId = comment.parent_id
+          ? String(comment.parent_id)
+          : (comment.parentId ? String(comment.parentId) : (parentId ? String(parentId) : null));
         const commentData = {
           id: String(comment.id),
+          parentId: resolvedParentId,
+          parent_id: resolvedParentId,
           author: {
             id: comment.author_id,
             name: comment.full_name,
@@ -615,6 +645,9 @@ export function createPostsController({ postService, postRepository, imageModera
           aiLabel: comment.ai_label,
           ai_status: comment.ai_status,
           aiStatus: comment.ai_status,
+          reactionCounts: { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+          totalReactions: 0,
+          myReaction: null,
           imageModeration: comment.image_moderation_status ? {
             status: comment.image_moderation_status,
             noticeText: getModerationNoticeText('comment', comment.image_moderation_status),

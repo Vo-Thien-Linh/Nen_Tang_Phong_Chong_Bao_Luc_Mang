@@ -1172,9 +1172,11 @@ export default function App() {
     }
 
     try {
+      const parentId = newComment.parentId ?? newComment.parent_id ?? options?.parentId ?? null;
       const res = await createComment({
         userId: currentUser.id,
         postId,
+        parentId,
         content: newComment.content || '',
         imageUrl: newComment.image || null,
         forceComment: Boolean(options?.forceComment),
@@ -1204,7 +1206,13 @@ export default function App() {
           ...cooldownData
         }));
       }
-      const savedComment = res.data || newComment;
+      const savedComment = res.data
+        ? {
+            ...res.data,
+            parentId: res.data.parentId ?? res.data.parent_id ?? newComment.parentId ?? null,
+            parent_id: res.data.parent_id ?? res.data.parentId ?? newComment.parentId ?? null,
+          }
+        : newComment;
       const isCommentHidden = Boolean(
         res.isAuthorBlacklisted ||
         savedComment.is_hidden || savedComment.isHidden ||
