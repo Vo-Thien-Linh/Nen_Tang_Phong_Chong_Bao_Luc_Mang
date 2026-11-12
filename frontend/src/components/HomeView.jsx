@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
-  TrendingUp, UserPlus, Users, MessageCircle, 
+import {
+  TrendingUp, UserPlus, Users, MessageCircle,
   ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw,
   Radio, Eye, Bookmark
 } from 'lucide-react';
@@ -10,17 +10,18 @@ import InlineNotice from './InlineNotice';
 import StoryBar from './StoryBar';
 import CreateStoryModal from './CreateStoryModal';
 import StoryViewerModal from './StoryViewerModal';
-import { fetchStories, fetchTrendingHashtags } from '../api/client';
+import GroupPostCard from './GroupPostCard';
+import { fetchCommunityGroupFeed, fetchStories, fetchTrendingHashtags } from '../api/client';
 import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
 import { useTranslation } from '../utils/i18n';
 
-export default function HomeView({ 
-  currentUser, 
-  posts, 
-  onAddPost, 
-  onToggleLike, 
+export default function HomeView({
+  currentUser,
+  posts,
+  onAddPost,
+  onToggleLike,
   onAddComment,
   onOpenReportModal,
   onOpenAppealModal,
@@ -49,10 +50,13 @@ export default function HomeView({
   onWatchStream,
   onOpenLiveStream,
   onViewPost,
-  onToggleSave
+  onToggleSave,
+  onOpenGroup
 }) {
   const { t, isEn } = useTranslation();
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
+  const [groupPosts, setGroupPosts] = useState([]);
+  const [groupFeedError, setGroupFeedError] = useState('');
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
   const [storyTrays, setStoryTrays] = useState([]);
   const [isCreateStoryOpen, setIsCreateStoryOpen] = useState(false);
@@ -61,6 +65,78 @@ export default function HomeView({
   const [trendingLoading, setTrendingLoading] = useState(false);
   const leftSidebarRef = useRef(null);
   const rightSidebarRef = useRef(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const search = searchQuery.trim();
+    if (!currentUser?.id && !search) {
+      setGroupPosts([]);
+      return () => { mounted = false; };
+    }
+
+    setGroupPosts([]);
+    setGroupFeedError('');
+    fetchCommunityGroupFeed({ search })
+      .then((result) => {
+        if (!mounted) return;
+        const nextPosts = Array.isArray(result?.data) ? result.data.map((post) => ({
+          ...post,
+          id: post.id,
+          isGroupPost: true,
+          image: post.imageUrl || null,
+          author: {
+            id: post.authorId,
+            name: post.authorName || 'Thành viên',
+            username: post.username,
+            avatar: post.authorAvatar,
+            isVerified: Boolean(post.authorIsVerified),
+          },
+          createdAtIso: post.createdAt,
+        })) : [];
+        setGroupPosts(nextPosts);
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setGroupPosts([]);
+        setGroupFeedError(error.message || 'Không tải được bài viết trong nhóm.');
+      });
+
+    return () => { mounted = false; };
+  }, [currentUser?.id, refreshKey, searchQuery]);
+
+  useEffect(() => {
+    const handleGroupRealtime = (event) => {
+      const payload = event.detail;
+      if (!payload) return;
+      if (payload.type === 'GROUP_POST_CREATED' && payload.post) {
+        setGroupPosts((prev) => {
+          if (prev.some((item) => String(item.id) === String(payload.post.id))) return prev;
+          return [{
+            ...payload.post,
+            isGroupPost: true,
+            canInteract: true,
+            image: payload.post.imageUrl || null,
+            author: {
+              id: payload.post.authorId,
+              name: payload.post.authorName || 'Thành viên',
+              username: payload.post.username,
+              avatar: payload.post.authorAvatar,
+              isVerified: Boolean(payload.post.authorIsVerified),
+            },
+            createdAtIso: payload.post.createdAt,
+          }, ...prev];
+        });
+      } else if (payload.type === 'GROUP_POST_UPDATED' && payload.post) {
+        setGroupPosts((prev) => prev.map((item) => (
+          String(item.id) === String(payload.post.id) ? { ...item, ...payload.post } : item
+        )));
+      } else if (payload.type === 'GROUP_POST_DELETED' && payload.postId) {
+        setGroupPosts((prev) => prev.filter((item) => String(item.id) !== String(payload.postId)));
+      }
+    };
+    window.addEventListener('nexussocial:group-realtime', handleGroupRealtime);
+    return () => window.removeEventListener('nexussocial:group-realtime', handleGroupRealtime);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -93,7 +169,7 @@ export default function HomeView({
     setStoryTrays(prevTrays => {
       return prevTrays.map(tray => {
         if (String(tray.author?.id) === String(authorId)) {
-          const updatedStories = tray.stories.map(s => 
+          const updatedStories = tray.stories.map(s =>
             String(s.id) === String(storyId) ? { ...s, isViewed: true } : s
           );
           const hasUnviewed = updatedStories.some(s => !s.isViewed);
@@ -115,7 +191,7 @@ export default function HomeView({
   // Ngăn cuộn lan (scroll leakage) sang bài viết ở giữa khi lăn chuột trên cột trái hoặc cột phải
   useEffect(() => {
     const handleSidebarWheel = (el) => {
-      if (!el) return () => {};
+      if (!el) return () => { };
       const onWheel = (e) => {
         const { scrollTop, scrollHeight, clientHeight } = el;
         // Nếu nội dung sidebar dài hơn chiều cao màn hình
@@ -300,7 +376,7 @@ export default function HomeView({
 
   // Tính điểm tương tác để xếp hạng bài viết nổi bật (Engagement / Hot ranking)
   const getPostEngagementScore = (post) => {
-    const reactions = Number(post.reactionCount || post.likesCount || post.totalReactions || 
+    const reactions = Number(post.reactionCount || post.likesCount || post.totalReactions ||
       (post.reactionCounts ? Object.values(post.reactionCounts).reduce((a, b) => a + Number(b || 0), 0) : 0) || 0);
     const comments = (Array.isArray(post.comments) ? post.comments.length : Number(post.commentsCount || 0)) || 0;
     const shares = Number(post.sharesCount || 0);
@@ -374,13 +450,19 @@ export default function HomeView({
     return result;
   };
 
-  const mainFeedPosts = (posts || []).filter(p => !isHardHiddenPost(p));
+  const mainFeedPosts = [...(posts || []), ...groupPosts]
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.createdAtIso || left.created_at || left.createdAt) || 0;
+      const rightTime = Date.parse(right.createdAtIso || right.created_at || right.createdAt) || 0;
+      return rightTime - leftTime;
+    })
+    .filter(p => !isHardHiddenPost(p));
 
   const trimmedSearch = (searchQuery || '').trim().toLowerCase();
 
   let filteredPosts = feedFilter === 'following'
-    ? mainFeedPosts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
-    : rankAndInterleaveFeed(mainFeedPosts, refreshKey);
+      ? mainFeedPosts.filter(p => !p.isGroupPost && (!currentUser || p.author?.id !== currentUser?.id))
+      : rankAndInterleaveFeed(mainFeedPosts, refreshKey);
 
   if (trimmedSearch) {
     filteredPosts = filteredPosts.filter(p => {
@@ -390,7 +472,8 @@ export default function HomeView({
         (p.author.name && p.author.name.toLowerCase().includes(trimmedSearch)) ||
         (p.author.username && p.author.username.toLowerCase().includes(trimmedSearch))
       );
-      return contentMatch || tagMatch || authorMatch;
+      const groupMatch = p.groupName && p.groupName.toLowerCase().includes(trimmedSearch);
+      return contentMatch || tagMatch || authorMatch || groupMatch;
     });
   }
 
@@ -400,23 +483,23 @@ export default function HomeView({
   return (
     <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
       <div className="flex justify-center items-start gap-6 lg:gap-8">
-        
+
         {/* ================= CỘT TRÁI: LỐI TẮT NHANH & PROFILE (HIỆN TRÊN MÀN HÌNH RỘNG XL) ================= */}
-        <aside 
+        <aside
           ref={leftSidebarRef}
           className="hidden xl:block w-64 2xl:w-72 space-y-4 sticky top-20 shrink-0 max-h-[calc(100vh-5.5rem)] overflow-y-auto overscroll-contain sidebar-scrollbar pr-1 pb-4"
         >
-          
+
           {/* Card Thông tin tài khoản người dùng hoặc Khách */}
           {currentUser ? (
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
-              <div 
+              <div
                 onClick={() => setActiveTab && setActiveTab('profile')}
                 className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
               >
-                <img 
-                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
-                  alt={currentUser.name} 
+                <img
+                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR}
+                  alt={currentUser.name}
                   className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
                 />
                 <div className="min-w-0">
@@ -528,7 +611,7 @@ export default function HomeView({
               <span className="text-xs font-black text-blue-300 uppercase tracking-wider">AI Shield Active</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
-              {isEn 
+              {isEn
                 ? 'PhoBERT model is protecting the platform, automatically labeling and filtering harmful content in real time.'
                 : 'Mô hình PhoBERT đang bảo vệ nền tảng, tự động gắn nhãn và chặn lọc nội dung độc hại thời gian thực.'}
             </p>
@@ -538,7 +621,7 @@ export default function HomeView({
 
         {/* ================= BẢNG TIN TRUNG TÂM (MỞ RỘNG RỘNG RÃI, THOÁNG ĐÃNG) ================= */}
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
-          
+
           {/* Thanh Tin 24h (Story Bar) */}
           <StoryBar
             currentUser={currentUser}
@@ -598,11 +681,12 @@ export default function HomeView({
           )}
 
           {/* Ô tạo bài viết mới */}
-          <CreatePostCard 
-            currentUser={currentUser} 
-            onAddPost={onAddPost} 
-            onRequireAuth={onRequireAuth} 
+          <CreatePostCard
+            currentUser={currentUser}
+            onAddPost={onAddPost}
+            onRequireAuth={onRequireAuth}
             onRequireLogin={onRequireLogin}
+            onOpenLiveStream={onOpenLiveStream}
           />
 
           {/* Banner thông báo kết quả tìm kiếm */}
@@ -631,22 +715,26 @@ export default function HomeView({
             </div>
           )}
 
+          {groupFeedError && (
+            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              Không tải được bài viết trong nhóm: {groupFeedError}
+            </div>
+          )}
+
           {/* Tabs bộ lọc Feed */}
           <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs font-semibold">
             <div className="flex gap-2">
               <button
                 onClick={() => setFeedFilter('forYou')}
-                className={`px-3 py-1.5 rounded-lg transition ${
-                  feedFilter === 'forYou' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition ${feedFilter === 'forYou' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
               >
                 {t('home.for_you')}
               </button>
               <button
                 onClick={() => setFeedFilter('following')}
-                className={`px-3 py-1.5 rounded-lg transition ${
-                  feedFilter === 'following' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition ${feedFilter === 'following' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
               >
                 {t('home.following')}
               </button>
@@ -721,66 +809,79 @@ export default function HomeView({
               </div>
             ) : filteredPosts.length > 0 ? (
               filteredPosts.map(post => (
-                isDeletedNoticePost(post) ? (
-                  <InlineNotice
-                    key={post.id}
-                    notice={post.inlineNotice}
-                    onDismiss={() => onDismissNotice?.(post.id)}
-                    className="shadow-xs"
-                  />
-                ) : (
-                  <PostCard 
-                    key={post.id}
-                    post={post}
-                    currentUser={currentUser}
-                    allPosts={posts}
-                    onUpdatePost={onEditPost}
-                    onToggleLike={onToggleLike}
-                    onAddComment={onAddComment}
-                    onOpenReportModal={onOpenReportModal}
-                    onOpenAppealModal={onOpenAppealModal}
-                    onRequireAuth={onRequireAuth}
-                    onRequireLogin={onRequireLogin}
-                    onOpenProfile={onOpenProfile}
-                    onEditPost={onEditPost}
-                    onDeletePost={onDeletePost}
-                    openPostMenuId={openPostMenuId}
-                    onTogglePostMenu={onTogglePostMenu}
-                    onClosePostMenu={onClosePostMenu}
-                    onDismissNotice={onDismissNotice}
-                    onSharePost={onSharePost}
-                    onToggleSave={onToggleSave}
-                    isTargeted={isPostTargeted(post.id) && focusedPostTarget?.type === 'comment'}
-                    targetType={focusedPostTarget?.type}
-                    targetActor={focusedPostTarget?.actor}
-                    targetCommentId={focusedPostTarget?.targetCommentId}
-                  />
-                )
-              ))
-            ) : trimmedSearch ? (
-              <div className="bg-white rounded-2xl p-8 sm:p-10 text-center border border-slate-200 shadow-2xs space-y-3">
-                <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-2xs">
-                  <Search className="w-5 h-5" />
+                  post.isGroupPost ? (
+                    <GroupPostCard
+                      key={`${post.groupId}-${post.id}`}
+                      post={post}
+                      currentUser={currentUser}
+                      canInteract={Boolean(post.canInteract)}
+                      onRequireAuth={onRequireAuth}
+                      onOpenGroup={onOpenGroup}
+                      onOpenProfile={onOpenProfile}
+                      onPostUpdated={(updated) => setGroupPosts((prev) => prev.map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item)))}
+                      onPostDeleted={(deletedId) => setGroupPosts((prev) => prev.filter((item) => String(item.id) !== String(deletedId)))}
+                      showGroup
+                    />
+                  ) : isDeletedNoticePost(post) ? (
+                    <InlineNotice
+                      key={post.id}
+                      notice={post.inlineNotice}
+                      onDismiss={() => onDismissNotice?.(post.id)}
+                      className="shadow-xs"
+                    />
+                  ) : (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      currentUser={currentUser}
+                      allPosts={posts}
+                      onUpdatePost={onEditPost}
+                      onToggleLike={onToggleLike}
+                      onAddComment={onAddComment}
+                      onOpenReportModal={onOpenReportModal}
+                      onOpenAppealModal={onOpenAppealModal}
+                      onRequireAuth={onRequireAuth}
+                      onRequireLogin={onRequireLogin}
+                      onOpenProfile={onOpenProfile}
+                      onEditPost={onEditPost}
+                      onDeletePost={onDeletePost}
+                      openPostMenuId={openPostMenuId}
+                      onTogglePostMenu={onTogglePostMenu}
+                      onClosePostMenu={onClosePostMenu}
+                      onDismissNotice={onDismissNotice}
+                      onSharePost={onSharePost}
+                      onToggleSave={onToggleSave}
+                      isTargeted={isPostTargeted(post.id) && focusedPostTarget?.type === 'comment'}
+                      targetType={focusedPostTarget?.type}
+                      targetActor={focusedPostTarget?.actor}
+                      targetCommentId={focusedPostTarget?.targetCommentId}
+                    />
+                  )
+                ))
+              ) : trimmedSearch ? (
+                <div className="bg-white rounded-2xl p-8 sm:p-10 text-center border border-slate-200 shadow-2xs space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-2xs">
+                    <Search className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">{isEn ? 'No posts found' : 'Không tìm thấy bài viết nào'}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                      {isEn ? (
+                        <>No posts matched the keyword <span className="font-semibold text-blue-600">"{searchQuery}"</span>. You can try searching for different keywords or clear the filter.</>
+                      ) : (
+                        <>Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.</>
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    onClick={onClearSearch}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Clear filter & View all posts' : 'Xóa bộ lọc & Xem tất cả bài viết'}</span>
+                  </button>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">{isEn ? 'No posts found' : 'Không tìm thấy bài viết nào'}</h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-                    {isEn ? (
-                      <>No posts matched the keyword <span className="font-semibold text-blue-600">"{searchQuery}"</span>. You can try searching for different keywords or clear the filter.</>
-                    ) : (
-                      <>Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.</>
-                    )}
-                  </p>
-                </div>
-                <button
-                  onClick={onClearSearch}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Clear filter & View all posts' : 'Xóa bộ lọc & Xem tất cả bài viết'}</span>
-                </button>
-              </div>
-            ) : (
+              ) : (
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-400 text-sm">
                 {isEn ? 'No posts in this section yet.' : 'Chưa có bài viết nào trong mục này.'}
               </div>
@@ -790,11 +891,11 @@ export default function HomeView({
         </main>
 
         {/* ================= CỘT PHẢI (GỢI Ý KẾT BẠN, XU HƯỚNG, ONLINE) ================= */}
-        <aside 
+        <aside
           ref={rightSidebarRef}
           className="hidden lg:block w-80 xl:w-88 space-y-5 sticky top-20 shrink-0 max-h-[calc(100vh-5.5rem)] overflow-y-auto overscroll-contain sidebar-scrollbar pr-1 pb-6"
         >
-          
+
           {/* Gợi ý kết bạn */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             <div className="flex items-center justify-between mb-3.5">
@@ -839,10 +940,10 @@ export default function HomeView({
                         >
                           {friend.name}
                         </p>
-                        
+
                         {/* Hiển thị bạn chung (Bạn bè trong danh sách) có nhiều bạn chung hiện lần lượt */}
                         {mutualCount > 0 ? (
-                          <div 
+                          <div
                             className="flex items-center gap-1.5 mt-0.5"
                             title={isEn ? `Mutual friends in list: ${mutualList.map(f => f.name).join(', ')}` : `Bạn bè chung trong danh sách: ${mutualList.map(f => f.name).join(', ')}`}
                           >
@@ -880,11 +981,10 @@ export default function HomeView({
 
                     <button
                       onClick={() => toggleFollowFriend(friend.id)}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg shrink-0 transition cursor-pointer ${
-                        friend.requestSent 
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg shrink-0 transition cursor-pointer ${friend.requestSent
                           ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                           : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs hover:shadow-xs'
-                      }`}
+                        }`}
                     >
                       {friend.requestSent ? (isEn ? 'Sent' : 'Đã gửi') : (isEn ? 'Add' : 'Kết bạn')}
                     </button>
@@ -905,8 +1005,8 @@ export default function HomeView({
               {trendingLoading ? <p className="text-xs text-slate-400">{isEn ? 'Loading...' : 'Đang tải...'}</p> : trendingTopics.length === 0 ? (
                 <p className="text-xs text-slate-400">{t('home.no_trending')}</p>
               ) : trendingTopics.map((topic) => (
-                <div 
-                  key={topic.tag} 
+                <div
+                  key={topic.tag}
                   onClick={() => onSelectHashtag?.(topic.tag)}
                   role="button"
                   tabIndex={0}

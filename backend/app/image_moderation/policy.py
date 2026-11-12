@@ -42,3 +42,24 @@ def decide_content_moderation(results, thresholds=None):
     decisions = [decide_image_moderation(item.get("scores"), thresholds, item.get("failed", False)) for item in results]
     winner = max(decisions, key=lambda item: priority[item["decision"]])
     return {"decision": winner["decision"], "images": decisions, "thresholds": thresholds.snapshot()}
+
+
+def image_preview_payload(result):
+    decision = result["decision"]
+    category = {SAFE: "SAFE", SENSITIVE: "SENSITIVE", REJECTED: "VIOLATION", PENDING_REVIEW: "PENDING_REVIEW"}[decision]
+    scores = result["scores"]
+    confidence_label = {
+        SAFE: "safe",
+        SENSITIVE: "nsfw",
+        REJECTED: "violence",
+    }.get(decision)
+    if decision == PENDING_REVIEW and scores:
+        confidence_label = max(("nsfw", "violence"), key=scores.get)
+    confidence_labels = {"safe": "An toàn", "nsfw": "Nội dung nhạy cảm", "violence": "Bạo lực"}
+    return {
+        "category": category,
+        "decision": decision,
+        "confidence": scores.get(confidence_label) if scores and confidence_label else None,
+        "confidenceLabel": confidence_labels.get(confidence_label),
+        "source": "efficientnet-b1" if scores else "unavailable",
+    }

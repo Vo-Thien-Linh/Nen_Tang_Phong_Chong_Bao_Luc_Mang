@@ -14,6 +14,7 @@ except ImportError as err:
     HAS_TORCH_TRANSFORMERS = False
 
 MODEL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../ai_model"))
+MODEL_SOURCE = "fallback"
 
 print(f"[AI PhoBERT] Dang nap mo hinh tu: {MODEL_DIR}...")
 if HAS_TORCH_TRANSFORMERS and os.path.exists(MODEL_DIR):
@@ -22,6 +23,7 @@ if HAS_TORCH_TRANSFORMERS and os.path.exists(MODEL_DIR):
         model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
         model.eval()
         ID2LABEL = model.config.id2label
+        MODEL_SOURCE = "phobert"
         print(f"[AI PhoBERT] Nap mo hinh thanh cong! Danh sach nhan: {ID2LABEL}")
     except Exception as e:
         print(f"[AI PhoBERT] Loi nap mo hinh: {e}")
@@ -39,7 +41,8 @@ def predict_vi_content(text: str) -> dict:
             "label": "Normal",
             "confidence": 1.0,
             "action": "allow",
-            "reason": "Noi dung hop le."
+            "reason": "Noi dung hop le.",
+            "model_source": MODEL_SOURCE,
         }
 
     if not model or not tokenizer or not torch:
@@ -54,28 +57,32 @@ def predict_vi_content(text: str) -> dict:
                 "label": "Violence",
                 "confidence": 0.95,
                 "action": "hide",
-                "reason": "Phát hiện nội dung có yếu tố đe dọa hoặc bạo lực (Chế độ dự phòng)."
+                "reason": "Phát hiện nội dung có yếu tố đe dọa hoặc bạo lực (Chế độ dự phòng).",
+                "model_source": MODEL_SOURCE,
             }
         if any(w in lower for w in hate_speech_kw):
             return {
                 "label": "Hate Speech",
                 "confidence": 0.92,
                 "action": "hide",
-                "reason": "Phát hiện phát ngôn mang tính thù địch, kích động (Chế độ dự phòng)."
+                "reason": "Phát hiện phát ngôn mang tính thù địch, kích động (Chế độ dự phòng).",
+                "model_source": MODEL_SOURCE,
             }
         if any(w in lower for w in toxic_kw):
             return {
                 "label": "Toxic",
                 "confidence": 0.91,
                 "action": "warn",
-                "reason": "Phát hiện từ ngữ xúc phạm hoặc công kích độc hại (Chế độ dự phòng)."
+                "reason": "Phát hiện từ ngữ xúc phạm hoặc công kích độc hại (Chế độ dự phòng).",
+                "model_source": MODEL_SOURCE,
             }
 
         return {
             "label": "Normal",
             "confidence": 0.99,
             "action": "allow",
-            "reason": "Nội dung an toàn, không phát hiện vi phạm."
+            "reason": "Nội dung an toàn, không phát hiện vi phạm.",
+            "model_source": MODEL_SOURCE,
         }
 
     inputs = tokenizer(
@@ -113,5 +120,6 @@ def predict_vi_content(text: str) -> dict:
         "label": label,
         "confidence": confidence,
         "action": action,
-        "reason": reason
+        "reason": reason,
+        "model_source": MODEL_SOURCE,
     }

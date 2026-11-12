@@ -8,7 +8,7 @@
  */
 export async function moderateTextContent(text) {
   if (!text || !text.trim()) {
-    return { label: 'Normal', confidence: 1.0, action: 'allow' };
+    return { label: 'Normal', confidence: 1.0, action: 'allow', source: 'rules' };
   }
 
   const isTestEnvironment =
@@ -19,20 +19,29 @@ export async function moderateTextContent(text) {
 
   if (!isTestEnvironment) {
     try {
-      const fastApiBase = process.env.AI_SERVICE_URL || process.env.FASTAPI_URL || 'http://127.0.0.1:8001';
+      const fastApiBase = (process.env.AI_SERVICE_URL || process.env.FASTAPI_URL || 'http://127.0.0.1:8001').trim();
       const res = await fetch(`${fastApiBase}/api/v1/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.trim() }),
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.reason !== 'Mo hinh AI dang san sang.') {
+        if (data.model_source === 'phobert') {
           return {
             label: data.label || 'Normal',
-            confidence: data.confidence || 0.98,
+            confidence: data.confidence ?? null,
             action: data.action || 'allow',
+            source: 'phobert',
+          };
+        }
+        if (data.model_source === 'fallback') {
+          return {
+            label: data.label || 'Review needed',
+            confidence: data.confidence ?? null,
+            action: data.action || 'review',
+            source: 'fallback',
           };
         }
       }
@@ -55,7 +64,7 @@ export async function moderateTextContent(text) {
     lower.includes('giết chết') ||
     lower.includes('đánh chết')
   ) {
-    return { label: 'Violence', confidence: 0.95, action: 'hide' };
+    return { label: 'Violence', confidence: 0.95, action: 'hide', source: 'rules' };
   }
 
   if (
@@ -65,7 +74,7 @@ export async function moderateTextContent(text) {
     lower.includes('cút xéo') ||
     lower.includes('súc vật')
   ) {
-    return { label: 'Hate Speech', confidence: 0.92, action: 'hide' };
+    return { label: 'Hate Speech', confidence: 0.92, action: 'hide', source: 'rules' };
   }
 
   if (
@@ -81,8 +90,8 @@ export async function moderateTextContent(text) {
     lower.includes('đồ khốn') ||
     lower.includes('đồ điên')
   ) {
-    return { label: 'Toxic', confidence: 0.91, action: 'warn' };
+    return { label: 'Toxic', confidence: 0.91, action: 'warn', source: 'rules' };
   }
 
-  return { label: 'Normal', confidence: 0.99, action: 'allow' };
+  return { label: 'Normal', confidence: 0.99, action: 'allow', source: 'fallback' };
 }

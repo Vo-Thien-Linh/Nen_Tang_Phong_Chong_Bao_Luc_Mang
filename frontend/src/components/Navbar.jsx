@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { 
-  Home, Bell, ShieldCheck, Users, MessageCircle, 
+  Home, Bell, ShieldCheck, Users, MessageCircle,
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
-  Sun, Moon, Radio, Bookmark
+  Sun, Moon, Bookmark
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
@@ -27,8 +27,7 @@ export default function Navbar({
   activeFilterQuery = '',
   onClearFilter,
   onRefreshHome,
-  isLoadingPosts = false,
-  onOpenLiveStream
+  isLoadingPosts = false
 }) {
   const { t } = useTranslation();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -128,6 +127,36 @@ export default function Navbar({
             <span className="hidden lg:inline whitespace-nowrap">{t('nav.friends')}</span>
           </button>
 
+          {/* Nút Tab Nhóm */}
+          <button
+            onClick={() => setActiveTab('groups')}
+            title={t('nav.groups')}
+            className={
+              'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+              (activeTab === 'groups'
+                ? 'bg-blue-50 text-blue-600 font-bold'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+            }
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="8.5" r="2.2" />
+              <path d="M7.6 20.9V18a4.4 3.6 0 0 1 8.8 0v2.9" />
+              <path d="M2.35 9.4a3.1 2.7 0 0 1 0 5.2" />
+              <path d="M21.65 9.4a3.1 2.7 0 0 0 0 5.2" />
+            </svg>
+            <span className="hidden lg:inline whitespace-nowrap">{t('nav.groups')}</span>
+          </button>
+
           {/* Nút Tab Tin nhắn */}
           <button
             onClick={() => setActiveTab('messages')}
@@ -170,17 +199,6 @@ export default function Navbar({
               )}
             </div>
             <span className="hidden lg:inline whitespace-nowrap">{t('nav.notifications')}</span>
-          </button>
-
-          {/* Nút Tab Phát Trực Tiếp (Livestream) */}
-          <button
-            id="nav-livestream-btn"
-            onClick={onOpenLiveStream}
-            title="Phát trực tiếp an toàn (Phòng chống bạo lực mạng)"
-            className="h-10 flex items-center gap-1.5 px-3 rounded-xl text-xs sm:text-sm font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 transition duration-150 cursor-pointer whitespace-nowrap shrink-0 border border-rose-200/60 dark:border-rose-900/40"
-          >
-            <Radio className="w-4 h-4 text-rose-500 animate-pulse shrink-0" />
-            <span className="hidden sm:inline font-bold whitespace-nowrap">{t("nav.live")}</span>
           </button>
 
           {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin; User thường KHÔNG render trong DOM) */}

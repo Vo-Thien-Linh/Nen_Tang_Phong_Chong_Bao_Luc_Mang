@@ -1,4 +1,6 @@
+import ipaddress
 import logging
+from urllib.parse import urlparse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from .config import settings
@@ -7,17 +9,38 @@ logger = logging.getLogger("uvicorn.error")
 
 DATABASE_URL = settings.DATABASE_URL
 
+
+def _is_local_or_docker_postgres(database_url: str) -> bool:
+    """Trả về True khi URL trỏ tới PostgreSQL local hoặc Docker nội bộ."""
+    if not database_url:
+        return False
+    try:
+        host = (urlparse(database_url).hostname or "").lower()
+    except ValueError:
+        host = ""
+    if not host:
+        return "localhost" in database_url or "127.0.0.1" in database_url
+    if "." not in host or host in {"localhost", "::1", "0.0.0.0"} or host.endswith((".local", ".internal")):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
+
+
 # Chuẩn bị engine
 engine = None
 is_postgres = False
 
 try:
     if "postgresql" in DATABASE_URL:
-        # Nếu là PostgreSQL / Supabase (dùng pool size nhỏ để không chạm trần Supabase pooler)
+        is_local_pg = _is_local_or_docker_postgres(DATABASE_URL)
+        # Local/Docker mở pool lớn hơn; Supabase giữ pool nhỏ để không chạm trần pooler
         engine = create_engine(
             DATABASE_URL,
-            pool_size=3,
-            max_overflow=2,
+            pool_size=10 if is_local_pg else 3,
+            max_overflow=5 if is_local_pg else 2,
             pool_recycle=300,
             pool_pre_ping=True,
             connect_args={"sslmode": "require", "connect_timeout": 5} if "supabase" in DATABASE_URL else {"connect_timeout": 5}

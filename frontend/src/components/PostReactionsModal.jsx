@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import { X, UserPlus, Check } from 'lucide-react';
 import { REACTIONS } from '../utils/reactionLogic';
 import { DEFAULT_AVATAR } from '../constants/defaults';
-import { fetchPostReactions } from '../api/client';
+import { fetchCommunityGroupPostReactions, fetchPostReactions } from '../api/client';
 
 export default function PostReactionsModal({
   isOpen,
   onClose,
   postId,
   post,
+  groupId,
   currentUser,
   onOpenProfile,
   onRequireAuth,
@@ -25,7 +26,11 @@ export default function PostReactionsModal({
     let isMounted = true;
     setIsLoading(true);
 
-    fetchPostReactions({ userId: currentUser?.id, postId })
+    const loadReactions = groupId
+      ? fetchCommunityGroupPostReactions({ groupId, postId, userId: currentUser?.id })
+      : fetchPostReactions({ userId: currentUser?.id, postId });
+
+    loadReactions
       .then(data => {
         if (!isMounted) return;
         setReactors(Array.isArray(data?.data) ? data.data : []);
@@ -46,7 +51,7 @@ export default function PostReactionsModal({
       isMounted = false;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, postId, post?.id, post?.myReaction, currentUser?.id]);
+  }, [isOpen, postId, post?.id, post?.myReaction, groupId, currentUser?.id]);
 
   // Phân nhóm reactors theo cảm xúc
   const reactorsByTab = useMemo(() => {

@@ -5,7 +5,7 @@ The project can keep one Supabase PostgreSQL instance while services are being s
 | Data | Write owner | Intended use by other services |
 | --- | --- | --- |
 | `users`, `role_audit_logs`, `verification_codes`, `user_settings`, `friendships` | User/Auth | Profile, auth, role and friendship reads through User/Auth APIs |
-| `posts`, `comments`, `post_reactions` | Social Content | Moderation reads through `moderation_content_read_model`; state changes become commands to Social Content |
+| `posts`, `comments`, `post_reactions`, `community_groups`, `community_group_members`, `community_group_posts`, `community_group_moderation_logs` | Social Content | Moderation reads through `moderation_content_read_model`; state changes become commands to Social Content |
 | `reports`, `appeals`, `moderation_logs`, `ai_override_logs`, `user_trust_logs` | Moderation | Admin dashboard reads through Moderation APIs |
 | `notifications` | Realtime / Notification | Producers request notification creation through this service; feed events use PostgreSQL `NOTIFY` during the shared-database phase |
 | `conversations`, `messages` | Messaging (currently the FastAPI platform API) | Other services use Messaging API |

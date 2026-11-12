@@ -32,7 +32,7 @@ start "User Service (:5001)" /D "%~dp0" "%ComSpec%" /k node services\user-servic
 call :WAIT_FOR_URL "User Service" "http://127.0.0.1:5001/health" 60 || goto STARTUP_FAILED
 
 echo [4/8] Khoi dong Social Content Service (Port 5002)...
-start "Post Service (:5002)" /D "%~dp0" "%ComSpec%" /k "set AI_SERVICE_URL=http://127.0.0.1:8001 && set FASTAPI_URL=http://127.0.0.1:8000 && node services\post-service\server.js"
+start "Post Service (:5002)" /D "%~dp0" "%ComSpec%" /k "set AI_SERVICE_URL=http://127.0.0.1:8001&& set FASTAPI_URL=http://127.0.0.1:8000&& node services\post-service\server.js"
 call :WAIT_FOR_URL "Social Content Service" "http://127.0.0.1:5002/health" 60 || goto STARTUP_FAILED
 
 echo [5/8] Khoi dong Moderation Service (Port 5003)...

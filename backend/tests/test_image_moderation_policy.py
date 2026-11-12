@@ -2,7 +2,7 @@ import os
 import unittest
 
 from app.image_moderation.config import DEFAULT_THRESHOLDS, get_image_moderation_thresholds
-from app.image_moderation.policy import PENDING_REVIEW, REJECTED, SAFE, SENSITIVE, decide_content_moderation, decide_image_moderation
+from app.image_moderation.policy import PENDING_REVIEW, REJECTED, SAFE, SENSITIVE, decide_content_moderation, decide_image_moderation, image_preview_payload
 
 
 class ImageModerationPolicyTests(unittest.TestCase):
@@ -27,6 +27,20 @@ class ImageModerationPolicyTests(unittest.TestCase):
         self.assertEqual(decide_image_moderation({"safe": .5, "nsfw": .1, "violence": .4})["decision"], PENDING_REVIEW)
         self.assertEqual(decide_image_moderation(None, failed=True)["decision"], PENDING_REVIEW)
         self.assertEqual(decide_content_moderation([{"scores": {"safe": .99, "nsfw": .005, "violence": .005}}, {"scores": {"safe": .1, "nsfw": .1, "violence": .8}}])["decision"], REJECTED)
+
+    def test_preview_payload_preserves_confidence_for_selected_image_label(self):
+        result = decide_image_moderation({"safe": .05, "nsfw": .08, "violence": .87})
+        payload = image_preview_payload(result)
+        self.assertEqual(payload["category"], "VIOLATION")
+        self.assertEqual(payload["confidence"], .87)
+        self.assertEqual(payload["confidenceLabel"], "Bạo lực")
+        self.assertEqual(payload["source"], "efficientnet-b1")
+
+    def test_failed_preview_does_not_invent_confidence(self):
+        payload = image_preview_payload(decide_image_moderation(None, failed=True))
+        self.assertEqual(payload["category"], "PENDING_REVIEW")
+        self.assertIsNone(payload["confidence"])
+        self.assertEqual(payload["source"], "unavailable")
 
 
 if __name__ == "__main__":
