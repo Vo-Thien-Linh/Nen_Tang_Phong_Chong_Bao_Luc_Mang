@@ -338,7 +338,13 @@ class MessageService:
             return [partner_id]
 
     @staticmethod
-    def get_conversations(current_user_id: str, tab: Optional[str], db: Session) -> List[ConversationItem]:
+    def get_conversations(
+        current_user_id: str,
+        tab: Optional[str],
+        db: Session,
+        is_online_func=None,
+        get_last_seen_func=None
+    ) -> List[ConversationItem]:
         # 1. Tự động đảm bảo tất cả bạn bè chính thức (accepted) đều có cuộc trò chuyện sẵn sàng
         # Dùng batch query thay vì N queries lồng nhau để tối ưu tốc độ vượt trội
         try:
@@ -475,15 +481,28 @@ class MessageService:
             ).filter(ConversationMember.conversation_id.in_(group_ids)).all()
 
             for cm, u in members_rows:
+                u_id_str = str(u.id)
+                u_online = bool(is_online_func(u_id_str)) if is_online_func else False
+                u_last_seen = get_last_seen_func(u_id_str) if get_last_seen_func else None
+                if not u_last_seen and not u_online:
+                    if getattr(u, "last_seen", None):
+                        u_last_seen = u.last_seen.isoformat()
+                    else:
+                        last_sent = db.query(Message.created_at).filter(Message.sender_id == u_id_str).order_by(Message.id.desc()).first()
+                        if last_sent and last_sent[0]:
+                            u_last_seen = last_sent[0].isoformat()
+                        elif getattr(u, "updated_at", None):
+                            u_last_seen = u.updated_at.isoformat()
                 group_members_map[cm.conversation_id].append(
                     ConversationPartner(
-                        id=str(u.id),
+                        id=u_id_str,
                         name=u.full_name,
                         username=u.username,
                         avatar=u.avatar_url,
                         bio=u.bio,
-                        is_online=True,
-                        is_friend=True
+                        is_online=u_online,
+                        is_friend=True,
+                        last_seen=u_last_seen
                     )
                 )
 
@@ -543,14 +562,26 @@ class MessageService:
             if not is_friend and not last_msg and c.status != "blocked":
                 continue
 
+            partner_online = bool(is_online_func(partner_id)) if is_online_func else False
+            partner_last_seen = get_last_seen_func(partner_id) if get_last_seen_func else None
+            if not partner_last_seen and not partner_online:
+                if getattr(partner_user, "last_seen", None):
+                    partner_last_seen = partner_user.last_seen.isoformat()
+                else:
+                    last_sent = db.query(Message.created_at).filter(Message.sender_id == partner_id).order_by(Message.id.desc()).first()
+                    if last_sent and last_sent[0]:
+                        partner_last_seen = last_sent[0].isoformat()
+                    elif getattr(partner_user, "updated_at", None):
+                        partner_last_seen = partner_user.updated_at.isoformat()
             partner_info = ConversationPartner(
                 id=str(partner_user.id),
                 name=partner_user.full_name,
                 username=partner_user.username,
                 avatar=partner_user.avatar_url,
                 bio=partner_user.bio,
-                is_online=True,
-                is_friend=is_friend
+                is_online=partner_online,
+                is_friend=is_friend,
+                last_seen=partner_last_seen
             )
 
             is_requester = (str(c.initiated_by) == str(current_user_id))

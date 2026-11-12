@@ -11,7 +11,7 @@ import StoryBar from './StoryBar';
 import CreateStoryModal from './CreateStoryModal';
 import StoryViewerModal from './StoryViewerModal';
 import { fetchStories, fetchTrendingHashtags } from '../api/client';
-import { suggestedFriends } from '../data/mockData';
+import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
 import { useTranslation } from '../utils/i18n';
@@ -64,12 +64,8 @@ export default function HomeView({
 
   useEffect(() => {
     let mounted = true;
-    if (!currentUser?.id) {
-      setTrendingTopics([]);
-      return undefined;
-    }
     setTrendingLoading(true);
-    fetchTrendingHashtags({ userId: currentUser.id })
+    fetchTrendingHashtags({ userId: currentUser?.id, limit: 5 })
       .then((result) => {
         if (mounted) setTrendingTopics(Array.isArray(result?.data) ? result.data : []);
       })
@@ -207,19 +203,99 @@ export default function HomeView({
     const strT = String(activeTargetPostId);
     return strP === strT || strP === strT.replace(/^post-/, '') || `post-${strP}` === strT;
   };
-  const [friendsList, setFriendsList] = useState(() => {
-    // Sắp xếp người có nhiều bạn bè chung nhất lên đầu lần lượt xuống dưới
-    return [...suggestedFriends].sort((a, b) => {
-      const aCount = Array.isArray(a.mutualFriends) ? a.mutualFriends.length : (a.mutualFriends || 0);
-      const bCount = Array.isArray(b.mutualFriends) ? b.mutualFriends.length : (b.mutualFriends || 0);
-      return bCount - aCount;
-    });
-  });
+  const [friendsList, setFriendsList] = useState([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [friendsCount, setFriendsCount] = useState(currentUser?.friendsCount ?? 0);
 
-  const toggleFollowFriend = (id) => {
+  useEffect(() => {
+    let mounted = true;
+    if (!currentUser?.id) {
+      setFriendsList([]);
+      setFriendsCount(0);
+      return;
+    }
+
+    setFriendsLoading(true);
+    friendService.getFriendSuggestions(5)
+      .then(sugs => {
+        if (!mounted) return;
+        if (Array.isArray(sugs) && sugs.length > 0) {
+          const mapped = sugs.map(s => ({
+            id: s.id,
+            name: s.name,
+            username: s.username,
+            avatar: s.avatar || DEFAULT_AVATAR,
+            role: s.role,
+            mutualFriends: (s.mutual_friends || []).map(m => ({
+              id: m.id,
+              name: m.name,
+              avatar: m.avatar || DEFAULT_AVATAR
+            })),
+            requestSent: s.request_sent || false
+          }));
+          // Sắp xếp ưu tiên người có nhiều bạn chung nhất
+          mapped.sort((a, b) => {
+            const aCount = Array.isArray(a.mutualFriends) ? a.mutualFriends.length : (a.mutualFriends || 0);
+            const bCount = Array.isArray(b.mutualFriends) ? b.mutualFriends.length : (b.mutualFriends || 0);
+            return bCount - aCount;
+          });
+          setFriendsList(mapped);
+        } else {
+          setFriendsList([]);
+        }
+      })
+      .catch(err => {
+        console.warn('Lỗi tải gợi ý kết bạn trang chủ:', err);
+        if (mounted) setFriendsList([]);
+      })
+      .finally(() => {
+        if (mounted) setFriendsLoading(false);
+      });
+
+    friendService.getFriendsList()
+      .then(list => {
+        if (!mounted) return;
+        if (Array.isArray(list)) {
+          setFriendsCount(list.length);
+        } else if (currentUser?.friendsCount !== undefined && currentUser?.friendsCount !== null) {
+          setFriendsCount(currentUser.friendsCount);
+        }
+      })
+      .catch(err => {
+        console.warn('Lỗi tải danh sách bạn bè trang chủ:', err);
+      });
+
+    return () => { mounted = false; };
+  }, [currentUser?.id, refreshKey]);
+
+  useEffect(() => {
+    if (currentUser?.friendsCount !== undefined && currentUser?.friendsCount !== null) {
+      setFriendsCount(currentUser.friendsCount);
+    }
+  }, [currentUser?.friendsCount]);
+
+  const toggleFollowFriend = async (id) => {
+    const targetFriend = friendsList.find(f => f.id === id);
+    if (!targetFriend) return;
+
+    const willBeSent = !targetFriend.requestSent;
     setFriendsList(prev => prev.map(friend => 
-      friend.id === id ? { ...friend, requestSent: !friend.requestSent } : friend
+      friend.id === id ? { ...friend, requestSent: willBeSent } : friend
     ));
+
+    try {
+      if (willBeSent) {
+        await friendService.sendFriendRequest(id);
+      } else {
+        await friendService.cancelSentRequest(id);
+      }
+    } catch (err) {
+      console.warn('Lỗi cập nhật lời mời kết bạn:', err);
+      // Hoàn tác lại trạng thái khi gặp lỗi
+      setFriendsList(prev => prev.map(friend => 
+        friend.id === id ? { ...friend, requestSent: !willBeSent } : friend
+      ));
+    }
   };
 
   // Tính điểm tương tác để xếp hạng bài viết nổi bật (Engagement / Hot ranking)
@@ -359,7 +435,7 @@ export default function HomeView({
                   <p className="text-[10px] text-slate-400 font-medium">{isEn ? 'Posts' : 'Bài viết'}</p>
                 </div>
                 <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                  <p className="text-sm font-black text-slate-800 dark:text-slate-100">{currentUser.friendsCount || 128}</p>
+                  <p className="text-sm font-black text-slate-800 dark:text-slate-100">{friendsCount ?? 0}</p>
                   <p className="text-[10px] text-slate-400 font-medium">{isEn ? 'Friends' : 'Bạn bè'}</p>
                 </div>
               </div>
@@ -730,7 +806,7 @@ export default function HomeView({
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{isEn ? 'Prioritized by mutual friends' : 'Ưu tiên người có nhiều bạn chung'}</p>
               </div>
               <button
-                onClick={() => setActiveTab && setActiveTab('friends')}
+                onClick={() => setActiveTab && setActiveTab('friends', null, false, 'suggestions')}
                 className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline cursor-pointer"
               >
                 {t('home.see_all_suggestions')}
@@ -738,7 +814,12 @@ export default function HomeView({
             </div>
 
             <div className="space-y-3.5">
-              {friendsList.map(friend => {
+              {friendsLoading ? (
+                <p className="text-xs text-slate-400 py-3 text-center">{isEn ? 'Loading suggestions...' : 'Đang tải gợi ý...'}</p>
+              ) : friendsList.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">{isEn ? 'No friend suggestions right now' : 'Chưa có gợi ý kết bạn nào'}</p>
+              ) : (
+                friendsList.map(friend => {
                 const mutualCount = Array.isArray(friend.mutualFriends) ? friend.mutualFriends.length : (friend.mutualFriends || 0);
                 const mutualList = Array.isArray(friend.mutualFriends) ? friend.mutualFriends : [];
 
@@ -748,12 +829,12 @@ export default function HomeView({
                       <img 
                         src={friend.avatar} 
                         alt={friend.name} 
-                        onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
+                        onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends', null, false, 'suggestions'))}
                         className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                       />
                       <div className="min-w-0 flex-1">
                         <p 
-                          onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
+                          onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends', null, false, 'suggestions'))}
                           className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                         >
                           {friend.name}
@@ -809,7 +890,7 @@ export default function HomeView({
                     </button>
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
 
