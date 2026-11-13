@@ -75,6 +75,18 @@ export function formatFriend(row) {
   };
 }
 
+function formatRelativeTime(createdAt) {
+  if (!createdAt) return 'Vừa xong';
+  const diff = Date.now() - new Date(createdAt).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Vừa xong';
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
+}
+
 export function createUsersController({ userRepository, pool }) {
   return {
     /**
@@ -378,26 +390,39 @@ export function createUsersController({ userRepository, pool }) {
             },
             aiStatusValue: p.ai_status || 'approved',
             comments: (p.comments || []).map((c) => ({
-              id: c.id,
-              parentId: c.parentId || (c.parent_id ? String(c.parent_id) : null),
-              parent_id: c.parentId || (c.parent_id ? String(c.parent_id) : null),
-              author: c.author,
+              id: String(c.id),
+              parentId: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
+              parent_id: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
+              author: {
+                id: c.author?.id ?? c.author_id,
+                name: c.author?.name || c.full_name || 'Người dùng',
+                username: c.author?.username || c.username,
+                avatar: c.author?.avatar || c.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+                isVerified: Boolean(c.author?.isVerified || c.author?.is_verified),
+                is_verified: Boolean(c.author?.isVerified || c.author?.is_verified),
+              },
               content: c.content,
-              image: c.image || null,
-              is_hidden: Boolean(c.is_hidden),
-              is_soft_hidden: Boolean(c.is_soft_hidden),
-              ai_label: c.ai_label || 'Normal',
-              ai_status: c.ai_status || 'approved',
-              reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
-              totalReactions: Number(c.totalReactions || 0),
-              myReaction: c.myReaction || null,
+              image: c.image || c.image_url || null,
               imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
                 status: c.image_moderation_status,
                 scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
                 thresholds: c.image_moderation_thresholds || null,
                 appealedAt: c.image_moderation_appealed_at || null,
-              } : null), 'comment', c.author?.id, viewerId),
-              time: c.created_at,
+              } : null), 'comment', c.author?.id ?? c.author_id, viewerId),
+              image_label: c.image_label || c.imageLabel || null,
+              imageLabel: c.image_label || c.imageLabel || null,
+              is_hidden: Boolean(c.is_hidden || c.isHidden),
+              isHidden: Boolean(c.is_hidden || c.isHidden),
+              is_soft_hidden: Boolean(c.is_soft_hidden || c.isSoftHidden),
+              isSoftHidden: Boolean(c.is_soft_hidden || c.isSoftHidden),
+              ai_label: c.ai_label || c.aiLabel || 'Normal',
+              aiLabel: c.ai_label || c.aiLabel || 'Normal',
+              ai_status: c.ai_status || c.aiStatus || 'approved',
+              aiStatus: c.ai_status || c.aiStatus || 'approved',
+              reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+              totalReactions: Number(c.totalReactions || 0),
+              myReaction: c.myReaction || null,
+              time: formatRelativeTime(c.created_at),
               createdAt: c.created_at,
             })),
             originalPost: p.original_post_id && p.orig_id ? {

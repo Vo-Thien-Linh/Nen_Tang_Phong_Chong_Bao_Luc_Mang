@@ -640,7 +640,7 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
 
     if (postContent.trim()) {
       try {
-        const apiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const apiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || '';
         const response = await fetch(`${apiUrl}/api/v1/moderate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

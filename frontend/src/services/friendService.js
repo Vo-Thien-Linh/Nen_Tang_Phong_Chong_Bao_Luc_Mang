@@ -1,5 +1,5 @@
 // Requests go through the API Gateway to the platform API.
-const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || '';
 const API_BASE_URL = `${API_ROOT}/api/v1/friends`;
 
 const hasValidToken = () => {

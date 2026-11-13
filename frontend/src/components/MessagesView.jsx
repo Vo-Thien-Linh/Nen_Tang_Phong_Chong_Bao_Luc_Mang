@@ -50,6 +50,16 @@ const EMOJI_CATEGORIES = [
   }
 ];
 
+const getWsBaseUrl = () => {
+  const configured = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL;
+  if (configured) {
+    return configured.replace(/^http/, 'ws');
+  }
+  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = typeof window !== 'undefined' ? window.location.host : 'localhost:5000';
+  return `${protocol}//${host}`;
+};
+
 function createAuthenticatedRealtimeSocket(wsUrl, userId) {
   const token = authService.getToken();
   if (!token) throw new Error('Bạn cần đăng nhập để kết nối cuộc gọi.');
@@ -598,8 +608,7 @@ export default function MessagesView({
 
     const connectWs = () => {
       try {
-        const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        const wsUrl = fastApiUrl.replace(/^http/, 'ws');
+        const wsUrl = getWsBaseUrl();
         ws = createAuthenticatedRealtimeSocket(wsUrl, currentUser.id);
         wsRef.current = ws;
 
@@ -1262,8 +1271,7 @@ export default function MessagesView({
       }
     }
     try {
-      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const wsUrl = fastApiUrl.replace(/^http/, 'ws');
+      const wsUrl = getWsBaseUrl();
       const newWs = createAuthenticatedRealtimeSocket(wsUrl, currentUser.id);
       newWs.onmessage = (event) => wsMessageDispatcherRef.current?.(event);
       wsRef.current = newWs;

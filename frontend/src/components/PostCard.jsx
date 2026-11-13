@@ -1756,7 +1756,7 @@ export default function PostCard({
                         )}
 
                         <div className="flex items-center gap-3 mt-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 text-[11px] text-slate-400 font-medium">
-                          <span>{comment.time}</span>
+                          <span>{formatRelativeTime(comment.createdAt || comment.time) || comment.time || 'Vừa xong'}</span>
                           <CommentReactionButton
                             initialCounts={comment.reactionCounts || {}}
                             initialMyReaction={comment.myReaction || null}

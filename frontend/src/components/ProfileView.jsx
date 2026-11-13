@@ -26,6 +26,8 @@ import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic'
 import { getModerationNoticeText } from '../utils/moderationNoticeLogic';
 import { getProfilePosts } from '../utils/profilePostLogic';
 import { useTranslation } from '../utils/i18n';
+import { appendCreatedComment } from '../utils/creationFlowLogic';
+import { handleRealtimeFeedEvent } from '../utils/realtimeFeedLogic';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -737,25 +739,58 @@ export default function ProfileView({
     }
   };
 
-  // Gửi bình luận bài viết
-  const handleCommentSubmit = (postId, e) => {
-    e.preventDefault();
-    const text = commentInputs[postId];
-    if (!text || !text.trim()) return;
+  // Lắng nghe sự kiện realtime trên trang cá nhân để tự động cập nhật bài viết & comment mới
+  useEffect(() => {
+    const handleFeedRealtime = (event) => {
+      const payload = event?.detail;
+      if (!payload || !payload.type) return;
+      setProfilePosts((prev) => {
+        if (!prev) return prev;
+        if (payload.type === 'POST_CREATED') {
+          const newPost = payload.post;
+          if (!newPost || String(newPost.author?.id ?? newPost.author_id) !== String(targetUserId)) {
+            return prev;
+          }
+        }
+        return handleRealtimeFeedEvent(prev, payload);
+      });
+    };
+    window.addEventListener('nexussocial:feed-realtime', handleFeedRealtime);
+    return () => window.removeEventListener('nexussocial:feed-realtime', handleFeedRealtime);
+  }, [targetUserId]);
 
-    const newId = `cmt-${postId}-${Date.now()}`;
-    onAddComment && onAddComment(postId, {
-      id: newId,
-      author: {
-        name: currentUser.name,
-        avatar: currentUser.avatar
-      },
-      content: text.trim(),
-      time: "Vừa xong",
-      likes: 0
-    });
+  // Xử lý gửi bình luận bài viết trên trang cá nhân
+  const handleProfileAddComment = async (postId, newComment, options = {}) => {
+    const res = onAddComment ? await onAddComment(postId, newComment, options) : null;
+    if (res?.nudge) return res;
 
-    setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+    const savedComment = res?.data
+      ? {
+          ...res.data,
+          parentId: res.data.parentId ?? res.data.parent_id ?? newComment.parentId ?? null,
+          parent_id: res.data.parent_id ?? res.data.parentId ?? newComment.parentId ?? null,
+        }
+      : newComment;
+
+    const isCommentHidden = Boolean(
+      res?.isAuthorBlacklisted ||
+      savedComment.is_hidden || savedComment.isHidden ||
+      savedComment.ai_status === 'hidden' || savedComment.aiStatus === 'hidden' ||
+      savedComment.ai_label === 'Author Blacklist' || savedComment.aiLabel === 'Author Blacklist'
+    );
+
+    if (!isCommentHidden) {
+      setProfilePosts((prev) => {
+        if (!prev) return prev;
+        return prev.map((post) =>
+          String(post.id) === String(postId)
+            ? appendCreatedComment(post, savedComment)
+            : post
+        );
+      });
+    }
+
+    return res;
   };
 
   // Chia sẻ bài viết trong trang cá nhân
@@ -1624,7 +1659,7 @@ export default function ProfileView({
                         post={post}
                         currentUser={currentUser}
                         onToggleLike={onToggleLike}
-                        onAddComment={onAddComment}
+                        onAddComment={handleProfileAddComment}
                         onOpenReportModal={onOpenReportModal}
                         onOpenAppealModal={onOpenAppealModal}
                         onRequireAuth={onRequireAuth}
@@ -2185,7 +2220,7 @@ export default function ProfileView({
                       post={post}
                       currentUser={currentUser}
                       onToggleLike={onToggleLike}
-                      onAddComment={onAddComment}
+                      onAddComment={handleProfileAddComment}
                       onOpenReportModal={onOpenReportModal}
                       onOpenAppealModal={onOpenAppealModal}
                       onRequireAuth={onRequireAuth}
