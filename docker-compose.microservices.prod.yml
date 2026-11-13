@@ -1,4 +1,4 @@
-﻿# Override dùng cho CD (kiến trúc microservices): chạy image dựng sẵn từ GHCR.
+# Override dùng cho CD (kiến trúc microservices): chạy image dựng sẵn từ GHCR.
 #   docker compose -f docker-compose.microservices.yml -f docker-compose.microservices.prod.yml up -d --no-build
 # Bắt buộc đặt IMAGE_PREFIX (vd: ghcr.io/<owner>) và IMAGE_TAG (vd: a1b2c3d).
 services:

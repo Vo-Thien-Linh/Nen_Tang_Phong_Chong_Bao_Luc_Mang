@@ -1,4 +1,4 @@
-﻿# Override dùng cho CD: chạy image dựng sẵn từ GHCR thay vì build trên máy chủ.
+# Override dùng cho CD: chạy image dựng sẵn từ GHCR thay vì build trên máy chủ.
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
 # Bắt buộc đặt IMAGE_PREFIX (vd: ghcr.io/<owner>) và IMAGE_TAG (vd: a1b2c3d).
 services:
