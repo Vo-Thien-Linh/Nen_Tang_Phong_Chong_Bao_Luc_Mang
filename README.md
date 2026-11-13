@@ -253,3 +253,24 @@ D:/BTL_Project1/
 │   └── vite.config.js            # Cấu hình Vite
 └── README.md                     # Tài liệu hướng dẫn dự án (File này)
 ```
+
+---
+
+## 8. Tự Động Hóa CI/CD (Continuous Integration & Deployment)
+
+Hệ thống được trang bị bộ quy trình CI/CD hoàn chỉnh trên GitHub Actions phục vụ phát triển phần mềm chuyên nghiệp:
+
+* **CI Pipeline (`.github/workflows/ci.yml`):**
+  * Tự động chạy Unit Test, Linting và kiểm tra Vite Build cho Frontend (React).
+  * Tự động chạy Unit Test và Integration Test kiểm thử toàn diện Database & API cho Backend.
+  * Kích hoạt trên tất cả Pull Request và Push vào `develop`, `main`, `master`.
+
+* **CD Pipeline (`.github/workflows/cd.yml`):**
+  * Tự động kích hoạt sau khi CI vượt qua thành công hoặc khi phát hành Git Tag (`v*`).
+  * Tự động đóng gói và đẩy 9 Docker Images đa dịch vụ lên **GitHub Container Registry (GHCR)** có hỗ trợ GHA Cache.
+  * Tự động chạy Database Migrations lên cơ sở dữ liệu đích nếu có cấu hình `DATABASE_URL`.
+  * Hỗ trợ triển khai tự động qua SSH lên máy chủ VPS/Cloud và kiểm tra sức khỏe hệ thống qua API Gateway `/api/health`.
+  * Cung cấp kịch bản triển khai độc lập `scripts/deploy.sh` hỗ trợ cả hai mô hình Monolith và Microservices.
+
+👉 Xem tài liệu hướng dẫn cấu hình và vận hành chi tiết tại: [docs/deployment/cd-pipeline-guide.md](docs/deployment/cd-pipeline-guide.md)
+
