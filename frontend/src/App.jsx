@@ -473,7 +473,7 @@ export default function App() {
   // Đồng bộ vai trò và trạng thái xử phạt từ database khi ứng dụng tải
   useEffect(() => {
     if (!currentUser?.id) return;
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const API_URL = import.meta.env.VITE_API_URL || '';
     const token = authService.getToken();
     fetch(`${API_URL}/api/users/${currentUser.id}/profile`, {
       headers: {
@@ -909,7 +909,7 @@ export default function App() {
   useEffect(() => {
     let eventSource = null;
     try {
-      const nodeApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const nodeApiUrl = import.meta.env.VITE_API_URL || '';
       const realtimeUserId = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
       eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream${realtimeUserId}`);
       eventSource.onmessage = (event) => {
@@ -919,6 +919,7 @@ export default function App() {
             window.dispatchEvent(new CustomEvent('nexussocial:group-realtime', { detail: payload }));
           } else {
             setPosts((prev) => handleRealtimeFeedEvent(prev, payload));
+            window.dispatchEvent(new CustomEvent('nexussocial:feed-realtime', { detail: payload }));
           }
         } catch (parseErr) {
           console.warn('Realtime parse error:', parseErr);
@@ -1226,6 +1227,7 @@ export default function App() {
       setPosts(prev => prev.map(post => String(post.id) === String(postId)
         ? appendCreatedComment(post, savedComment)
         : post));
+      return { success: true, data: savedComment };
     } catch (err) {
       if (err.cooldown) {
         const cooldownData = {
