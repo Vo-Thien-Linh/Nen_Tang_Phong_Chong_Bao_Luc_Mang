@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
+import BottomNav from './components/BottomNav';
 import HomeView from './components/HomeView';
 import CommunityGroupsView from './components/CommunityGroupsView';
 import HashtagView from './components/HashtagView';
@@ -22,6 +23,7 @@ import AppealModal from './components/AppealModal';
 import AuthModal from './components/AuthModal';
 import LiveStreamModal from './components/LiveStreamModal';
 import CreateLiveStreamModal from './components/CreateLiveStreamModal';
+import OfflineFallbackView from './components/OfflineFallbackView';
 import { livestreamService } from './services/livestreamService';
 import { authService } from './services/authService';
 import { messageService } from './services/messageService';
@@ -146,6 +148,22 @@ export default function App() {
     };
   }, [currentUser?.id]);
 
+  // Giám sát trạng thái kết nối mạng (Online / Offline Fallback)
+  const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // Quản lý Chế độ Giao diện Sáng / Tối (Theme Mode)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('nexussocial_theme') || 'light';
@@ -177,6 +195,7 @@ export default function App() {
   // Quản lý trạng thái chức năng Livestream THẬT từ CSDL PostgreSQL/SQLite
   const [isCreateLiveOpen, setIsCreateLiveOpen] = useState(false);
   const [activeLiveSession, setActiveLiveSession] = useState(null);
+  const [isInMobileChat, setIsInMobileChat] = useState(false);
   const [liveStreamMode, setLiveStreamMode] = useState('view');
   const [activeStreamsList, setActiveStreamsList] = useState([]);
 
@@ -372,6 +391,8 @@ export default function App() {
     } else if (rawHash === 'post') {
       initialHash = 'post';
       initialPostId = sessionStorage.getItem('wings_viewed_post_id');
+    } else if (rawHash === 'offline' || rawHash === '404' || rawHash === 'error') {
+      initialHash = rawHash;
     }
 
     if (initialHash === 'post') {
@@ -391,9 +412,11 @@ export default function App() {
       if (initialHash === 'admin' || initialHash === 'moderation' || initialHash === 'profile' || initialHash === 'messages' || initialHash === 'settings' || initialHash === 'hashtag') {
         initialHash = 'home';
       }
-      setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
-      setAuthModalTab('login');
-      setIsAuthModalOpen(true);
+      if (initialHash !== 'offline' && initialHash !== '404' && initialHash !== 'error') {
+        setAuthNoticeMessage('Chào mừng bạn đến với WINGS! Vui lòng đăng nhập để tiếp tục.');
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      }
     } else if (currentUser) {
       if (initialHash === 'admin' && !hasRole(currentUser, ROLES.ADMIN)) {
         initialHash = getDefaultTabForUser(currentUser);
@@ -414,7 +437,9 @@ export default function App() {
       let targetTab = state?.tab || hash || 'home';
       let targetPostId = state?.postId || null;
 
-      if (targetTab.startsWith('post-')) {
+      if (hash === 'offline' || hash === '404' || hash === 'error') {
+        targetTab = hash;
+      } else if (targetTab.startsWith('post-')) {
         targetPostId = targetTab.replace('post-', '');
         targetTab = 'post';
       } else if (targetTab.startsWith('hashtag/')) {
@@ -526,6 +551,17 @@ export default function App() {
 
   // Xử lý Chuyển Tab có Auth Guard và Role Guard
   const handleTabChange = (tab, targetUser = null, replace = false, subTab = 'all') => {
+    if (tab === 'offline' || tab === '404' || tab === 'error') {
+      setActiveTab(tab);
+      const stateObj = { tab };
+      if (replace) {
+        window.history.replaceState(stateObj, '', `#${tab}`);
+      } else {
+        window.history.pushState(stateObj, '', `#${tab}`);
+      }
+      return;
+    }
+
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
       const msg = tab === 'admin' || tab === 'moderation'
         ? "Vui lòng đăng nhập để truy cập khu vực này"
@@ -1947,8 +1983,26 @@ export default function App() {
     setActiveTab('messages');
   };
 
+  // Màn hình Fallback Tùy biến (Chalkboard Style): Hiển thị khi mất mạng, máy chủ mất kết nối hoặc tab #offline / #404
+  if (!isOnline || activeTab === 'offline' || activeTab === '404' || activeTab === 'error') {
+    return (
+      <OfflineFallbackView 
+        type={activeTab === '404' ? '404' : (activeTab === 'error' ? 'server_error' : 'offline')}
+        onRetry={() => {
+          if (activeTab === 'offline' || activeTab === '404' || activeTab === 'error') {
+            handleTabChange('home');
+          } else {
+            window.location.reload();
+          }
+        }}
+        onGoHome={() => handleTabChange('home')}
+        onGoMessages={() => handleTabChange('messages')}
+      />
+    );
+  }
+
   return (
-    <div className={`bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+    <div className={`w-full max-w-full overflow-x-hidden bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-screen'}`}>
 
 
       {/* Thanh điều hướng chính */}
@@ -1982,7 +2036,7 @@ export default function App() {
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
-      <div className={`flex-1 min-h-0 ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col h-full overflow-hidden' : 'pb-16'}`}>
+      <div className={`flex-1 min-h-0 w-full max-w-full overflow-x-hidden ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col flex-1 min-h-0 overflow-hidden' : 'pb-20 md:pb-12'}`}>
         
         {/* Tab 1: Trang chủ / News Feed */}
         {activeTab === 'home' && (
@@ -2107,7 +2161,7 @@ export default function App() {
         )}
 
         {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn, giữ DOM để chuyển tab tức thì 0s) */}
-        <div className={activeTab === 'messages' ? 'h-full flex flex-col flex-1' : 'hidden'}>
+        <div className={activeTab === 'messages' ? 'flex-1 min-h-0 h-full flex flex-col overflow-hidden' : 'hidden'}>
           {hasVisitedMessages && currentUser && (
             <MessagesView 
               currentUser={currentUser} 
@@ -2118,6 +2172,7 @@ export default function App() {
               onOpenProfile={handleOpenUserProfile}
               onOpenStoryViewer={handleOpenStoryViewer}
               onUnreadCountChange={setUnreadMessagesCount}
+              onMobileChatStateChange={setIsInMobileChat}
             />
           )}
         </div>
@@ -2385,6 +2440,17 @@ export default function App() {
           onViewPost={handleViewPost}
           onOpenStoryViewer={handleOpenStoryViewer}
           onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
+
+      {/* Thanh điều hướng dưới đáy màn hình trên Mobile (ẩn khi đang chat bên trong cuộc trò chuyện cụ thể) */}
+      {!(activeTab === 'messages' && isInMobileChat) && (
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={handleTabChange}
+          unreadCount={unreadCount}
+          unreadMessagesCount={unreadMessagesCount}
+          onRefreshHome={handleRefreshHome}
         />
       )}
 

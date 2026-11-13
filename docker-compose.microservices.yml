@@ -1,5 +1,28 @@
 services:
   # -------------------------------------------------------------
+  # POSTGRESQL DATABASE (wings_dev)
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexussocial-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=L2DTV_NTPCBLM
+      - POSTGRES_DB=wings_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wings_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: always
+    networks:
+      - nexussocial-net
+
+  # -------------------------------------------------------------
   # API GATEWAY (Port 5000: Điểm đón thống nhất toàn hệ thống)
   # -------------------------------------------------------------
   api-gateway:
@@ -41,8 +64,12 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - USER_SERVICE_PORT=5001
+      - DATABASE_URL=postgresql://postgres:L2DTV_NTPCBLM@postgres:5432/wings_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
     networks:
       - nexussocial-net
@@ -60,8 +87,9 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - POST_SERVICE_PORT=5002
+      - DATABASE_URL=postgresql://postgres:L2DTV_NTPCBLM@postgres:5432/wings_dev
       - AI_SERVICE_URL=http://ai-service:8001
       - FASTAPI_URL=http://platform-service:8000
       - IMAGE_MODERATION_API_URL=http://ai-service:8001/api/v1/moderate/image
@@ -69,8 +97,12 @@ services:
     networks:
       - nexussocial-net
     depends_on:
-      - ai-service
-      - platform-service
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+      platform-service:
+        condition: service_started
 
   # -------------------------------------------------------------
   # MODERATION SERVICE (internal only; port 5003)
@@ -85,8 +117,12 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - MODERATION_SERVICE_PORT=5003
+      - DATABASE_URL=postgresql://postgres:L2DTV_NTPCBLM@postgres:5432/wings_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
     networks:
       - nexussocial-net
@@ -104,8 +140,12 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - NOTIFICATION_SERVICE_PORT=5004
+      - DATABASE_URL=postgresql://postgres:L2DTV_NTPCBLM@postgres:5432/wings_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
     networks:
       - nexussocial-net
@@ -123,7 +163,11 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:L2DTV_NTPCBLM@postgres:5432/wings_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
     networks:
       - nexussocial-net
@@ -148,11 +192,11 @@ services:
   # -------------------------------------------------------------
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
-        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
-        VITE_FASTAPI_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+        VITE_API_URL: ${PUBLIC_API_URL:-}
+        VITE_FASTAPI_URL: ${PUBLIC_API_URL:-}
     container_name: nexussocial-frontend
     ports:
       - "80:80"
@@ -165,4 +209,7 @@ services:
 networks:
   nexussocial-net:
     driver: bridge
+
+volumes:
+  pgdata:
 

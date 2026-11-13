@@ -687,7 +687,7 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
     const isMember = selectedGroup.membershipStatus === 'active';
     const isPendingMember = selectedGroup.membershipStatus === 'pending';
     return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-6xl px-3 sm:px-6 lg:px-8 py-3 sm:py-6">
         <button onClick={() => { setSelectedGroup(null); setError(''); loadGroups(); }} className="mb-5 inline-flex items-center gap-2 rounded-lg py-2 text-sm font-semibold text-slate-600 hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-300"><ArrowLeft size={17} />Tất cả nhóm</button>
         {error && <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">{error}</div>}
         {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{notice}</div>}
@@ -919,7 +919,7 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <main className="mx-auto w-full max-w-6xl px-3 sm:px-6 lg:px-8 py-3 sm:py-8">
       <div className="relative mb-7 overflow-hidden rounded-3xl bg-slate-950 px-6 py-7 text-white sm:px-9 sm:py-9">
         <div className="absolute -right-8 -top-12 h-56 w-56 rounded-full border-[34px] border-blue-500/20" />
         <div className="absolute bottom-0 right-24 h-20 w-20 rounded-t-full bg-emerald-400/10" />

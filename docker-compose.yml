@@ -28,7 +28,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
     restart: always
 
   ai-service:
@@ -53,7 +53,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - PORT=5000
       - FASTAPI_URL=http://fastapi-backend:8000
       - AI_SERVICE_URL=http://ai-service:8001
@@ -65,14 +65,15 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
-        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
-        VITE_FASTAPI_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+        VITE_API_URL: ${PUBLIC_API_URL:-}
+        VITE_FASTAPI_URL: ${PUBLIC_API_URL:-}
     ports:
       - "80:80"
     depends_on:
+      - api-gateway
       - express-backend
       - fastapi-backend
     restart: always

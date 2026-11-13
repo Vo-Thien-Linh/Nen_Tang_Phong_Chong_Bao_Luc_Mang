@@ -13,6 +13,57 @@ const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun2.l.google.com:19302' }
 ];
 
+function createSyntheticBroadcastStream(titleText = 'WINGS LIVE STREAM') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 960;
+  canvas.height = 540;
+  const ctx = canvas.getContext('2d');
+  let frame = 0;
+  const intervalId = setInterval(() => {
+    frame += 1;
+    const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    grad.addColorStop(0, '#0f172a');
+    grad.addColorStop(0.5, '#1e1b4b');
+    grad.addColorStop(1, '#31102f');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const radius = 64 + Math.sin(frame * 0.08) * 12;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2 - 20, radius + 24, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(244, 63, 94, 0.18)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2 - 20, radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(99, 102, 241, 0.35)';
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(titleText, canvas.width / 2, canvas.height / 2 + 80);
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(
+      new Date().toLocaleTimeString('vi-VN') + ' • Đang phát trực tiếp',
+      canvas.width / 2,
+      canvas.height / 2 + 114
+    );
+  }, 33);
+
+  const stream = canvas.captureStream(30);
+  stream.getTracks().forEach((track) => {
+    const origStop = track.stop.bind(track);
+    track.stop = () => {
+      clearInterval(intervalId);
+      origStop();
+    };
+  });
+  return stream;
+}
+
 export default function LiveStreamModal({
   isOpen = false,
   mode = 'view', // 'broadcast' | 'view'
@@ -240,10 +291,19 @@ export default function LiveStreamModal({
             setCameraError(null);
           }
         } catch (err2) {
-          console.error('Không thể truy cập camera thực tế:', err2);
+          console.warn('Sử dụng luồng phát sóng ảo dự phòng (HTTP hoặc thiết bị chưa có webcam):', err2);
           if (isMounted) {
-            setHasCamera(false);
-            setCameraError('Chưa phát hiện Camera hoặc quyền truy cập bị chặn trên trình duyệt.');
+            try {
+              const synthetic = createSyntheticBroadcastStream(session?.title || 'Phòng phát trực tiếp');
+              localStreamRef.current = synthetic;
+              setLocalStream(synthetic);
+              setHasCamera(true);
+              setHasMic(false);
+              setCameraError(null);
+            } catch {
+              setHasCamera(false);
+              setCameraError('Chưa phát hiện Camera hoặc quyền truy cập bị chặn trên trình duyệt.');
+            }
           }
         }
       }
@@ -553,8 +613,11 @@ export default function LiveStreamModal({
   useEffect(() => {
     if (!isOpen || !session?.id || !currentUser?.id) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8000/api/v1/livestreams/ws/${session.id}/${currentUser.id}`;
+    const configured = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL;
+    const wsBase = configured
+      ? configured.replace(/^http/, 'ws')
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+    const wsUrl = `${wsBase}/api/v1/livestreams/ws/${session.id}/${currentUser.id}`;
 
     let isSubscribed = true;
 
@@ -776,8 +839,8 @@ export default function LiveStreamModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fadeIn">
-      <div className="relative w-full max-w-6xl h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-0 sm:p-4 animate-fadeIn">
+      <div className="relative w-full max-w-6xl h-[100dvh] sm:h-[90vh] bg-slate-900 border-0 sm:border border-slate-800 rounded-none sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row">
         
         {/* KHUNG TRÁI: VIDEO STREAM CHÍNH */}
         <div className="relative flex-1 bg-black flex flex-col justify-between overflow-hidden">
@@ -1173,7 +1236,7 @@ export default function LiveStreamModal({
         </div>
 
         {/* KHUNG PHẢI: KHUNG CHAT REALTIME CÓ KIỂM DUYỆT TỰ ĐỘNG */}
-        <div className="w-full lg:w-96 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-72 lg:h-full">
+        <div className="w-full lg:w-96 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-60 sm:h-72 lg:h-full shrink-0">
           
           {/* Header Chat */}
           <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
