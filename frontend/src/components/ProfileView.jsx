@@ -7,23 +7,27 @@ import {
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
   UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert,
-  ShieldCheck, ExternalLink, Mail, Phone
+  ShieldCheck, ExternalLink, Mail, Phone, Trash2, Bookmark
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
 import { settingsService } from '../services/settingsService';
-import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories } from '../api/client';
+import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchUserStoriesApi, fetchSavedPostsApi, fetchSavedCommunityGroupPosts } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
+import GroupPostCard from './GroupPostCard';
 import OriginalPostModal from './OriginalPostModal';
 import VerifiedBadge from './VerifiedBadge';
 import { formatRelativeTime } from '../utils/timeAgo';
 import { shouldHideContentForViewer } from '../utils/imageModerationReviewLogic';
 import { getModerationNoticeText } from '../utils/moderationNoticeLogic';
 import { getProfilePosts } from '../utils/profilePostLogic';
+import { useTranslation } from '../utils/i18n';
+import { appendCreatedComment } from '../utils/creationFlowLogic';
+import { handleRealtimeFeedEvent } from '../utils/realtimeFeedLogic';
 
 import { DEFAULT_AVATAR, DEFAULT_COVER } from '../constants/defaults';
 export { DEFAULT_AVATAR, DEFAULT_COVER };
@@ -54,13 +58,28 @@ export default function ProfileView({
   onEditPost,
   onDeletePost,
   onSharePost,
-  onOpenStoryViewer
+  onOpenStoryViewer,
+  onToggleSave,
+  onOpenLiveStream,
+  initialTab = 'all'
 }) {
-  const targetUserId = viewedUser?.id || currentUser?.id;
-  const isOwnProfile = !viewedUser || (currentUser && String(viewedUser.id) === String(currentUser.id));
+  const { t, isEn } = useTranslation();
+  const resolvedViewedUserId =
+    viewedUser?.id ??
+    viewedUser?.userId ??
+    viewedUser?.user_id ??
+    viewedUser?.authorId ??
+    viewedUser?.author_id ??
+    null;
+  const targetUserId = resolvedViewedUserId || currentUser?.id;
+  const isViewingOtherUserByProp = Boolean(
+    viewedUser &&
+    (!resolvedViewedUserId || !currentUser?.id || String(resolvedViewedUserId) !== String(currentUser.id))
+  );
 
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels'
+  const [activeTab, setActiveTab] = useState(initialTab || 'all'); // 'all' | 'about' | 'friends' | 'photos' | 'reels' | 'saved'
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
+  const [postFilter, setPostFilter] = useState('all'); // 'all' | 'with_image' | 'text_only'
   const [aboutSubTab, setAboutSubTab] = useState('overview'); // 'overview' | 'work_edu' | 'places' | 'contact' | 'family'
   const [friendsSearchQuery, setFriendsSearchQuery] = useState('');
 
@@ -71,10 +90,48 @@ export default function ProfileView({
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
 
+  const isOwnProfile = Boolean(
+    currentUser?.id &&
+    !isViewingOtherUserByProp &&
+    (!profileData?.id || String(profileData.id) === String(currentUser.id))
+  );
+
+  // ── State bài viết đã lưu (Bookmarks) ───────────────────────
+  const [savedPosts, setSavedPosts] = useState([]);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab === 'saved' && isOwnProfile && currentUser?.id) {
+      setIsLoadingSaved(true);
+      Promise.allSettled([fetchSavedPostsApi(), fetchSavedCommunityGroupPosts()])
+        .then(([postsRes, groupPostsRes]) => {
+          const regular = postsRes.status === 'fulfilled' && postsRes.value?.success && Array.isArray(postsRes.value.data)
+            ? postsRes.value.data
+            : [];
+          const groupSaved = groupPostsRes.status === 'fulfilled' && groupPostsRes.value?.success && Array.isArray(groupPostsRes.value.data)
+            ? groupPostsRes.value.data.map((post) => ({ ...post, isGroupPost: true, isSaved: true }))
+            : [];
+          const merged = [...regular, ...groupSaved].sort(
+            (a, b) => Date.parse(b.savedAt || b.createdAt || 0) - Date.parse(a.savedAt || a.createdAt || 0)
+          );
+          setSavedPosts(merged);
+        })
+        .catch((err) => console.warn('Lỗi lấy bài viết đã lưu:', err.message))
+        .finally(() => setIsLoadingSaved(false));
+    }
+  }, [activeTab, isOwnProfile, currentUser?.id]);
+
   // ── Modal chỉnh sửa trang cá nhân ──────────────────────────
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [saveProfileError, setSaveProfileError] = useState('');
 
   // ── Modal xem ảnh phóng to (Lightbox) ──────────────────────
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -100,14 +157,14 @@ export default function ProfileView({
   // ── Story ring quanh avatar trang cá nhân ──────────────────
   const [profileStoryInfo, setProfileStoryInfo] = useState(null); // { hasUnviewed, tray }
   const [showAvatarMenu, setShowAvatarMenu] = useState(false); // Popup tùy chọn khi click avatar có story đã xem
+  const [showMoreMenu, setShowMoreMenu] = useState(false); // Menu 3 chấm trang cá nhân chuẩn Facebook
 
   useEffect(() => {
     if (!targetUserId) return;
-    fetchStories()
+    fetchUserStoriesApi(targetUserId)
       .then(res => {
-        const trays = res?.data || [];
-        const tray = trays.find(t => String(t.author?.id) === String(targetUserId));
-        if (tray) {
+        const tray = res?.data;
+        if (tray && tray.stories?.length > 0) {
           setProfileStoryInfo({ 
             hasUnviewed: Boolean(tray.hasUnviewedStories),
             tray 
@@ -116,7 +173,23 @@ export default function ProfileView({
           setProfileStoryInfo(null);
         }
       })
-      .catch(() => setProfileStoryInfo(null));
+      .catch(() => {
+        // Fallback kiểm tra trong feed stories nếu có
+        fetchStories()
+          .then(res => {
+            const trays = res?.data || [];
+            const tray = trays.find(t => String(t.author?.id) === String(targetUserId));
+            if (tray) {
+              setProfileStoryInfo({ 
+                hasUnviewed: Boolean(tray.hasUnviewedStories),
+                tray 
+              });
+            } else {
+              setProfileStoryInfo(null);
+            }
+          })
+          .catch(() => setProfileStoryInfo(null));
+      });
   }, [targetUserId]);
 
   // Xử lý khi nhấn vào Avatar lớn trang cá nhân
@@ -267,6 +340,13 @@ export default function ProfileView({
     setProfileData(null);
     setProfileFriends([]);
     setProfilePosts(null);
+    setActiveTab(initialTab || 'all');
+    setAboutSubTab('overview');
+    setPostFilter('all');
+    setFriendsSearchQuery('');
+    setIsEditProfileOpen(false);
+    setSaveProfileError('');
+    setSaveSuccessMsg('');
 
     if (!targetUserId) {
       setIsLoadingProfile(false);
@@ -479,25 +559,19 @@ export default function ProfileView({
 
   // Danh sách bài viết hiển thị
   const userPosts = getProfilePosts({ isOwnProfile, posts, profilePosts, targetUserId });
+  const filteredUserPosts = (userPosts || []).filter((post) => {
+    const hasImage = Boolean(post.image || post.image_url);
+    if (postFilter === 'with_image') return hasImage;
+    if (postFilter === 'text_only') return !hasImage;
+    return true;
+  });
 
   // Trích xuất toàn bộ ảnh thực tế từ các bài viết trong Database
-  const realUserPhotos = [
+  const displayPhotos = [...new Set([
     ...(userPosts || []).filter(p => p.image || p.image_url).map(p => p.image || p.image_url),
     activeUser.avatar || activeUser.avatar_url,
     activeUser.cover || activeUser.cover_url
-  ].filter(Boolean);
-
-  // Bộ sưu tập ảnh mẫu nếu tài khoản mới chưa đăng ảnh nào
-  const samplePhotoGrid = [
-    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=600&auto=format&fit=crop&q=80",
-    "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=600&auto=format&fit=crop&q=80"
-  ];
-
-  const displayPhotos = realUserPhotos.length > 0 ? realUserPhotos : samplePhotoGrid;
+  ].filter(Boolean))];
 
   // Lọc bạn bè theo ô tìm kiếm
   const filteredFriends = profileFriends.filter(f => {
@@ -597,15 +671,24 @@ export default function ProfileView({
     setShowImageInput(false);
   };
 
+  const openEditProfileModal = () => {
+    setSaveProfileError('');
+    setSaveSuccessMsg('');
+    setIsEditProfileOpen(true);
+  };
+
   // Lưu thông tin từ Modal chỉnh sửa Profile trực tiếp vào PostgreSQL
   const handleSaveProfileModal = async (updatedFields) => {
     if (!currentUser || !isOwnProfile) return;
     setIsSavingProfile(true);
     setSaveSuccessMsg('');
+    setSaveProfileError('');
 
     try {
       const res = await profileService.updateProfile(currentUser.id, {
         bio: updatedFields.bio,
+        workplace: updatedFields.workplace,
+        jobTitle: updatedFields.jobTitle,
         location: updatedFields.location,
         hometown: updatedFields.hometown,
         education: updatedFields.education,
@@ -632,6 +715,9 @@ export default function ProfileView({
             cover: updatedFields.cover_url || activeUser.cover,
             cover_url: updatedFields.cover_url || activeUser.cover,
             bio: updatedFields.bio,
+            workplace: updatedFields.workplace,
+            jobTitle: updatedFields.jobTitle,
+            job_title: updatedFields.jobTitle,
             location: updatedFields.location,
             hometown: updatedFields.hometown,
             education: updatedFields.education,
@@ -647,31 +733,64 @@ export default function ProfileView({
         }, 1200);
       }
     } catch (err) {
-      alert(err.message || 'Lỗi khi lưu thông tin vào cơ sở dữ liệu');
+      setSaveProfileError(err.message || 'Lỗi khi lưu thông tin vào cơ sở dữ liệu');
     } finally {
       setIsSavingProfile(false);
     }
   };
 
-  // Gửi bình luận bài viết
-  const handleCommentSubmit = (postId, e) => {
-    e.preventDefault();
-    const text = commentInputs[postId];
-    if (!text || !text.trim()) return;
+  // Lắng nghe sự kiện realtime trên trang cá nhân để tự động cập nhật bài viết & comment mới
+  useEffect(() => {
+    const handleFeedRealtime = (event) => {
+      const payload = event?.detail;
+      if (!payload || !payload.type) return;
+      setProfilePosts((prev) => {
+        if (!prev) return prev;
+        if (payload.type === 'POST_CREATED') {
+          const newPost = payload.post;
+          if (!newPost || String(newPost.author?.id ?? newPost.author_id) !== String(targetUserId)) {
+            return prev;
+          }
+        }
+        return handleRealtimeFeedEvent(prev, payload);
+      });
+    };
+    window.addEventListener('nexussocial:feed-realtime', handleFeedRealtime);
+    return () => window.removeEventListener('nexussocial:feed-realtime', handleFeedRealtime);
+  }, [targetUserId]);
 
-    const newId = `cmt-${postId}-${Date.now()}`;
-    onAddComment && onAddComment(postId, {
-      id: newId,
-      author: {
-        name: currentUser.name,
-        avatar: currentUser.avatar
-      },
-      content: text.trim(),
-      time: "Vừa xong",
-      likes: 0
-    });
+  // Xử lý gửi bình luận bài viết trên trang cá nhân
+  const handleProfileAddComment = async (postId, newComment, options = {}) => {
+    const res = onAddComment ? await onAddComment(postId, newComment, options) : null;
+    if (res?.nudge) return res;
 
-    setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+    const savedComment = res?.data
+      ? {
+          ...res.data,
+          parentId: res.data.parentId ?? res.data.parent_id ?? newComment.parentId ?? null,
+          parent_id: res.data.parent_id ?? res.data.parentId ?? newComment.parentId ?? null,
+        }
+      : newComment;
+
+    const isCommentHidden = Boolean(
+      res?.isAuthorBlacklisted ||
+      savedComment.is_hidden || savedComment.isHidden ||
+      savedComment.ai_status === 'hidden' || savedComment.aiStatus === 'hidden' ||
+      savedComment.ai_label === 'Author Blacklist' || savedComment.aiLabel === 'Author Blacklist'
+    );
+
+    if (!isCommentHidden) {
+      setProfilePosts((prev) => {
+        if (!prev) return prev;
+        return prev.map((post) =>
+          String(post.id) === String(postId)
+            ? appendCreatedComment(post, savedComment)
+            : post
+        );
+      });
+    }
+
+    return res;
   };
 
   // Chia sẻ bài viết trong trang cá nhân
@@ -726,8 +845,22 @@ export default function ProfileView({
     onEditPost?.(postId, changes);
   };
 
+  const handleToggleSavePost = (postId, nextSaved) => {
+    setSavedPosts((prev) => {
+      if (!nextSaved) {
+        return prev.filter((p) => String(p.id) !== String(postId));
+      }
+      return prev.map((p) => (String(p.id) === String(postId) ? { ...p, isSaved: true } : p));
+    });
+    setProfilePosts((prev) => {
+      if (!prev) return prev;
+      return prev.map((p) => (String(p.id) === String(postId) ? { ...p, isSaved: nextSaved } : p));
+    });
+    onToggleSave?.(postId, nextSaved);
+  };
+
   return (
-    <div className="bg-slate-100 min-h-screen pb-16">
+    <div className="bg-slate-100 dark:bg-slate-950 min-h-screen pb-16 transition-colors duration-200">
 
       {/* Toast thông báo tải ảnh Cloudinary nhanh */}
       {quickUploadToast && (
@@ -755,14 +888,14 @@ export default function ProfileView({
       
       {/* Loading skeleton toàn trang khi đang tải profile */}
       {isLoadingProfile && (
-        <div className="bg-white border-b border-slate-200/80 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
           <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl bg-slate-200 animate-pulse" />
+            <div className="h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
             <div className="flex items-end gap-5 pb-6 pt-0 px-4 mt-[-4rem]">
-              <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-slate-300 animate-pulse ring-4 ring-white" />
+              <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-slate-300 dark:bg-slate-700 animate-pulse ring-4 ring-white dark:ring-slate-900" />
               <div className="space-y-3 mb-4">
-                <div className="h-8 w-48 bg-slate-300 rounded-xl animate-pulse" />
-                <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
+                <div className="h-8 w-48 bg-slate-300 dark:bg-slate-700 rounded-xl animate-pulse" />
+                <div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
               </div>
             </div>
           </div>
@@ -770,7 +903,7 @@ export default function ProfileView({
       )}
 
       {/* Thanh điều hướng Quay lại Bảng tin / Trang trước */}
-      <div className="bg-white/85 backdrop-blur-xs border-b border-slate-200/70 py-2.5 px-4 sm:px-6 lg:px-8">
+      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs border-b border-slate-200/70 dark:border-slate-800 py-2.5 px-4 sm:px-6 lg:px-8 transition-colors">
         <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto flex items-center justify-between gap-3">
           <button
             type="button"
@@ -781,26 +914,26 @@ export default function ProfileView({
                 window.location.hash = '#home';
               }
             }}
-            className="flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-700 hover:text-blue-600 bg-white hover:bg-slate-50 border border-slate-200/90 px-3.5 py-1.5 rounded-xl transition active:scale-95 cursor-pointer shadow-2xs shrink-0"
+            className="flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 border border-slate-200/90 dark:border-slate-700 px-3.5 py-1.5 rounded-xl transition active:scale-95 cursor-pointer shadow-2xs shrink-0"
           >
-            <ArrowLeft className="w-4 h-4 text-blue-600" />
-            <span>{isOwnProfile ? 'Quay lại Bảng tin Trang chủ' : 'Quay lại trang trước'}</span>
+            <ArrowLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>{isOwnProfile ? (isEn ? 'Back to News Feed' : 'Quay lại Bảng tin Trang chủ') : (isEn ? 'Back to previous page' : 'Quay lại trang trước')}</span>
           </button>
           {!isOwnProfile && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 truncate">
-              <Eye className="w-4 h-4 text-blue-500 shrink-0" />
-              <span className="truncate">Đang xem hồ sơ của <strong className="text-slate-900 font-extrabold">{activeUser.name || activeUser.full_name}</strong> (Chế độ xem công khai)</span>
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
+              <Eye className="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0" />
+              <span className="truncate">{isEn ? 'Viewing profile of ' : 'Đang xem hồ sơ của '}<strong className="text-slate-900 dark:text-slate-100 font-extrabold">{activeUser.name || activeUser.full_name}</strong> {isEn ? '(Public view mode)' : '(Chế độ xem công khai)'}</span>
             </div>
           )}
         </div>
       </div>
 
       {/* ================= PHẦN TRÊN: HEADER TRANG CÁ NHÂN (CHUẨN FACEBOOK) ================= */}
-      <div className="bg-white border-b border-slate-200/80 shadow-2xs">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
         <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
           
           {/* Ảnh bìa (Cover photo) */}
-          <div className="relative h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl sm:rounded-b-3xl overflow-hidden bg-slate-200 shadow-inner group">
+          <div className="relative h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl sm:rounded-b-3xl overflow-hidden bg-slate-200 dark:bg-slate-800 shadow-inner group">
             <img 
               src={activeUser.cover || activeUser.coverImage || activeUser.cover_url || DEFAULT_COVER} 
               alt="Cover" 
@@ -812,7 +945,7 @@ export default function ProfileView({
               <button 
                 onClick={() => quickCoverFileRef.current?.click()}
                 disabled={isQuickUploading}
-                className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-white/95 hover:bg-white text-slate-800 text-xs sm:text-sm font-semibold rounded-xl shadow-md transition duration-150 backdrop-blur-xs cursor-pointer z-10 disabled:opacity-50"
+                className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-white/95 dark:bg-slate-800/95 hover:bg-white dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-semibold rounded-xl shadow-md transition duration-150 backdrop-blur-xs cursor-pointer z-10 disabled:opacity-50"
                 title="Chọn ảnh bìa từ máy tính để tải lên Cloudinary"
               >
                 {isQuickUploading ? (
@@ -822,7 +955,7 @@ export default function ProfileView({
                   </>
                 ) : (
                   <>
-                    <Camera className="w-4 h-4 text-blue-600" />
+                    <Camera className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span>Chỉnh sửa ảnh bìa</span>
                   </>
                 )}
@@ -843,13 +976,13 @@ export default function ProfileView({
                   <div 
                     onClick={handleAvatarClick}
                     title={profileStoryInfo.hasUnviewed ? 'Nhấn để xem tin mới' : 'Nhấn để xem tùy chọn tin & ảnh'}
-                    className={`inline-flex rounded-full p-[3px] ${profileStoryInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400' : 'bg-slate-300'} ring-4 ring-white shadow-xl cursor-pointer hover:scale-102 transition-transform duration-150`}
+                    className={`inline-flex rounded-full p-[3px] ${profileStoryInfo.hasUnviewed ? 'bg-gradient-to-tr from-blue-500 to-sky-400' : 'bg-slate-300 dark:bg-slate-700'} ring-4 ring-white dark:ring-slate-900 shadow-xl cursor-pointer hover:scale-102 transition-transform duration-150`}
                   >
-                    <div className="rounded-full p-[3px] bg-white">
+                    <div className="rounded-full p-[3px] bg-white dark:bg-slate-900">
                       <img 
                         src={activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR} 
                         alt={activeUser.name || activeUser.full_name} 
-                        className="w-[128px] h-[128px] sm:w-[160px] sm:h-[160px] rounded-full object-cover bg-white"
+                        className="w-[128px] h-[128px] sm:w-[160px] sm:h-[160px] rounded-full object-cover bg-white dark:bg-slate-900"
                       />
                     </div>
                   </div>
@@ -857,7 +990,7 @@ export default function ProfileView({
                   <img 
                     src={activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR} 
                     alt={activeUser.name || activeUser.full_name} 
-                    className="w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover ring-4 ring-white shadow-xl bg-white cursor-pointer"
+                    className="w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover ring-4 ring-white dark:ring-slate-900 shadow-xl bg-white dark:bg-slate-900 cursor-pointer"
                     onClick={handleAvatarClick}
                     title="Bấm để xem ảnh đại diện"
                   />
@@ -866,13 +999,13 @@ export default function ProfileView({
                   <button 
                     onClick={() => quickAvatarFileRef.current?.click()}
                     disabled={isQuickUploading}
-                    className="absolute bottom-2 right-2 p-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-full shadow-md border-2 border-white transition cursor-pointer disabled:opacity-50"
+                    className="absolute bottom-2 right-2 p-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-full shadow-md border-2 border-white dark:border-slate-900 transition cursor-pointer disabled:opacity-50"
                     title="Chọn ảnh đại diện từ máy tính để tải lên Cloudinary"
                   >
                     {isQuickUploading ? (
                       <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
                     ) : (
-                      <Camera className="w-5 h-5 text-blue-600" />
+                      <Camera className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                     )}
                   </button>
                 )}
@@ -881,7 +1014,7 @@ export default function ProfileView({
               {/* Tên & Bạn bè & Nơi ở */}
               <div className="space-y-1.5 mb-2 mt-2 sm:mt-6">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
-                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
                     {activeUser.name || activeUser.full_name}
                   </h1>
                   {(activeUser.isVerified || activeUser.is_verified) && (
@@ -891,9 +1024,9 @@ export default function ProfileView({
 
                 <p 
                   onClick={() => setActiveTab('friends')}
-                  className="text-sm font-semibold text-slate-500 hover:text-blue-600 cursor-pointer transition inline-block"
+                  className="text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition inline-block"
                 >
-                  {activeUser.friendsCount ?? profileFriends.length} người bạn
+                  {activeUser.friendsCount ?? profileFriends.length} {t('profile.friends_count')}
                 </p>
               </div>
             </div>
@@ -901,18 +1034,18 @@ export default function ProfileView({
             {/* Các nút hành động bên phải */}
             <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-2.5 pb-2">
               {friendActionToast && (
-                <div className="text-xs font-semibold px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl animate-fadeIn">
+                <div className="text-xs font-semibold px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl animate-fadeIn">
                   {friendActionToast}
                 </div>
               )}
 
               {isOwnProfile ? (
                 <button 
-                  onClick={() => setIsEditProfileOpen(true)}
+                  onClick={openEditProfileModal}
                   className="flex items-center gap-1.5 px-4.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-500/20 transition duration-150 cursor-pointer"
                 >
                   <Edit2 className="w-4 h-4" />
-                  <span>Chỉnh sửa trang cá nhân</span>
+                  <span>{t('profile.edit_profile')}</span>
                 </button>
               ) : (
                 <>
@@ -922,10 +1055,10 @@ export default function ProfileView({
                       onClick={handleUnfriend}
                       disabled={isFriendActionLoading}
                       title="Bấm để hủy kết bạn"
-                      className="flex items-center gap-1.5 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-rose-50 hover:text-rose-600 border border-emerald-200 hover:border-rose-200 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer"
+                      className="flex items-center gap-1.5 px-4 py-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 border border-emerald-200 dark:border-emerald-800 hover:border-rose-200 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer"
                     >
                       <Check className="w-4 h-4" />
-                      <span>Bạn bè</span>
+                      <span>{t("profile.is_friend")}</span>
                     </button>
                   )}
 
@@ -934,10 +1067,10 @@ export default function ProfileView({
                       onClick={handleCancelFriendRequest}
                       disabled={isFriendActionLoading}
                       title="Bấm để thu hồi lời mời kết bạn"
-                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer"
+                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer border border-slate-200 dark:border-slate-700"
                     >
                       <Clock className="w-4 h-4 text-amber-500" />
-                      <span>Đã gửi lời mời</span>
+                      <span>{t("profile.cancel_request")}</span>
                     </button>
                   )}
 
@@ -948,7 +1081,7 @@ export default function ProfileView({
                       className="flex items-center gap-1.5 px-4.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-500/20 transition cursor-pointer"
                     >
                       {isFriendActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
-                      <span>Chấp nhận kết bạn</span>
+                      <span>{t("profile.respond_request")}</span>
                     </button>
                   )}
 
@@ -959,7 +1092,7 @@ export default function ProfileView({
                       className="flex items-center gap-1.5 px-4.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-500/20 transition cursor-pointer"
                     >
                       {isFriendActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                      <span>Thêm bạn bè</span>
+                      <span>{t("profile.add_friend")}</span>
                     </button>
                   )}
 
@@ -977,10 +1110,10 @@ export default function ProfileView({
                         });
                       }
                     }}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span>Nhắn tin</span>
+                    <span>{t('profile.message')}</span>
                   </button>
 
                   {/* Nút Chặn / Bỏ chặn */}
@@ -988,105 +1121,179 @@ export default function ProfileView({
                     onClick={handleToggleBlockUser}
                     className={`flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border ${
                       isBlockedByMe 
-                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                        : 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 border-slate-200'
+                        ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900 hover:bg-rose-100'
+                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 border-slate-200 dark:border-slate-700'
                     }`}
                     title={isBlockedByMe ? "Bỏ chặn người này" : "Chặn người này tương tác với bạn"}
                   >
                     <UserX className="w-4 h-4" />
-                    <span>{isBlockedByMe ? 'Bỏ chặn' : 'Chặn'}</span>
+                    <span>{isBlockedByMe ? t('profile.unblock') : t('profile.block')}</span>
                   </button>
                 </>
               )}
 
-              {onOpenSettings && (
+              {isOwnProfile && onOpenSettings && (
                 <button 
                   onClick={onOpenSettings}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border border-slate-200"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border border-slate-200 dark:border-slate-700"
                 >
-                  <Settings className="w-4 h-4 text-blue-600" />
-                  <span>Cài đặt & Quyền riêng tư</span>
+                  <Settings className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>{t('nav.settings')}</span>
                 </button>
               )}
 
               <button 
                 onClick={() => {
                   navigator.clipboard?.writeText(window.location.href);
-                  alert("Đã sao chép liên kết trang cá nhân!");
+                  setFriendActionToast(isEn ? '✓ Profile link copied!' : '✓ Đã sao chép liên kết trang cá nhân!');
+                  setTimeout(() => setFriendActionToast(''), 3000);
                 }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer"
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-bold rounded-xl transition duration-150 cursor-pointer border border-slate-200 dark:border-slate-700"
               >
                 <Share2 className="w-4 h-4" />
-                <span>Chia sẻ trang</span>
+                <span>{t('profile.share_page')}</span>
               </button>
 
-              <button className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl transition cursor-pointer">
-                <MoreHorizontal className="w-5 h-5" />
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => setShowMoreMenu(prev => !prev)}
+                  title={isEn ? "More options" : "Tùy chọn khác"}
+                  className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-xl transition cursor-pointer border border-slate-200 dark:border-slate-700"
+                >
+                  <MoreHorizontal className="w-5 h-5" />
+                </button>
+
+                {showMoreMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-40 animate-fadeIn">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setLightboxImage(activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left cursor-pointer"
+                    >
+                      <ImageIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <span>{isEn ? 'View profile picture' : 'Xem ảnh đại diện'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        navigator.clipboard?.writeText(window.location.href);
+                        setFriendActionToast(isEn ? '✓ Profile link copied!' : '✓ Đã sao chép liên kết!');
+                        setTimeout(() => setFriendActionToast(''), 3000);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-left cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span>{isEn ? 'Copy profile link' : 'Sao chép liên kết'}</span>
+                    </button>
+
+                    {!isOwnProfile && onOpenReportModal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMoreMenu(false);
+                          onOpenReportModal({
+                            targetType: 'user',
+                            targetId: targetUserId,
+                            targetUser: activeUser
+                          });
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition text-left cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <Flag className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                        <span>{isEn ? 'Report this profile' : 'Báo cáo trang cá nhân'}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
           </div>
 
           {/* Đường gạch ngang phân cách */}
-          <div className="h-px bg-slate-200 w-full" />
+          <div className="h-px bg-slate-200 dark:bg-slate-800 w-full" />
 
           {/* Thanh Tab điều hướng cá nhân */}
-          <div className="flex items-center justify-between overflow-x-auto text-xs sm:text-sm font-bold text-slate-600">
+          <div className="flex items-center justify-between overflow-x-auto text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-400">
             <div className="flex items-center gap-1 sm:gap-2">
               <button
                 onClick={() => setActiveTab('all')}
                 className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
                   activeTab === 'all' 
-                    ? 'border-blue-600 text-blue-600 font-extrabold' 
-                    : 'border-transparent hover:bg-slate-50'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Tất cả
+                {t('profile.tab_all')}
               </button>
 
               <button
                 onClick={() => setActiveTab('about')}
                 className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
                   activeTab === 'about' 
-                    ? 'border-blue-600 text-blue-600 font-extrabold' 
-                    : 'border-transparent hover:bg-slate-50'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Giới thiệu
+                {t('profile.tab_about')}
               </button>
 
               <button
                 onClick={() => setActiveTab('friends')}
                 className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
                   activeTab === 'friends' 
-                    ? 'border-blue-600 text-blue-600 font-extrabold' 
-                    : 'border-transparent hover:bg-slate-50'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Bạn bè ({profileFriends.length})
+                {t('profile.tab_friends')} ({profileFriends.length})
               </button>
 
               <button
                 onClick={() => setActiveTab('photos')}
                 className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
                   activeTab === 'photos' 
-                    ? 'border-blue-600 text-blue-600 font-extrabold' 
-                    : 'border-transparent hover:bg-slate-50'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Ảnh ({displayPhotos.length})
+                {t('profile.tab_photos')} ({displayPhotos.length})
               </button>
 
               <button
                 onClick={() => setActiveTab('reels')}
                 className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
                   activeTab === 'reels' 
-                    ? 'border-blue-600 text-blue-600 font-extrabold' 
-                    : 'border-transparent hover:bg-slate-50'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
                 Reels
               </button>
+
+              {isOwnProfile && (
+                <button
+                  onClick={() => setActiveTab('saved')}
+                  className={`py-3.5 px-4 border-b-4 transition cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'saved' 
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                      : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Bookmark className="w-4 h-4" />
+                  <span>{isEn ? 'Saved' : 'Đã lưu'}</span>
+                  {savedPosts.length > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                      {savedPosts.length}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1105,13 +1312,13 @@ export default function ProfileView({
             <div className="lg:col-span-5 xl:col-span-4 space-y-4">
               
               {/* Box 1: Thông tin cá nhân */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-4">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base font-extrabold text-slate-900">Thông tin cá nhân</h2>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Thông tin cá nhân</h2>
                   {isOwnProfile && (
                     <button 
-                      onClick={() => setIsEditProfileOpen(true)}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                      onClick={openEditProfileModal}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       title="Chỉnh sửa chi tiết"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -1120,53 +1327,67 @@ export default function ProfileView({
                 </div>
 
                 {/* Bio từ DB */}
-                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                  {activeUser.bio || <span className="text-slate-400 italic">Chưa có giới thiệu bản thân</span>}
+                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                  {activeUser.bio || <span className="text-slate-400 dark:text-slate-500 italic">{isEn ? 'No bio yet' : 'Chưa có giới thiệu bản thân'}</span>}
                 </p>
 
                 {/* Danh sách thông tin chi tiết */}
-                <div className="space-y-3 pt-2 text-xs sm:text-sm text-slate-700">
+                <div className="space-y-3 pt-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                   <div className="flex items-center gap-3">
-                    <MapPin className="w-5 h-5 text-slate-500 shrink-0" />
-                    <span>Sống ở <strong>{activeUser.location || 'Chưa cập nhật'}</strong></span>
+                    <MapPin className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
+                    <span>{isEn ? 'Lives in ' : 'Sống ở '}<strong>{activeUser.location || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong></span>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <HomeIcon className="w-5 h-5 text-slate-500 shrink-0" />
-                    <span>Từ <strong>{activeUser.hometown || 'Chưa cập nhật'}</strong></span>
+                    <HomeIcon className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
+                    <span>{isEn ? 'From ' : 'Từ '}<strong>{activeUser.hometown || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong></span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <Heart className="w-5 h-5 text-rose-500 shrink-0" />
                     <span>
-                      Tình trạng: <strong>{activeUser.relationship || activeUser.relationship_status || 'Chưa cập nhật'}</strong>
+                      {isEn ? 'Relationship: ' : 'Tình trạng: '}<strong>{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong>
                     </span>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <Briefcase className="w-5 h-5 text-slate-500 shrink-0" />
-                    <span>Làm việc tại <strong>TechVN</strong></span>
+                    <Briefcase className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
+                    <span>
+                      {activeUser.workplace ? (
+                        <>
+                          {activeUser.jobTitle || activeUser.job_title ? (
+                            <><strong>{activeUser.jobTitle || activeUser.job_title}</strong> {isEn ? 'at ' : 'tại '}<strong>{activeUser.workplace}</strong></>
+                          ) : (
+                            <>{isEn ? 'Works at ' : 'Làm việc tại '}<strong>{activeUser.workplace}</strong></>
+                          )}
+                        </>
+                      ) : activeUser.jobTitle || activeUser.job_title ? (
+                        <><strong>{activeUser.jobTitle || activeUser.job_title}</strong></>
+                      ) : (
+                        <>{isEn ? 'Workplace: ' : 'Nơi làm việc: '}<strong className="text-slate-500 dark:text-slate-400 font-semibold">{isEn ? 'Not specified' : 'Chưa cập nhật'}</strong></>
+                      )}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <Calendar className="w-5 h-5 text-slate-500 shrink-0" />
-                    <span>Tham gia từ {activeUser.joinedDate || 'Tháng 10, 2026'}</span>
+                    <Calendar className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
+                    <span>{isEn ? 'Joined ' : 'Tham gia từ '}{activeUser.joinedDate || (isEn ? 'October, 2026' : 'Tháng 10, 2026')}</span>
                   </div>
 
                   {/* Hiển thị Email theo quyền riêng tư */}
                   {((isOwnProfile && (activeUser.email || currentUser?.email)) || (!isOwnProfile && (activeUser.show_email || activeUser.settings?.show_email) && activeUser.email)) && (
-                    <div className="flex items-center justify-between gap-2 text-xs sm:text-sm text-slate-700">
+                    <div className="flex items-center justify-between gap-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                       <div className="flex items-center gap-3 min-w-0">
-                        <Mail className="w-5 h-5 text-slate-500 shrink-0" />
+                        <Mail className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
                         <span className="truncate">Email: <strong>{activeUser.email || currentUser?.email}</strong></span>
                       </div>
                       {isOwnProfile && (
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
                           (currentUser?.settings?.show_email ?? activeUser.settings?.show_email) 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' 
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                         }`}>
-                          {(currentUser?.settings?.show_email ?? activeUser.settings?.show_email) ? 'Công khai' : 'Chỉ mình tôi'}
+                          {(currentUser?.settings?.show_email ?? activeUser.settings?.show_email) ? t('privacy.public') : t('privacy.private')}
                         </span>
                       )}
                     </div>
@@ -1174,18 +1395,18 @@ export default function ProfileView({
 
                   {/* Hiển thị SĐT theo quyền riêng tư */}
                   {((isOwnProfile && (activeUser.phone || currentUser?.phone)) || (!isOwnProfile && (activeUser.show_phone || activeUser.settings?.show_phone) && activeUser.phone)) && (
-                    <div className="flex items-center justify-between gap-2 text-xs sm:text-sm text-slate-700">
+                    <div className="flex items-center justify-between gap-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                       <div className="flex items-center gap-3 min-w-0">
-                        <Phone className="w-5 h-5 text-slate-500 shrink-0" />
-                        <span className="truncate">SĐT: <strong>{activeUser.phone || currentUser?.phone}</strong></span>
+                        <Phone className="w-5 h-5 text-slate-500 dark:text-slate-400 shrink-0" />
+                        <span className="truncate">{isEn ? 'Phone: ' : 'SĐT: '}<strong>{activeUser.phone || currentUser?.phone}</strong></span>
                       </div>
                       {isOwnProfile && (
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
                           (currentUser?.settings?.show_phone ?? activeUser.settings?.show_phone) 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' 
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                         }`}>
-                          {(currentUser?.settings?.show_phone ?? activeUser.settings?.show_phone) ? 'Công khai' : 'Chỉ mình tôi'}
+                          {(currentUser?.settings?.show_phone ?? activeUser.settings?.show_phone) ? t('privacy.public') : t('privacy.private')}
                         </span>
                       )}
                     </div>
@@ -1196,24 +1417,24 @@ export default function ProfileView({
                 {isOwnProfile && (
                   <div className="pt-2 space-y-2">
                     <button 
-                      onClick={() => setIsEditProfileOpen(true)}
-                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                      onClick={openEditProfileModal}
+                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
-                      <span>Chỉnh sửa chi tiết</span>
+                      <span>{isEn ? 'Edit details' : 'Chỉnh sửa chi tiết'}</span>
                     </button>
                   </div>
                 )}
               </div>
 
               {/* Box 2: Giáo dục */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-3">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base font-extrabold text-slate-900">Giáo dục</h2>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Education' : 'Giáo dục'}</h2>
                   {isOwnProfile && (
                     <button 
-                      onClick={() => setIsEditProfileOpen(true)}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+                      onClick={openEditProfileModal}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -1221,82 +1442,88 @@ export default function ProfileView({
                 </div>
 
                 <div className="flex items-start gap-3 pt-1">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
-                    <GraduationCap className="w-6 h-6 text-slate-700" />
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                    <GraduationCap className="w-6 h-6 text-slate-700 dark:text-slate-300" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800">{activeUser.highSchool || activeUser.high_school || 'Chưa cập nhật'}</h4>
-                    <p className="text-xs text-slate-400">Trường cấp 3</p>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{activeUser.highSchool || activeUser.high_school || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h4>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'High School' : 'Trường cấp 3'}</p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-3 pt-1">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 border border-blue-200">
-                    <GraduationCap className="w-6 h-6 text-blue-600" />
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 flex items-center justify-center shrink-0 border border-blue-200 dark:border-blue-900/60">
+                    <GraduationCap className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800">{activeUser.education || 'Chưa cập nhật'}</h4>
-                    <p className="text-xs text-slate-400">Đại học / Chuyên ngành</p>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{activeUser.education || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h4>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'College / University' : 'Đại học / Chuyên ngành'}</p>
                   </div>
                 </div>
                 {isOwnProfile && (
                   <button
-                    onClick={() => setIsEditProfileOpen(true)}
-                    className="w-full mt-1 py-2 bg-slate-50 hover:bg-slate-100 text-blue-600 text-xs font-bold rounded-xl border border-slate-200/60 hover:border-blue-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                    onClick={openEditProfileModal}
+                    className="w-full mt-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-slate-200/60 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-500 transition cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
-                    <span>Cập nhật thông tin giáo dục</span>
+                    <span>{isEn ? 'Update education info' : 'Cập nhật thông tin giáo dục'}</span>
                   </button>
                 )}
               </div>
 
               {/* Box 3: Ảnh (Lấy từ bài viết thực tế trong DB) */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-3">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-extrabold text-slate-900">Ảnh</h2>
-                    <p className="text-xs text-slate-400">{displayPhotos.length} ảnh</p>
+                    <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Photos' : 'Ảnh'}</h2>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{displayPhotos.length} {isEn ? 'photos' : 'ảnh'}</p>
                   </div>
                   <button 
                     onClick={() => setActiveTab('photos')}
-                    className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                    className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                   >
-                    Xem tất cả ảnh
+                    {isEn ? 'See all photos' : 'Xem tất cả ảnh'}
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1.5 rounded-xl overflow-hidden">
-                  {displayPhotos.slice(0, 9).map((img, idx) => (
-                    <div 
-                      key={idx} 
-                      onClick={() => setLightboxImage(img)}
-                      className="aspect-square bg-slate-100 overflow-hidden cursor-pointer group relative"
-                    >
-                      <img 
-                        src={img} 
-                        alt={`Photo ${idx}`} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                      />
-                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                        <Eye className="w-4 h-4" />
+                {displayPhotos.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-1.5 rounded-xl overflow-hidden">
+                    {displayPhotos.slice(0, 9).map((img, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => setLightboxImage(img)}
+                        className="aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden cursor-pointer group relative"
+                      >
+                        <img 
+                          src={img} 
+                          alt={`Photo ${idx}`} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                        />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                          <Eye className="w-4 h-4" />
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-xs text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                    {isEn ? 'No photos yet' : 'Chưa có ảnh nào'}
+                  </div>
+                )}
               </div>
 
               {/* Box 4: Bạn bè (Lấy từ bảng friendships trong DB) */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-3">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-extrabold text-slate-900">Bạn bè</h2>
-                    <p className="text-xs text-slate-400 font-medium">{activeUser.friendsCount ?? profileFriends.length} người bạn</p>
+                    <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{t('profile.friends')}</h2>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">{activeUser.friendsCount ?? profileFriends.length} {t('profile.friends_count')}</p>
                   </div>
                   <button 
                     onClick={() => setActiveTab('friends')}
-                    className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                    className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                   >
-                    Xem tất cả bạn bè
+                    {isEn ? 'See all friends' : 'Xem tất cả bạn bè'}
                   </button>
                 </div>
 
@@ -1307,19 +1534,19 @@ export default function ProfileView({
                       onClick={() => onOpenUserProfile && onOpenUserProfile(friend)}
                       className="cursor-pointer group text-left"
                     >
-                      <div className="aspect-square rounded-xl overflow-hidden bg-slate-100 shadow-2xs mb-1">
+                      <div className="aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shadow-2xs mb-1">
                         <img 
                           src={friend.avatar || friend.avatar_url} 
                           alt={friend.name} 
                           className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
                         />
                       </div>
-                      <p className="text-[11px] font-bold text-slate-800 truncate group-hover:text-blue-600">
+                      <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">
                         {friend.name}
                       </p>
                     </div>
                   )) : (
-                    <div className="col-span-3 py-4 text-center text-xs text-slate-400">Chưa có bạn bè nào</div>
+                    <div className="col-span-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500">{isEn ? 'No friends yet' : 'Chưa có bạn bè nào'}</div>
                   )}
                 </div>
               </div>
@@ -1345,48 +1572,63 @@ export default function ProfileView({
                     }}
                     onRequireAuth={onRequireAuth}
                     onRequireLogin={onRequireAuth}
+                    onOpenLiveStream={onOpenLiveStream}
                   />
                 </div>
               )}
 
               {/* Box 2: Header "Bài viết" & Chuyển đổi Danh sách / Lưới */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-extrabold text-slate-900">Bài viết ({userPosts.length})</h3>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => alert("Mở bộ lọc bài viết")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                      <span>Bộ lọc</span>
-                    </button>
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                    {isEn ? 'Posts' : 'Bài viết'} ({filteredUserPosts.length})
+                  </h3>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 mr-0.5" />
+                    {[
+                      { id: 'all', label: isEn ? 'All' : 'Tất cả' },
+                      { id: 'with_image', label: isEn ? 'With photo' : 'Có ảnh' },
+                      { id: 'text_only', label: isEn ? 'Text only' : 'Chỉ chữ' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPostFilter(opt.id)}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                          postFilter === opt.id
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                <div className="flex items-center border-t border-slate-100 pt-2 text-xs font-bold text-slate-600">
+                <div className="flex items-center border-t border-slate-100 dark:border-slate-800 pt-2 text-xs font-bold text-slate-600 dark:text-slate-400">
                   <button
                     onClick={() => setViewMode('list')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 border-b-2 transition cursor-pointer ${
                       viewMode === 'list' 
-                        ? 'border-blue-600 text-blue-600 font-extrabold' 
-                        : 'border-transparent hover:bg-slate-50'
+                        ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
                   >
                     <List className="w-4 h-4" />
-                    <span>Chế độ xem danh sách</span>
+                    <span>{isEn ? 'List view' : 'Chế độ xem danh sách'}</span>
                   </button>
 
                   <button
                     onClick={() => setViewMode('grid')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 border-b-2 transition cursor-pointer ${
                       viewMode === 'grid' 
-                        ? 'border-blue-600 text-blue-600 font-extrabold' 
-                        : 'border-transparent hover:bg-slate-50'
+                        ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
                   >
                     <Grid3X3 className="w-4 h-4" />
-                    <span>Chế độ xem lưới</span>
+                    <span>{isEn ? 'Grid view' : 'Chế độ xem lưới'}</span>
                   </button>
                 </div>
               </div>
@@ -1395,29 +1637,29 @@ export default function ProfileView({
               {isLoadingPosts ? (
                 <div className="space-y-4">
                   {[1, 2].map(i => (
-                    <div key={i} className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-4 space-y-3">
+                    <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-4 space-y-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-200 animate-pulse" />
+                        <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse" />
                         <div className="space-y-2">
-                          <div className="h-3 w-32 bg-slate-200 rounded animate-pulse" />
-                          <div className="h-2 w-20 bg-slate-100 rounded animate-pulse" />
+                          <div className="h-3 w-32 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+                          <div className="h-2 w-20 bg-slate-100 dark:bg-slate-850 rounded animate-pulse" />
                         </div>
                       </div>
-                      <div className="h-3 w-full bg-slate-200 rounded animate-pulse" />
-                      <div className="h-48 w-full bg-slate-200 rounded-xl animate-pulse" />
+                      <div className="h-3 w-full bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+                      <div className="h-48 w-full bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse" />
                     </div>
                   ))}
                 </div>
               ) : viewMode === 'list' ? (
                 <div className="space-y-4">
-                  {userPosts.length > 0 ? (
-                    userPosts.map((post) => (
+                  {filteredUserPosts.length > 0 ? (
+                    filteredUserPosts.map((post) => (
                       <PostCard
                         key={post.id}
                         post={post}
                         currentUser={currentUser}
                         onToggleLike={onToggleLike}
-                        onAddComment={onAddComment}
+                        onAddComment={handleProfileAddComment}
                         onOpenReportModal={onOpenReportModal}
                         onOpenAppealModal={onOpenAppealModal}
                         onRequireAuth={onRequireAuth}
@@ -1427,34 +1669,40 @@ export default function ProfileView({
                         onUpdatePost={handleProfilePostUpdate}
                         onDeletePost={onDeletePost}
                         onSharePost={onSharePost}
+                        onToggleSave={handleToggleSavePost}
                         allPosts={posts}
                       />
                     ))
                   ) : (
-                    <div className="bg-white rounded-2xl p-10 text-center border border-slate-200 text-slate-400">
-                      <p className="text-sm font-semibold">Chưa có bài viết nào.</p>
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500">
+                      <p className="text-sm font-semibold">
+                        {postFilter === 'all'
+                          ? (isEn ? 'No posts yet.' : 'Chưa có bài viết nào.')
+                          : (isEn ? 'No posts match the selected filter.' : 'Không có bài viết nào khớp với bộ lọc.')}
+                      </p>
                     </div>
                   )}
                 </div>
               ) : (
                 /* Chế độ xem lưới */
+                filteredUserPosts.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {userPosts.map(post => (
+                  {filteredUserPosts.map(post => (
                     <div 
                       key={post.id} 
                       onClick={() => (post.image || post.image_url) && setLightboxImage(post.image || post.image_url)}
-                      className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs cursor-pointer group"
+                      className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs cursor-pointer group"
                     >
                       {post.image || post.image_url ? (
-                        <div className="aspect-square overflow-hidden bg-slate-100 relative">
+                        <div className="aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800 relative">
                           {shouldHideContentForViewer({
                             isAuthor: Boolean(currentUser?.id && String(currentUser.id) === String(post.author_id || post.author?.id)),
                             status: post.imageModeration?.status || post.image_moderation_status,
                             isSensitive: ['sensitive', 'rejected_hold', 'rejected_admin', 'pending_review', 'appeal_pending'].includes(post.imageModeration?.status || post.image_moderation_status),
                           }) && (
                             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
-                              <span className="text-xs font-semibold">Nội dung nhạy cảm</span>
-                              <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</span>
+                              <span className="text-xs font-semibold">{isEn ? 'Sensitive content' : 'Nội dung nhạy cảm'}</span>
+                              <span className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">{isEn ? 'View' : 'Xem'}</span>
                             </div>
                           )}
                           <img 
@@ -1468,22 +1716,31 @@ export default function ProfileView({
                           />
                         </div>
                       ) : (
-                        <div className="p-4 h-36 flex items-center justify-center text-xs text-slate-600 bg-slate-50 italic text-center">
+                        <div className="p-4 h-36 flex items-center justify-center text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-850 italic text-center">
                           "{post.content.slice(0, 70)}..."
                         </div>
                       )}
                       {String(currentUser?.id) === String(post.author_id || post.author?.id)
                         && (post.imageModeration?.status || post.image_moderation_status) === 'sensitive' && (
-                        <div className="px-2 py-1.5 border-t border-amber-200 bg-amber-50 text-[10px] leading-snug text-amber-900">
+                        <div className="px-2 py-1.5 border-t border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40 text-[10px] leading-snug text-amber-900 dark:text-amber-200">
                           {post.imageModeration?.noticeText || getModerationNoticeText('post', 'sensitive')}
                         </div>
                       )}
-                      <div className="p-2 text-[11px] font-semibold text-slate-600 truncate border-t border-slate-100">
+                      <div className="p-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300 truncate border-t border-slate-100 dark:border-slate-800">
                         {post.content}
                       </div>
                     </div>
                   ))}
                 </div>
+                ) : (
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500">
+                    <p className="text-sm font-semibold">
+                      {postFilter === 'all'
+                        ? (isEn ? 'No posts yet.' : 'Chưa có bài viết nào.')
+                        : (isEn ? 'No posts match the selected filter.' : 'Không có bài viết nào khớp với bộ lọc.')}
+                    </p>
+                  </div>
+                )
               )}
 
             </div>
@@ -1493,27 +1750,27 @@ export default function ProfileView({
 
         {/* ── TAB 2: GIỚI THIỆU (ABOUT VIEW CHUẨN FACEBOOK) ────────── */}
         {activeTab === 'about' && (
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-12 min-h-[500px]">
               
               {/* Menu danh mục Giới thiệu bên trái */}
-              <div className="md:col-span-4 border-r border-slate-100 p-4 space-y-1 bg-slate-50/50">
-                <h3 className="text-lg font-black text-slate-900 px-3 py-2">Giới thiệu</h3>
+              <div className="md:col-span-4 border-r border-slate-100 dark:border-slate-800 p-4 space-y-1 bg-slate-50/50 dark:bg-slate-950/40">
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 px-3 py-2">{t('profile.tab_about')}</h3>
                 
                 {[
-                  { id: 'overview', label: 'Tổng quan' },
-                  { id: 'work_edu', label: 'Công việc và học vấn' },
-                  { id: 'places', label: 'Nơi từng sống' },
-                  { id: 'contact', label: 'Thông tin liên hệ và cơ bản' },
-                  { id: 'family', label: 'Gia đình và các mối quan hệ' },
+                  { id: 'overview', label: isEn ? 'Overview' : 'Tổng quan' },
+                  { id: 'work_edu', label: isEn ? 'Work and education' : 'Công việc và học vấn' },
+                  { id: 'places', label: isEn ? 'Places lived' : 'Nơi từng sống' },
+                  { id: 'contact', label: isEn ? 'Contact and basic info' : 'Thông tin liên hệ và cơ bản' },
+                  { id: 'family', label: isEn ? 'Family and relationships' : 'Gia đình và các mối quan hệ' },
                 ].map((item) => (
                   <button
                     key={item.id}
                     onClick={() => setAboutSubTab(item.id)}
                     className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer flex items-center justify-between ${
                       aboutSubTab === item.id
-                        ? 'bg-blue-50 text-blue-600 font-extrabold'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-extrabold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     <span>{item.label}</span>
@@ -1527,73 +1784,83 @@ export default function ProfileView({
                 {/* 1. Tổng quan */}
                 {aboutSubTab === 'overview' && (
                   <div className="space-y-5 animate-fade-in">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <h4 className="text-base font-black text-slate-900">Tổng quan thông tin</h4>
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Information Overview' : 'Tổng quan thông tin'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
-                          className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={openEditProfileModal}
+                          className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
 
                     <div className="space-y-4">
                       <div className="flex items-start gap-3">
-                        <Briefcase className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <Briefcase className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">Làm việc tại <strong>TechVN</strong></p>
-                          <p className="text-xs text-slate-400">Kỹ sư phần mềm & Kiểm duyệt nội dung AI</p>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {activeUser.workplace ? (
+                              <>{isEn ? 'Works at ' : 'Làm việc tại '}<strong>{activeUser.workplace}</strong></>
+                            ) : (
+                              isEn ? 'Workplace not specified' : 'Chưa cập nhật nơi làm việc'
+                            )}
+                          </p>
+                          {(activeUser.jobTitle || activeUser.job_title) ? (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{activeUser.jobTitle || activeUser.job_title}</p>
+                          ) : (
+                            <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Workplace & Role' : 'Nơi làm việc / Nghề nghiệp'}</p>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3">
-                        <GraduationCap className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <GraduationCap className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            {activeUser.education ? <>Từng học tại <strong>{activeUser.education}</strong></> : 'Chưa cập nhật trường đại học'}
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {activeUser.education ? <>{isEn ? 'Studied at ' : 'Từng học tại '}<strong>{activeUser.education}</strong></> : (isEn ? 'University not specified' : 'Chưa cập nhật trường đại học')}
                           </p>
-                          <p className="text-xs text-slate-400">Đại học / Chuyên ngành</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'College / University' : 'Đại học / Chuyên ngành'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3">
-                        <GraduationCap className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <GraduationCap className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            {activeUser.highSchool || activeUser.high_school ? <>Từng học tại <strong>{activeUser.highSchool || activeUser.high_school}</strong></> : 'Chưa cập nhật trường cấp 3'}
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {activeUser.highSchool || activeUser.high_school ? <>{isEn ? 'Studied at ' : 'Từng học tại '}<strong>{activeUser.highSchool || activeUser.high_school}</strong></> : (isEn ? 'High school not specified' : 'Chưa cập nhật trường cấp 3')}
                           </p>
-                          <p className="text-xs text-slate-400">Trường THPT</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'High School' : 'Trường THPT'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3">
-                        <MapPin className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <MapPin className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            {activeUser.location ? <>Sống tại <strong>{activeUser.location}</strong></> : 'Chưa cập nhật nơi ở'}
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {activeUser.location ? <>{isEn ? 'Lives in ' : 'Sống tại '}<strong>{activeUser.location}</strong></> : (isEn ? 'Location not specified' : 'Chưa cập nhật nơi ở')}
                           </p>
-                          <p className="text-xs text-slate-400">Nơi ở hiện tại</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Current City' : 'Nơi ở hiện tại'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3">
-                        <HomeIcon className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <HomeIcon className="w-5 h-5 text-slate-500 dark:text-slate-400 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            {activeUser.hometown ? <>Đến từ <strong>{activeUser.hometown}</strong></> : 'Chưa cập nhật quê quán'}
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {activeUser.hometown ? <>{isEn ? 'From ' : 'Đến từ '}<strong>{activeUser.hometown}</strong></> : (isEn ? 'Hometown not specified' : 'Chưa cập nhật quê quán')}
                           </p>
-                          <p className="text-xs text-slate-400">Quê quán</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Hometown' : 'Quê quán'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3">
                         <Heart className="w-5 h-5 text-rose-500 mt-0.5" />
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            Tình trạng mối quan hệ: <strong>{activeUser.relationship || activeUser.relationship_status || 'Chưa cập nhật'}</strong>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {isEn ? 'Relationship status: ' : 'Tình trạng mối quan hệ: '}<strong>{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Not specified' : 'Chưa cập nhật')}</strong>
                           </p>
                         </div>
                       </div>
@@ -1604,35 +1871,41 @@ export default function ProfileView({
                 {/* 2. Công việc và học vấn */}
                 {aboutSubTab === 'work_edu' && (
                   <div className="space-y-5 animate-fade-in">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <h4 className="text-base font-black text-slate-900">Công việc và học vấn</h4>
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Work and Education' : 'Công việc và học vấn'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
-                          className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={openEditProfileModal}
+                          className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
 
                     <div className="space-y-4">
-                      <div className="p-4 bg-slate-50 rounded-xl space-y-1 border border-slate-100">
-                        <span className="text-xs font-bold text-blue-600">Nơi làm việc</span>
-                        <h5 className="text-sm font-extrabold text-slate-900">TechVN Corporation</h5>
-                        <p className="text-xs text-slate-500">Kỹ sư hệ thống & Phát triển mô hình mạng xã hội</p>
+                      <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'Workplace' : 'Nơi làm việc'}</span>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
+                          {activeUser.workplace || (isEn ? 'Not specified' : 'Chưa cập nhật')}
+                        </h5>
+                        {(activeUser.jobTitle || activeUser.job_title) ? (
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{activeUser.jobTitle || activeUser.job_title}</p>
+                        ) : (
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Job title / role not specified' : 'Chưa cập nhật chức vụ / nghề nghiệp'}</p>
+                        )}
                       </div>
 
-                      <div className="p-4 bg-slate-50 rounded-xl space-y-1 border border-slate-100">
-                        <span className="text-xs font-bold text-blue-600">Đại học</span>
-                        <h5 className="text-sm font-extrabold text-slate-900">{activeUser.education || 'Chưa cập nhật'}</h5>
-                        <p className="text-xs text-slate-500">Chuyên ngành Công nghệ thông tin</p>
+                      <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'College / University' : 'Đại học'}</span>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.education || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'College / University & Major' : 'Trường đại học / Chuyên ngành'}</p>
                       </div>
 
-                      <div className="p-4 bg-slate-50 rounded-xl space-y-1 border border-slate-100">
-                        <span className="text-xs font-bold text-blue-600">Trường THPT</span>
-                        <h5 className="text-sm font-extrabold text-slate-900">{activeUser.highSchool || activeUser.high_school || 'Chưa cập nhật'}</h5>
+                      <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-100 dark:border-slate-800">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{isEn ? 'High School' : 'Trường THPT'}</span>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.highSchool || activeUser.high_school || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
                       </div>
                     </div>
                   </div>
@@ -1641,33 +1914,33 @@ export default function ProfileView({
                 {/* 3. Nơi từng sống */}
                 {aboutSubTab === 'places' && (
                   <div className="space-y-5 animate-fade-in">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <h4 className="text-base font-black text-slate-900">Nơi từng sống</h4>
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Places Lived' : 'Nơi từng sống'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
-                          className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={openEditProfileModal}
+                          className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
 
                     <div className="space-y-4">
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <MapPin className="w-6 h-6 text-blue-600 mt-1" />
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <MapPin className="w-6 h-6 text-blue-600 dark:text-blue-400 mt-1" />
                         <div>
-                          <h5 className="text-sm font-extrabold text-slate-900">{activeUser.location || 'Chưa cập nhật'}</h5>
-                          <p className="text-xs text-slate-400">Thành phố hiện tại</p>
+                          <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.location || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Current City' : 'Thành phố hiện tại'}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <HomeIcon className="w-6 h-6 text-indigo-600 mt-1" />
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <HomeIcon className="w-6 h-6 text-indigo-600 dark:text-indigo-400 mt-1" />
                         <div>
-                          <h5 className="text-sm font-extrabold text-slate-900">{activeUser.hometown || 'Chưa cập nhật'}</h5>
-                          <p className="text-xs text-slate-400">Quê quán</p>
+                          <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.hometown || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Hometown' : 'Quê quán'}</p>
                         </div>
                       </div>
                     </div>
@@ -1677,31 +1950,39 @@ export default function ProfileView({
                 {/* 4. Thông tin liên hệ và cơ bản */}
                 {aboutSubTab === 'contact' && (
                   <div className="space-y-5 animate-fade-in">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <h4 className="text-base font-black text-slate-900">Thông tin liên hệ & Cơ bản</h4>
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Contact & Basic Info' : 'Thông tin liên hệ & Cơ bản'}</h4>
                     </div>
 
-                    <div className="space-y-3.5 text-xs sm:text-sm text-slate-700">
-                      <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                        <span className="font-semibold text-slate-500">Tên người dùng</span>
-                        <span className="font-bold text-slate-900">@{activeUser.username}</span>
+                    <div className="space-y-3.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Username' : 'Tên người dùng'}</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100">@{activeUser.username}</span>
                       </div>
 
-                      <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                        <span className="font-semibold text-slate-500">Email</span>
-                        <span className="font-bold text-slate-900">{activeUser.email || `${activeUser.username}@example.com`}</span>
+                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">Email</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100">
+                          {isOwnProfile
+                            ? (activeUser.email || currentUser?.email || (isEn ? 'Not specified' : 'Chưa cập nhật'))
+                            : ((activeUser.show_email || activeUser.settings?.show_email) && activeUser.email
+                                ? activeUser.email
+                                : (isEn ? 'Hidden for privacy' : 'Đã ẩn theo cài đặt riêng tư'))}
+                        </span>
                       </div>
 
-                      {activeUser.phone && (
-                        <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                          <span className="font-semibold text-slate-500">Số điện thoại</span>
-                          <span className="font-bold text-slate-900 font-mono">{activeUser.phone}</span>
+                      {(isOwnProfile ? (activeUser.phone || currentUser?.phone) : ((activeUser.show_phone || activeUser.settings?.show_phone) && activeUser.phone)) && (
+                        <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Phone number' : 'Số điện thoại'}</span>
+                          <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">
+                            {isOwnProfile ? (activeUser.phone || currentUser?.phone) : activeUser.phone}
+                          </span>
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                        <span className="font-semibold text-slate-500">Ngày tham gia hệ thống</span>
-                        <span className="font-bold text-slate-900">{activeUser.joinedDate || 'Tháng 10, 2026'}</span>
+                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">{isEn ? 'Joined WINGS' : 'Ngày tham gia hệ thống'}</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{activeUser.joinedDate || (isEn ? 'October, 2026' : 'Tháng 10, 2026')}</span>
                       </div>
                     </div>
                   </div>
@@ -1710,26 +1991,26 @@ export default function ProfileView({
                 {/* 5. Gia đình và các mối quan hệ */}
                 {aboutSubTab === 'family' && (
                   <div className="space-y-5 animate-fade-in">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <h4 className="text-base font-black text-slate-900">Mối quan hệ</h4>
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'Relationships' : 'Mối quan hệ'}</h4>
                       {isOwnProfile && (
                         <button 
-                          onClick={() => setIsEditProfileOpen(true)}
-                          className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={openEditProfileModal}
+                          className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
+                          <span>{isEn ? 'Edit' : 'Chỉnh sửa'}</span>
                         </button>
                       )}
                     </div>
 
-                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center">
                         <Heart className="w-6 h-6" />
                       </div>
                       <div>
-                        <h5 className="text-sm font-extrabold text-slate-900">{activeUser.relationship || activeUser.relationship_status || 'Độc thân'}</h5>
-                        <p className="text-xs text-slate-400">Tình trạng mối quan hệ</p>
+                        <h5 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{activeUser.relationship || activeUser.relationship_status || (isEn ? 'Not specified' : 'Chưa cập nhật')}</h5>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">{isEn ? 'Relationship status' : 'Tình trạng mối quan hệ'}</p>
                       </div>
                     </div>
                   </div>
@@ -1742,11 +2023,13 @@ export default function ProfileView({
 
         {/* ── TAB 3: BẠN BÈ (FRIENDS VIEW TỪ DATABASE) ─────────────── */}
         {activeTab === 'friends' && (
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-5 sm:p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-5 sm:p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Bạn bè</h3>
-                <p className="text-xs text-slate-500 font-medium">{profileFriends.length} người bạn trong cơ sở dữ liệu</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">{t('profile.friends')}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  {profileFriends.length} {isEn ? 'friends in database' : 'người bạn trong cơ sở dữ liệu'}
+                </p>
               </div>
 
               {/* Ô tìm kiếm bạn bè */}
@@ -1756,8 +2039,8 @@ export default function ProfileView({
                   type="text"
                   value={friendsSearchQuery}
                   onChange={(e) => setFriendsSearchQuery(e.target.value)}
-                  placeholder="Tìm kiếm bạn bè..."
-                  className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-100 focus:bg-white border border-transparent focus:border-blue-400 rounded-xl outline-none transition"
+                  placeholder={isEn ? "Search friends..." : "Tìm kiếm bạn bè..."}
+                  className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-100 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-850 border border-transparent focus:border-blue-400 dark:focus:border-blue-500 rounded-xl outline-none transition text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
                 />
               </div>
             </div>
@@ -1768,7 +2051,7 @@ export default function ProfileView({
                 {filteredFriends.map((friend) => (
                   <div 
                     key={friend.id} 
-                    className="p-3.5 bg-slate-50 hover:bg-slate-100/70 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3 transition group"
+                    className="p-3.5 bg-slate-50 dark:bg-slate-850 hover:bg-slate-100/70 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-755 rounded-2xl flex items-center justify-between gap-3 transition group"
                   >
                     <div 
                       onClick={() => onOpenUserProfile && onOpenUserProfile(friend)}
@@ -1777,20 +2060,20 @@ export default function ProfileView({
                       <img 
                         src={friend.avatar || friend.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"} 
                         alt={friend.name} 
-                        className="w-14 h-14 rounded-2xl object-cover ring-2 ring-white shrink-0 shadow-2xs"
+                        className="w-14 h-14 rounded-2xl object-cover ring-2 ring-white dark:ring-slate-800 shrink-0 shadow-2xs"
                       />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">
-                          <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 truncate group-hover:text-blue-600">
+                          <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">
                             {friend.name}
                           </h4>
                           {(friend.isVerified || friend.is_verified) && (
                             <VerifiedBadge size="xs" />
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-400 truncate">@{friend.username}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">@{friend.username}</p>
                         {friend.bio && (
-                          <p className="text-[10px] text-slate-500 truncate mt-0.5">{friend.bio}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{friend.bio}</p>
                         )}
                       </div>
                     </div>
@@ -1799,15 +2082,15 @@ export default function ProfileView({
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => onOpenChat && onOpenChat(friend)}
-                        title="Nhắn tin"
-                        className="p-2 bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl transition cursor-pointer"
+                        title={isEn ? "Message" : "Nhắn tin"}
+                        className="p-2 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-600 dark:hover:bg-blue-600 text-blue-600 dark:text-blue-400 hover:text-white dark:hover:text-white rounded-xl transition cursor-pointer"
                       >
                         <MessageCircle className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => onOpenUserProfile && onOpenUserProfile(friend)}
-                        title="Xem trang cá nhân"
-                        className="p-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl transition cursor-pointer"
+                        title={isEn ? "View profile" : "Xem trang cá nhân"}
+                        className="p-2 bg-slate-200 dark:bg-slate-750 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl transition cursor-pointer"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -1816,10 +2099,12 @@ export default function ProfileView({
                 ))}
               </div>
             ) : (
-              <div className="py-12 text-center text-slate-400 space-y-2">
-                <Users className="w-8 h-8 mx-auto text-slate-300" />
+              <div className="py-12 text-center text-slate-400 dark:text-slate-500 space-y-2">
+                <Users className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
                 <p className="text-sm font-semibold">
-                  {friendsSearchQuery ? "Không tìm thấy người bạn nào phù hợp" : "Chưa có bạn bè nào trong danh sách"}
+                  {friendsSearchQuery 
+                    ? (isEn ? "No matching friends found" : "Không tìm thấy người bạn nào phù hợp") 
+                    : (isEn ? "No friends in the list yet" : "Chưa có bạn bè nào trong danh sách")}
                 </p>
               </div>
             )}
@@ -1828,49 +2113,140 @@ export default function ProfileView({
 
         {/* ── TAB 4: ẢNH (PHOTOS VIEW TỪ BÀI VIẾT DATABASE) ────────── */}
         {activeTab === 'photos' && (
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-5 sm:p-6 space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-5 sm:p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Ảnh của bạn</h3>
-                <p className="text-xs text-slate-500 font-medium">Toàn bộ ảnh được tải lên từ các bài viết trong cơ sở dữ liệu</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                  {isOwnProfile
+                    ? (isEn ? 'Your Photos' : 'Ảnh của bạn')
+                    : (isEn ? `${activeUser.name || activeUser.full_name || 'User'}'s Photos` : `Ảnh của ${activeUser.name || activeUser.full_name || 'người dùng'}`)}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{isEn ? 'All photos uploaded from posts stored in the database' : 'Toàn bộ ảnh được tải lên từ các bài viết trong cơ sở dữ liệu'}</p>
               </div>
-              <span className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-xl">
-                {displayPhotos.length} ảnh
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
+                {displayPhotos.length} {isEn ? 'photos' : 'ảnh'}
               </span>
             </div>
 
             {/* Lưới ảnh */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {displayPhotos.map((img, idx) => (
-                <div 
-                  key={idx}
-                  onClick={() => setLightboxImage(img)}
-                  className="aspect-square rounded-2xl overflow-hidden bg-slate-100 cursor-pointer group relative shadow-2xs"
-                >
-                  <img 
-                    src={img} 
-                    alt={`Photo gallery ${idx}`} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                  />
-                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center text-white">
-                    <Eye className="w-6 h-6 drop-shadow-md" />
+            {displayPhotos.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {displayPhotos.map((img, idx) => (
+                  <div 
+                    key={idx}
+                    onClick={() => setLightboxImage(img)}
+                    className="aspect-square rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 cursor-pointer group relative shadow-2xs"
+                  >
+                    <img 
+                      src={img} 
+                      alt={`Photo gallery ${idx}`} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center text-white">
+                      <Eye className="w-6 h-6 drop-shadow-md" />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-400 dark:text-slate-500 space-y-2">
+                <ImageIcon className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-sm font-semibold">{isEn ? 'No photos yet' : 'Chưa có ảnh nào'}</p>
+              </div>
+            )}
           </div>
         )}
 
         {/* ── TAB 5: REELS (THƯỚC PHIM NGẮN) ───────────────────────── */}
         {activeTab === 'reels' && (
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-10 text-center space-y-3">
-            <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-10 text-center space-y-3">
+            <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
               <Video className="w-7 h-7" />
             </div>
-            <h3 className="text-base font-black text-slate-900">Chưa có thước phim Reels nào</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Các video và thước phim ngắn bạn chia sẻ sẽ xuất hiện ở đây để bạn bè cùng theo dõi.
+            <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'No Reels available yet' : 'Chưa có thước phim Reels nào'}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+              {isEn ? 'Videos and short reels you share will appear here for your friends to watch.' : 'Các video và thước phim ngắn bạn chia sẻ sẽ xuất hiện ở đây để bạn bè cùng theo dõi.'}
             </p>
+          </div>
+        )}
+
+        {/* ── TAB 6: ĐÃ LƯU (BÀI VIẾT ĐÃ LƯU) ───────────────────────── */}
+        {activeTab === 'saved' && isOwnProfile && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-4 sm:p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                  <Bookmark className="w-5 h-5 fill-current" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Saved Posts' : 'Bài viết đã lưu'}</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Only you can see your saved posts' : 'Chỉ bạn mới có thể nhìn thấy danh sách bài viết đã lưu'}</p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                {savedPosts.length} {isEn ? 'posts' : 'bài viết'}
+              </span>
+            </div>
+
+            {isLoadingSaved ? (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800">
+                <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-2" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Loading saved posts...' : 'Đang tải các bài viết đã lưu...'}</p>
+              </div>
+            ) : savedPosts.length > 0 ? (
+              <div className="space-y-4">
+                {savedPosts.map((post) => (
+                  post.isGroupPost ? (
+                    <GroupPostCard
+                      key={`group-${post.groupId}-${post.id}`}
+                      post={post}
+                      currentUser={currentUser}
+                      canInteract={Boolean(post.canInteract)}
+                      onRequireAuth={onRequireAuth}
+                      onOpenProfile={onOpenUserProfile}
+                      onToggleSave={(postId, nextSaved) => {
+                        if (!nextSaved) {
+                          setSavedPosts((prev) => prev.filter((item) => !(item.isGroupPost && String(item.id) === String(postId))));
+                        }
+                      }}
+                      onPostDeleted={(postId) => {
+                        setSavedPosts((prev) => prev.filter((item) => !(item.isGroupPost && String(item.id) === String(postId))));
+                      }}
+                      showGroup
+                    />
+                  ) : (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      currentUser={currentUser}
+                      onToggleLike={onToggleLike}
+                      onAddComment={handleProfileAddComment}
+                      onOpenReportModal={onOpenReportModal}
+                      onOpenAppealModal={onOpenAppealModal}
+                      onRequireAuth={onRequireAuth}
+                      onRequireLogin={onRequireAuth}
+                      onOpenProfile={onOpenUserProfile}
+                      onEditPost={onEditPost}
+                      onUpdatePost={handleProfilePostUpdate}
+                      onDeletePost={onDeletePost}
+                      onSharePost={onSharePost}
+                      onToggleSave={handleToggleSavePost}
+                      allPosts={posts}
+                    />
+                  )
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-12 text-center space-y-3">
+                <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                  <Bookmark className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'No saved posts yet' : 'Chưa có bài viết nào được lưu'}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                  {isEn ? 'Click the bookmark icon at the bottom right of any post to save it and review it here.' : 'Nhấn vào biểu tượng lưu ở góc dưới bên phải bất kỳ bài viết nào để lưu lại và xem lại tại đây.'}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -1879,11 +2255,15 @@ export default function ProfileView({
       {/* ================= MODAL CHỈNH SỬA TRANG CÁ NHÂN ================= */}
       <EditProfileModal
         isOpen={isEditProfileOpen && isOwnProfile}
-        onClose={() => setIsEditProfileOpen(false)}
+        onClose={() => {
+          setSaveProfileError('');
+          setIsEditProfileOpen(false);
+        }}
         initialData={activeUser}
         onSave={handleSaveProfileModal}
         isSaving={isSavingProfile}
         successMsg={saveSuccessMsg}
+        saveError={saveProfileError}
       />
 
       {/* ================= POPUP LỰA CHỌN KHI NHẤN AVATAR CÓ STORY ĐÃ XEM ================= */}
@@ -1924,10 +2304,10 @@ export default function ProfileView({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-slate-800 dark:text-white group-hover:text-blue-600 transition">
-                    Xem tin
+                    {isEn ? 'View story' : 'Xem tin'}
                   </p>
                   <p className="text-xs text-slate-500 truncate">
-                    Xem lại tin đã đăng của người dùng này
+                    {isEn ? 'Review stories posted by this user' : 'Xem lại tin đã đăng của người dùng này'}
                   </p>
                 </div>
               </button>
@@ -1946,13 +2326,44 @@ export default function ProfileView({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-slate-800 dark:text-white group-hover:text-slate-900 transition">
-                    Xem ảnh đại diện
+                    {isEn ? 'View profile picture' : 'Xem ảnh đại diện'}
                   </p>
                   <p className="text-xs text-slate-500 truncate">
-                    Xem ảnh đại diện kích thước đầy đủ
+                    {isEn ? 'View full size profile picture' : 'Xem ảnh đại diện kích thước đầy đủ'}
                   </p>
                 </div>
               </button>
+
+              {/* Lựa chọn 3: Xóa ảnh đại diện quay về mặc định (chỉ dành cho chủ tài khoản) */}
+              {isOwnProfile && activeUser?.avatar && activeUser.avatar !== DEFAULT_AVATAR && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowAvatarMenu(false);
+                    try {
+                      await handleSaveProfileModal({ avatar_url: DEFAULT_AVATAR });
+                      setFriendActionToast(isEn ? '✓ Reset profile picture to default!' : '✓ Đã đặt lại ảnh đại diện mặc định thành công!');
+                      setTimeout(() => setFriendActionToast(''), 3000);
+                    } catch (e) {
+                      setFriendActionToast(e.message);
+                      setTimeout(() => setFriendActionToast(''), 3000);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3.5 p-3 rounded-2xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer text-left group"
+                >
+                  <div className="w-11 h-11 rounded-full bg-rose-50 dark:bg-rose-950/50 group-hover:bg-rose-100 transition shrink-0 flex items-center justify-center text-rose-600">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-rose-600 transition">
+                      {isEn ? 'Remove profile picture' : 'Xóa ảnh đại diện'}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {isEn ? 'Revert to default system avatar' : 'Quay về ảnh đại diện mặc định của hệ thống'}
+                    </p>
+                  </div>
+                </button>
+              )}
             </div>
 
             <button
@@ -1960,7 +2371,7 @@ export default function ProfileView({
               onClick={() => setShowAvatarMenu(false)}
               className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
             >
-              Đóng
+              {isEn ? 'Close' : 'Đóng'}
             </button>
           </div>
         </div>

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
-  TrendingUp, UserPlus, Users, MessageCircle, 
+import {
+  TrendingUp, UserPlus, Users, MessageCircle,
   ShieldCheck, Sparkles, LayoutDashboard, User, Search, X, RefreshCw,
-  Radio, Eye
+  Radio, Eye, Bookmark
 } from 'lucide-react';
 import CreatePostCard from './CreatePostCard';
 import PostCard from './PostCard';
@@ -10,16 +10,19 @@ import InlineNotice from './InlineNotice';
 import StoryBar from './StoryBar';
 import CreateStoryModal from './CreateStoryModal';
 import StoryViewerModal from './StoryViewerModal';
-import { fetchStories, fetchTrendingHashtags } from '../api/client';
-import { suggestedFriends } from '../data/mockData';
+import GroupPostCard from './GroupPostCard';
+import { fetchCommunityGroupFeed, fetchStories, fetchTrendingHashtags } from '../api/client';
+import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { countVisiblePosts, isDeletedNoticePost, isHardHiddenPost } from '../utils/noticeLogic';
+import { selectHotPostIdsSnapshot, rankAndInterleaveFeed } from '../utils/homeFeedOrder';
+import { useTranslation } from '../utils/i18n';
 
-export default function HomeView({ 
-  currentUser, 
-  posts, 
-  onAddPost, 
-  onToggleLike, 
+export default function HomeView({
+  currentUser,
+  posts,
+  onAddPost,
+  onToggleLike,
   onAddComment,
   onOpenReportModal,
   onOpenAppealModal,
@@ -46,26 +49,101 @@ export default function HomeView({
   refreshKey = 0,
   activeStreams = [],
   onWatchStream,
-  onOpenLiveStream
+  onOpenLiveStream,
+  onViewPost,
+  onToggleSave,
+  onOpenGroup
 }) {
+  const { t, isEn } = useTranslation();
   const [feedFilter, setFeedFilter] = useState('forYou'); // 'forYou' | 'following'
+  const [groupPosts, setGroupPosts] = useState([]);
+  const [groupFeedError, setGroupFeedError] = useState('');
   const [activeTargetPostId, setActiveTargetPostId] = useState(null);
   const [storyTrays, setStoryTrays] = useState([]);
   const [isCreateStoryOpen, setIsCreateStoryOpen] = useState(false);
   const [activeStoryTray, setActiveStoryTray] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(false);
+  const [hotSnapshot, setHotSnapshot] = useState({ seed: -1, ids: null });
   const leftSidebarRef = useRef(null);
   const rightSidebarRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
-    if (!currentUser?.id) {
-      setTrendingTopics([]);
-      return undefined;
+    const search = searchQuery.trim();
+    if (!currentUser?.id && !search) {
+      setGroupPosts([]);
+      return () => { mounted = false; };
     }
+
+    setGroupPosts([]);
+    setGroupFeedError('');
+    fetchCommunityGroupFeed({ search })
+      .then((result) => {
+        if (!mounted) return;
+        const nextPosts = Array.isArray(result?.data) ? result.data.map((post) => ({
+          ...post,
+          id: post.id,
+          isGroupPost: true,
+          image: post.imageUrl || null,
+          author: {
+            id: post.authorId,
+            name: post.authorName || 'Thành viên',
+            username: post.username,
+            avatar: post.authorAvatar,
+            isVerified: Boolean(post.authorIsVerified),
+          },
+          createdAtIso: post.createdAt,
+        })) : [];
+        setGroupPosts(nextPosts);
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setGroupPosts([]);
+        setGroupFeedError(error.message || 'Không tải được bài viết trong nhóm.');
+      });
+
+    return () => { mounted = false; };
+  }, [currentUser?.id, refreshKey, searchQuery]);
+
+  useEffect(() => {
+    const handleGroupRealtime = (event) => {
+      const payload = event.detail;
+      if (!payload) return;
+      if (payload.type === 'GROUP_POST_CREATED' && payload.post) {
+        setGroupPosts((prev) => {
+          if (prev.some((item) => String(item.id) === String(payload.post.id))) return prev;
+          return [{
+            ...payload.post,
+            isGroupPost: true,
+            canInteract: true,
+            image: payload.post.imageUrl || null,
+            author: {
+              id: payload.post.authorId,
+              name: payload.post.authorName || 'Thành viên',
+              username: payload.post.username,
+              avatar: payload.post.authorAvatar,
+              isVerified: Boolean(payload.post.authorIsVerified),
+            },
+            createdAtIso: payload.post.createdAt,
+          }, ...prev];
+        });
+      } else if (payload.type === 'GROUP_POST_UPDATED' && payload.post) {
+        setGroupPosts((prev) => prev.map((item) => (
+          String(item.id) === String(payload.post.id) ? { ...item, ...payload.post } : item
+        )));
+      } else if (payload.type === 'GROUP_POST_DELETED' && payload.postId) {
+        setGroupPosts((prev) => prev.filter((item) => String(item.id) !== String(payload.postId)));
+      }
+    };
+    window.addEventListener('nexussocial:group-realtime', handleGroupRealtime);
+    return () => window.removeEventListener('nexussocial:group-realtime', handleGroupRealtime);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
     setTrendingLoading(true);
-    fetchTrendingHashtags({ userId: currentUser.id })
+    fetchTrendingHashtags({ userId: currentUser?.id, limit: 5 })
       .then((result) => {
         if (mounted) setTrendingTopics(Array.isArray(result?.data) ? result.data : []);
       })
@@ -91,9 +169,9 @@ export default function HomeView({
 
   const handleStoryViewed = (storyId, authorId) => {
     setStoryTrays(prevTrays => {
-      const updated = prevTrays.map(tray => {
+      return prevTrays.map(tray => {
         if (String(tray.author?.id) === String(authorId)) {
-          const updatedStories = tray.stories.map(s => 
+          const updatedStories = tray.stories.map(s =>
             String(s.id) === String(storyId) ? { ...s, isViewed: true } : s
           );
           const hasUnviewed = updatedStories.some(s => !s.isViewed);
@@ -105,14 +183,6 @@ export default function HomeView({
         }
         return tray;
       });
-
-      return [...updated].sort((a, b) => {
-        if (a.hasUnviewedStories && !b.hasUnviewedStories) return -1;
-        if (!a.hasUnviewedStories && b.hasUnviewedStories) return 1;
-        if (a.isSelf && !b.isSelf) return -1;
-        if (!a.isSelf && b.isSelf) return 1;
-        return new Date(b.latestStoryTime) - new Date(a.latestStoryTime);
-      });
     });
   };
 
@@ -123,7 +193,7 @@ export default function HomeView({
   // Ngăn cuộn lan (scroll leakage) sang bài viết ở giữa khi lăn chuột trên cột trái hoặc cột phải
   useEffect(() => {
     const handleSidebarWheel = (el) => {
-      if (!el) return () => {};
+      if (!el) return () => { };
       const onWheel = (e) => {
         const { scrollTop, scrollHeight, clientHeight } = el;
         // Nếu nội dung sidebar dài hơn chiều cao màn hình
@@ -211,104 +281,124 @@ export default function HomeView({
     const strT = String(activeTargetPostId);
     return strP === strT || strP === strT.replace(/^post-/, '') || `post-${strP}` === strT;
   };
-  const [friendsList, setFriendsList] = useState(() => {
-    // Sắp xếp người có nhiều bạn bè chung nhất lên đầu lần lượt xuống dưới
-    return [...suggestedFriends].sort((a, b) => {
-      const aCount = Array.isArray(a.mutualFriends) ? a.mutualFriends.length : (a.mutualFriends || 0);
-      const bCount = Array.isArray(b.mutualFriends) ? b.mutualFriends.length : (b.mutualFriends || 0);
-      return bCount - aCount;
-    });
-  });
+  const [friendsList, setFriendsList] = useState([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [friendsCount, setFriendsCount] = useState(currentUser?.friendsCount ?? 0);
 
-  const toggleFollowFriend = (id) => {
+  useEffect(() => {
+    let mounted = true;
+    if (!currentUser?.id) {
+      setFriendsList([]);
+      setFriendsCount(0);
+      return;
+    }
+
+    setFriendsLoading(true);
+    friendService.getFriendSuggestions(5)
+      .then(sugs => {
+        if (!mounted) return;
+        if (Array.isArray(sugs) && sugs.length > 0) {
+          const mapped = sugs.map(s => ({
+            id: s.id,
+            name: s.name,
+            username: s.username,
+            avatar: s.avatar || DEFAULT_AVATAR,
+            role: s.role,
+            mutualFriends: (s.mutual_friends || []).map(m => ({
+              id: m.id,
+              name: m.name,
+              avatar: m.avatar || DEFAULT_AVATAR
+            })),
+            requestSent: s.request_sent || false
+          }));
+          // Sắp xếp ưu tiên người có nhiều bạn chung nhất
+          mapped.sort((a, b) => {
+            const aCount = Array.isArray(a.mutualFriends) ? a.mutualFriends.length : (a.mutualFriends || 0);
+            const bCount = Array.isArray(b.mutualFriends) ? b.mutualFriends.length : (b.mutualFriends || 0);
+            return bCount - aCount;
+          });
+          setFriendsList(mapped);
+        } else {
+          setFriendsList([]);
+        }
+      })
+      .catch(err => {
+        console.warn('Lỗi tải gợi ý kết bạn trang chủ:', err);
+        if (mounted) setFriendsList([]);
+      })
+      .finally(() => {
+        if (mounted) setFriendsLoading(false);
+      });
+
+    friendService.getFriendsList()
+      .then(list => {
+        if (!mounted) return;
+        if (Array.isArray(list)) {
+          setFriendsCount(list.length);
+        } else if (currentUser?.friendsCount !== undefined && currentUser?.friendsCount !== null) {
+          setFriendsCount(currentUser.friendsCount);
+        }
+      })
+      .catch(err => {
+        console.warn('Lỗi tải danh sách bạn bè trang chủ:', err);
+      });
+
+    return () => { mounted = false; };
+  }, [currentUser?.id, refreshKey]);
+
+  useEffect(() => {
+    if (currentUser?.friendsCount !== undefined && currentUser?.friendsCount !== null) {
+      setFriendsCount(currentUser.friendsCount);
+    }
+  }, [currentUser?.friendsCount]);
+
+  const toggleFollowFriend = async (id) => {
+    const targetFriend = friendsList.find(f => f.id === id);
+    if (!targetFriend) return;
+
+    const willBeSent = !targetFriend.requestSent;
     setFriendsList(prev => prev.map(friend => 
-      friend.id === id ? { ...friend, requestSent: !friend.requestSent } : friend
+      friend.id === id ? { ...friend, requestSent: willBeSent } : friend
     ));
-  };
 
-  // Tính điểm tương tác để xếp hạng bài viết nổi bật (Engagement / Hot ranking)
-  const getPostEngagementScore = (post) => {
-    const reactions = Number(post.reactionCount || post.likesCount || post.totalReactions || 
-      (post.reactionCounts ? Object.values(post.reactionCounts).reduce((a, b) => a + Number(b || 0), 0) : 0) || 0);
-    const comments = (Array.isArray(post.comments) ? post.comments.length : Number(post.commentsCount || 0)) || 0;
-    const shares = Number(post.sharesCount || 0);
-    return (reactions * 1.5) + (comments * 3) + (shares * 4);
-  };
-
-  // Phân bổ bảng tin thông minh: Xen kẽ bài mới nhất & bài có tương tác nổi trội với cơ chế xoay vòng động mỗi lần làm mới
-  const rankAndInterleaveFeed = (postsList, seed = 0) => {
-    if (!Array.isArray(postsList) || postsList.length <= 2) return postsList;
-
-    const scored = postsList.map(p => ({
-      ...p,
-      _score: getPostEngagementScore(p)
-    }));
-
-    // Bài viết hot có điểm tương tác >= 6
-    const hotPosts = scored
-      .filter(p => p._score >= 6 && !p.inlineNotice)
-      .sort((a, b) => b._score - a._score);
-
-    if (hotPosts.length === 0) return postsList;
-
-    const hotIds = new Set(hotPosts.map(p => String(p.id)));
-    const regularPosts = scored.filter(p => !hotIds.has(String(p.id)));
-
-    // Xoay vòng danh sách bài hot dựa trên số lần làm mới để người dùng luôn thấy bài viết đa dạng, không bị lặp 1 bài
-    const hotOffset = seed % Math.max(1, hotPosts.length);
-    const rotatedHotPosts = [
-      ...hotPosts.slice(hotOffset),
-      ...hotPosts.slice(0, hotOffset)
-    ];
-
-    const result = [];
-    const seenIds = new Set();
-    let rIdx = 0;
-    let hIdx = 0;
-
-    // Luân phiên vị trí mở đầu: Lần này bắt đầu bằng bài mới nhất, lần làm mới sau bắt đầu bằng bài viết nổi trội/thịnh hành
-    const startWithHot = (seed % 2 === 1) && rotatedHotPosts.length > 0;
-    if (startWithHot) {
-      const firstHot = { ...rotatedHotPosts[hIdx++], isHotPost: true };
-      seenIds.add(String(firstHot.id));
-      result.push(firstHot);
+    try {
+      if (willBeSent) {
+        await friendService.sendFriendRequest(id);
+      } else {
+        await friendService.cancelSentRequest(id);
+      }
+    } catch (err) {
+      console.warn('Lỗi cập nhật lời mời kết bạn:', err);
+      // Hoàn tác lại trạng thái khi gặp lỗi
+      setFriendsList(prev => prev.map(friend => 
+        friend.id === id ? { ...friend, requestSent: !willBeSent } : friend
+      ));
     }
-
-    // Xen kẽ nhịp nhàng: Bài mới -> Bài hot -> 2 bài mới -> Bài hot...
-    while (rIdx < regularPosts.length || hIdx < rotatedHotPosts.length) {
-      if (rIdx < regularPosts.length) {
-        const reg = regularPosts[rIdx++];
-        if (!seenIds.has(String(reg.id))) {
-          seenIds.add(String(reg.id));
-          result.push(reg);
-        }
-      }
-      if (hIdx < rotatedHotPosts.length) {
-        const hot = { ...rotatedHotPosts[hIdx++], isHotPost: true };
-        if (!seenIds.has(String(hot.id))) {
-          seenIds.add(String(hot.id));
-          result.push(hot);
-        }
-      }
-      if (rIdx < regularPosts.length && hIdx % 2 === 0) {
-        const reg2 = regularPosts[rIdx++];
-        if (!seenIds.has(String(reg2.id))) {
-          seenIds.add(String(reg2.id));
-          result.push(reg2);
-        }
-      }
-    }
-
-    return result;
   };
 
-  const mainFeedPosts = (posts || []).filter(p => !isHardHiddenPost(p));
+  const mainFeedPosts = [...(posts || []), ...groupPosts]
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.createdAtIso || left.created_at || left.createdAt) || 0;
+      const rightTime = Date.parse(right.createdAtIso || right.created_at || right.createdAt) || 0;
+      return rightTime - leftTime;
+    })
+    .filter(p => !isHardHiddenPost(p));
+
+  useEffect(() => {
+    if (mainFeedPosts.length === 0) return;
+    if (hotSnapshot.seed === refreshKey && hotSnapshot.ids) return;
+    setHotSnapshot({
+      seed: refreshKey,
+      ids: selectHotPostIdsSnapshot(mainFeedPosts),
+    });
+  }, [refreshKey, mainFeedPosts.length, hotSnapshot.seed, hotSnapshot.ids]);
 
   const trimmedSearch = (searchQuery || '').trim().toLowerCase();
+  const activeHotIds = hotSnapshot.seed === refreshKey ? hotSnapshot.ids : null;
 
   let filteredPosts = feedFilter === 'following'
-    ? mainFeedPosts.filter(p => !currentUser || p.author?.id !== currentUser?.id)
-    : rankAndInterleaveFeed(mainFeedPosts, refreshKey);
+      ? mainFeedPosts.filter(p => !p.isGroupPost && (!currentUser || p.author?.id !== currentUser?.id))
+      : rankAndInterleaveFeed(mainFeedPosts, refreshKey, activeHotIds);
 
   if (trimmedSearch) {
     filteredPosts = filteredPosts.filter(p => {
@@ -318,7 +408,8 @@ export default function HomeView({
         (p.author.name && p.author.name.toLowerCase().includes(trimmedSearch)) ||
         (p.author.username && p.author.username.toLowerCase().includes(trimmedSearch))
       );
-      return contentMatch || tagMatch || authorMatch;
+      const groupMatch = p.groupName && p.groupName.toLowerCase().includes(trimmedSearch);
+      return contentMatch || tagMatch || authorMatch || groupMatch;
     });
   }
 
@@ -328,43 +419,43 @@ export default function HomeView({
   return (
     <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
       <div className="flex justify-center items-start gap-6 lg:gap-8">
-        
+
         {/* ================= CỘT TRÁI: LỐI TẮT NHANH & PROFILE (HIỆN TRÊN MÀN HÌNH RỘNG XL) ================= */}
-        <aside 
+        <aside
           ref={leftSidebarRef}
           className="hidden xl:block w-64 2xl:w-72 space-y-4 sticky top-20 shrink-0 max-h-[calc(100vh-5.5rem)] overflow-y-auto overscroll-contain sidebar-scrollbar pr-1 pb-4"
         >
-          
+
           {/* Card Thông tin tài khoản người dùng hoặc Khách */}
           {currentUser ? (
-            <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs space-y-3.5">
-              <div 
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3.5">
+              <div
                 onClick={() => setActiveTab && setActiveTab('profile')}
-                className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
               >
-                <img 
-                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
-                  alt={currentUser.name} 
+                <img
+                  src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR}
+                  alt={currentUser.name}
                   className="w-11 h-11 rounded-full object-cover ring-2 ring-blue-500/20 shadow-2xs"
                 />
                 <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-800 truncate hover:text-blue-600 transition">
-                    {currentUser.name || currentUser.full_name || currentUser.username || 'Người dùng'}
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate hover:text-blue-600 transition">
+                    {currentUser.name || currentUser.full_name || currentUser.username || (isEn ? 'User' : 'Người dùng')}
                   </h3>
-                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700 bg-blue-50 border border-blue-200 rounded uppercase">
+                  <span className="inline-block px-1.5 py-0.2 text-[10px] font-extrabold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded uppercase">
                     {currentUser.role || 'USER'}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
-                <div className="p-2 bg-slate-50 rounded-xl">
-                  <p className="text-sm font-black text-slate-800">{countVisiblePosts(mainFeedPosts.filter(p => p.author?.id === currentUser?.id))}</p>
-                  <p className="text-[10px] text-slate-400 font-medium">Bài viết</p>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  <p className="text-sm font-black text-slate-800 dark:text-slate-100">{countVisiblePosts(mainFeedPosts.filter(p => p.author?.id === currentUser?.id))}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">{isEn ? 'Posts' : 'Bài viết'}</p>
                 </div>
-                <div className="p-2 bg-slate-50 rounded-xl">
-                  <p className="text-sm font-black text-slate-800">{currentUser.friendsCount || 128}</p>
-                  <p className="text-[10px] text-slate-400 font-medium">Bạn bè</p>
+                <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  <p className="text-sm font-black text-slate-800 dark:text-slate-100">{friendsCount ?? 0}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">{isEn ? 'Friends' : 'Bạn bè'}</p>
                 </div>
               </div>
             </div>
@@ -372,70 +463,80 @@ export default function HomeView({
             <div className="bg-gradient-to-br from-blue-900 via-blue-800 to-slate-900 text-white rounded-2xl p-4 shadow-md space-y-3">
               <div className="flex items-center gap-2 text-blue-200 font-bold text-xs uppercase tracking-wider">
                 <Sparkles className="w-4 h-4 text-blue-300" />
-                <span>Chào mừng bạn!</span>
+                <span>{isEn ? 'Welcome!' : 'Chào mừng bạn!'}</span>
               </div>
               <p className="text-xs text-slate-200 leading-relaxed">
-                Đăng nhập để đăng bài, tương tác với bạn bè và trải nghiệm tính năng kiểm duyệt AI thông minh.
+                {isEn ? 'Log in to post, interact with friends, and experience smart AI moderation.' : 'Đăng nhập để đăng bài, tương tác với bạn bè và trải nghiệm tính năng kiểm duyệt AI thông minh.'}
               </p>
               <div className="pt-1 flex flex-col gap-2">
                 <button
                   onClick={() => onOpenAuthModal && onOpenAuthModal('login')}
                   className="w-full py-2 bg-white text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
                 >
-                  Đăng nhập ngay
+                  {isEn ? 'Log in now' : 'Đăng nhập ngay'}
                 </button>
                 <button
                   onClick={() => onOpenAuthModal && onOpenAuthModal('register')}
                   className="w-full py-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
-                  Tạo tài khoản mới
+                  {isEn ? 'Create new account' : 'Tạo tài khoản mới'}
                 </button>
               </div>
             </div>
           )}
 
           {/* Menu Lối tắt tính năng */}
-          <div className="bg-white rounded-2xl p-3 border border-slate-200/90 shadow-2xs space-y-1">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-1">
             <button
               onClick={() => setActiveTab && setActiveTab('profile')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <User className="w-4 h-4 text-blue-600" />
-              <span>Trang cá nhân</span>
+              <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{t('nav.profile')}</span>
             </button>
 
             <button
               onClick={() => setActiveTab && setActiveTab('friends')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <Users className="w-4 h-4 text-blue-600" />
-              <span>Bạn bè & Kết nối</span>
+              <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{isEn ? 'Friends & Connections' : 'Bạn bè & Kết nối'}</span>
             </button>
 
             <button
               onClick={() => setActiveTab && setActiveTab('messages')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <MessageCircle className="w-4 h-4 text-blue-600" />
-              <span>Hộp thư Tin nhắn</span>
+              <MessageCircle className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{t('nav.messages')}</span>
             </button>
+
+            {currentUser && (
+              <button
+                onClick={() => setActiveTab && setActiveTab('profile', null, false, 'saved')}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <Bookmark className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>{isEn ? 'Saved Posts' : 'Bài viết đã lưu'}</span>
+              </button>
+            )}
 
             {isAdmin && (
               <button
                 onClick={() => setActiveTab && setActiveTab('admin')}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition cursor-pointer"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer"
               >
-                <LayoutDashboard className="w-4 h-4 text-blue-600" />
+                <LayoutDashboard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Admin Dashboard</span>
               </button>
             )}
 
             <button
               onClick={onOpenAiLab}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
-              <ShieldCheck className="w-4 h-4 text-blue-600" />
-              <span>Thử nghiệm AI Lab</span>
+              <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{isEn ? 'AI Lab Test' : 'Thử nghiệm AI Lab'}</span>
             </button>
           </div>
 
@@ -446,7 +547,9 @@ export default function HomeView({
               <span className="text-xs font-black text-blue-300 uppercase tracking-wider">AI Shield Active</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
-              Mô hình PhoBERT đang bảo vệ nền tảng, tự động gắn nhãn và chặn lọc nội dung độc hại thời gian thực.
+              {isEn
+                ? 'PhoBERT model is protecting the platform, automatically labeling and filtering harmful content in real time.'
+                : 'Mô hình PhoBERT đang bảo vệ nền tảng, tự động gắn nhãn và chặn lọc nội dung độc hại thời gian thực.'}
             </p>
           </div>
 
@@ -454,7 +557,7 @@ export default function HomeView({
 
         {/* ================= BẢNG TIN TRUNG TÂM (MỞ RỘNG RỘNG RÃI, THOÁNG ĐÃNG) ================= */}
         <main className="w-full max-w-[680px] xl:max-w-[720px] 2xl:max-w-[760px] space-y-4">
-          
+
           {/* Thanh Tin 24h (Story Bar) */}
           <StoryBar
             currentUser={currentUser}
@@ -514,11 +617,12 @@ export default function HomeView({
           )}
 
           {/* Ô tạo bài viết mới */}
-          <CreatePostCard 
-            currentUser={currentUser} 
-            onAddPost={onAddPost} 
-            onRequireAuth={onRequireAuth} 
+          <CreatePostCard
+            currentUser={currentUser}
+            onAddPost={onAddPost}
+            onRequireAuth={onRequireAuth}
             onRequireLogin={onRequireLogin}
+            onOpenLiveStream={onOpenLiveStream}
           />
 
           {/* Banner thông báo kết quả tìm kiếm */}
@@ -530,10 +634,10 @@ export default function HomeView({
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-bold truncate">
-                    Bộ lọc tìm kiếm: <span className="text-blue-700 underline decoration-blue-300 underline-offset-2">"{searchQuery}"</span>
+                    {t('home.search_filter_title')} <span className="text-blue-700 underline decoration-blue-300 underline-offset-2">"{searchQuery}"</span>
                   </p>
                   <p className="text-[11px] text-blue-700/80">
-                    Tìm thấy {visiblePostCount} bài viết phù hợp
+                    {t('home.posts_found', { count: visiblePostCount })}
                   </p>
                 </div>
               </div>
@@ -542,8 +646,14 @@ export default function HomeView({
                 className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-blue-100/50 text-blue-700 text-xs font-bold rounded-xl border border-blue-200/70 shadow-2xs transition cursor-pointer shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
-                <span>Xóa bộ lọc</span>
+                <span>{t('home.clear_filter')}</span>
               </button>
+            </div>
+          )}
+
+          {groupFeedError && (
+            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              Không tải được bài viết trong nhóm: {groupFeedError}
             </div>
           )}
 
@@ -552,19 +662,17 @@ export default function HomeView({
             <div className="flex gap-2">
               <button
                 onClick={() => setFeedFilter('forYou')}
-                className={`px-3 py-1.5 rounded-lg transition ${
-                  feedFilter === 'forYou' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition ${feedFilter === 'forYou' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
               >
-                Dành cho bạn
+                {t('home.for_you')}
               </button>
               <button
                 onClick={() => setFeedFilter('following')}
-                className={`px-3 py-1.5 rounded-lg transition ${
-                  feedFilter === 'following' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition ${feedFilter === 'following' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
               >
-                Đang theo dõi
+                {t('home.following')}
               </button>
             </div>
             <div className="flex items-center gap-2.5">
@@ -572,15 +680,15 @@ export default function HomeView({
                 <button
                   onClick={onRefreshFeed}
                   disabled={isLoadingPosts}
-                  title="Làm mới bảng tin"
+                  title={t('home.refresh_title')}
                   className="flex items-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer text-[11px] font-semibold"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPosts ? 'animate-spin text-blue-600' : ''}`} />
-                  <span className="hidden sm:inline">Làm mới</span>
+                  <span className="hidden sm:inline">{t('home.refresh')}</span>
                 </button>
               )}
               <span className="text-[11px] text-slate-400 font-normal">
-                {visiblePostCount} bài viết
+                {visiblePostCount} {isEn ? 'posts' : 'bài viết'}
               </span>
             </div>
           </div>
@@ -637,63 +745,81 @@ export default function HomeView({
               </div>
             ) : filteredPosts.length > 0 ? (
               filteredPosts.map(post => (
-                isDeletedNoticePost(post) ? (
-                  <InlineNotice
-                    key={post.id}
-                    notice={post.inlineNotice}
-                    onDismiss={() => onDismissNotice?.(post.id)}
-                    className="shadow-xs"
-                  />
-                ) : (
-                  <PostCard 
-                    key={post.id}
-                    post={post}
-                    currentUser={currentUser}
-                    allPosts={posts}
-                    onUpdatePost={onEditPost}
-                    onToggleLike={onToggleLike}
-                    onAddComment={onAddComment}
-                    onOpenReportModal={onOpenReportModal}
-                    onOpenAppealModal={onOpenAppealModal}
-                    onRequireAuth={onRequireAuth}
-                    onRequireLogin={onRequireLogin}
-                    onOpenProfile={onOpenProfile}
-                    onEditPost={onEditPost}
-                    onDeletePost={onDeletePost}
-                    openPostMenuId={openPostMenuId}
-                    onTogglePostMenu={onTogglePostMenu}
-                    onClosePostMenu={onClosePostMenu}
-                    onDismissNotice={onDismissNotice}
-                    onSharePost={onSharePost}
-                    isTargeted={isPostTargeted(post.id) && focusedPostTarget?.type === 'comment'}
-                    targetType={focusedPostTarget?.type}
-                    targetActor={focusedPostTarget?.actor}
-                    targetCommentId={focusedPostTarget?.targetCommentId}
-                  />
-                )
-              ))
-            ) : trimmedSearch ? (
-              <div className="bg-white rounded-2xl p-8 sm:p-10 text-center border border-slate-200 shadow-2xs space-y-3">
-                <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-2xs">
-                  <Search className="w-5 h-5" />
+                  post.isGroupPost ? (
+                    <GroupPostCard
+                      key={`${post.groupId}-${post.id}`}
+                      post={post}
+                      currentUser={currentUser}
+                      canInteract={Boolean(post.canInteract)}
+                      onRequireAuth={onRequireAuth}
+                      onOpenGroup={onOpenGroup}
+                      onOpenProfile={onOpenProfile}
+                      onPostUpdated={(updated) => setGroupPosts((prev) => prev.map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item)))}
+                      onPostDeleted={(deletedId) => setGroupPosts((prev) => prev.filter((item) => String(item.id) !== String(deletedId)))}
+                      showGroup
+                    />
+                  ) : isDeletedNoticePost(post) ? (
+                    <InlineNotice
+                      key={post.id}
+                      notice={post.inlineNotice}
+                      onDismiss={() => onDismissNotice?.(post.id)}
+                      className="shadow-xs"
+                    />
+                  ) : (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      currentUser={currentUser}
+                      allPosts={posts}
+                      onUpdatePost={onEditPost}
+                      onToggleLike={onToggleLike}
+                      onAddComment={onAddComment}
+                      onOpenReportModal={onOpenReportModal}
+                      onOpenAppealModal={onOpenAppealModal}
+                      onRequireAuth={onRequireAuth}
+                      onRequireLogin={onRequireLogin}
+                      onOpenProfile={onOpenProfile}
+                      onEditPost={onEditPost}
+                      onDeletePost={onDeletePost}
+                      openPostMenuId={openPostMenuId}
+                      onTogglePostMenu={onTogglePostMenu}
+                      onClosePostMenu={onClosePostMenu}
+                      onDismissNotice={onDismissNotice}
+                      onSharePost={onSharePost}
+                      onToggleSave={onToggleSave}
+                      isTargeted={isPostTargeted(post.id) && focusedPostTarget?.type === 'comment'}
+                      targetType={focusedPostTarget?.type}
+                      targetActor={focusedPostTarget?.actor}
+                      targetCommentId={focusedPostTarget?.targetCommentId}
+                    />
+                  )
+                ))
+              ) : trimmedSearch ? (
+                <div className="bg-white rounded-2xl p-8 sm:p-10 text-center border border-slate-200 shadow-2xs space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-2xs">
+                    <Search className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">{isEn ? 'No posts found' : 'Không tìm thấy bài viết nào'}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                      {isEn ? (
+                        <>No posts matched the keyword <span className="font-semibold text-blue-600">"{searchQuery}"</span>. You can try searching for different keywords or clear the filter.</>
+                      ) : (
+                        <>Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.</>
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    onClick={onClearSearch}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Clear filter & View all posts' : 'Xóa bộ lọc & Xem tất cả bài viết'}</span>
+                  </button>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800">Không tìm thấy bài viết nào</h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                    Không có bài viết nào khớp với từ khóa <span className="font-semibold text-blue-600">"{searchQuery}"</span>. Bạn có thể thử tìm kiếm từ khóa khác hoặc xóa bộ lọc.
-                  </p>
-                </div>
-                <button
-                  onClick={onClearSearch}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>Xóa bộ lọc & Xem tất cả bài viết</span>
-                </button>
-              </div>
-            ) : (
-              <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-400 text-sm">
-                Chưa có bài viết nào trong mục này.
+              ) : (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-400 text-sm">
+                {isEn ? 'No posts in this section yet.' : 'Chưa có bài viết nào trong mục này.'}
               </div>
             )}
           </div>
@@ -701,31 +827,36 @@ export default function HomeView({
         </main>
 
         {/* ================= CỘT PHẢI (GỢI Ý KẾT BẠN, XU HƯỚNG, ONLINE) ================= */}
-        <aside 
+        <aside
           ref={rightSidebarRef}
           className="hidden lg:block w-80 xl:w-88 space-y-5 sticky top-20 shrink-0 max-h-[calc(100vh-5.5rem)] overflow-y-auto overscroll-contain sidebar-scrollbar pr-1 pb-6"
         >
-          
+
           {/* Gợi ý kết bạn */}
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
             <div className="flex items-center justify-between mb-3.5">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <UserPlus className="w-4 h-4 text-blue-500" />
-                  <span>Gợi ý kết bạn</span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <UserPlus className="w-4 h-4 text-blue-500 dark:text-blue-400" />
+                  <span>{t('home.suggested_friends')}</span>
                 </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">Ưu tiên người có nhiều bạn chung</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{isEn ? 'Prioritized by mutual friends' : 'Ưu tiên người có nhiều bạn chung'}</p>
               </div>
               <button
-                onClick={() => setActiveTab && setActiveTab('friends')}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                onClick={() => setActiveTab && setActiveTab('friends', null, false, 'suggestions')}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline cursor-pointer"
               >
-                Xem tất cả
+                {t('home.see_all_suggestions')}
               </button>
             </div>
 
             <div className="space-y-3.5">
-              {friendsList.map(friend => {
+              {friendsLoading ? (
+                <p className="text-xs text-slate-400 py-3 text-center">{isEn ? 'Loading suggestions...' : 'Đang tải gợi ý...'}</p>
+              ) : friendsList.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">{isEn ? 'No friend suggestions right now' : 'Chưa có gợi ý kết bạn nào'}</p>
+              ) : (
+                friendsList.map(friend => {
                 const mutualCount = Array.isArray(friend.mutualFriends) ? friend.mutualFriends.length : (friend.mutualFriends || 0);
                 const mutualList = Array.isArray(friend.mutualFriends) ? friend.mutualFriends : [];
 
@@ -735,22 +866,22 @@ export default function HomeView({
                       <img 
                         src={friend.avatar} 
                         alt={friend.name} 
-                        onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
-                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
+                        onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends', null, false, 'suggestions'))}
+                        className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700 shadow-2xs cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
                       />
                       <div className="min-w-0 flex-1">
                         <p 
-                          onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends'))}
-                          className="text-xs font-bold text-slate-800 truncate hover:text-blue-600 cursor-pointer"
+                          onClick={() => onOpenProfile ? onOpenProfile(friend) : (setActiveTab && setActiveTab('friends', null, false, 'suggestions'))}
+                          className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                         >
                           {friend.name}
                         </p>
-                        
+
                         {/* Hiển thị bạn chung (Bạn bè trong danh sách) có nhiều bạn chung hiện lần lượt */}
                         {mutualCount > 0 ? (
-                          <div 
+                          <div
                             className="flex items-center gap-1.5 mt-0.5"
-                            title={`Bạn bè chung trong danh sách: ${mutualList.map(f => f.name).join(', ')}`}
+                            title={isEn ? `Mutual friends in list: ${mutualList.map(f => f.name).join(', ')}` : `Bạn bè chung trong danh sách: ${mutualList.map(f => f.name).join(', ')}`}
                           >
                             {/* Avatar thu nhỏ xếp chồng của bạn chung */}
                             <div className="flex -space-x-1.5 overflow-hidden shrink-0">
@@ -760,25 +891,25 @@ export default function HomeView({
                                   src={mf.avatar}
                                   alt={mf.name}
                                   title={mf.name}
-                                  className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-white"
+                                  className="w-3.5 h-3.5 rounded-full object-cover ring-1 ring-white dark:ring-slate-900"
                                 />
                               ))}
                             </div>
 
                             {/* Tên hiển thị bạn chung lần lượt */}
-                            <p className="text-[10px] text-slate-500 truncate leading-tight">
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-tight">
                               {mutualCount === 1 ? (
-                                <>Bạn chung: <span className="font-semibold text-slate-700">{mutualList[0].name}</span></>
+                                <>{isEn ? 'Mutual: ' : 'Bạn chung: '}<span className="font-semibold text-slate-700 dark:text-slate-300">{mutualList[0].name}</span></>
                               ) : mutualCount === 2 ? (
-                                <>Bạn chung: <span className="font-semibold text-slate-700">{mutualList[0].name}</span>, <span className="font-semibold text-slate-700">{mutualList[1].name}</span></>
+                                <>{isEn ? 'Mutual: ' : 'Bạn chung: '}<span className="font-semibold text-slate-700 dark:text-slate-300">{mutualList[0].name}</span>, <span className="font-semibold text-slate-700 dark:text-slate-300">{mutualList[1].name}</span></>
                               ) : (
-                                <><span className="font-bold text-blue-600">{mutualCount} bạn chung</span> ({mutualList[0].name}, {mutualList[1].name}...)</>
+                                <><span className="font-bold text-blue-600 dark:text-blue-400">{mutualCount} {isEn ? 'mutual' : 'bạn chung'}</span> ({mutualList[0].name}, {mutualList[1].name}...)</>
                               )}
                             </p>
                           </div>
                         ) : (
-                          <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                            Gợi ý dành cho bạn
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                            {isEn ? 'Suggested for you' : 'Gợi ý dành cho bạn'}
                           </p>
                         )}
                       </div>
@@ -786,47 +917,46 @@ export default function HomeView({
 
                     <button
                       onClick={() => toggleFollowFriend(friend.id)}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg shrink-0 transition cursor-pointer ${
-                        friend.requestSent 
-                          ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg shrink-0 transition cursor-pointer ${friend.requestSent
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                           : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs hover:shadow-xs'
-                      }`}
+                        }`}
                     >
-                      {friend.requestSent ? 'Đã gửi' : 'Kết bạn'}
+                      {friend.requestSent ? (isEn ? 'Sent' : 'Đã gửi') : (isEn ? 'Add' : 'Kết bạn')}
                     </button>
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
 
           {/* Chủ đề thịnh hành */}
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-rose-500" />
-              <span>Chủ đề thịnh hành</span>
+              <span>{t('home.trending_topics')}</span>
             </h3>
 
             <div className="space-y-3">
-              {trendingLoading ? <p className="text-xs text-slate-400">Đang tải...</p> : trendingTopics.length === 0 ? (
-                <p className="text-xs text-slate-400">Chưa có chủ đề thịnh hành</p>
+              {trendingLoading ? <p className="text-xs text-slate-400">{isEn ? 'Loading...' : 'Đang tải...'}</p> : trendingTopics.length === 0 ? (
+                <p className="text-xs text-slate-400">{t('home.no_trending')}</p>
               ) : trendingTopics.map((topic) => (
-                <div 
-                  key={topic.tag} 
+                <div
+                  key={topic.tag}
                   onClick={() => onSelectHashtag?.(topic.tag)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') onSelectHashtag?.(topic.tag);
                   }}
-                  className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-blue-50/60 transition duration-150"
-                  title={`Lọc bài viết với ${topic.tag}`}
+                  className="group cursor-pointer p-1.5 -mx-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition duration-150"
+                  title={isEn ? `Filter posts by ${topic.tag}` : `Lọc bài viết với ${topic.tag}`}
                 >
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
                     <span>#{topic.displayTag || topic.tag}</span>
-                    <span className="text-[10px] text-blue-500 font-semibold group-hover:underline">Khám phá</span>
+                    <span className="text-[10px] text-blue-500 dark:text-blue-400 font-semibold group-hover:underline">{isEn ? 'Explore' : 'Khám phá'}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400">{topic.postCount} bài viết</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">{topic.postCount} {isEn ? 'posts' : 'bài viết'}</p>
                 </div>
               ))}
             </div>
@@ -864,13 +994,24 @@ export default function HomeView({
           }}
           onStoryViewed={handleStoryViewed}
           onOpenReportModal={onOpenReportModal}
+          onViewPost={onViewPost}
+          onOpenStoryViewer={(target) => {
+            if (target?.tray) setActiveStoryTray(target.tray);
+            else if (target?.stories) setActiveStoryTray(target);
+          }}
           onStoryDeleted={() => {
             loadStories();
           }}
           onNextTray={() => {
             const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
             if (idx >= 0 && idx < storyTrays.length - 1) {
-              setActiveStoryTray(storyTrays[idx + 1]);
+              const nextTray = storyTrays[idx + 1];
+              setActiveStoryTray({
+                ...nextTray,
+                navId: Date.now(),
+                startAtEnd: false,
+                initialStoryIndex: 0,
+              });
             } else {
               setActiveStoryTray(null);
             }
@@ -878,7 +1019,14 @@ export default function HomeView({
           onPrevTray={() => {
             const idx = storyTrays.findIndex(t => String(t.author?.id) === String(activeStoryTray?.author?.id));
             if (idx > 0) {
-              setActiveStoryTray(storyTrays[idx - 1]);
+              const prevTray = storyTrays[idx - 1];
+              const lastStoryIndex = Math.max(0, (prevTray.stories?.length || 1) - 1);
+              setActiveStoryTray({
+                ...prevTray,
+                navId: Date.now(),
+                startAtEnd: true,
+                initialStoryIndex: lastStoryIndex,
+              });
             }
           }}
         />

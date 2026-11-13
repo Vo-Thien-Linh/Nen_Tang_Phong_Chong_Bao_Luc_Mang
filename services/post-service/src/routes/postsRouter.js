@@ -16,12 +16,14 @@ export function createPostsRouter({ pool }) {
   const { requireAuth, optionalAuth } = createAuthMiddleware({ userRepository });
 
   router.get('/', optionalAuth, postsController.listPosts);
+  router.get('/saved', requireAuth, postsController.getSavedPosts);
   router.get('/:postId', optionalAuth, postsController.getPost);
   router.post('/', requireAuth, postsController.createPost);
   router.put('/:postId', requireAuth, postsController.editPost);
   router.delete('/:postId', requireAuth, postsController.deletePost);
   router.post('/:postId/comments', requireAuth, postsController.createComment);
   router.post('/:postId/share', requireAuth, postsController.sharePost);
+  router.post('/:postId/save', requireAuth, postsController.toggleSavePost);
 
   return router;
 }

@@ -43,6 +43,7 @@ class ConversationPartner(BaseModel):
     bio: Optional[str] = None
     is_online: bool = False
     is_friend: bool = False
+    last_seen: Optional[str] = None
 
 class ConversationItem(BaseModel):
     id: int

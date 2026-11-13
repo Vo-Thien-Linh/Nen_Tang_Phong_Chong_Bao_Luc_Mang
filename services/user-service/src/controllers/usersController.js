@@ -1,12 +1,20 @@
 import { VALID_ROLES, normalizeRole } from '../../../../backend/src/utils/rbac.js';
 import { getTrustTier, getUserTrustHistory } from '../../../../backend/src/services/trustScoreService.js';
 import { formatImageModerationForViewer } from '../../../../backend/src/services/imageModerationResponse.js';
+import { validateBackendProfileUpdate } from '../../../../backend/src/utils/profileValidation.js';
 
 /**
  * Chuyển đổi dữ liệu user từ DB sang format chuẩn cho Frontend
  */
-export function formatUserProfile(row) {
+export function formatUserProfile(row, options = {}) {
   if (!row) return null;
+  const { viewerId } = options;
+  const isOwner = viewerId === undefined
+    ? true
+    : Boolean(viewerId && String(viewerId) === String(row.id));
+  const showEmail = Boolean(row.show_email);
+  const showPhone = Boolean(row.show_phone);
+
   return {
     id: row.id,
     username: row.username,
@@ -20,6 +28,9 @@ export function formatUserProfile(row) {
     isVerified: row.is_verified,
     is_verified: row.is_verified,
     bio: row.bio || '',
+    workplace: row.workplace || '',
+    jobTitle: row.job_title || '',
+    job_title: row.job_title || '',
     location: row.location || '',
     hometown: row.hometown || '',
     education: row.education || '',
@@ -27,6 +38,14 @@ export function formatUserProfile(row) {
     high_school: row.high_school || '',
     relationship: row.relationship_status || '',
     relationship_status: row.relationship_status || '',
+    email: (isOwner || showEmail) ? (row.email || '') : '',
+    phone: (isOwner || showPhone) ? (row.phone || '') : '',
+    show_email: showEmail,
+    show_phone: showPhone,
+    settings: {
+      show_email: showEmail,
+      show_phone: showPhone,
+    },
     status: row.status,
     cooldown_until: row.cooldown_until,
     cooldownUntil: row.cooldown_until,
@@ -54,6 +73,18 @@ export function formatFriend(row) {
     bio: row.bio || '',
     location: row.location || '',
   };
+}
+
+function formatRelativeTime(createdAt) {
+  if (!createdAt) return 'Vừa xong';
+  const diff = Date.now() - new Date(createdAt).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Vừa xong';
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
 }
 
 export function createUsersController({ userRepository, pool }) {
@@ -251,13 +282,14 @@ export function createUsersController({ userRepository, pool }) {
     async getProfile(req, res, next) {
       try {
         const { userId } = req.params;
-        const row = await userRepository.findProfileById(userId, req.user?.id || null);
+        const viewerId = req.user?.id || null;
+        const row = await userRepository.findProfileById(userId, viewerId);
 
         if (!row) {
           return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
         }
 
-        res.json({ success: true, data: formatUserProfile(row) });
+        res.json({ success: true, data: formatUserProfile(row, { viewerId }) });
       } catch (err) {
         next(err);
       }
@@ -275,11 +307,16 @@ export function createUsersController({ userRepository, pool }) {
           return res.status(403).json({ success: false, message: 'Không có quyền chỉnh sửa trang cá nhân của người khác' });
         }
 
-        const { bio, location, hometown, education, relationship_status, avatar_url, cover_url } = req.body;
-        const high_school = req.body.high_school !== undefined ? req.body.high_school : req.body.highSchool;
-        const updated = await userRepository.updateProfile(userId, {
-          bio, location, hometown, education, high_school, relationship_status, avatar_url, cover_url,
-        });
+        const validation = validateBackendProfileUpdate(req.body || {});
+        if (!validation.valid) {
+          return res.status(400).json({
+            success: false,
+            message: validation.message || 'Thông tin hồ sơ không hợp lệ',
+            errors: validation.errors,
+          });
+        }
+
+        const updated = await userRepository.updateProfile(userId, validation.sanitized);
 
         if (!updated) {
           return res.status(400).json({ success: false, message: 'Không có trường nào được cập nhật' });
@@ -317,55 +354,96 @@ export function createUsersController({ userRepository, pool }) {
         const viewerId = req.user?.id || null;
         const posts = await userRepository.findUserPosts(userId, viewerId);
 
-        const formatted = posts.map((p) => ({
-          id: String(p.id),
-          author: {
-            id: p.author_id,
-            name: p.full_name,
-            username: p.username,
-            avatar: p.avatar_url,
-            isVerified: p.is_verified,
-          },
-          content: p.content,
-          image: p.image_url || null,
-          imageModeration: formatImageModerationForViewer(p.imageModeration, 'post', p.author_id, viewerId),
-          createdAt: p.created_at,
-          likesCount: p.likes_count || 0,
-          commentsCount: p.comments_count || 0,
-          sharesCount: p.shares_count || 0,
-          isLiked: p.my_reaction != null,
-          myReaction: p.my_reaction || null,
-          reactionCounts: p.reaction_counts || {},
-          aiStatus: {
-            label: p.ai_label || 'Normal',
-            confidence: parseFloat(p.ai_confidence) || 0.99,
-          },
-          aiStatusValue: p.ai_status || 'approved',
-          comments: (p.comments || []).map((c) => ({
-            id: c.id,
-            author: c.author,
-            content: c.content,
-            image: c.image || null,
-            imageModeration: formatImageModerationForViewer(c.imageModeration, 'comment', c.author?.id, viewerId),
-            time: c.created_at,
-          })),
-          originalPost: p.original_post_id && p.orig_id ? {
-            id: String(p.orig_id),
-            content: p.orig_content,
-            image: p.orig_image_url || null,
-            createdAt: p.orig_created_at,
-            likesCount: Number(p.orig_likes_count || 0),
-            commentsCount: Number(p.orig_comments_count || 0),
-            sharesCount: Number(p.orig_shares_count || 0),
+        const formatted = posts.map((p) => {
+          const rawImageModeration = p.imageModeration || (p.image_moderation_status ? {
+            status: p.image_moderation_status,
+            label: p.image_moderation_label || null,
+            scores: { safe: p.image_moderation_safe, nsfw: p.image_moderation_nsfw, violence: p.image_moderation_violence },
+            thresholds: p.image_moderation_thresholds || null,
+            appealedAt: p.image_moderation_appealed_at || null,
+          } : null);
+
+          return {
+            id: String(p.id),
             author: {
-              id: p.orig_author_id,
-              name: p.orig_author_name,
-              username: p.orig_author_username,
-              avatar: p.orig_author_avatar,
-              isVerified: p.orig_author_is_verified,
+              id: p.author_id,
+              name: p.full_name,
+              username: p.username,
+              avatar: p.avatar_url,
+              isVerified: p.is_verified,
             },
-          } : null,
-        }));
+            content: p.content,
+            image: p.image_url || null,
+            privacy: p.privacy || 'public',
+            imageModeration: formatImageModerationForViewer(rawImageModeration, 'post', p.author_id, viewerId),
+            image_moderation_status: p.image_moderation_status || null,
+            createdAt: p.created_at,
+            likesCount: p.likes_count || 0,
+            commentsCount: p.comments_count || 0,
+            sharesCount: p.shares_count || 0,
+            isLiked: p.my_reaction != null,
+            myReaction: p.my_reaction || null,
+            reactionCounts: p.reaction_counts || {},
+            aiStatus: {
+              label: p.ai_label || 'Normal',
+              confidence: parseFloat(p.ai_confidence) || 0.99,
+            },
+            aiStatusValue: p.ai_status || 'approved',
+            comments: (p.comments || []).map((c) => ({
+              id: String(c.id),
+              parentId: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
+              parent_id: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
+              author: {
+                id: c.author?.id ?? c.author_id,
+                name: c.author?.name || c.full_name || 'Người dùng',
+                username: c.author?.username || c.username,
+                avatar: c.author?.avatar || c.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+                isVerified: Boolean(c.author?.isVerified || c.author?.is_verified),
+                is_verified: Boolean(c.author?.isVerified || c.author?.is_verified),
+              },
+              content: c.content,
+              image: c.image || c.image_url || null,
+              imageModeration: formatImageModerationForViewer(c.imageModeration || (c.image_moderation_status ? {
+                status: c.image_moderation_status,
+                scores: { safe: c.image_moderation_safe, nsfw: c.image_moderation_nsfw, violence: c.image_moderation_violence },
+                thresholds: c.image_moderation_thresholds || null,
+                appealedAt: c.image_moderation_appealed_at || null,
+              } : null), 'comment', c.author?.id ?? c.author_id, viewerId),
+              image_label: c.image_label || c.imageLabel || null,
+              imageLabel: c.image_label || c.imageLabel || null,
+              is_hidden: Boolean(c.is_hidden || c.isHidden),
+              isHidden: Boolean(c.is_hidden || c.isHidden),
+              is_soft_hidden: Boolean(c.is_soft_hidden || c.isSoftHidden),
+              isSoftHidden: Boolean(c.is_soft_hidden || c.isSoftHidden),
+              ai_label: c.ai_label || c.aiLabel || 'Normal',
+              aiLabel: c.ai_label || c.aiLabel || 'Normal',
+              ai_status: c.ai_status || c.aiStatus || 'approved',
+              aiStatus: c.ai_status || c.aiStatus || 'approved',
+              reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+              totalReactions: Number(c.totalReactions || 0),
+              myReaction: c.myReaction || null,
+              time: formatRelativeTime(c.created_at),
+              createdAt: c.created_at,
+            })),
+            originalPost: p.original_post_id && p.orig_id ? {
+              id: String(p.orig_id),
+              content: p.orig_content,
+              image: p.orig_image_url || null,
+              createdAt: p.orig_created_at,
+              likesCount: Number(p.orig_likes_count || 0),
+              commentsCount: Number(p.orig_comments_count || 0),
+              sharesCount: Number(p.orig_shares_count || 0),
+              author: {
+                id: p.orig_author_id,
+                name: p.orig_author_name,
+                username: p.orig_author_username,
+                avatar: p.orig_author_avatar,
+                isVerified: p.orig_author_is_verified,
+              },
+              privacy: p.orig_privacy || 'public',
+            } : null,
+          };
+        });
 
         res.json({ success: true, data: formatted });
       } catch (err) {

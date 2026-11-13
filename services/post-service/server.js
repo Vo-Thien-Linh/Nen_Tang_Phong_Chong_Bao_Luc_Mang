@@ -16,6 +16,7 @@ import { createModerationAppealRouter } from './src/routes/moderationAppealRoute
 import { createImagePreviewRouter } from './src/routes/imagePreviewRouter.js';
 import { createUploadRouter } from './src/routes/uploadRouter.js';
 import { createStoriesRouter } from './src/routes/storiesRouter.js';
+import { createCommunityGroupsRouter } from './src/routes/communityGroupsRouter.js';
 import { createHashtagsRouter } from '../../backend/src/routes/hashtagsRouter.js';
 import { realtimeService } from '../../backend/src/services/realtimeService.js';
 import { attachRealtimePublisher } from '../../backend/src/services/postgresRealtimeBridge.js';
@@ -51,6 +52,7 @@ app.use('/api/posts', createPostsRouter({ pool }));
 app.use('/api/posts', createModerationAppealRouter({ pool }));
 app.use('/api/posts/preview-image', createImagePreviewRouter({ pool }));
 app.use('/api/stories', createStoriesRouter({ pool }));
+app.use('/api/groups', createCommunityGroupsRouter({ pool, realtimeService }));
 app.use('/api/hashtags', createHashtagsRouter({ pool, postRepository: createPostRepository({ pool }) }));
 
 // Global error handler

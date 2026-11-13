@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import HomeView from './components/HomeView';
+import CommunityGroupsView from './components/CommunityGroupsView';
 import HashtagView from './components/HashtagView';
 import FriendsView from './components/FriendsView';
 import MessagesView from './components/MessagesView';
@@ -48,7 +49,9 @@ import {
   resolveAppealApi,
   fetchAiOverridesList,
   createAiOverrideApi,
-  fetchStories
+  fetchStories,
+  fetchStoryByIdApi,
+  fetchUserStoriesApi
 } from './api/client';
 import { applyUpdatedPostToList, runPostDeleteAction } from './utils/postActionLogic';
 import { getNotificationNavigationTarget } from './utils/notificationSnapshotLogic';
@@ -77,7 +80,10 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState('login'); // 'login' | 'register'
   const [authNoticeMessage, setAuthNoticeMessage] = useState('');
-  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'friends' | 'groups' | 'messages' | 'notifications' | 'profile' | 'admin' | 'post'
+  const [profileInitialTab, setProfileInitialTab] = useState('all');
+  const [friendsInitialTab, setFriendsInitialTab] = useState('requests');
+  const [groupOpenRequest, setGroupOpenRequest] = useState(null);
   const [selectedHashtag, setSelectedHashtag] = useState(null);
   const [posts, setPosts] = useState(initialPosts);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
@@ -342,8 +348,20 @@ export default function App() {
   // Lắng nghe sự kiện Back/Forward của trình duyệt để điều hướng trang
   useEffect(() => {
     const rawHash = window.location.hash.replace('#', '') || 'home';
+    const urlParams = new URLSearchParams(window.location.search);
+    const groupIdFromUrl = urlParams.get('groupId');
+    const groupPostIdFromUrl = urlParams.get('groupPostId');
     let initialHash = rawHash;
     let initialPostId = null;
+
+    if (/^[1-9]\d*$/.test(groupIdFromUrl || '')) {
+      initialHash = 'groups';
+      setGroupOpenRequest({
+        groupId: groupIdFromUrl,
+        postId: /^[1-9]\d*$/.test(groupPostIdFromUrl || '') ? groupPostIdFromUrl : '',
+        requestId: 1,
+      });
+    }
 
     if (rawHash.startsWith('post-')) {
       initialHash = 'post';
@@ -455,7 +473,7 @@ export default function App() {
   // Đồng bộ vai trò và trạng thái xử phạt từ database khi ứng dụng tải
   useEffect(() => {
     if (!currentUser?.id) return;
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const API_URL = import.meta.env.VITE_API_URL || '';
     const token = authService.getToken();
     fetch(`${API_URL}/api/users/${currentUser.id}/profile`, {
       headers: {
@@ -499,19 +517,15 @@ export default function App() {
   }, [currentUser?.id]);
 
   useEffect(() => {
-    if (activeTab === 'messages' && currentUser) {
+    if (currentUser) {
       setHasVisitedMessages(true);
-    }
-  }, [activeTab, currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) {
+    } else {
       setHasVisitedMessages(false);
     }
   }, [currentUser]);
 
   // Xử lý Chuyển Tab có Auth Guard và Role Guard
-  const handleTabChange = (tab, targetUser = null, replace = false) => {
+  const handleTabChange = (tab, targetUser = null, replace = false, subTab = 'all') => {
     if (!currentUser && (tab === 'messages' || tab === 'profile' || tab === 'admin' || tab === 'moderation' || tab === 'settings')) {
       const msg = tab === 'admin' || tab === 'moderation'
         ? "Vui lòng đăng nhập để truy cập khu vực này"
@@ -535,8 +549,15 @@ export default function App() {
 
     if (effectiveTab === 'profile') {
       setViewedProfileUser(targetUser || null);
+      setProfileInitialTab(subTab || 'all');
     } else {
       setViewedProfileUser(null);
+      setProfileInitialTab('all');
+    }
+    if (effectiveTab === 'friends') {
+      setFriendsInitialTab(subTab || 'requests');
+    } else {
+      setFriendsInitialTab('requests');
     }
     if (effectiveTab !== 'post') {
       setViewedPostDetail(null);
@@ -553,6 +574,22 @@ export default function App() {
       window.history.pushState(stateObj, '', `#${effectiveTab}`);
     }
   };
+
+  const handleOpenGroupFromFeed = (groupId, postId = '') => {
+    const normalizedGroupId = String(groupId ?? '').trim();
+    if (!/^[1-9]\d*$/.test(normalizedGroupId)) return;
+    const normalizedPostId = String(postId ?? '').trim();
+    setGroupOpenRequest((request) => ({
+      groupId: normalizedGroupId,
+      postId: /^[1-9]\d*$/.test(normalizedPostId) ? normalizedPostId : '',
+      requestId: (request?.requestId || 0) + 1,
+    }));
+    handleTabChange('groups');
+  };
+
+  const clearGroupOpenRequest = useCallback((requestId) => {
+    setGroupOpenRequest((request) => request?.requestId === requestId ? null : request);
+  }, []);
 
   const handleOpenHashtag = (tag) => {
     const normalized = normalizeHashtag(tag);
@@ -774,6 +811,58 @@ export default function App() {
   const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
     try {
       let targetTray = tray;
+
+      // 1. Nếu có storyId cụ thể, ưu tiên tải trực tiếp story theo ID
+      if (!targetTray && storyId) {
+        try {
+          const singleStoryRes = await fetchStoryByIdApi(storyId, currentUser?.id);
+          const singleStory = singleStoryRes?.data || singleStoryRes;
+          if (singleStory?.id) {
+            const parsedBg = typeof singleStory.backgroundStyle === 'object' && singleStory.backgroundStyle !== null
+              ? singleStory.backgroundStyle
+              : (typeof singleStory.background_style === 'string'
+                  ? (() => { try { return JSON.parse(singleStory.background_style); } catch { return {}; } })()
+                  : (singleStory.background_style || {}));
+
+            const normalizedSingleStory = {
+              ...singleStory,
+              id: String(singleStory.id),
+              storyType: singleStory.storyType || singleStory.story_type || 'text',
+              mediaUrl: singleStory.mediaUrl || singleStory.media_url || null,
+              textContent: singleStory.textContent || singleStory.text_content || '',
+              backgroundStyle: parsedBg,
+            };
+
+            targetTray = {
+              author: {
+                id: singleStory.author_id,
+                name: singleStory.author_name || singleStory.full_name || singleStory.username || 'Người dùng',
+                username: singleStory.author_username || singleStory.username || '',
+                avatar: singleStory.author_avatar || singleStory.avatar_url,
+              },
+              isSelf: currentUser?.id ? String(currentUser.id) === String(singleStory.author_id) : false,
+              hasUnviewedStories: false,
+              stories: [normalizedSingleStory],
+            };
+          }
+        } catch (fetchErr) {
+          console.warn('Không thể tải tin theo ID, thử tìm qua feed/user:', fetchErr.message);
+        }
+      }
+
+      // 2. Nếu chưa có tray và có userId, thử gọi API lấy tin của user đó
+      if (!targetTray && userId) {
+        try {
+          const userStoriesRes = await fetchUserStoriesApi(userId);
+          if (userStoriesRes?.data?.stories?.length > 0) {
+            targetTray = userStoriesRes.data;
+          }
+        } catch (uErr) {
+          console.warn('Không thể tải tin của user:', uErr.message);
+        }
+      }
+
+      // 3. Fallback: tìm trong feed stories chung
       if (!targetTray) {
         const res = await fetchStories();
         const allTrays = res?.data || [];
@@ -790,6 +879,19 @@ export default function App() {
           targetTray = allTrays[0];
         }
       }
+
+      // 4. Nếu vẫn chưa có và người dùng đang click vào thông báo tin của chính mình
+      if (!targetTray && currentUser?.id) {
+        try {
+          const myStoriesRes = await fetchUserStoriesApi(currentUser.id);
+          if (myStoriesRes?.data?.stories?.length > 0) {
+            targetTray = myStoriesRes.data;
+          }
+        } catch (myErr) {
+          console.warn('Không thể tải tin cá nhân:', myErr.message);
+        }
+      }
+
       if (targetTray) {
         setActiveStoryViewerTarget({
           tray: targetTray,
@@ -807,12 +909,18 @@ export default function App() {
   useEffect(() => {
     let eventSource = null;
     try {
-      const nodeApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream`);
+      const nodeApiUrl = import.meta.env.VITE_API_URL || '';
+      const realtimeUserId = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
+      eventSource = new EventSource(`${nodeApiUrl}/api/realtime/stream${realtimeUserId}`);
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          setPosts((prev) => handleRealtimeFeedEvent(prev, payload));
+          if (payload?.type?.startsWith('GROUP_')) {
+            window.dispatchEvent(new CustomEvent('nexussocial:group-realtime', { detail: payload }));
+          } else {
+            setPosts((prev) => handleRealtimeFeedEvent(prev, payload));
+            window.dispatchEvent(new CustomEvent('nexussocial:feed-realtime', { detail: payload }));
+          }
         } catch (parseErr) {
           console.warn('Realtime parse error:', parseErr);
         }
@@ -826,7 +934,7 @@ export default function App() {
         eventSource.close();
       }
     };
-  }, []);
+  }, [currentUser?.id]);
 
   // Thêm bài viết mới
   const handleAddPost = (newPost, cooldown, violationInfo) => {
@@ -920,7 +1028,7 @@ export default function App() {
       if (isHardHiddenPost(p)) return false;
       const authorId = String(p.author_id || p.author?.id || '');
       if (authorId && blockedIds.has(authorId)) return false;
-      if (p.privacy === 'private' && authorId !== String(currentUser?.id)) return false;
+      if ((p.privacy === 'private' || p.privacy === 'only_me') && authorId !== String(currentUser?.id)) return false;
       return true;
     });
   };
@@ -984,6 +1092,7 @@ export default function App() {
         postId,
         content: changes.content,
         imageUrl: changes.imageUrl,
+        privacy: changes.privacy,
         forcePost: changes.forcePost,
       });
 
@@ -1033,6 +1142,16 @@ export default function App() {
     }
   };
 
+  // Lưu / Bỏ lưu bài viết yêu thích (đồng bộ trạng thái trên toàn hệ thống)
+  const handleToggleSavePost = (postId, nextSaved) => {
+    setPosts((previous) => previous.map((post) => {
+      if (String(post.id) === String(postId)) {
+        return { ...post, isSaved: nextSaved };
+      }
+      return post;
+    }));
+  };
+
   // Thêm bình luận vào bài viết (Lưu trực tiếp vào Supabase)
   const handleAddComment = async (postId, newComment, options = {}) => {
     if (!currentUser) {
@@ -1054,9 +1173,11 @@ export default function App() {
     }
 
     try {
+      const parentId = newComment.parentId ?? newComment.parent_id ?? options?.parentId ?? null;
       const res = await createComment({
         userId: currentUser.id,
         postId,
+        parentId,
         content: newComment.content || '',
         imageUrl: newComment.image || null,
         forceComment: Boolean(options?.forceComment),
@@ -1086,7 +1207,13 @@ export default function App() {
           ...cooldownData
         }));
       }
-      const savedComment = res.data || newComment;
+      const savedComment = res.data
+        ? {
+            ...res.data,
+            parentId: res.data.parentId ?? res.data.parent_id ?? newComment.parentId ?? null,
+            parent_id: res.data.parent_id ?? res.data.parentId ?? newComment.parentId ?? null,
+          }
+        : newComment;
       const isCommentHidden = Boolean(
         res.isAuthorBlacklisted ||
         savedComment.is_hidden || savedComment.isHidden ||
@@ -1100,6 +1227,7 @@ export default function App() {
       setPosts(prev => prev.map(post => String(post.id) === String(postId)
         ? appendCreatedComment(post, savedComment)
         : post));
+      return { success: true, data: savedComment };
     } catch (err) {
       if (err.cooldown) {
         const cooldownData = {
@@ -1851,7 +1979,6 @@ export default function App() {
         onClearFilter={() => setHomeSearchQuery('')}
         onRefreshHome={handleRefreshHome}
         isLoadingPosts={isLoadingPosts}
-        onOpenLiveStream={handleOpenLiveStreamAction}
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
@@ -1895,6 +2022,9 @@ export default function App() {
             activeStreams={activeStreamsList}
             onWatchStream={handleWatchLiveStream}
             onOpenLiveStream={handleOpenLiveStreamAction}
+            onToggleSave={handleToggleSavePost}
+            onViewPost={handleViewPost}
+            onOpenGroup={handleOpenGroupFromFeed}
           />
         )}
 
@@ -1953,6 +2083,7 @@ export default function App() {
             onClosePostMenu={handleClosePostMenu}
             onDismissNotice={handleDismissPostNotice}
             onSharePost={handleSharePost}
+            onToggleSave={handleToggleSavePost}
           />
         )}
 
@@ -1961,6 +2092,17 @@ export default function App() {
           <FriendsView 
             onOpenChat={handleOpenChatFromFriends} 
             onOpenProfile={handleOpenUserProfile}
+            initialTab={friendsInitialTab}
+          />
+        )}
+
+        {activeTab === 'groups' && (
+          <CommunityGroupsView
+            currentUser={currentUser}
+            onRequireAuth={handleRequireAuth}
+            onOpenProfile={handleOpenUserProfile}
+            initialGroupRequest={groupOpenRequest}
+            onInitialGroupOpened={clearGroupOpenRequest}
           />
         )}
 
@@ -2011,7 +2153,20 @@ export default function App() {
             onToggleLike={handleToggleLike}
             onAddComment={handleAddComment}
             onUpdateUser={handleUpdateUser}
-            onOpenSettings={() => setActiveTab('settings')}
+            onOpenSettings={
+              (!viewedProfileUser ||
+                (currentUser?.id &&
+                  String(
+                    viewedProfileUser.id ??
+                      viewedProfileUser.userId ??
+                      viewedProfileUser.user_id ??
+                      viewedProfileUser.authorId ??
+                      viewedProfileUser.author_id ??
+                      ''
+                  ) === String(currentUser.id)))
+                ? () => handleTabChange('settings')
+                : undefined
+            }
             onOpenChat={handleOpenChatFromFriends}
             onOpenUserProfile={handleOpenUserProfile}
             onRequireAuth={handleRequireAuth}
@@ -2021,6 +2176,9 @@ export default function App() {
             onEditPost={handleUpdatePost}
             onDeletePost={handleDeleteOwnPost}
             onOpenStoryViewer={handleOpenStoryViewer}
+            initialTab={profileInitialTab}
+            onToggleSave={handleToggleSavePost}
+            onOpenLiveStream={handleOpenLiveStreamAction}
           />
         )}
 
@@ -2213,6 +2371,22 @@ export default function App() {
           handleEndLiveStream(sessionId);
         }}
       />
+
+      {/* Modal Xem Story cấp ứng dụng (Mở từ Thông báo hoặc điều hướng trực tiếp) */}
+      {activeStoryViewerTarget && (
+        <StoryViewerModal
+          isOpen={Boolean(activeStoryViewerTarget)}
+          tray={activeStoryViewerTarget.tray}
+          initialStoryId={activeStoryViewerTarget.initialStoryId}
+          initialStoryIndex={activeStoryViewerTarget.initialStoryIndex}
+          initialShowViewers={activeStoryViewerTarget.initialShowViewers}
+          targetViewerId={activeStoryViewerTarget.targetViewerId}
+          currentUser={currentUser}
+          onViewPost={handleViewPost}
+          onOpenStoryViewer={handleOpenStoryViewer}
+          onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
 
     </div>
   );

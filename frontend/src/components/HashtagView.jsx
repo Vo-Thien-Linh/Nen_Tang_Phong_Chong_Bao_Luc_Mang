@@ -48,7 +48,6 @@ export default function HashtagView({
         </button>
         <div>
           <h1 className="flex items-center gap-1.5 text-lg font-bold text-slate-900"><Hash className="w-5 h-5 text-blue-600" />{tag}</h1>
-          <p className="text-xs text-slate-500">Bài viết công khai có hashtag này</p>
         </div>
       </div>
       {isLoading && <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-blue-600" /></div>}

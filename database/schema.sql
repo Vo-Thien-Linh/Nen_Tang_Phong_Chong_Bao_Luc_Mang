@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
 
     -- 3. Thông tin cá nhân / Profile (Hoàn toàn NULL khi tạo tài khoản)
     bio TEXT,
+    workplace VARCHAR(150),
+    job_title VARCHAR(150),
     location VARCHAR(100),
     hometown VARCHAR(100),
     education VARCHAR(150),
@@ -151,6 +153,18 @@ CREATE TABLE IF NOT EXISTS post_reactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reactions_post ON post_reactions(post_id, reaction_type);
+
+CREATE TABLE IF NOT EXISTS comment_reactions (
+    id BIGSERIAL PRIMARY KEY,
+    comment_id BIGINT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_comment_reaction_user UNIQUE (comment_id, user_id),
+    CONSTRAINT check_valid_comment_reaction CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_comment_reactions_comment ON comment_reactions(comment_id, reaction_type);
 
 
 -- ========================================================
@@ -512,8 +526,7 @@ CREATE TABLE IF NOT EXISTS story_reactions (
     story_id BIGINT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_story_reaction UNIQUE (story_id, user_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_story_reactions_story_id ON story_reactions(story_id);
 
@@ -592,3 +605,165 @@ LEFT JOIN users u ON u.id = a.user_id
 LEFT JOIN posts p ON a.content_type = 'post' AND a.content_id = p.id
 LEFT JOIN comments c ON a.content_type = 'comment' AND a.content_id = c.id
 LEFT JOIN posts parent_post ON a.content_type = 'comment' AND c.post_id = parent_post.id;
+
+-- ========================================================
+-- 15. BẢNG BÀI VIẾT ĐÃ LƯU (SAVED POSTS / BOOKMARKS)
+-- ========================================================
+CREATE TABLE IF NOT EXISTS saved_posts (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_user_saved_post UNIQUE (user_id, post_id)
+);
+CREATE INDEX IF NOT EXISTS idx_saved_posts_user_id ON saved_posts(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_saved_posts_post_id ON saved_posts(post_id);
+
+-- COMMUNITY GROUPS (Nhóm cộng đồng và kiểm duyệt bài đăng)
+-- ========================================================
+CREATE TABLE IF NOT EXISTS community_groups (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    rules TEXT NOT NULL DEFAULT '',
+    privacy VARCHAR(20) NOT NULL DEFAULT 'public',
+    is_discoverable BOOLEAN NOT NULL DEFAULT TRUE,
+    post_approval_mode VARCHAR(20) NOT NULL DEFAULT 'manual',
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT community_groups_privacy_check CHECK (privacy IN ('public', 'private')),
+    CONSTRAINT community_groups_post_approval_mode_check CHECK (post_approval_mode IN ('manual', 'automatic'))
+);
+
+CREATE TABLE IF NOT EXISTS community_group_members (
+    group_id BIGINT NOT NULL REFERENCES community_groups(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL DEFAULT 'member',
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    moderation_score INT NOT NULL DEFAULT 100,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    PRIMARY KEY (group_id, user_id),
+    CONSTRAINT community_group_members_role_check CHECK (role IN ('owner', 'admin', 'moderator', 'member')),
+    CONSTRAINT community_group_members_status_check CHECK (status IN ('active', 'pending', 'rejected', 'banned', 'left')),
+    CONSTRAINT community_group_members_moderation_score_check CHECK (moderation_score BETWEEN 0 AND 100)
+);
+
+CREATE TABLE IF NOT EXISTS community_group_posts (
+    id BIGSERIAL PRIMARY KEY,
+    group_id BIGINT NOT NULL REFERENCES community_groups(id) ON DELETE CASCADE,
+    author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    image_url TEXT,
+    image_moderation JSONB,
+    review_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    ai_label VARCHAR(50) NOT NULL DEFAULT 'Review needed',
+    ai_confidence NUMERIC(5, 4),
+    ai_action VARCHAR(20) NOT NULL DEFAULT 'review',
+    ai_source VARCHAR(20) NOT NULL DEFAULT 'legacy',
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    review_note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT community_group_posts_status_check CHECK (review_status IN ('pending', 'approved', 'rejected')),
+    CONSTRAINT community_group_posts_ai_action_check CHECK (ai_action IN ('allow', 'warn', 'hide', 'review'))
+);
+
+CREATE TABLE IF NOT EXISTS community_group_post_reactions (
+    post_id BIGINT NOT NULL REFERENCES community_group_posts(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (post_id, user_id),
+    CONSTRAINT community_group_post_reactions_type_check
+        CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'))
+);
+
+CREATE TABLE IF NOT EXISTS community_group_post_comments (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL REFERENCES community_group_posts(id) ON DELETE CASCADE,
+    author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT community_group_post_comments_content_check CHECK (length(btrim(content)) > 0)
+);
+
+CREATE TABLE IF NOT EXISTS community_group_comment_reactions (
+    id BIGSERIAL PRIMARY KEY,
+    comment_id BIGINT NOT NULL REFERENCES community_group_post_comments(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_group_comment_reaction_user UNIQUE (comment_id, user_id),
+    CONSTRAINT community_group_comment_reactions_type_check CHECK (reaction_type IN ('like', 'love', 'haha', 'wow', 'sad', 'angry'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_comment_reactions_comment ON community_group_comment_reactions(comment_id, reaction_type);
+
+CREATE TABLE IF NOT EXISTS community_group_post_shares (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL REFERENCES community_group_posts(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS community_group_moderation_logs (
+    id BIGSERIAL PRIMARY KEY,
+    group_id BIGINT NOT NULL REFERENCES community_groups(id) ON DELETE CASCADE,
+    actor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_type VARCHAR(20) NOT NULL,
+    target_post_id BIGINT REFERENCES community_group_posts(id) ON DELETE SET NULL,
+    target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(30) NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    ai_label VARCHAR(50),
+    ai_confidence NUMERIC(5, 4),
+    author_trust_score_change INT NOT NULL DEFAULT 0,
+    moderator_trust_score_change INT NOT NULL DEFAULT 0,
+    moderator_trust_score_after INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT community_group_moderation_logs_target_check CHECK (target_type IN ('post', 'member'))
+);
+
+ALTER TABLE community_group_members
+    ADD COLUMN IF NOT EXISTS moderation_score INT NOT NULL DEFAULT 100;
+ALTER TABLE community_group_moderation_logs
+    ADD COLUMN IF NOT EXISTS author_trust_score_change INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS moderator_trust_score_change INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS moderator_trust_score_after INT;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'community_group_members_moderation_score_check'
+          AND conrelid = 'community_group_members'::regclass
+    ) THEN
+        ALTER TABLE community_group_members
+            ADD CONSTRAINT community_group_members_moderation_score_check
+            CHECK (moderation_score BETWEEN 0 AND 100);
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_community_groups_discover
+    ON community_groups (privacy, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_community_group_members_user
+    ON community_group_members (user_id, status, group_id);
+CREATE INDEX IF NOT EXISTS idx_community_group_members_requests
+    ON community_group_members (group_id, requested_at ASC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_community_group_posts_feed
+    ON community_group_posts (group_id, created_at DESC)
+    WHERE review_status = 'approved';
+CREATE INDEX IF NOT EXISTS idx_community_group_posts_queue
+    ON community_group_posts (group_id, created_at ASC)
+    WHERE review_status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_community_group_post_comments_post
+    ON community_group_post_comments (post_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_community_group_post_shares_post
+    ON community_group_post_shares (post_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_community_group_moderation_logs_group
+    ON community_group_moderation_logs (group_id, created_at DESC);

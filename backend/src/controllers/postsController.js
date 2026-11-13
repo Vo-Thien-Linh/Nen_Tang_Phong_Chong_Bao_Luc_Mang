@@ -4,6 +4,17 @@ import { moderateTextContent } from '../utils/textModerator.js';
 import { harmonizeModeration } from '../utils/moderationHarmonizer.js';
 import { formatImageModerationForViewer } from '../services/imageModerationResponse.js';
 import { getModerationNoticeText } from '../services/moderationNotificationText.js';
+import { normalizePostPrivacy } from '../repositories/postVisibility.js';
+
+async function getPostAudienceUserIds(postRepository, post) {
+  const privacy = normalizePostPrivacy(post?.privacy);
+  if (privacy === 'public') return undefined;
+  if (privacy === 'friends' && typeof postRepository?.findAcceptedFriendIds === 'function') {
+    const friends = await postRepository.findAcceptedFriendIds(post.author_id);
+    return [post.author_id, ...friends];
+  }
+  return [post?.author_id].filter(Boolean);
+}
 function formatRelativeTime(createdAt) {
   if (!createdAt) return 'Vừa xong';
   const createdDate = new Date(createdAt);
@@ -49,6 +60,7 @@ export function mapPostToResponse(post, viewerId = null) {
     id: String(post.id),
     content: post.content,
     image: post.image_url || null,
+    ...(Object.prototype.hasOwnProperty.call(post, 'privacy') ? { privacy: post.privacy || 'public' } : {}),
     imageModeration,
     createdAt: formatRelativeTime(post.created_at),
     createdAtIso: post.created_at,
@@ -74,8 +86,11 @@ export function mapPostToResponse(post, viewerId = null) {
     totalReactions: Number(post.total_reactions || post.likes_count || 0),
     myReaction: post.my_reaction || null,
     sharesCount: post.shares_count || 0,
+    isSaved: Boolean(post.is_saved || post.isSaved),
     comments: (post.comments || []).map((c) => ({
       id: String(c.id),
+      parentId: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
+      parent_id: c.parentId ? String(c.parentId) : (c.parent_id ? String(c.parent_id) : null),
       author: {
         id: c.author?.id,
         name: c.author?.name || c.full_name || 'Người dùng',
@@ -101,6 +116,9 @@ export function mapPostToResponse(post, viewerId = null) {
       aiLabel: c.ai_label || c.aiLabel || 'Normal',
       ai_status: c.ai_status || c.aiStatus || 'approved',
       aiStatus: c.ai_status || c.aiStatus || 'approved',
+      reactionCounts: c.reactionCounts || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+      totalReactions: Number(c.totalReactions || 0),
+      myReaction: c.myReaction || null,
       time: formatRelativeTime(c.created_at),
       createdAt: c.created_at,
     })),
@@ -130,6 +148,7 @@ export function mapPostToResponse(post, viewerId = null) {
       : post.original_post_id
         ? null   // Bài gốc đã bị xóa (SET NULL không còn)
         : undefined,
+    ...(post.original_post_id ? { originalPostId: String(post.original_post_id) } : {}),
   };
 }
 
@@ -141,6 +160,7 @@ export function createPostsController({ postService, postRepository, imageModera
           user: req.user,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          privacy: req.body?.privacy,
           forcePost: Boolean(req.body?.forcePost),
         });
 
@@ -161,6 +181,7 @@ export function createPostsController({ postService, postRepository, imageModera
           realtimeService.broadcast({
             type: 'POST_CREATED',
             post: mappedPost,
+            audienceUserIds: await getPostAudienceUserIds(postRepository, post),
           });
         }
 
@@ -202,11 +223,15 @@ export function createPostsController({ postService, postRepository, imageModera
 
     async editPost(req, res, next) {
       try {
+        const previousPost = postRepository?.findByIdForOwnerAction
+          ? await postRepository.findByIdForOwnerAction(req.params.postId)
+          : null;
         const post = await postService.editPost({
           user: req.user,
           postId: req.params.postId,
           content: req.body?.content,
           imageUrl: req.body?.imageUrl,
+          privacy: req.body?.privacy,
           forcePost: Boolean(req.body?.forcePost),
         });
 
@@ -221,6 +246,18 @@ export function createPostsController({ postService, postRepository, imageModera
         }
 
         const mapped = mapPostToResponse(post, req.user?.id);
+        if (previousPost && normalizePostPrivacy(previousPost.privacy) !== normalizePostPrivacy(post.privacy)) {
+          realtimeService.broadcast({
+            type: 'POST_DELETED',
+            postId: String(post.id),
+            audienceUserIds: await getPostAudienceUserIds(postRepository, previousPost),
+          });
+          realtimeService.broadcast({
+            type: 'POST_CREATED',
+            post: mapped,
+            audienceUserIds: await getPostAudienceUserIds(postRepository, post),
+          });
+        }
         res.json({
           success: true,
           message: post.ai_status === 'hidden'
@@ -241,7 +278,11 @@ export function createPostsController({ postService, postRepository, imageModera
         });
 
         if (!['pending_review', 'rejected_hold', 'rejected_admin', 'appeal_pending', 'rejected_final'].includes(deleted.imageModerationStatus)) {
-          realtimeService.broadcast({ type: 'POST_DELETED', postId: String(req.params.postId) });
+          realtimeService.broadcast({
+            type: 'POST_DELETED',
+            postId: String(req.params.postId),
+            audienceUserIds: await getPostAudienceUserIds(postRepository, deleted),
+          });
         }
 
         res.json({
@@ -279,6 +320,7 @@ export function createPostsController({ postService, postRepository, imageModera
             }
           } catch (e) {
             if (e.statusCode === 409) return res.status(409).json({ success: false, message: e.message });
+            if (e.statusCode === 404) return res.status(404).json({ success: false, message: e.message });
           }
         }
 
@@ -301,6 +343,23 @@ export function createPostsController({ postService, postRepository, imageModera
 
         const normalizedContent = (content || '').trim();
         const forceComment = Boolean(req.body?.forceComment);
+        const rawParentId = req.body?.parentId ?? req.body?.parent_id ?? null;
+        const parentId = rawParentId !== null && rawParentId !== undefined && String(rawParentId).trim() !== ''
+          ? String(rawParentId).trim()
+          : null;
+
+        if (parentId && typeof postRepository?.findCommentById === 'function') {
+          const parentComment = await postRepository.findCommentById(parentId);
+          const normalizedPostId = Number(String(postId).replace(/^post-/, ''));
+          if (
+            !parentComment ||
+            parentComment.is_hidden ||
+            parentComment.ai_status === 'hidden' ||
+            (Number.isInteger(normalizedPostId) && Number(parentComment.post_id) !== normalizedPostId)
+          ) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy bình luận gốc để trả lời.' });
+          }
+        }
 
         // 1. Kiểm tra danh sách từ khóa cấm của chủ bài viết (Author Keyword Blacklist)
         let postAuthorId = targetPost?.author_id || targetPost?.author?.id;
@@ -372,6 +431,7 @@ export function createPostsController({ postService, postRepository, imageModera
           const hiddenComment = await postRepository.createComment({
             postId,
             authorId: req.user.id,
+            parentId,
             content: normalizedContent,
             imageUrl: imageUrl || null,
             aiLabel: 'Author Blacklist',
@@ -462,6 +522,7 @@ export function createPostsController({ postService, postRepository, imageModera
           const hiddenComment = await postRepository.createComment({
             postId,
             authorId: req.user.id,
+            parentId,
             content: normalizedContent,
             imageUrl: imageUrl || null,
             aiLabel: harmonized.finalLabel,
@@ -530,6 +591,7 @@ export function createPostsController({ postService, postRepository, imageModera
         const comment = await postRepository.createComment({
           postId,
           authorId: req.user.id,
+          parentId,
           content: normalizedContent,
           imageUrl: imageUrl || null,
           imageModeration: heldModeration,
@@ -560,8 +622,13 @@ export function createPostsController({ postService, postRepository, imageModera
           }
         }
 
+        const resolvedParentId = comment.parent_id
+          ? String(comment.parent_id)
+          : (comment.parentId ? String(comment.parentId) : (parentId ? String(parentId) : null));
         const commentData = {
           id: String(comment.id),
+          parentId: resolvedParentId,
+          parent_id: resolvedParentId,
           author: {
             id: comment.author_id,
             name: comment.full_name,
@@ -578,6 +645,9 @@ export function createPostsController({ postService, postRepository, imageModera
           aiLabel: comment.ai_label,
           ai_status: comment.ai_status,
           aiStatus: comment.ai_status,
+          reactionCounts: { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+          totalReactions: 0,
+          myReaction: null,
           imageModeration: comment.image_moderation_status ? {
             status: comment.image_moderation_status,
             noticeText: getModerationNoticeText('comment', comment.image_moderation_status),
@@ -595,6 +665,7 @@ export function createPostsController({ postService, postRepository, imageModera
             type: 'COMMENT_CREATED',
             postId: String(postId),
             comment: commentData,
+            audienceUserIds: await getPostAudienceUserIds(postRepository, targetPost),
           });
         }
 
@@ -639,6 +710,38 @@ export function createPostsController({ postService, postRepository, imageModera
           success: true,
           message: 'Chia sẻ bài viết thành công',
           data: mappedSharedPost,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async toggleSavePost(req, res, next) {
+      try {
+        const { postId } = req.params;
+        const result = await postRepository.toggleSavePost({
+          userId: req.user.id,
+          postId,
+        });
+        return res.status(200).json({
+          success: true,
+          isSaved: result.isSaved,
+          message: result.isSaved ? 'Đã lưu bài viết vào mục Yêu thích' : 'Đã bỏ lưu bài viết',
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async getSavedPosts(req, res, next) {
+      try {
+        const posts = await postRepository.getSavedPosts({
+          userId: req.user.id,
+        });
+        const mapped = posts.map((p) => mapPostToResponse(p, req.user.id));
+        return res.status(200).json({
+          success: true,
+          data: mapped,
         });
       } catch (error) {
         next(error);

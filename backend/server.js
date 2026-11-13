@@ -20,6 +20,8 @@ import { createUploadRouter } from './src/routes/uploadRouter.js';
 import { createRealtimeRouter } from './src/routes/realtimeRouter.js';
 import { createHashtagsRouter } from './src/routes/hashtagsRouter.js';
 import { createStoriesRouter } from './src/routes/storiesRouter.js';
+import { createCommunityGroupsRouter } from './src/routes/communityGroupsRouter.js';
+import { realtimeService } from './src/services/realtimeService.js';
 dotenv.config();
 
 const app = express();
@@ -68,10 +70,11 @@ app.use('/api/notifications', createNotificationsRouter({ pool }));
 app.use('/api/admin/image-moderation', createImageModerationRouter({ pool }));
 app.use('/api/posts', createModerationAppealRouter({ pool }));
 app.use('/api/posts/preview-image', createImagePreviewRouter({ pool }));
-app.use('/api/reports', createReportsRouter({ pool, userRepository }));
+app.use('/api/reports', createReportsRouter({ pool, userRepository, postRepository: createPostRepository({ pool }) }));
 app.use('/api/appeals', createAppealsRouter({ pool, userRepository }));
 app.use('/api/admin', createAdminRouter({ pool, userRepository }));
 app.use('/api/stories', createStoriesRouter({ pool }));
+app.use('/api/groups', createCommunityGroupsRouter({ pool, realtimeService }));
 app.use('/api/realtime', createRealtimeRouter());
 
 // Middleware xử lý lỗi tập trung

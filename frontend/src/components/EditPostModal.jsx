@@ -1,14 +1,17 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Image as ImageIcon, Save } from 'lucide-react';
+import { X, Image as ImageIcon, Save, Globe, Users, Lock } from 'lucide-react';
 import { uploadPostImage } from '../api/client';
 import ImagePreview from './ImagePreview';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
+import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
 
-export default function EditPostModal({ post, isOpen, onClose, onSave }) {
+export default function EditPostModal({ post, isOpen, onClose, onSave, hidePrivacy = false, uploadImageFn = null }) {
   const [content, setContent] = useState(post?.content || '');
-  const [imageUrl, setImageUrl] = useState(post?.image || post?.image_url || '');
+  const [imageUrl, setImageUrl] = useState(post?.image || post?.image_url || post?.imageUrl || '');
+  const [imageCleanupToken, setImageCleanupToken] = useState(null);
+  const [privacy, setPrivacy] = useState(post?.privacy || 'public');
   const [imagePreview, setImagePreview] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -35,8 +38,20 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     setIsUploadingImage(true);
     setImagePreview(URL.createObjectURL(file));
     try {
-      const uploadedUrl = await uploadPostImage(file);
-      if (uploadId === imageUploadIdRef.current) setImageUrl(uploadedUrl);
+      let nextUrl = '';
+      let nextToken = null;
+      if (uploadImageFn) {
+        const uploaded = await uploadImageFn(file);
+        nextUrl = typeof uploaded === 'string' ? uploaded : (uploaded?.url || '');
+        nextToken = typeof uploaded === 'object' ? (uploaded?.cleanupToken || null) : null;
+      } else {
+        const uploadedUrl = await uploadPostImage(file);
+        nextUrl = uploadedUrl;
+      }
+      if (uploadId === imageUploadIdRef.current) {
+        setImageUrl(nextUrl);
+        setImageCleanupToken(nextToken);
+      }
     } catch (error) {
       if (uploadId !== imageUploadIdRef.current) return;
       setImagePreview('');
@@ -50,7 +65,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
     if (event && typeof event.preventDefault === 'function') {
       event.preventDefault();
     }
-    if (!content.trim()) {
+    if (!content.trim() && !(hidePrivacy && imageUrl)) {
       setErrorMessage('Nội dung không được để trống');
       return;
     }
@@ -65,6 +80,8 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
       const result = await onSave({
         content: content.trim(),
         imageUrl: imageUrl || null,
+        imageCleanupToken,
+        privacy: normalizePostPrivacy(privacy),
         forcePost,
       });
 
@@ -107,6 +124,18 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
             placeholder="Nội dung bài viết"
           />
 
+          {!hidePrivacy && (
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            {privacy === 'friends' ? <Users className="h-4 w-4 text-amber-500" /> : privacy === 'only_me' || privacy === 'private' ? <Lock className="h-4 w-4 text-rose-500" /> : <Globe className="h-4 w-4 text-blue-500" />}
+            <span>Quyền riêng tư</span>
+            <select value={privacy === 'private' ? 'only_me' : privacy} onChange={(event) => setPrivacy(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
+              {POST_PRIVACY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          )}
+
           <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100">
             <ImageIcon className="h-4 w-4 text-emerald-500" />
             <span>Chọn ảnh khác</span>
@@ -125,6 +154,7 @@ export default function EditPostModal({ post, isOpen, onClose, onSave }) {
               imageUploadIdRef.current += 1;
               setIsUploadingImage(false);
               setImageUrl('');
+              setImageCleanupToken(null);
               setImagePreview('');
             }}
           />

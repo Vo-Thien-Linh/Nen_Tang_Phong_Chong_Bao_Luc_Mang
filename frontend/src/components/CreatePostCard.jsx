@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users } from 'lucide-react';
+import { Image, Sparkles, Send, CheckCircle2, AlertTriangle, Lock, Timer, Globe, Users, ShieldAlert, ShieldCheck, Clock, Loader2, Radio } from 'lucide-react';
 import { createPost, previewPostImage, uploadPostImage } from '../api/client';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import ImagePreview from './ImagePreview';
@@ -7,24 +7,27 @@ import FriendlyNudgeModal from './FriendlyNudgeModal';
 import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
+import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
+import { useTranslation } from '../utils/i18n';
 
 const getInitialDefaultPrivacy = () => {
   try {
     const raw = localStorage.getItem('nexussocial_user_settings');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.post_default_privacy) return parsed.post_default_privacy;
+      if (parsed.post_default_privacy) return normalizePostPrivacy(parsed.post_default_privacy);
     }
   } catch {}
   return 'public';
 };
 
-export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin }) {
+export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, onRequireLogin, onOpenLiveStream }) {
+  const { t, isEn } = useTranslation();
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageFile, setImageFile] = useState(null);
-  const [privacy, setPrivacy] = useState(() => currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy());
+  const [privacy, setPrivacy] = useState(() => normalizePostPrivacy(currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy()));
   const [showImageInput, setShowImageInput] = useState(false);
   const [isAiChecking, setIsAiChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,8 +47,24 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   };
 
   useEffect(() => {
-    const defaultPriv = currentUser?.settings?.post_default_privacy || getInitialDefaultPrivacy();
-    setPrivacy(defaultPriv);
+    const defaultPriv = currentUser?.settings?.post_default_privacy;
+    if (defaultPriv) {
+      setPrivacy(normalizePostPrivacy(defaultPriv));
+    }
+
+    const handlePrivacyUpdate = (e) => {
+      const updatedPrivacy = e?.detail?.post_default_privacy;
+      if (updatedPrivacy) {
+        setPrivacy(normalizePostPrivacy(updatedPrivacy));
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('nexussocial_privacy_updated', handlePrivacyUpdate);
+      return () => {
+        window.removeEventListener('nexussocial_privacy_updated', handlePrivacyUpdate);
+      };
+    }
   }, [currentUser?.settings?.post_default_privacy]);
 
   // Trạng thái xử phạt / cấm đăng bài
@@ -88,7 +107,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     setIsAiChecking(true);
 
     try {
-      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const fastApiUrl = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${fastApiUrl}/api/v1/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,14 +165,24 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
     setImagePreview(URL.createObjectURL(file));
     setImageFile(file);
     setIsUploadingImage(true);
+    setImageAiPreview(null);
 
     try {
       const uploadedUrl = await uploadPostImage(file);
       setImageUrl(uploadedUrl);
+
+      // Tự động kiểm tra an toàn ảnh bằng AI
+      try {
+        const previewResult = await previewPostImage(file, currentUser?.id);
+        setImageAiPreview(previewResult?.category || 'SAFE');
+      } catch {
+        setImageAiPreview('PENDING_REVIEW');
+      }
     } catch (error) {
       setImageUrl('');
       setImagePreview('');
       setImageFile(null);
+      setImageAiPreview(null);
       setErrorMessage(error.message || 'Tải ảnh thất bại');
     } finally {
       setIsUploadingImage(false);
@@ -216,9 +245,11 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
       setImageUrl('');
       setImagePreview('');
       setImageFile(null);
+      setImageAiPreview(null);
       setShowImageInput(false);
       setAiPreview(null);
-      setMessage('Đăng bài thành công');
+      const isPendingImg = result.data?.imageModeration?.status === 'pending_review' || result.data?.image_moderation_status === 'pending_review';
+      setMessage(isPendingImg ? 'Đăng bài thành công! Ảnh đang được gửi kiểm duyệt (chỉ bạn thấy cho đến khi được phê duyệt).' : 'Đăng bài thành công');
     } catch (error) {
       if (error.cooldown) {
         onAddPost(null, error.cooldown, { content: content.trim(), imageUrl: finalImageUrl, label: 'Violence' });
@@ -377,14 +408,51 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
               </span>
             </div>
           )}
-          {imageAiPreview && (
-            <div className="mt-2 text-xs font-semibold text-slate-700">
-              {imageAiPreview === 'SAFE' ? 'Ảnh: An toàn' : imageAiPreview === 'SENSITIVE' ? 'Ảnh: Nhạy cảm (sẽ bị che mờ)' : imageAiPreview === 'VIOLATION' ? 'Ảnh: Vi phạm (bài sẽ bị chặn)' : 'Ảnh: Cần quản trị viên duyệt'}
+          {isUploadingImage && (
+            <div className="mt-2.5 p-2.5 rounded-xl border border-blue-100 bg-blue-50/70 text-xs text-blue-700 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+              <span>Đang tải lên và phân tích hình ảnh...</span>
+            </div>
+          )}
+
+          {imageAiPreview && !isUploadingImage && (
+            <div className={`mt-2.5 p-2.5 rounded-xl border text-xs flex items-start gap-2.5 transition-all ${
+              imageAiPreview === 'SAFE'
+                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                : imageAiPreview === 'SENSITIVE'
+                ? 'bg-amber-50/80 border-amber-200 text-amber-800'
+                : imageAiPreview === 'VIOLATION'
+                ? 'bg-rose-50/80 border-rose-200 text-rose-800'
+                : 'bg-indigo-50/80 border-indigo-200 text-indigo-800'
+            }`}>
+              {imageAiPreview === 'SAFE' ? (
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              ) : imageAiPreview === 'SENSITIVE' ? (
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              ) : imageAiPreview === 'VIOLATION' ? (
+                <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              ) : (
+                <Clock className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1 text-[11.5px] leading-relaxed">
+                {imageAiPreview === 'SAFE' && (
+                  <span><strong>Ảnh an toàn:</strong> Hình ảnh phù hợp tiêu chuẩn cộng đồng và sẽ hiển thị bình thường.</span>
+                )}
+                {imageAiPreview === 'SENSITIVE' && (
+                  <span><strong>Ảnh có yếu tố nhạy cảm:</strong> Ảnh sẽ được làm mờ và gắn nhãn cảnh báo trước khi người khác bấm xem.</span>
+                )}
+                {imageAiPreview === 'VIOLATION' && (
+                  <span><strong>Ảnh vi phạm:</strong> Hình ảnh chứa yếu tố bạo lực hoặc cấm. Bài viết có thể bị từ chối hoặc tài khoản bị giới hạn.</span>
+                )}
+                {imageAiPreview === 'PENDING_REVIEW' && (
+                  <span><strong>Ảnh cần kiểm duyệt:</strong> Sau khi đăng, ảnh sẽ được chuyển vào hàng đợi kiểm duyệt (chỉ bạn thấy trên trang cá nhân; bạn bè sẽ chưa thể thấy ảnh này cho đến khi được quản trị viên duyệt).</span>
+                )}
+              </div>
             </div>
           )}
 
           <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
               <button
                 type="button"
                 disabled={isBanned || isCooldown}
@@ -396,6 +464,19 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 <Image className="w-4 h-4 text-emerald-500" />
                 <span>Ảnh / Media</span>
               </button>
+
+              {onOpenLiveStream && (
+                <button
+                  type="button"
+                  onClick={onOpenLiveStream}
+                  disabled={isBanned || isCooldown}
+                  title="Phát trực tiếp an toàn (Phòng chống bạo lực mạng)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <Radio className="w-4 h-4 text-rose-500 shrink-0" />
+                  <span>{t('nav.live')}</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -416,12 +497,12 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                   className="appearance-none pl-7 pr-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 transition cursor-pointer outline-none focus:ring-2 focus:ring-blue-400"
                   title="Quyền riêng tư bài viết"
                 >
-                  <option value="public">Công khai</option>
-                  <option value="friends">Bạn bè</option>
-                  <option value="private">Chỉ mình tôi</option>
+                  {POST_PRIVACY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
                 <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">
-                  {privacy === 'private' ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
+                  {(privacy === 'private' || privacy === 'only_me') ? <Lock className="w-3.5 h-3.5 text-rose-500" /> :
                    privacy === 'friends' ? <Users className="w-3.5 h-3.5 text-amber-500" /> :
                    <Globe className="w-3.5 h-3.5 text-blue-500" />}
                 </div>

@@ -8,7 +8,7 @@ test('every moderation outcome returns the same success shape', async () => {
   const expectedKeys = [
     'id', 'content', 'image', 'imageModeration', 'createdAt', 'createdAtIso',
     'editedAt', 'isEdited', 'author', 'tags', 'likesCount', 'reactionCounts',
-    'totalReactions', 'myReaction', 'sharesCount', 'comments', 'aiStatus',
+    'totalReactions', 'myReaction', 'sharesCount', 'isSaved', 'comments', 'aiStatus',
     'moderationStatus', 'originalPost',
   ].sort();
 

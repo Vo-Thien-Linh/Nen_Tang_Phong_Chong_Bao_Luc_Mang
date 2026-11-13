@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from ..models.user import User
 from ..models.friendship import Friendship
 from ..models.message import Conversation
+from ..models.user_settings import UserSettings
 from ..schemas.friendship import (
     UserFriendSummary,
     MutualFriendSummary,
@@ -119,16 +120,28 @@ class FriendService:
                         message="Đối phương đã gửi lời mời trước đó, hai bạn đã chính thức trở thành bạn bè!",
                         data={"friendship_id": existing.id, "status": "accepted"}
                     )
-            if existing.status == "declined":
-                existing.requester_id = current_user_id
-                existing.addressee_id = target_user_id
-                existing.status = "pending"
-                db.commit()
-                return FriendshipActionResponse(
-                    success=True,
-                    message="Đã gửi lời mời kết bạn thành công",
-                    data={"friendship_id": existing.id, "status": "pending"}
+
+        # Kiểm tra cài đặt quyền riêng tư của người nhận (Chuẩn Facebook: Bạn của bạn bè)
+        target_settings = db.query(UserSettings).filter(UserSettings.user_id == target_user_id).first()
+        if target_settings and target_settings.who_can_send_friend_requests == "friends_of_friends":
+            current_friends = FriendService._get_friend_ids(current_user_id, db)
+            target_friends = FriendService._get_friend_ids(target_user_id, db)
+            if not current_friends.intersection(target_friends):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Người dùng này chỉ nhận lời mời kết bạn từ bạn của bạn bè"
                 )
+
+        if existing and existing.status == "declined":
+            existing.requester_id = current_user_id
+            existing.addressee_id = target_user_id
+            existing.status = "pending"
+            db.commit()
+            return FriendshipActionResponse(
+                success=True,
+                message="Đã gửi lời mời kết bạn thành công",
+                data={"friendship_id": existing.id, "status": "pending"}
+            )
 
         new_request = Friendship(
             requester_id=current_user_id,

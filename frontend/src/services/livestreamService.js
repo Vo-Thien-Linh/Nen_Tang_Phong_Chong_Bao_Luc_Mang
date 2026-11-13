@@ -1,4 +1,4 @@
-const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_ROOT = import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL || '';
 const API_BASE_URL = `${API_ROOT}/api/v1/livestreams`;
 
 const getAuthHeaders = () => {

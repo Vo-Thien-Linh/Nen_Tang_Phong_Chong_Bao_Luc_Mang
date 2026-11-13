@@ -5,7 +5,7 @@ import {
   CheckCircle2, Send, ThumbsUp, Flag, Scale, ShieldAlert, AlertCircle, Pencil, Trash2, ExternalLink,
   Image as ImageIcon, X, Eye, EyeOff, Loader2, Sparkles, Timer, Lock, Globe, Users, UserX
 } from 'lucide-react';
-import { appealCommentModeration, appealPostModeration, sharePost, updatePostReaction, uploadPostImage } from '../api/client';
+import { appealCommentModeration, appealPostModeration, sharePost, updateCommentReaction, updatePostReaction, uploadPostImage, toggleSavePostApi } from '../api/client';
 import {
   applyReactionCounts,
   applyReactionState,
@@ -22,6 +22,7 @@ import { getModerationNoticeText, moderationViolationNotice } from '../utils/mod
 import { canSubmitImageAppeal, shouldHideContentForViewer, shouldShowPostAiLabel } from '../utils/imageModerationReviewLogic';
 import { shouldClosePostMenuForPointer } from '../utils/menuLogic';
 import EditPostModal from './EditPostModal';
+import { getPostPrivacyLabel, normalizePostPrivacy } from '../utils/postPrivacy';
 import DeletePostModal from './DeletePostModal';
 import InlineNotice from './InlineNotice';
 import VerifiedBadge from './VerifiedBadge';
@@ -30,6 +31,9 @@ import OriginalPostModal from './OriginalPostModal';
 import PostReactionsModal from './PostReactionsModal';
 import FriendlyNudgeModal from './FriendlyNudgeModal';
 import HashtagText from './HashtagText';
+import CommentInputBar from './CommentInputBar';
+import CommentReactionButton from './CommentReactionButton';
+import { buildCommentTree } from '../utils/commentThreadLogic';
 import { formatRelativeTime } from '../utils/timeAgo';
 
 function PortalPopover({ anchorRef, open, children, className = '', gap = 8, onRequestClose, onMouseEnter, onMouseLeave }) {
@@ -129,7 +133,8 @@ export default function PostCard({
   isTargeted = false,
   targetType = null,
   targetActor = null,
-  targetCommentId = null
+  targetCommentId = null,
+  onToggleSave
 }) {
   const [showComments, setShowComments] = useState(false);
   const [highlightedCommentId, setHighlightedCommentId] = useState(null);
@@ -138,6 +143,10 @@ export default function PostCard({
   const [commentImagePreview, setCommentImagePreview] = useState('');
   const [isUploadingCommentImage, setIsUploadingCommentImage] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [replyImageFile, setReplyImageFile] = useState(null);
+  const [replyImagePreview, setReplyImagePreview] = useState('');
+  const [isUploadingReplyImage, setIsUploadingReplyImage] = useState(false);
   const commentInputRef = useRef(null);
 
   const handleReplyToComment = (targetComment) => {
@@ -148,14 +157,9 @@ export default function PostCard({
       return;
     }
     const authorName = targetComment.author?.name || 'Người dùng';
+    setShowComments(true);
     setReplyingTo({ id: targetComment.id, authorName });
-    const mentionTag = `@${authorName} `;
-    if (!commentText.startsWith(mentionTag)) {
-      setCommentText(mentionTag + (commentText ? commentText.replace(/^@[\w\s\u00C0-\u1EF9]+ /, '') : ''));
-    }
-    setTimeout(() => {
-      commentInputRef.current?.focus();
-    }, 50);
+    setReplyText('');
   };
   const [unblurredComments, setUnblurredComments] = useState({});
   const [unblurredPosts, setUnblurredPosts] = useState({});
@@ -280,15 +284,22 @@ export default function PostCard({
     }
   }, [isTargeted, targetType, targetCommentId, targetActor, post.comments]);
 
-  const handleCommentImageSelect = (e) => {
+  const selectImageForComposer = (e, setFile, setPreview) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       alert('Vui lòng chọn tệp hình ảnh hợp lệ.');
       return;
     }
-    setCommentImageFile(file);
-    setCommentImagePreview(URL.createObjectURL(file));
+    setFile(file);
+    setPreview((prevUrl) => {
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      return URL.createObjectURL(file);
+    });
+  };
+
+  const handleCommentImageSelect = (e) => {
+    selectImageForComposer(e, setCommentImageFile, setCommentImagePreview);
   };
 
   const handleRemoveCommentImage = () => {
@@ -301,7 +312,59 @@ export default function PostCard({
       commentFileInputRef.current.value = '';
     }
   };
-  const [isSaved, setIsSaved] = useState(post.isSaved || false);
+
+  const handleReplyImageSelect = (e) => {
+    selectImageForComposer(e, setReplyImageFile, setReplyImagePreview);
+  };
+
+  const handleRemoveReplyImage = () => {
+    setReplyImageFile(null);
+    if (replyImagePreview) {
+      URL.revokeObjectURL(replyImagePreview);
+    }
+    setReplyImagePreview('');
+  };
+  const [isSaved, setIsSaved] = useState(Boolean(post.isSaved));
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
+
+  useEffect(() => {
+    setIsSaved(Boolean(post.isSaved));
+  }, [post.isSaved]);
+
+  const handleToggleSave = async (e) => {
+    if (e) e.stopPropagation();
+    if (!currentUser?.id) {
+      if (onRequireLogin) onRequireLogin();
+      else if (onRequireAuth) onRequireAuth("Vui lòng đăng nhập để lưu bài viết");
+      return;
+    }
+
+    const previousState = isSaved;
+    const nextState = !previousState;
+    setIsSaved(nextState);
+    setIsSaving(true);
+    setSaveToast(nextState ? 'Đã lưu bài viết vào mục Yêu thích' : 'Đã bỏ lưu bài viết');
+    setTimeout(() => setSaveToast(false), 2200);
+
+    try {
+      const res = await toggleSavePostApi(post.id);
+      const serverSaved = res?.isSaved ?? nextState;
+      setIsSaved(serverSaved);
+      post.isSaved = serverSaved;
+      if (onToggleSave) {
+        onToggleSave(post.id, serverSaved);
+      }
+    } catch (err) {
+      setIsSaved(previousState);
+      post.isSaved = previousState;
+      setSaveToast('Lỗi khi lưu bài viết: ' + (err.message || 'Thất bại'));
+      setTimeout(() => setSaveToast(false), 2200);
+      console.warn('Lỗi lưu bài viết:', err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   const [copiedToast, setCopiedToast] = useState(false);
   const [currentReaction, setCurrentReaction] = useState(post.myReaction || (post.isLiked ? 'like' : null));
   const [reactionCounts, setReactionCounts] = useState(() => normalizeReactionCounts(post.reactionCounts || post.counts));
@@ -545,7 +608,15 @@ export default function PostCard({
     }
   };
 
-  const doSubmitComment = async (forceComment = false) => {
+  const submitCommentOrReply = async ({
+    mode = 'root',
+    parentId = null,
+    rawText = '',
+    imageFile = null,
+    setUploading,
+    onSuccess,
+    forceComment = false,
+  }) => {
     if (commentSubmitLockRef.current) return;
     if (!currentUser) {
       if (onRequireAuth) onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
@@ -559,55 +630,94 @@ export default function PostCard({
       alert('Bạn đang trong thời gian bị hạn chế đăng bài và bình luận.');
       return;
     }
-    if (!commentText.trim() && !commentImageFile) return;
+    const trimmedText = String(rawText || '').trim();
+    if (!trimmedText && !imageFile) return;
     commentSubmitLockRef.current = true;
 
     let uploadedUrl = null;
-    if (commentImageFile) {
+    if (imageFile) {
       try {
-        setIsUploadingCommentImage(true);
-        uploadedUrl = await uploadPostImage(commentImageFile);
+        setUploading(true);
+        uploadedUrl = await uploadPostImage(imageFile);
       } catch (err) {
         console.error('Lỗi tải ảnh bình luận:', err);
         alert('Không thể tải ảnh bình luận lên. Vui lòng thử lại!');
-        setIsUploadingCommentImage(false);
+        setUploading(false);
         commentSubmitLockRef.current = false;
         return;
       } finally {
-        setIsUploadingCommentImage(false);
+        setUploading(false);
       }
     }
 
     const commentPayload = {
       id: `cmt-${Date.now()}`,
+      parentId: parentId || null,
+      parent_id: parentId || null,
       author: {
         id: currentUser.id,
         name: currentUser.name,
         avatar: currentUser.avatar
       },
-      content: commentText.trim(),
+      content: trimmedText,
       image: uploadedUrl,
       time: "Vừa xong",
+      createdAt: new Date().toISOString(),
       likes: 0
     };
 
-    const res = await onAddComment(post.id, commentPayload, { forceComment });
+    const res = await onAddComment(post.id, commentPayload, { forceComment, parentId });
     if (res?.nudge) {
       setCommentNudgeData({
+        mode,
+        parentId,
+        rawText,
+        imageFile,
         message: res.message,
         warningType: res.warningType,
         matchedKeyword: res.matchedKeyword,
-        contentSnippet: commentText.trim(),
+        contentSnippet: trimmedText,
         payload: commentPayload
       });
       commentSubmitLockRef.current = false;
       return;
     }
 
-    setCommentText('');
-    setReplyingTo(null);
-    handleRemoveCommentImage();
+    onSuccess?.();
     commentSubmitLockRef.current = false;
+  };
+
+  const doSubmitComment = async (forceComment = false) => {
+    await submitCommentOrReply({
+      mode: 'root',
+      parentId: null,
+      rawText: commentText,
+      imageFile: commentImageFile,
+      setUploading: setIsUploadingCommentImage,
+      forceComment,
+      onSuccess: () => {
+        setCommentText('');
+        handleRemoveCommentImage();
+      },
+    });
+  };
+
+  const doSubmitReply = async (forceComment = false, overrideParentId = null) => {
+    const targetParentId = overrideParentId || replyingTo?.id || null;
+    if (!targetParentId) return;
+    await submitCommentOrReply({
+      mode: 'reply',
+      parentId: targetParentId,
+      rawText: replyText,
+      imageFile: replyImageFile,
+      setUploading: setIsUploadingReplyImage,
+      forceComment,
+      onSuccess: () => {
+        setReplyText('');
+        setReplyingTo(null);
+        handleRemoveReplyImage();
+      },
+    });
   };
 
   const handleCommentSubmit = async (e) => {
@@ -615,7 +725,13 @@ export default function PostCard({
     await doSubmitComment(false);
   };
 
+  const handleReplySubmit = async (e) => {
+    e.preventDefault();
+    await doSubmitReply(false);
+  };
+
   const handleShare = () => {
+    if (post.privacy && !['public'].includes(post.privacy)) return;
     if (!currentUser?.id) {
       if (onRequireAuth) {
         onRequireAuth('Vui lòng đăng nhập để chia sẻ bài viết');
@@ -640,9 +756,9 @@ export default function PostCard({
     onSharePost?.(result?.data);
   };
 
-  const handleSaveEdit = async ({ content, imageUrl, forcePost }) => {
+  const handleSaveEdit = async ({ content, imageUrl, privacy, forcePost }) => {
     setPostError('');
-    const updatedPost = await onEditPost(post.id, { content, imageUrl, forcePost });
+    const updatedPost = await onEditPost(post.id, { content, imageUrl, privacy, forcePost });
     if (!updatedPost?.nudge) {
       setShowEditModal(false);
     }
@@ -807,11 +923,11 @@ export default function PostCard({
                 </>
               )}
               <span>•</span>
-              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
-                post.privacy === 'private' ? 'Chỉ mình tôi' :
+              <span aria-label={getPostPrivacyLabel(post.privacy)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-medium" title={
+                normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                 post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'
               }>
-                {post.privacy === 'private' ? (
+                {normalizePostPrivacy(post.privacy) === 'only_me' ? (
                   <Lock className="w-3 h-3 text-rose-500" />
                 ) : post.privacy === 'friends' ? (
                   <Users className="w-3.5 h-3.5 text-amber-500" />
@@ -819,7 +935,7 @@ export default function PostCard({
                   <Globe className="w-3 h-3 text-blue-500" />
                 )}
                 <span>
-                  {post.privacy === 'private' ? 'Chỉ mình tôi' :
+                  {normalizePostPrivacy(post.privacy) === 'only_me' ? 'Chỉ mình tôi' :
                    post.privacy === 'friends' ? 'Bạn bè' : 'Công khai'}
                 </span>
               </span>
@@ -962,24 +1078,30 @@ export default function PostCard({
           </div>
           <div className="max-w-md">
             <h4 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-100">
-              {adminImageReviewStatus ? 'Nội dung nhạy cảm' : 'Cảnh báo: Nội dung nhạy cảm'}
+              {adminImageReviewStatus ? 'Hình ảnh đang được kiểm duyệt' : 'Cảnh báo: Nội dung nhạy cảm'}
             </h4>
             <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1 leading-relaxed">
-              {isToxicText && isNsfwImage
-                ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
-                : isNsfwImage
-                ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
-                : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).'}
+              {adminImageReviewStatus
+                ? (isAuthor
+                    ? 'Hình ảnh của bài viết đang được kiểm duyệt AI hoặc Quản trị viên xét duyệt. Chỉ bạn có thể nhìn thấy.'
+                    : 'Hình ảnh bài viết này đang trong quá trình kiểm duyệt hoặc đã bị ẩn do vi phạm tiêu chuẩn cộng đồng.')
+                : (isToxicText && isNsfwImage
+                    ? 'Bài viết này chứa ngôn từ công kích/độc hại (Toxic) và hình ảnh nhạy cảm (NSFW).'
+                    : isNsfwImage
+                    ? 'Bài viết này có đính kèm hình ảnh nhạy cảm (18+ / NSFW).'
+                    : 'Bài viết này có thể chứa ngôn từ độc hại hoặc thô tục (Toxic).')}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setRevealedSensitivePost(true)}
-            className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
-          >
-            <Eye className="w-4 h-4" />
-            <span>{adminImageReviewStatus ? 'Xem' : 'Xem toàn bộ bài viết'}</span>
-          </button>
+          {(!adminImageReviewStatus || isAuthor) && (
+            <button
+              type="button"
+              onClick={() => setRevealedSensitivePost(true)}
+              className="mt-1 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-semibold text-xs transition cursor-pointer flex items-center gap-2 shadow-xs"
+            >
+              <Eye className="w-4 h-4" />
+              <span>{adminImageReviewStatus ? 'Xem ảnh của tôi' : 'Xem toàn bộ bài viết'}</span>
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -1056,6 +1178,11 @@ export default function PostCard({
       )}
 
       {/* ===== EMBEDDED BÀI GỐC (nếu đây là bài chia sẻ) ===== */}
+      {post.originalPostId && !post.originalPost && (
+        <div className="mx-4 sm:mx-5 mb-3 mt-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs font-medium text-slate-500">
+          {'N\u1ed9i dung g\u1ed1c kh\u00f4ng kh\u1ea3 d\u1ee5ng'}
+        </div>
+      )}
       {Boolean(post.originalPost) && (
         <div className="mx-4 sm:mx-5 mb-3 mt-1">
           {(post.originalPost?.author || post.originalPost?.id || post.originalPost?.content) && !post.originalPost?.isDeleted ? (
@@ -1297,20 +1424,29 @@ export default function PostCard({
 
         <button
           onClick={handleShare}
-          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer"
+          disabled={Boolean(post.privacy && post.privacy !== 'public')}
+          title={post.privacy && post.privacy !== 'public' ? "Ch\u1ec9 b\u00e0i vi\u1ebft c\u00f4ng khai m\u1edbi c\u00f3 th\u1ec3 chia s\u1ebb" : undefined}
+          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Share2 className="w-4 h-4 text-slate-500" />
           <span>Chia sẻ</span>
         </button>
 
         <button
-          onClick={() => setIsSaved(!isSaved)}
-          className={`px-3 py-2 rounded-xl hover:bg-slate-50 transition duration-150 cursor-pointer ${
-            isSaved ? 'text-amber-500' : 'text-slate-400'
+          type="button"
+          onClick={handleToggleSave}
+          disabled={isSaving}
+          className={`relative px-3 py-2 rounded-xl hover:bg-slate-50 transition duration-150 cursor-pointer ${
+            isSaved ? 'text-amber-500' : 'text-slate-400 hover:text-slate-600'
           }`}
           title={isSaved ? "Bỏ lưu bài viết" : "Lưu bài viết"}
         >
-          <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-amber-500' : ''}`} />
+          <Bookmark className={`w-4 h-4 transition-all duration-200 ${isSaved ? 'fill-amber-500 text-amber-500 scale-110' : 'hover:scale-110'}`} />
+          {saveToast && (
+            <span className="absolute -top-8 right-0 whitespace-nowrap bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-xl pointer-events-none animate-fade-in z-30">
+              {saveToast}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1335,143 +1471,51 @@ export default function PostCard({
           )}
 
           {/* Form nhập bình luận mới */}
-          <form onSubmit={handleCommentSubmit} className="space-y-2">
-            {commentImagePreview && (
-              <div className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 shadow-2xs">
-                <div className="relative group">
-                  <img
-                    src={commentImagePreview}
-                    alt="Ảnh bình luận"
-                    className="w-14 h-14 object-cover rounded-lg border border-slate-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleRemoveCommentImage}
-                    className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-0.5 shadow hover:bg-rose-600 transition cursor-pointer"
-                    title="Xóa ảnh"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-                <div className="flex-1 text-xs">
-                  <span className="text-[11px] text-slate-500 block mb-1">Ảnh đính kèm sẽ được đăng cùng bình luận</span>
-                </div>
-              </div>
-            )}
+          <CommentInputBar
+            avatar={currentUser?.avatar}
+            userName={currentUser?.name || 'Khách'}
+            value={commentText}
+            onChange={setCommentText}
+            onSubmit={handleCommentSubmit}
+            disabled={isBanned || isCooldown}
+            isSubmitting={isUploadingCommentImage}
+            hasContent={Boolean(commentImageFile)}
+            imagePreview={commentImagePreview}
+            onSelectImageFile={handleCommentImageSelect}
+            onRemoveImage={handleRemoveCommentImage}
+            inputRef={commentInputRef}
+            onInputClick={() => {
+              if (!currentUser && onRequireAuth) {
+                onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+              }
+            }}
+            onImageButtonClick={() => {
+              if (!currentUser && onRequireAuth) {
+                onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
+                return false;
+              }
+              return true;
+            }}
+            placeholder={
+              isBanned
+                ? "Tài khoản của bạn đã bị khóa. Không thể bình luận..."
+                : isCooldown
+                ? `🚫 Bạn đang bị cấm bình luận • Gỡ phạt sau: ${cooldownRemainingStr || 'Đang đếm...'}`
+                : currentUser
+                ? "Viết bình luận công khai..."
+                : "Đăng nhập để viết bình luận..."
+            }
+          />
 
-            <div className="flex gap-2 items-center">
-              <img 
-                src={currentUser?.avatar || DEFAULT_AVATAR} 
-                alt={currentUser?.name || "Khách"} 
-                className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200"
-              />
-              <div className="flex-1">
-                {replyingTo && (
-                  <div className="flex items-center justify-between px-3 py-1 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-[11px] text-blue-700 dark:text-blue-300 mb-1.5 animate-fade-in">
-                    <div className="flex items-center gap-1.5 font-medium">
-                      <Reply className="w-3 h-3 text-blue-600 rotate-180" />
-                      <span>Đang trả lời <strong>@{replyingTo.authorName}</strong></span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const mentionTag = `@${replyingTo.authorName} `;
-                        if (commentText.startsWith(mentionTag)) {
-                          setCommentText(commentText.replace(mentionTag, ''));
-                        }
-                        setReplyingTo(null);
-                      }}
-                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
-                      title="Hủy trả lời"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
-                <div className="relative flex items-center">
-                <input
-                  ref={commentInputRef}
-                  type="text"
-                  value={commentText}
-                  disabled={isBanned || isCooldown}
-                  onClick={() => {
-                    if (!currentUser && onRequireAuth) {
-                      onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
-                    }
-                  }}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder={
-                    isBanned
-                      ? "Tài khoản của bạn đã bị khóa. Không thể bình luận..."
-                      : isCooldown
-                      ? `🚫 Bạn đang bị cấm bình luận • Gỡ phạt sau: ${cooldownRemainingStr || 'Đang đếm...'}`
-                      : currentUser
-                      ? "Viết bình luận công khai..."
-                      : "Đăng nhập để viết bình luận..."
-                  }
-                  className={`w-full pl-3 pr-16 py-1.5 text-xs bg-white border border-slate-200 rounded-full focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 ${
-                    (isBanned || isCooldown) ? 'opacity-60 cursor-not-allowed bg-slate-100' : ''
-                  }`}
-                />
+          {/* Danh sách bình luận (mới nhất trên cùng, hỗ trợ phân cấp trả lời) */}
+          <div className="space-y-3 pt-1">
+            {(() => {
+              const commentTree = buildCommentTree(visibleComments);
+              if (commentTree.length === 0) {
+                return <p className="text-xs text-slate-400 text-center py-2">Chưa có bình luận nào. Hãy là người đầu tiên!</p>;
+              }
 
-                <input
-                  ref={commentFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleCommentImageSelect}
-                  className="hidden"
-                />
-
-                <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!currentUser && onRequireAuth) {
-                        onRequireAuth("Chỉ đăng nhập mới được bình luận, khi bấm vào nút bình luận mà chưa đăng nhập sẽ bị chuyển tới màn hình đăng nhập (User Story 5)");
-                        return;
-                      }
-                      commentFileInputRef.current?.click();
-                    }}
-                    disabled={isBanned || isCooldown || isUploadingCommentImage}
-                    title={isCooldown ? "Đang bị khóa bình luận" : "Đính kèm ảnh vào bình luận"}
-                    className={`p-1 rounded-full transition ${
-                      (isBanned || isCooldown) 
-                        ? 'text-slate-300 opacity-40 cursor-not-allowed pointer-events-none' 
-                        : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer'
-                    }`}
-                  >
-                    <ImageIcon className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={isBanned || isCooldown || (!commentText.trim() && !commentImageFile) || isUploadingCommentImage}
-                    title={isCooldown ? `Đang bị khóa bình luận (còn lại: ${cooldownRemainingStr})` : "Gửi bình luận"}
-                    className="p-1 text-blue-600 hover:text-blue-700 disabled:opacity-30 disabled:hover:text-blue-600 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    {isUploadingCommentImage ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-                    ) : (
-                      <Send className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-                </div>
-              </div>
-            </div>
-          </form>
-
-          {/* Danh sách bình luận */}
-          <div className="space-y-2.5 pt-1">
-            {visibleComments && visibleComments.length > 0 ? (
-              // Sắp xếp: Comment bình thường lên trước, comment Toxic / NSFW (ẩn mềm) xếp ở cuối
-              [...visibleComments].sort((a, b) => {
-                const aSoft = Boolean(a.is_soft_hidden || a.isSoftHidden || a.ai_label === 'Toxic' || a.aiLabel === 'Toxic' || a.image_label === 'NSFW' || a.imageLabel === 'NSFW' || a.imageModeration?.status === 'sensitive');
-                const bSoft = Boolean(b.is_soft_hidden || b.isSoftHidden || b.ai_label === 'Toxic' || b.aiLabel === 'Toxic' || b.image_label === 'NSFW' || b.imageLabel === 'NSFW' || b.imageModeration?.status === 'sensitive');
-                if (aSoft && !bSoft) return 1;
-                if (!aSoft && bSoft) return -1;
-                return 0;
-              }).map((comment) => {
+              const renderCommentNode = (comment, depth = 0) => {
                 if ((comment.imageModeration?.status || comment.image_moderation_status) === 'rejected_final') return null;
                 const isCommentAuthor = currentUser && (currentUser.id === comment.author?.id);
                 const canViewHiddenComment = isCommentAuthor || currentUser?.role?.toLowerCase() === 'admin' || currentUser?.role?.toLowerCase() === 'moderator' || Boolean(currentUser?.isAdmin);
@@ -1481,10 +1525,47 @@ export default function PostCard({
                 const isSoftHidden = !isAdminImageReview && Boolean(comment.is_soft_hidden || comment.isSoftHidden || comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic' || comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || commentImageStatus === 'sensitive');
                 const isRevealed = Boolean(revealedComments[comment.id]);
                 const isThisCommentHighlighted = highlightedCommentId && String(comment.id) === String(highlightedCommentId);
+                const isReplyingHere = Boolean(replyingTo && String(replyingTo.id) === String(comment.id));
 
                 const isToxicText = comment.ai_label === 'Toxic' || comment.aiLabel === 'Toxic';
                 const isNsfwImg = comment.image_label === 'NSFW' || comment.imageLabel === 'NSFW' || ['sensitive', 'rejected_admin', 'appeal_pending', 'pending_review', 'rejected_hold'].includes(commentImageStatus);
                 const hideCommentContent = shouldHideContentForViewer({ isAuthor: Boolean(isCommentAuthor), status: commentImageStatus, isSensitive: isHardHidden || isSoftHidden || isToxicText || isNsfwImg });
+
+                const renderChildren = () => (
+                  <>
+                    {isReplyingHere && (
+                      <div className="mt-2 ml-8 sm:ml-10 pl-3 border-l-2 border-blue-200 dark:border-blue-800">
+                        <CommentInputBar
+                          compact
+                          autoFocus
+                          avatar={currentUser?.avatar}
+                          userName={currentUser?.name || 'Bạn'}
+                          value={replyText}
+                          onChange={setReplyText}
+                          onSubmit={handleReplySubmit}
+                          disabled={isBanned || isCooldown}
+                          isSubmitting={isUploadingReplyImage}
+                          hasContent={Boolean(replyImageFile)}
+                          imagePreview={replyImagePreview}
+                          onSelectImageFile={handleReplyImageSelect}
+                          onRemoveImage={handleRemoveReplyImage}
+                          replyingToName={replyingTo.authorName}
+                          onCancelReply={() => {
+                            setReplyingTo(null);
+                            setReplyText('');
+                            handleRemoveReplyImage();
+                          }}
+                          placeholder={`Viết phản hồi cho @${replyingTo.authorName}...`}
+                        />
+                      </div>
+                    )}
+                    {Array.isArray(comment.replies) && comment.replies.length > 0 && (
+                      <div className={`${depth < 2 ? 'ml-6 sm:ml-9 pl-3 border-l-2 border-slate-200 dark:border-slate-700' : 'mt-2'} mt-2 space-y-2.5`}>
+                        {comment.replies.map((reply) => renderCommentNode(reply, depth + 1))}
+                      </div>
+                    )}
+                  </>
+                );
 
                 // 1. Trường hợp bình luận bị ẩn cứng (Bạo lực hoặc Thù ghét - Text hoặc Ảnh)
                 if (isHardHidden && !isCommentAuthor) {
@@ -1494,61 +1575,67 @@ export default function PostCard({
 
                   if (!canViewHiddenComment) {
                     return (
-                      <div key={comment.id} id={`comment-${comment.id}`} className="p-2.5 bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/80 dark:border-rose-900/40 rounded-xl text-xs flex items-center gap-2 text-rose-800 dark:text-rose-300">
-                        <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
-                        <span>Bình luận này đã bị ẩn do vi phạm tiêu chuẩn cộng đồng ({labelText}).</span>
+                      <div key={comment.id} id={`comment-${comment.id}`}>
+                        <div className="p-2.5 bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/80 dark:border-rose-900/40 rounded-xl text-xs flex items-center gap-2 text-rose-800 dark:text-rose-300">
+                          <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>Bình luận này đã bị ẩn do vi phạm tiêu chuẩn cộng đồng ({labelText}).</span>
+                        </div>
+                        {renderChildren()}
                       </div>
                     );
                   }
 
                   return (
-                    <div key={comment.id} id={`comment-${comment.id}`} className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
-                      <div className="flex items-center gap-2">
-                        <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
-                        <div>
+                    <div key={comment.id} id={`comment-${comment.id}`}>
+                      <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
+                        <div className="flex items-center gap-2">
+                          <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
                           <div>
-                            <span className="font-semibold text-rose-800 dark:text-rose-300">Bình luận bị ẩn:</span> vi phạm tiêu chuẩn ({labelText})
-                          </div>
-                          {comment.content && <div className="text-[11px] text-rose-700/80 dark:text-rose-300/80 italic mt-0.5 line-clamp-1">"{comment.content}"</div>}
-                          {comment.image && (
-                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-rose-600 dark:text-rose-400 font-medium">
-                              <span>🖼️ Kèm hình ảnh vi phạm</span>
+                            <div>
+                              <span className="font-semibold text-rose-800 dark:text-rose-300">Bình luận bị ẩn:</span> vi phạm tiêu chuẩn ({labelText})
                             </div>
-                          )}
-                        </div>
-                      </div>
-                      {isCommentAuthor && isAdminImageReview && (
-                        <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-900">
-                          <div className="flex items-center justify-between gap-2">
-                            <span>{comment.imageModeration?.noticeText || getModerationNoticeText('comment', commentImageStatus)}</span>
-                            {['rejected_admin', 'rejected_hold'].includes(commentImageStatus) && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                            {comment.content && <div className="text-[11px] text-rose-700/80 dark:text-rose-300/80 italic mt-0.5 line-clamp-1">"{comment.content}"</div>}
+                            {comment.image && (
+                              <div className="flex items-center gap-1.5 mt-1 text-[10px] text-rose-600 dark:text-rose-400 font-medium">
+                                <span>🖼️ Kèm hình ảnh vi phạm</span>
+                              </div>
+                            )}
                           </div>
-                          {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
                         </div>
-                      )}
-                      {isCommentAuthor && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenAppealModal && onOpenAppealModal({
-                            targetType: 'comment',
-                            targetId: comment.id,
-                            parentPostId: post.id,
-                            targetAuthor: comment.author,
-                            contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
-                            imageUrl: comment.image || null,
-                            aiStatus: { label: labelText, confidence: 0.95, action: 'hide' }
-                          })}
-                          className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-xs"
-                        >
-                          <Scale className="w-3 h-3" />
-                          <span>Kháng cáo</span>
-                        </button>
-                      )}
+                        {isCommentAuthor && isAdminImageReview && (
+                          <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-900">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>{comment.imageModeration?.noticeText || getModerationNoticeText('comment', commentImageStatus)}</span>
+                              {['rejected_admin', 'rejected_hold'].includes(commentImageStatus) && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                            </div>
+                            {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
+                          </div>
+                        )}
+                        {isCommentAuthor && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenAppealModal && onOpenAppealModal({
+                              targetType: 'comment',
+                              targetId: comment.id,
+                              parentPostId: post.id,
+                              targetAuthor: comment.author,
+                              contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
+                              imageUrl: comment.image || null,
+                              aiStatus: { label: labelText, confidence: 0.95, action: 'hide' }
+                            })}
+                            className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-xs"
+                          >
+                            <Scale className="w-3 h-3" />
+                            <span>Kháng cáo</span>
+                          </button>
+                        )}
+                      </div>
+                      {renderChildren()}
                     </div>
                   );
                 }
 
-                // 2. Trường hợp bình luận Toxic / NSFW: ẩn mềm chung ở cuối danh sách, bấm vào thì hiện cả hai
+                // 2. Trường hợp bình luận Toxic / NSFW: ẩn mềm chung ở cuối danh sách
                 if (hideCommentContent && isSoftHidden && !isRevealed) {
                   let softHiddenMessage = 'Bình luận này có thể chứa nội dung không phù hợp (Toxic / NSFW) theo chính sách cộng đồng.';
                   if (isToxicText && isNsfwImg) {
@@ -1560,19 +1647,22 @@ export default function PostCard({
                   }
 
                   return (
-                    <div key={comment.id} id={`comment-${comment.id}`} className="p-2.5 bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/90 dark:border-amber-800/40 rounded-xl text-xs flex items-center justify-between gap-2 text-amber-900 dark:text-amber-200">
-                      <div className="flex items-center gap-2">
-                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="text-[11px] font-medium">{softHiddenMessage}</span>
+                    <div key={comment.id} id={`comment-${comment.id}`}>
+                      <div className="p-2.5 bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/90 dark:border-amber-800/40 rounded-xl text-xs flex items-center justify-between gap-2 text-amber-900 dark:text-amber-200">
+                        <div className="flex items-center gap-2">
+                          <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span className="text-[11px] font-medium">{softHiddenMessage}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setRevealedComments(prev => ({ ...prev, [comment.id]: true }))}
+                          className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-200 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>Xem bình luận</span>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setRevealedComments(prev => ({ ...prev, [comment.id]: true }))}
-                        className="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-200 font-semibold text-[11px] shrink-0 flex items-center gap-1 transition cursor-pointer shadow-2xs"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>Xem bình luận</span>
-                      </button>
+                      {renderChildren()}
                     </div>
                   );
                 }
@@ -1582,139 +1672,163 @@ export default function PostCard({
                 else if (!isToxicText && isNsfwImg) revealedBadge = 'NSFW';
 
                 return (
-                  <div 
-                    key={comment.id} 
-                    id={`comment-${comment.id}`}
-                    className={`flex gap-2.5 items-start text-xs rounded-2xl p-1.5 transition-all duration-300 ${
-                      isThisCommentHighlighted
-                        ? 'bg-blue-50/90 dark:bg-blue-950/60 ring-2 ring-blue-500 dark:ring-blue-400 shadow-sm'
-                        : ''
-                    }`}
-                  >
-                    <img 
-                      src={comment.author?.avatar || DEFAULT_AVATAR} 
-                      alt={comment.author?.name || 'Người dùng'} 
-                      onClick={() => onOpenProfile && onOpenProfile(comment.author)}
-                      className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition"
-                    />
-                    <div className={`flex-1 bg-white dark:bg-slate-800/90 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${
-                      isSoftHidden ? 'border-amber-200 dark:border-amber-800/40 bg-amber-50/20 dark:bg-amber-950/10' : ''
-                    }`}>
-                      {isCommentAuthor && isAdminImageReview && (
-                        <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-900">
-                          <div className="flex items-center justify-between gap-2">
-                            <span>{comment.imageModeration?.noticeText || getModerationNoticeText('comment', commentImageStatus)}</span>
-                            {['rejected_admin', 'rejected_hold'].includes(commentImageStatus) && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                  <div key={comment.id} id={`comment-${comment.id}`}>
+                    <div
+                      className={`flex gap-2.5 items-start text-xs rounded-2xl p-1.5 transition-all duration-300 ${
+                        isThisCommentHighlighted
+                          ? 'bg-blue-50/90 dark:bg-blue-950/60 ring-2 ring-blue-500 dark:ring-blue-400 shadow-sm'
+                          : ''
+                      }`}
+                    >
+                      <img 
+                        src={comment.author?.avatar || DEFAULT_AVATAR} 
+                        alt={comment.author?.name || 'Người dùng'} 
+                        onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                        className={`${depth > 0 ? 'w-6 h-6' : 'w-7 h-7'} rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition`}
+                      />
+                      <div className={`flex-1 bg-white dark:bg-slate-800/90 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${
+                        isSoftHidden ? 'border-amber-200 dark:border-amber-800/40 bg-amber-50/20 dark:bg-amber-950/10' : ''
+                      }`}>
+                        {isCommentAuthor && isAdminImageReview && (
+                          <div className="mb-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-900">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>{comment.imageModeration?.noticeText || getModerationNoticeText('comment', commentImageStatus)}</span>
+                              {['rejected_admin', 'rejected_hold'].includes(commentImageStatus) && <button type="button" disabled={pendingCommentAppealId === String(comment.id)} onClick={() => handleCommentModerationAppeal(comment)} className="rounded bg-rose-600 px-2.5 py-1 font-semibold text-white disabled:opacity-50">{pendingCommentAppealId === String(comment.id) ? 'Đang gửi...' : 'Khiếu nại'}</button>}
+                            </div>
+                            {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
                           </div>
-                          {commentAppealError && <p className="mt-1">{commentAppealError}</p>}
-                        </div>
-                      )}
-                      {isCommentAuthor && commentImageStatus === 'sensitive' && (
-                        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-                          {comment.imageModeration?.noticeText || getModerationNoticeText('comment', 'sensitive')}
-                        </div>
-                      )}
-                      {/* Tiêu đề cảnh báo nếu đang mở xem bình luận Toxic / NSFW đã ẩn mềm */}
-                      {isSoftHidden && isRevealed && (
-                        <div className="text-[10px] text-amber-800 dark:text-amber-300 flex items-center justify-between pb-1 border-b border-amber-200 dark:border-amber-800/50 mb-1.5">
-                          <span className="flex items-center gap-1 font-semibold">
-                            <ShieldAlert className="w-3 h-3 text-amber-600" />
-                            Bình luận nhạy cảm (${revealedBadge} - đang hiển thị)
-                          </span>
-                          <button 
-                            type="button"
-                            onClick={() => setRevealedComments(prev => ({ ...prev, [comment.id]: false }))} 
-                            className="text-amber-800 dark:text-amber-300 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
-                          >
-                            <EyeOff className="w-3 h-3" /> Ẩn lại
-                          </button>
-                        </div>
-                      )}
+                        )}
+                        {isCommentAuthor && commentImageStatus === 'sensitive' && (
+                          <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                            {comment.imageModeration?.noticeText || getModerationNoticeText('comment', 'sensitive')}
+                          </div>
+                        )}
+                        {isSoftHidden && isRevealed && (
+                          <div className="text-[10px] text-amber-800 dark:text-amber-300 flex items-center justify-between pb-1 border-b border-amber-200 dark:border-amber-800/50 mb-1.5">
+                            <span className="flex items-center gap-1 font-semibold">
+                              <ShieldAlert className="w-3 h-3 text-amber-600" />
+                              Bình luận nhạy cảm ({revealedBadge} - đang hiển thị)
+                            </span>
+                            <button 
+                              type="button"
+                              onClick={() => setRevealedComments(prev => ({ ...prev, [comment.id]: false }))} 
+                              className="text-amber-800 dark:text-amber-300 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                            >
+                              <EyeOff className="w-3 h-3" /> Ẩn lại
+                            </button>
+                          </div>
+                        )}
 
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span 
-                            onClick={() => onOpenProfile && onOpenProfile(comment.author)}
-                            className="font-bold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition"
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span 
+                              onClick={() => onOpenProfile && onOpenProfile(comment.author)}
+                              className="font-bold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition"
+                            >
+                              {comment.author?.name}
+                            </span>
+                            {(comment.author?.isVerified || comment.author?.is_verified) && (
+                              <VerifiedBadge size="xs" />
+                            )}
+                            {isThisCommentHighlighted && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-600 text-white rounded-full flex items-center gap-1 animate-pulse">
+                                <span>Bình luận được nhắc đến</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed"><HashtagText text={comment.content} /></p>}
+
+                        {comment.image && (
+                          <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 max-w-xs group">
+                            {shouldHideContentForViewer({ isAuthor: Boolean(isCommentAuthor), status: commentImageStatus, isSensitive: ['sensitive', 'rejected_admin', 'appeal_pending', 'pending_review', 'rejected_hold'].includes(commentImageStatus) }) && !isRevealed ? (
+                              <div className="relative">
+                                <img src={comment.image} alt="Bình luận có ảnh" className="w-full max-h-52 object-cover blur-xl select-none scale-105" />
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
+                                  <span className="text-[11px] font-semibold">Nội dung nhạy cảm</span>
+                                  <button type="button" onClick={() => setRevealedComments((previous) => ({ ...previous, [comment.id]: true }))} className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <img src={comment.image} alt="Bình luận có ảnh" className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition" onClick={() => window.open(comment.image, '_blank')} />
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-3 mt-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 text-[11px] text-slate-400 font-medium">
+                          <span>{formatRelativeTime(comment.createdAt || comment.time) || comment.time || 'Vừa xong'}</span>
+                          <CommentReactionButton
+                            initialCounts={comment.reactionCounts || {}}
+                            initialMyReaction={comment.myReaction || null}
+                            disabled={isBanned || isCooldown}
+                            canReact={Boolean(currentUser?.id)}
+                            onRequireAuth={() => onRequireAuth && onRequireAuth('Vui lòng đăng nhập để thả cảm xúc bình luận')}
+                            onReact={async ({ type, action }) => {
+                              if (Number.isNaN(Number(post.id)) || Number.isNaN(Number(comment.id))) return null;
+                              const result = await updateCommentReaction({
+                                userId: currentUser.id,
+                                postId: post.id,
+                                commentId: comment.id,
+                                type,
+                                action,
+                              });
+                              return result?.data || null;
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleReplyToComment(comment)}
+                            disabled={isBanned || isCooldown}
+                            className={`transition flex items-center gap-1 font-semibold ${
+                              (isBanned || isCooldown)
+                                ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-50'
+                                : isReplyingHere
+                                ? 'text-blue-600 dark:text-blue-400 cursor-pointer'
+                                : 'text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer'
+                            }`}
                           >
-                            {comment.author?.name}
-                          </span>
-                          {(comment.author?.isVerified || comment.author?.is_verified) && (
-                            <VerifiedBadge size="xs" />
-                          )}
-                          {isThisCommentHighlighted && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-600 text-white rounded-full flex items-center gap-1 animate-pulse">
-                              <span>Bình luận được nhắc đến</span>
+                            <Reply className="w-3 h-3 text-blue-600" />
+                            <span>{isReplyingHere ? 'Đang trả lời...' : 'Trả lời'}</span>
+                          </button>
+                          {comment.replies?.length > 0 && (
+                            <span className="text-[10px] text-slate-400">
+                              {comment.replies.length} phản hồi
                             </span>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => onOpenReportModal && onOpenReportModal({
+                              targetType: 'comment',
+                              targetId: comment.id,
+                              parentPostId: post.id,
+                              targetAuthor: comment.author,
+                              contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
+                              imageUrl: comment.image || null,
+                              aiStatus: { label: comment.ai_label || 'Normal', confidence: 0.90 }
+                            })}
+                            title="Báo cáo bình luận này"
+                            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ml-auto font-medium"
+                          >
+                            <Flag className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                            <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Báo cáo</span>
+                          </button>
                         </div>
-                      </div>
-                      {comment.content && <p className="text-slate-700 dark:text-slate-200 whitespace-pre-line leading-relaxed"><HashtagText text={comment.content} /></p>}
-
-                      {/* Hiển thị hình ảnh đính kèm (ẩn mềm chung đã được mở, không lồng thêm lớp blur thứ hai) */}
-                      {comment.image && (
-                        <div className="mt-2 relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 max-w-xs group">
-                          {shouldHideContentForViewer({ isAuthor: Boolean(isCommentAuthor), status: commentImageStatus, isSensitive: ['sensitive', 'rejected_admin', 'appeal_pending', 'pending_review', 'rejected_hold'].includes(commentImageStatus) }) && !isRevealed ? (
-                            <div className="relative">
-                              <img src={comment.image} alt="Bình luận có ảnh" className="w-full max-h-52 object-cover blur-xl select-none scale-105" />
-                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-center text-white">
-                                <span className="text-[11px] font-semibold">Nội dung nhạy cảm</span>
-                                <button type="button" onClick={() => setRevealedComments((previous) => ({ ...previous, [comment.id]: true }))} className="rounded bg-white/20 px-3 py-1 text-[10px] font-semibold">Xem</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <img src={comment.image} alt="Bình luận có ảnh" className="w-full max-h-52 object-cover rounded-lg cursor-pointer hover:opacity-95 transition" onClick={() => window.open(comment.image, '_blank')} />
-                          )}
-                        </div>
-                      )}
-
-                      {/* Hàng hành động: Thời gian, Trả lời bình luận, và Báo cáo vi phạm rõ ràng */}
-                      <div className="flex items-center gap-3 mt-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 text-[11px] text-slate-400 font-medium">
-                        <span>{comment.time}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleReplyToComment(comment)}
-                          disabled={isBanned || isCooldown}
-                          className={`transition flex items-center gap-1 font-semibold ${
-                            (isBanned || isCooldown)
-                              ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-50'
-                              : 'text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer'
-                          }`}
-                        >
-                          <Reply className="w-3 h-3 text-blue-600" />
-                          <span>Trả lời</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onOpenReportModal && onOpenReportModal({
-                            targetType: 'comment',
-                            targetId: comment.id,
-                            parentPostId: post.id,
-                            targetAuthor: comment.author,
-                            contentExcerpt: comment.content || (comment.image ? '[Hình ảnh]' : ''),
-                            imageUrl: comment.image || null,
-                            aiStatus: { label: comment.ai_label || 'Normal', confidence: 0.90 }
-                          })}
-                          title="Báo cáo bình luận này"
-                          className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ml-auto font-medium"
-                        >
-                          <Flag className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                          <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Báo cáo</span>
-                        </button>
                       </div>
                     </div>
+                    {renderChildren()}
                   </div>
                 );
-              })
-            ) : (
-              <p className="text-xs text-slate-400 text-center py-2">Chưa có bình luận nào. Hãy là người đầu tiên!</p>
-            )}
+              };
+
+              return commentTree.map((rootComment) => renderCommentNode(rootComment, 0));
+            })()}
           </div>
 
         </div>
       )}
 
       <EditPostModal
+        key={`${post.id}-${post.privacy || 'public'}`}
         post={post}
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
@@ -1771,8 +1885,13 @@ export default function PostCard({
             setCommentNudgeData(null);
           }}
           onConfirmForce={async () => {
+            const nudgeTarget = commentNudgeData;
             setCommentNudgeData(null);
-            await doSubmitComment(true);
+            if (nudgeTarget?.mode === 'reply') {
+              await doSubmitReply(true, nudgeTarget.parentId);
+            } else {
+              await doSubmitComment(true);
+            }
           }}
         />
       )}

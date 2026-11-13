@@ -21,11 +21,31 @@ export function createPostReactionsController({ reactionService }) {
     async listPostReactions(req, res, next) {
       try {
         const reactions = await reactionService.getPostReactions({
+          user: req.user,
           postId: req.params.postId,
         });
         res.json({
           success: true,
           data: reactions || [],
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+
+    async reactToComment(req, res, next) {
+      try {
+        const result = await reactionService.reactToComment({
+          user: req.user,
+          postId: req.params.postId,
+          commentId: req.params.commentId,
+          type: req.body?.type,
+          action: req.body?.action,
+        });
+
+        res.json({
+          success: true,
+          data: result,
         });
       } catch (error) {
         next(error);

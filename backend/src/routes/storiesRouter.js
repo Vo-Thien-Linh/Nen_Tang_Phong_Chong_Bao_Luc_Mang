@@ -20,6 +20,9 @@ export function createStoriesRouter({ pool }) {
   // 1. Lấy danh sách tin đang hoạt động trên Feed (gom nhóm theo từng người)
   router.get('/feed', optionalAuth, storiesController.listFeedStories);
 
+  // 1.1 Lấy danh sách tin của một người dùng cụ thể (xem trang cá nhân hoặc chat)
+  router.get('/user/:userId', optionalAuth, storiesController.getUserStories);
+
   // 2. Lấy kho lưu trữ tin cá nhân của người dùng hiện tại
   router.get('/my-archive', requireAuth, storiesController.listMyArchive);
 
@@ -37,6 +40,9 @@ export function createStoriesRouter({ pool }) {
 
   // 7. Thả/cập nhật cảm xúc cho tin
   router.post('/:storyId/reactions', requireAuth, storiesController.reactToStory);
+
+  // 7.1 Tương tác với các tiện ích Story (Poll, Slider, Question)
+  router.post('/:storyId/interact', requireAuth, storiesController.interactWidget);
 
   // 8. Xóa tin
   router.delete('/:storyId', requireAuth, storiesController.deleteStory);

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import time
 from app.services.ai_services import predict_vi_content
 from app.image_moderation.inference import ImageModerationFailure, infer_image, infer_image_bytes
-from app.image_moderation.policy import decide_image_moderation
+from app.image_moderation.policy import decide_image_moderation, image_preview_payload
 
 router = APIRouter(prefix="", tags=["Kiểm duyệt nội dung AI (Moderation)"])
 
@@ -16,6 +16,7 @@ class ModerateResponse(BaseModel):
     action: str          # "allow", "warn", "hide"
     latency_ms: float
     reason: str
+    model_source: str = "fallback"
     cooldown_seconds: int = 0
 
 @router.post("/moderate", response_model=ModerateResponse, summary="Phân tích kiểm duyệt nội dung độc hại bằng AI PhoBERT")
@@ -41,6 +42,7 @@ def moderate_text(req: ModerateRequest):
         action=result["action"],
         latency_ms=latency,
         reason=result["reason"],
+        model_source=result.get("model_source", "fallback"),
         cooldown_seconds=cooldown
     )
 
@@ -69,5 +71,4 @@ async def moderate_image_preview(file: UploadFile = File(...)):
         result = decide_image_moderation(infer_image_bytes(data)["scores"])
     except ImageModerationFailure:
         result = decide_image_moderation(None, failed=True)
-    category = {"safe": "SAFE", "sensitive": "SENSITIVE", "rejected": "VIOLATION", "pending_review": "PENDING_REVIEW"}[result["decision"]]
-    return {"category": category}
+    return image_preview_payload(result)

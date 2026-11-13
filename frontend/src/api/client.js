@@ -1,13 +1,26 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 async function request(path, options = {}) {
   const token = localStorage.getItem('nexussocial_token');
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
+  // Tự động bổ sung x-user-id từ phiên đăng nhập nếu chưa có trong headers
+  let autoUserHeader = {};
+  try {
+    const rawUser = localStorage.getItem('nexussocial_user');
+    if (rawUser) {
+      const parsedUser = JSON.parse(rawUser);
+      if (parsedUser?.id) {
+        autoUserHeader = { 'x-user-id': parsedUser.id };
+      }
+    }
+  } catch { }
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...autoUserHeader,
       ...authHeaders,
       ...(options.headers || {}),
     },
@@ -34,6 +47,209 @@ async function request(path, options = {}) {
 export async function fetchPosts({ userId } = {}) {
   return request('/api/posts', {
     headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchCommunityGroups({ search = '' } = {}) {
+  const query = new URLSearchParams();
+  if (search.trim()) query.set('search', search.trim());
+  return request(`/api/groups${query.size ? `?${query}` : ''}`);
+}
+
+export async function fetchCommunityGroupFeed({ search = '' } = {}) {
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const groupsResponse = await fetchCommunityGroups();
+  const groups = Array.isArray(groupsResponse?.data) ? groupsResponse.data : [];
+  const visibleGroups = groups.filter((group) => (
+    group.membershipStatus === 'active' || (normalizedSearch && group.privacy === 'public')
+  ));
+  const postLists = await Promise.all(visibleGroups.map(async (group) => {
+    try {
+      const response = await fetchCommunityGroupPosts(group.id);
+      const posts = Array.isArray(response?.data) ? response.data : [];
+      return posts
+        .filter((post) => post.status === 'approved')
+        .filter((post) => {
+          if (!normalizedSearch) return true;
+          return [post.content, post.authorName, post.username, group.name]
+            .some((value) => String(value || '').toLocaleLowerCase().includes(normalizedSearch));
+        })
+        .map((post) => ({ ...post, groupName: group.name, canRecommend: false, canInteract: group.membershipStatus === 'active' }));
+    } catch {
+      return [];
+    }
+  }));
+
+  return {
+    success: true,
+    data: postLists.flat().sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)),
+  };
+}
+
+export async function createCommunityGroup({ name, description, rules, privacy, isDiscoverable, postApprovalMode }) {
+  return request('/api/groups', {
+    method: 'POST',
+    body: JSON.stringify({ name, description, rules, privacy, isDiscoverable, postApprovalMode }),
+  });
+}
+
+export async function updateCommunityGroupPostApprovalMode({ groupId, postApprovalMode }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/post-approval-mode`, {
+    method: 'PUT',
+    body: JSON.stringify({ postApprovalMode }),
+  });
+}
+
+export async function fetchCommunityGroup(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}`);
+}
+
+export async function joinCommunityGroup(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/join`, { method: 'POST', body: '{}' });
+}
+
+export async function leaveCommunityGroup(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/leave`, { method: 'POST', body: '{}' });
+}
+
+export async function fetchCommunityGroupPosts(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts`);
+}
+
+export async function fetchCommunityGroupPostComments({ groupId, postId }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/comments`);
+}
+
+export async function fetchCommunityGroupPostReactions({ groupId, postId }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/reactions`);
+}
+
+export async function createCommunityGroupPostComment({ groupId, postId, content, parentId = null, imageUrl = null, imageCleanupToken = null }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ content, parentId, imageUrl, imageCleanupToken }),
+  });
+}
+
+export async function updateCommunityGroupPostReaction({ groupId, postId, type, action }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/reaction`, {
+    method: 'PUT',
+    body: JSON.stringify({ type: type || null, action }),
+  });
+}
+
+export async function updateCommunityGroupCommentReaction({ groupId, postId, commentId, type, action }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/reaction`, {
+    method: 'PUT',
+    body: JSON.stringify({ type: type || null, action }),
+  });
+}
+
+export async function shareCommunityGroupPost({ groupId, postId }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/share`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export async function createCommunityGroupPost({ groupId, content, imageUrl = null, imageCleanupToken = null }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts`, {
+    method: 'POST',
+    body: JSON.stringify({ content, imageUrl, imageCleanupToken }),
+  });
+}
+
+export async function updateCommunityGroupPost({ groupId, postId, content, imageUrl = null, imageCleanupToken = null }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, imageUrl, imageCleanupToken }),
+  });
+}
+
+export async function deleteCommunityGroupPost({ groupId, postId, reason = '' }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function toggleSaveCommunityGroupPost({ groupId, postId }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/save`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export async function fetchSavedCommunityGroupPosts() {
+  return request('/api/groups/saved');
+}
+
+export async function createCommunityGroupReport({ groupId, targetType, targetId, parentPostId = null, reason, details = '' }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/reports`, {
+    method: 'POST',
+    body: JSON.stringify({ targetType, targetId, parentPostId, reason, details }),
+  });
+}
+
+export async function fetchCommunityGroupReports(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/reports`);
+}
+
+export async function reviewCommunityGroupReport({ groupId, reportId, decision, adminNotes = '' }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/reports/${encodeURIComponent(reportId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, adminNotes }),
+  });
+}
+
+export async function createCommunityGroupPostAppeal({ groupId, postId, appealReason }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/appeal`, {
+    method: 'POST',
+    body: JSON.stringify({ appealReason }),
+  });
+}
+
+export async function fetchCommunityGroupAppeals(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/appeals`);
+}
+
+export async function reviewCommunityGroupAppeal({ groupId, appealId, decision, adminNotes = '' }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/appeals/${encodeURIComponent(appealId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, adminNotes }),
+  });
+}
+
+export async function fetchCommunityGroupReviewQueue(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/review-queue`);
+}
+
+export async function reviewCommunityGroupPost({ groupId, postId, decision, reason = '' }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, reason }),
+  });
+}
+
+export async function fetchCommunityGroupMembers(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/members`);
+}
+
+export async function fetchCommunityGroupMemberRequests(groupId) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/member-requests`);
+}
+
+export async function reviewCommunityGroupMember({ groupId, userId, decision }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/member-requests/${encodeURIComponent(userId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ decision }),
+  });
+}
+
+export async function updateCommunityGroupMemberRole({ groupId, userId, role }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}/role`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
   });
 }
 
@@ -67,18 +283,25 @@ export async function createPost({ userId, content, imageUrl, privacy = 'public'
   });
 }
 
-export async function updatePost({ userId, postId, content, imageUrl, forcePost }) {
+export async function updatePost({ userId, postId, content, imageUrl, privacy, forcePost }) {
   if (forcePost) {
     return request(`/api/posts/${postId}`, {
       method: 'PUT',
       headers: userId ? { 'x-user-id': userId } : {},
-      body: JSON.stringify({ content, imageUrl, forcePost: true }),
+      body: JSON.stringify({ content, imageUrl, privacy, forcePost: true }),
+    });
+  }
+  if (privacy === undefined) {
+    return request(`/api/posts/${postId}`, {
+      method: 'PUT',
+      headers: userId ? { 'x-user-id': userId } : {},
+      body: JSON.stringify({ content, imageUrl }),
     });
   }
   return request(`/api/posts/${postId}`, {
     method: 'PUT',
     headers: userId ? { 'x-user-id': userId } : {},
-    body: JSON.stringify({ content, imageUrl }),
+    body: JSON.stringify({ content, imageUrl, privacy }),
   });
 }
 
@@ -89,11 +312,12 @@ export async function deletePost({ userId, postId }) {
   });
 }
 
-export async function createComment({ userId, postId, content, imageUrl, forceComment, authorFilterKeywords }) {
+export async function createComment({ userId, postId, parentId = null, content, imageUrl, forceComment, authorFilterKeywords }) {
   return request(`/api/posts/${postId}/comments`, {
     method: 'POST',
     headers: userId ? { 'x-user-id': userId } : {},
     body: JSON.stringify({
+      parentId: parentId || null,
       content,
       imageUrl: imageUrl || null,
       forceComment: Boolean(forceComment),
@@ -114,7 +338,35 @@ export async function updatePostReaction({ userId, postId, type, action }) {
   });
 }
 
-export async function uploadPostImage(file) {
+export async function fetchPostReactions({ userId, postId }) {
+  return request(`/api/posts/${postId}/reactions`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function updateCommentReaction({ userId, postId, commentId, type, action }) {
+  const resolvedAction = action || (type ? 'set' : 'remove');
+  return request(`/api/posts/${postId}/comments/${commentId}/reaction`, {
+    method: 'PUT',
+    headers: userId ? { 'x-user-id': userId } : {},
+    body: JSON.stringify({
+      type: type || null,
+      action: resolvedAction,
+    }),
+  });
+}
+
+export async function toggleSavePostApi(postId) {
+  return request(`/api/posts/${postId}/save`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchSavedPostsApi() {
+  return request('/api/posts/saved');
+}
+
+async function uploadPostImageAsset(file) {
   const formData = new FormData();
   formData.append('image', file);
 
@@ -138,7 +390,23 @@ export async function uploadPostImage(file) {
     throw new Error(data.error || 'Tải ảnh thất bại');
   }
 
-  return data.url;
+  return data;
+}
+
+export async function uploadPostImage(file) {
+  return (await uploadPostImageAsset(file)).url;
+}
+
+export async function uploadCommunityGroupPostImage(file) {
+  const data = await uploadPostImageAsset(file);
+  return { url: data.url, cleanupToken: data.cleanupToken };
+}
+
+export async function cleanupCommunityGroupPostImage({ imageUrl, cleanupToken }) {
+  return request('/api/upload/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ imageUrl, cleanupToken }),
+  });
 }
 
 export async function previewPostImage(file, userId) {
@@ -187,14 +455,6 @@ export async function sharePost({ userId, postId, content = '', user = null }) {
   const headers = {};
   if (userId) {
     headers['x-user-id'] = userId;
-    const name = user?.name || user?.full_name;
-    if (name) {
-      headers['x-user-name'] = encodeURIComponent(name);
-    }
-    const avatar = user?.avatar || user?.avatar_url;
-    if (avatar) {
-      headers['x-user-avatar'] = encodeURIComponent(avatar);
-    }
   }
 
   return request(`/api/posts/${postId}/share`, {
@@ -403,20 +663,42 @@ export async function createStoryApi({
   });
 }
 
-export async function viewStoryApi(storyId) {
-  return request(`/api/stories/${storyId}/view`, {
-    method: 'POST',
+export async function fetchStoryByIdApi(storyId, userId) {
+  return request(`/api/stories/${storyId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
   });
 }
 
-export async function fetchStoryViewersApi(storyId) {
-  return request(`/api/stories/${storyId}/viewers`);
+export async function fetchUserStoriesApi(userId) {
+  return request(`/api/stories/user/${userId}`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function viewStoryApi(storyId, userId) {
+  return request(`/api/stories/${storyId}/view`, {
+    method: 'POST',
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
+}
+
+export async function fetchStoryViewersApi(storyId, userId) {
+  return request(`/api/stories/${storyId}/viewers`, {
+    headers: userId ? { 'x-user-id': userId } : {},
+  });
 }
 
 export async function reactToStoryApi(storyId, reactionType = 'like') {
   return request(`/api/stories/${storyId}/reactions`, {
     method: 'POST',
     body: JSON.stringify({ reactionType }),
+  });
+}
+
+export async function interactStoryWidgetApi(storyId, { widgetType, stickerId, option, value, text }) {
+  return request(`/api/stories/${storyId}/interact`, {
+    method: 'POST',
+    body: JSON.stringify({ widgetType, stickerId, option, value, text }),
   });
 }
 

@@ -6,7 +6,7 @@ import { realtimeService } from '../../../../backend/src/services/realtimeServic
 import { reviewImageModeration } from '../../../../backend/src/services/imageModerationReviewService.js';
 import { getFinalRejectionEvent } from '../../../../backend/src/services/imageModerationRealtimeEvents.js';
 
-const listTypes = new Set(['all', 'post', 'comment']);
+const listTypes = new Set(['all', 'post', 'comment', 'story']);
 
 export function createImageModerationRouter({ pool }) {
   const router = express.Router();
@@ -68,6 +68,19 @@ async function decide(req, res, next, pool, stage, fixedDecision = null) {
 }
 
 export async function broadcastPublishedItem(pool, { id, type }) {
+  if (type === 'story') {
+    const result = await pool.query(
+      `SELECT s.*, u.full_name, u.username, u.avatar_url, u.is_verified
+       FROM stories s JOIN users u ON u.id = s.author_id
+       WHERE s.id = $1 AND (s.media_moderation_status IS NULL OR s.media_moderation_status IN ('safe', 'sensitive'))`,
+      [id]
+    );
+    const story = result.rows[0];
+    if (story && story.ai_status !== 'hidden') {
+      realtimeService.broadcast({ type: 'STORY_CREATED', story });
+    }
+    return;
+  }
   if (type === 'post') {
     const result = await pool.query(
       `SELECT p.id, p.author_id, p.content, p.image_url, p.image_moderation_status,

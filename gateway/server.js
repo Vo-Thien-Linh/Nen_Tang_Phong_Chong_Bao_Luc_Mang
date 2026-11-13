@@ -58,6 +58,7 @@ const ROUTE_TARGETS = [
   { prefix: '/api/settings', target: SERVICE_URLS.platform, name: 'Platform API (FastAPI)' },
   { prefix: '/api/search', target: SERVICE_URLS.platform, name: 'Platform API (FastAPI)' },
   { prefix: '/api/users', target: SERVICE_URLS.users, name: 'User Service (Express; profile and role APIs)' },
+  { prefix: '/api/groups', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; community groups)' },
   { prefix: '/api/posts', target: SERVICE_URLS.posts, name: 'Social Content Service (Express)' },
   { prefix: '/api/hashtags', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; hashtags)' },
   { prefix: '/api/stories', target: SERVICE_URLS.posts, name: 'Social Content Service (Express; stories)' },
@@ -100,7 +101,7 @@ const server = http.createServer((req, res) => {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-user-name, x-user-avatar, *');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);

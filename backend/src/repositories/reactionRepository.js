@@ -1,3 +1,5 @@
+import { buildPostVisibilityPredicate } from './postVisibility.js';
+
 const emptyCounts = () => ({
   like: 0,
   love: 0,
@@ -25,11 +27,10 @@ export function createReactionRepository({ pool }) {
 
         const postResult = await client.query(
           `SELECT id, author_id, likes_count
-           FROM posts
-           WHERE id = $1 AND ai_status = 'approved'
-             AND (image_moderation_status IS NULL OR image_moderation_status IN ('safe', 'sensitive'))
+           FROM posts p
+           WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}
            FOR UPDATE`,
-          [postId]
+          [postId, userId]
         );
 
         const post = postResult.rows[0];
@@ -139,29 +140,157 @@ export function createReactionRepository({ pool }) {
       }
     },
 
-    async getPostReactions({ postId }) {
-      try {
-        const cleanId = Number(String(postId).replace(/^post-/, ''));
-        if (Number.isNaN(cleanId)) return [];
+    async getPostReactions({ postId, viewerId }) {
+      const cleanId = Number(String(postId).replace(/^post-/, ''));
+      if (Number.isNaN(cleanId)) return [];
 
-        const result = await pool.query(
-          `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
-           FROM post_reactions pr
-           JOIN users u ON pr.user_id = u.id
-           WHERE pr.post_id = $1
-           ORDER BY pr.created_at DESC`,
-          [cleanId]
+      const visiblePost = await pool.query(
+        `SELECT p.id FROM posts p WHERE p.id = $1 AND ${buildPostVisibilityPredicate('$2')}`,
+        [cleanId, viewerId || null]
+      );
+      if (!visiblePost.rows[0]) {
+        const error = new Error('\u0042\u00e0i vi\u1ebft kh\u00f4ng t\u1ed3n t\u1ea1i');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const result = await pool.query(
+        `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
+         FROM post_reactions pr
+         JOIN users u ON pr.user_id = u.id
+         WHERE pr.post_id = $1
+         ORDER BY pr.created_at DESC`,
+        [cleanId]
+      );
+      return result.rows.map(r => ({
+        userId: r.id,
+        name: r.name,
+        avatar: r.avatar,
+        username: r.username,
+        reactionType: r.reaction_type,
+        createdAt: r.created_at
+      }));
+    },
+
+    async setCommentReaction({ userId, postId, commentId, reactionType, forceRemove = false }) {
+      const cleanPostId = Number(String(postId).replace(/^post-/, ''));
+      const cleanCommentId = Number(String(commentId).replace(/^cmt-/, ''));
+      if (!Number.isInteger(cleanPostId) || cleanPostId <= 0 || !Number.isInteger(cleanCommentId) || cleanCommentId <= 0) {
+        const error = new Error('Bình luận không tồn tại');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        const commentRes = await client.query(
+          `SELECT c.id, c.author_id, c.post_id
+           FROM comments c
+           JOIN posts p ON p.id = c.post_id
+           WHERE c.id = $1
+             AND c.post_id = $2
+             AND c.is_hidden = false
+             AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
+             AND ${buildPostVisibilityPredicate('$3')}
+           FOR UPDATE`,
+          [cleanCommentId, cleanPostId, userId]
         );
-        return result.rows.map(r => ({
-          userId: r.id,
-          name: r.name,
-          avatar: r.avatar,
-          username: r.username,
-          reactionType: r.reaction_type,
-          createdAt: r.created_at
-        }));
-      } catch (err) {
-        return [];
+
+        const targetComment = commentRes.rows[0];
+        if (!targetComment) {
+          const error = new Error('Bình luận không tồn tại');
+          error.statusCode = 404;
+          throw error;
+        }
+
+        const currentRes = await client.query(
+          `SELECT reaction_type
+           FROM comment_reactions
+           WHERE user_id = $1 AND comment_id = $2`,
+          [userId, cleanCommentId]
+        );
+        const currentReaction = currentRes.rows[0]?.reaction_type || null;
+
+        let action;
+        let myReaction;
+        const isRevoke = forceRemove || (!reactionType && currentReaction) || (reactionType && currentReaction === reactionType);
+
+        if (isRevoke) {
+          if (currentReaction) {
+            await client.query(
+              `DELETE FROM comment_reactions
+               WHERE user_id = $1 AND comment_id = $2`,
+              [userId, cleanCommentId]
+            );
+          }
+          action = 'removed';
+          myReaction = null;
+        } else if (!currentReaction) {
+          await client.query(
+            `INSERT INTO comment_reactions (user_id, comment_id, reaction_type)
+             VALUES ($1, $2, $3)`,
+            [userId, cleanCommentId, reactionType]
+          );
+
+          if (targetComment.author_id !== userId) {
+            const reactionLabels = {
+              like: 'đã thích bình luận của bạn',
+              love: 'đã thả tim bình luận của bạn',
+              haha: 'đã thả haha vào bình luận của bạn',
+              wow: 'đã thả bất ngờ vào bình luận của bạn',
+              sad: 'đã thả buồn vào bình luận của bạn',
+              angry: 'đã thả tức giận vào bình luận của bạn',
+            };
+            const notifContent = reactionLabels[reactionType] || 'đã bày tỏ cảm xúc về bình luận của bạn';
+            await client.query(
+              `INSERT INTO notifications (recipient_id, actor_id, type, content, target_post_id)
+               VALUES ($1, $2, 'like', $3, $4)`,
+              [targetComment.author_id, userId, notifContent, cleanPostId]
+            );
+          }
+
+          action = 'created';
+          myReaction = reactionType;
+        } else {
+          await client.query(
+            `UPDATE comment_reactions
+             SET reaction_type = $3, created_at = CURRENT_TIMESTAMP
+             WHERE user_id = $1 AND comment_id = $2`,
+            [userId, cleanCommentId, reactionType]
+          );
+          action = 'updated';
+          myReaction = reactionType;
+        }
+
+        const countRes = await client.query(
+          `SELECT reaction_type, COUNT(*)::int AS count
+           FROM comment_reactions
+           WHERE comment_id = $1
+           GROUP BY reaction_type`,
+          [cleanCommentId]
+        );
+        await client.query('COMMIT');
+
+        const counts = mapCounts(countRes.rows);
+        const totalCount = Object.values(counts).reduce((total, count) => total + count, 0);
+
+        return {
+          action,
+          postId: String(cleanPostId),
+          commentId: String(cleanCommentId),
+          myReaction,
+          totalCount,
+          totalReactions: totalCount,
+          counts,
+          reactionCounts: counts,
+        };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
       }
     },
   };

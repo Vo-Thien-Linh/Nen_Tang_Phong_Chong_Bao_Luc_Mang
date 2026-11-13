@@ -1,9 +1,11 @@
+import { buildPostVisibilityPredicate } from './postVisibility.js';
+
 export function createUserRepository({ pool }) {
   return {
     async findById(userId) {
       const result = await pool.query(
         `SELECT id, username, full_name, avatar_url, cover_url, role, is_verified,
-                bio, location, hometown, education, high_school, relationship_status,
+                bio, workplace, job_title, location, hometown, education, high_school, relationship_status,
                 phone, status, cooldown_until, cooldown_reason, cooldown_violation_text,
                 banned_until, ban_reason, COALESCE(trust_score, 100) AS trust_score, last_trust_recovery_at, created_at
          FROM users
@@ -46,7 +48,7 @@ export function createUserRepository({ pool }) {
          VALUES ($1, $2, $3, $4, 'USER', 'active')
          ON CONFLICT (id) DO UPDATE SET full_name = COALESCE(EXCLUDED.full_name, users.full_name)
          RETURNING id, username, full_name, avatar_url, cover_url, role, is_verified,
-                   bio, location, hometown, education, high_school, relationship_status,
+                   bio, workplace, job_title, location, hometown, education, high_school, relationship_status,
                    phone, status, cooldown_until, created_at`,
         [id, cleanUsername, cleanFullName, avatarUrl || null]
       );
@@ -59,23 +61,21 @@ export function createUserRepository({ pool }) {
       const result = await pool.query(
         `SELECT
            u.id, u.username, u.full_name, u.avatar_url, u.cover_url,
-           u.role, u.is_verified, u.bio, u.location, u.hometown,
+           u.role, u.is_verified, u.bio, u.workplace, u.job_title, u.location, u.hometown,
            u.education, u.high_school, u.relationship_status,
-           u.phone, u.status, u.created_at,
+           u.email, u.phone, u.status, u.created_at,
+           COALESCE(us.show_email, FALSE) AS show_email,
+           COALESCE(us.show_phone, FALSE) AS show_phone,
            u.cooldown_until, u.cooldown_reason, u.cooldown_violation_text,
            u.banned_until, u.ban_reason, COALESCE(u.trust_score, 100) AS trust_score, u.last_trust_recovery_at,
            (SELECT COUNT(*) FROM posts p
             WHERE p.author_id = u.id
-              AND (
-                p.author_id = $2
-                OR (p.ai_status = 'approved'
-                    AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
-              )
-              AND p.image_moderation_status IS DISTINCT FROM 'rejected_final')::int AS posts_count,
+              AND ${buildPostVisibilityPredicate('$2')})::int AS posts_count,
            (SELECT COUNT(*) FROM friendships
             WHERE (requester_id = u.id OR addressee_id = u.id)
               AND status = 'accepted')::int AS friends_count
          FROM users u
+         LEFT JOIN user_settings us ON us.user_id = u.id
          WHERE u.id = $1`,
         [userId, viewerId]
       );
@@ -105,7 +105,7 @@ export function createUserRepository({ pool }) {
 
     async updateProfile(userId, fields) {
       // Chỉ cho phép cập nhật các trường an toàn
-      const allowed = ['bio', 'location', 'hometown', 'education', 'high_school', 'relationship_status', 'avatar_url', 'cover_url'];
+      const allowed = ['bio', 'workplace', 'job_title', 'location', 'hometown', 'education', 'high_school', 'relationship_status', 'avatar_url', 'cover_url'];
       const updates = [];
       const values = [];
       let paramCount = 1;
@@ -125,8 +125,9 @@ export function createUserRepository({ pool }) {
         `UPDATE users
          SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
          WHERE id = $${paramCount}
-         RETURNING id, username, full_name, avatar_url, cover_url, bio,
-                   location, hometown, education, high_school, relationship_status, is_verified`,
+         RETURNING id, username, full_name, avatar_url, cover_url, bio, workplace, job_title,
+                   location, hometown, education, high_school, relationship_status, is_verified,
+                   email, phone, created_at`,
         values
       );
 
@@ -167,6 +168,7 @@ export function createUserRepository({ pool }) {
            orig_p.id AS orig_id,
            orig_p.content AS orig_content,
            orig_p.image_url AS orig_image_url,
+           orig_p.privacy AS orig_privacy,
            orig_p.created_at AS orig_created_at,
            orig_p.likes_count AS orig_likes_count,
            orig_p.comments_count AS orig_comments_count,
@@ -178,16 +180,11 @@ export function createUserRepository({ pool }) {
            orig_u.is_verified AS orig_author_is_verified
          FROM posts p
          JOIN users u ON u.id = p.author_id
-         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id AND orig_p.ai_status = 'approved'
-           AND (orig_p.image_moderation_status IS NULL OR orig_p.image_moderation_status IN ('safe', 'sensitive'))
+         LEFT JOIN posts orig_p ON orig_p.id = p.original_post_id
+           AND ${buildPostVisibilityPredicate('$2', { tableAlias: 'orig_p' })}
          LEFT JOIN users orig_u ON orig_u.id = orig_p.author_id
          WHERE p.author_id = $1
-           AND p.image_moderation_status IS DISTINCT FROM 'rejected_final'
-           AND (
-             p.author_id = $2
-             OR (p.ai_status = 'approved'
-                 AND (p.image_moderation_status IS NULL OR p.image_moderation_status IN ('safe', 'sensitive')))
-           )
+           AND ${buildPostVisibilityPredicate('$2')}
          ORDER BY p.created_at DESC`,
         [userId, viewerId]
       );
@@ -215,24 +212,33 @@ export function createUserRepository({ pool }) {
           )
         : { rows: [] };
 
+      // Lấy danh sách bài đã lưu của viewer
+      let savedPostIds = new Set();
+      if (viewerId) {
+        try {
+          const savedResult = await pool.query(
+            `SELECT post_id FROM saved_posts WHERE user_id = $1 AND post_id = ANY($2::bigint[])`,
+            [viewerId, postIds]
+          );
+          savedPostIds = new Set(savedResult.rows.map((r) => Number(r.post_id)));
+        } catch {}
+      }
+
       // Lấy comments
       const commentsResult = await pool.query(
-        `SELECT c.id, c.post_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
+        `SELECT c.id, c.post_id, c.parent_id, c.content, c.image_url, c.image_moderation_status, c.image_moderation_label,
                 c.image_moderation_safe, c.image_moderation_nsfw, c.image_moderation_violence,
                 c.image_moderation_thresholds, c.image_moderation_appealed_at, c.created_at,
-                u.id AS author_id, u.full_name, u.username, u.avatar_url
+                c.is_hidden, c.is_soft_hidden, c.ai_label, c.ai_status,
+                u.id AS author_id, u.full_name, u.username, u.avatar_url, u.is_verified
          FROM comments c
          JOIN users u ON u.id = c.author_id
          WHERE c.post_id = ANY($1::bigint[])
            AND c.is_hidden = false
            AND (c.ai_status IS NULL OR c.ai_status != 'hidden')
            AND c.image_moderation_status IS DISTINCT FROM 'rejected_final'
-           AND (
-             c.author_id = $2
-             OR c.image_moderation_status IS NULL
-             OR c.image_moderation_status IN ('safe', 'sensitive')
-           )
-         ORDER BY c.created_at ASC`,
+           AND (c.author_id = $2 OR c.image_moderation_status IS NULL OR c.image_moderation_status IN ('safe', 'sensitive'))
+         ORDER BY c.created_at DESC, c.id DESC`,
         [postIds, viewerId]
       );
 
@@ -258,19 +264,66 @@ export function createUserRepository({ pool }) {
         myReactionByPost.set(Number(row.post_id), row.reaction_type);
       }
 
+      const commentReactionCounts = new Map();
+      const myCommentReaction = new Map();
+      const commentIds = commentsResult.rows.map((c) => Number(c.id)).filter((id) => Number.isInteger(id) && id > 0);
+      if (commentIds.length > 0) {
+        try {
+          const cReactRes = await pool.query(
+            `SELECT comment_id, reaction_type, COUNT(*)::int AS count
+             FROM comment_reactions
+             WHERE comment_id = ANY($1::bigint[])
+             GROUP BY comment_id, reaction_type`,
+            [commentIds]
+          );
+          for (const row of cReactRes.rows || []) {
+            const cid = Number(row.comment_id);
+            if (!commentReactionCounts.has(cid)) {
+              commentReactionCounts.set(cid, { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 });
+            }
+            const bucket = commentReactionCounts.get(cid);
+            if (row.reaction_type in bucket) bucket[row.reaction_type] = Number(row.count || 0);
+          }
+          if (viewerId) {
+            const myCRes = await pool.query(
+              `SELECT comment_id, reaction_type
+               FROM comment_reactions
+               WHERE user_id = $1 AND comment_id = ANY($2::bigint[])`,
+              [viewerId, commentIds]
+            );
+            for (const row of myCRes.rows || []) {
+              myCommentReaction.set(Number(row.comment_id), row.reaction_type);
+            }
+          }
+        } catch {}
+      }
+
       for (const c of commentsResult.rows) {
         const pid = Number(c.post_id);
+        const cid = Number(c.id);
+        const rCounts = commentReactionCounts.get(cid) || { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+        const rTotal = Object.values(rCounts).reduce((sum, val) => sum + Number(val || 0), 0);
         if (commentsByPost.has(pid)) {
           commentsByPost.get(pid).push({
             id: String(c.id),
+            parentId: c.parent_id ? String(c.parent_id) : null,
+            parent_id: c.parent_id ? String(c.parent_id) : null,
             author: {
               id: c.author_id,
               name: c.full_name,
               username: c.username,
               avatar: c.avatar_url,
+              isVerified: Boolean(c.is_verified),
             },
             content: c.content,
             image: c.image_url || null,
+            is_hidden: Boolean(c.is_hidden),
+            is_soft_hidden: Boolean(c.is_soft_hidden),
+            ai_label: c.ai_label || 'Normal',
+            ai_status: c.ai_status || 'approved',
+            reactionCounts: rCounts,
+            totalReactions: rTotal,
+            myReaction: myCommentReaction.get(cid) || null,
             imageModeration: c.image_moderation_status ? {
               status: c.image_moderation_status,
               label: c.image_moderation_label || null,
@@ -292,6 +345,8 @@ export function createUserRepository({ pool }) {
           reaction_counts: counts,
           total_reactions: total,
           my_reaction: myReactionByPost.get(pid) || null,
+          isSaved: savedPostIds.has(pid),
+          is_saved: savedPostIds.has(pid),
           comments: commentsByPost.get(pid) || [],
           imageModeration: post.image_moderation_status ? {
             status: post.image_moderation_status,
