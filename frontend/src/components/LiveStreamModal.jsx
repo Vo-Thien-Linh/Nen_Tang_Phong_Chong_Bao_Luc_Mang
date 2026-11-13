@@ -839,8 +839,8 @@ export default function LiveStreamModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fadeIn">
-      <div className="relative w-full max-w-6xl h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-0 sm:p-4 animate-fadeIn">
+      <div className="relative w-full max-w-6xl h-[100dvh] sm:h-[90vh] bg-slate-900 border-0 sm:border border-slate-800 rounded-none sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row">
         
         {/* KHUNG TRÁI: VIDEO STREAM CHÍNH */}
         <div className="relative flex-1 bg-black flex flex-col justify-between overflow-hidden">
@@ -1236,7 +1236,7 @@ export default function LiveStreamModal({
         </div>
 
         {/* KHUNG PHẢI: KHUNG CHAT REALTIME CÓ KIỂM DUYỆT TỰ ĐỘNG */}
-        <div className="w-full lg:w-96 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-72 lg:h-full">
+        <div className="w-full lg:w-96 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-60 sm:h-72 lg:h-full shrink-0">
           
           {/* Header Chat */}
           <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Home, Bell, ShieldCheck, Users, MessageCircle,
   LayoutDashboard, LogOut, LogIn, UserPlus, ChevronDown, User, Shield, Settings,
-  Sun, Moon, Bookmark
+  Sun, Moon, Bookmark, Search
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import SearchBar from './SearchBar';
@@ -31,6 +31,7 @@ export default function Navbar({
 }) {
   const { t } = useTranslation();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
   const menuRef = useRef(null);
   const isAdmin = hasRole(currentUser, ROLES.ADMIN);
   const isModerator = hasRole(currentUser, ROLES.MODERATOR);
@@ -97,125 +98,142 @@ export default function Navbar({
         {/* Right Side: Navigation Tabs, Tools, Admin & User Profile */}
         <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2 shrink-0">
           
-          {/* Nút Tab Trang chủ */}
-          <button
-            onClick={handleHomeClick}
-            title={t('nav.home')}
-            className={
-              'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
-              (activeTab === 'home'
-                ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-950/40 dark:text-blue-400'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800')
-            }
-          >
-            <Home className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-            <span className="hidden lg:inline whitespace-nowrap">{t('nav.home')}</span>
-          </button>
-
-          {/* Nút Tab Bạn bè */}
-          <button
-            onClick={() => setActiveTab('friends')}
-            title={t('nav.friends')}
-            className={
-              'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
-              (activeTab === 'friends'
-                ? 'bg-blue-50 text-blue-600 font-bold'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
-            }
-          >
-            <Users className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-            <span className="hidden lg:inline whitespace-nowrap">{t('nav.friends')}</span>
-          </button>
-
-          {/* Nút Tab Nhóm */}
-          <button
-            onClick={() => setActiveTab('groups')}
-            title={t('nav.groups')}
-            className={
-              'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
-              (activeTab === 'groups'
-                ? 'bg-blue-50 text-blue-600 font-bold'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
-            }
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
-              aria-hidden="true"
+          {/* Cụm 5 Tab chính (Ẩn trên Mobile < md vì đã có Bottom Navigation) */}
+          <div className="hidden md:flex items-center gap-1 sm:gap-1.5 lg:gap-2 shrink-0">
+            {/* Nút Tab Trang chủ */}
+            <button
+              onClick={handleHomeClick}
+              title={t('nav.home')}
+              className={
+                'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                (activeTab === 'home'
+                  ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-950/40 dark:text-blue-400'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800')
+              }
             >
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="8.5" r="2.2" />
-              <path d="M7.6 20.9V18a4.4 3.6 0 0 1 8.8 0v2.9" />
-              <path d="M2.35 9.4a3.1 2.7 0 0 1 0 5.2" />
-              <path d="M21.65 9.4a3.1 2.7 0 0 0 0 5.2" />
-            </svg>
-            <span className="hidden lg:inline whitespace-nowrap">{t('nav.groups')}</span>
-          </button>
+              <Home className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+              <span className="hidden lg:inline whitespace-nowrap">{t('nav.home')}</span>
+            </button>
 
-          {/* Nút Tab Tin nhắn */}
+            {/* Nút Tab Bạn bè */}
+            <button
+              onClick={() => setActiveTab('friends')}
+              title={t('nav.friends')}
+              className={
+                'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                (activeTab === 'friends'
+                  ? 'bg-blue-50 text-blue-600 font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+              }
+            >
+              <Users className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+              <span className="hidden lg:inline whitespace-nowrap">{t('nav.friends')}</span>
+            </button>
+
+            {/* Nút Tab Nhóm */}
+            <button
+              onClick={() => setActiveTab('groups')}
+              title={t('nav.groups')}
+              className={
+                'h-10 flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                (activeTab === 'groups'
+                  ? 'bg-blue-50 text-blue-600 font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+              }
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="8.5" r="2.2" />
+                <path d="M7.6 20.9V18a4.4 3.6 0 0 1 8.8 0v2.9" />
+                <path d="M2.35 9.4a3.1 2.7 0 0 1 0 5.2" />
+                <path d="M21.65 9.4a3.1 2.7 0 0 0 0 5.2" />
+              </svg>
+              <span className="hidden lg:inline whitespace-nowrap">{t('nav.groups')}</span>
+            </button>
+
+            {/* Nút Tab Tin nhắn */}
+            <button
+              onClick={() => setActiveTab('messages')}
+              title={t('nav.messages')}
+              className={
+                'h-10 relative flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                (activeTab === 'messages'
+                  ? 'bg-blue-50 text-blue-600 font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+              }
+            >
+              <div className="relative shrink-0 flex items-center justify-center">
+                <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                {unreadMessagesCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 bg-blue-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
+                    {unreadMessagesCount}
+                  </span>
+                )}
+              </div>
+              <span className="hidden lg:inline whitespace-nowrap">{t('nav.messages')}</span>
+            </button>
+
+            {/* Nút Tab Thông báo */}
+            <button
+              onClick={() => setActiveTab('notifications')}
+              title={t('nav.notifications')}
+              className={
+                'h-10 relative flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                (activeTab === 'notifications'
+                  ? 'bg-blue-50 text-blue-600 font-bold'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+              }
+            >
+              <div className="relative shrink-0 flex items-center justify-center">
+                <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs shadow-rose-500/40">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </div>
+              <span className="hidden lg:inline whitespace-nowrap">{t('nav.notifications')}</span>
+            </button>
+          </div>
+
+          {/* Nút Tìm kiếm Mobile (Chỉ hiện trên điện thoại < sm) */}
           <button
-            onClick={() => setActiveTab('messages')}
-            title={t('nav.messages')}
+            onClick={() => setShowMobileSearch(!showMobileSearch)}
+            title="Tìm kiếm bài viết, bạn bè"
             className={
-              'h-10 relative flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
-              (activeTab === 'messages'
-                ? 'bg-blue-50 text-blue-600 font-bold'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+              'sm:hidden h-10 w-10 flex items-center justify-center rounded-xl transition duration-150 cursor-pointer shrink-0 ' +
+              (showMobileSearch
+                ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300')
             }
           >
-            <div className="relative shrink-0 flex items-center justify-center">
-              <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-              {unreadMessagesCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 bg-blue-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
-                  {unreadMessagesCount}
-                </span>
-              )}
-            </div>
-            <span className="hidden lg:inline whitespace-nowrap">{t('nav.messages')}</span>
+            <Search className="w-4 h-4" />
           </button>
 
-          {/* Nút Tab Thông báo */}
-          <button
-            onClick={() => setActiveTab('notifications')}
-            title={t('nav.notifications')}
-            className={
-              'h-10 relative flex items-center gap-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
-              (activeTab === 'notifications'
-                ? 'bg-blue-50 text-blue-600 font-bold'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
-            }
-          >
-            <div className="relative shrink-0 flex items-center justify-center">
-              <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-xs shadow-rose-500/40">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </div>
-            <span className="hidden lg:inline whitespace-nowrap">{t('nav.notifications')}</span>
-          </button>
-
-          {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin; User thường KHÔNG render trong DOM) */}
+          {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin) */}
           {isAdmin ? (
             <button
               id="nav-privileged-btn"
               onClick={() => setActiveTab('admin')}
               title="Khu vực quản trị hệ thống"
               className={
-                'h-10 flex items-center gap-2 px-3 sm:px-3.5 rounded-md text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                'h-10 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
                 (activeTab === 'admin'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200')
               }
             >
               <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">{t("nav.admin")}</span>
+              <span className="hidden sm:inline whitespace-nowrap">{t("nav.admin")}</span>
             </button>
           ) : isModerator ? (
             <button
@@ -223,14 +241,14 @@ export default function Navbar({
               onClick={() => setActiveTab('moderation')}
               title="Khu vực kiểm duyệt nội dung"
               className={
-                'h-10 flex items-center gap-2 px-3 sm:px-3.5 rounded-md text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                'h-10 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
                 (activeTab === 'moderation'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200')
               }
             >
               <Shield className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">{t("nav.moderation")}</span>
+              <span className="hidden sm:inline whitespace-nowrap">{t("nav.moderation")}</span>
             </button>
           ) : null}
 
@@ -238,7 +256,7 @@ export default function Navbar({
           <button
             onClick={onOpenAiLab}
             title="Thử nghiệm AI Kiểm duyệt thời gian thực"
-            className="h-10 flex items-center gap-1.5 px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition duration-150 cursor-pointer whitespace-nowrap shrink-0"
+            className="h-10 flex items-center gap-1.5 px-2.5 sm:px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition duration-150 cursor-pointer whitespace-nowrap shrink-0"
           >
             <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="hidden sm:inline whitespace-nowrap">AI Lab</span>
@@ -391,6 +409,25 @@ export default function Navbar({
         </div>
 
       </div>
+
+      {/* Khung Tìm kiếm bung ra trên Mobile khi bấm nút kính lúp */}
+      {showMobileSearch && (
+        <div className="sm:hidden w-full px-3 py-2 bg-white/98 dark:bg-slate-900/98 border-t border-slate-200/80 dark:border-slate-800 shadow-md animate-fade-in">
+          <SearchBar 
+            onOpenProfile={(id) => {
+              setShowMobileSearch(false);
+              onOpenProfile?.(id);
+            }}
+            onSearchPosts={(query) => {
+              setShowMobileSearch(false);
+              onSearchPosts?.(query);
+            }}
+            clientPosts={clientPosts}
+            activeFilterQuery={activeFilterQuery}
+            onClearFilter={onClearFilter}
+          />
+        </div>
+      )}
     </header>
   );
 }

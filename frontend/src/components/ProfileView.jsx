@@ -1032,7 +1032,7 @@ export default function ProfileView({
             </div>
 
             {/* Các nút hành động bên phải */}
-            <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-2.5 pb-2">
+            <div className="flex flex-row flex-wrap items-center justify-center sm:justify-end gap-2 pb-2">
               {friendActionToast && (
                 <div className="text-xs font-semibold px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl animate-fadeIn">
                   {friendActionToast}
@@ -1219,11 +1219,11 @@ export default function ProfileView({
           <div className="h-px bg-slate-200 dark:bg-slate-800 w-full" />
 
           {/* Thanh Tab điều hướng cá nhân */}
-          <div className="flex items-center justify-between overflow-x-auto text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-400">
-            <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center justify-between overflow-x-auto scrollbar-none touch-pan-x text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-400">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
                 onClick={() => setActiveTab('all')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'all' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1234,7 +1234,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('about')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'about' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1245,7 +1245,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('friends')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'friends' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1256,7 +1256,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('photos')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'photos' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1267,7 +1267,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('reels')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'reels' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1279,7 +1279,7 @@ export default function ProfileView({
               {isOwnProfile && (
                 <button
                   onClick={() => setActiveTab('saved')}
-                  className={`py-3.5 px-4 border-b-4 transition cursor-pointer flex items-center gap-1.5 ${
+                  className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'saved' 
                       ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                       : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1302,7 +1302,7 @@ export default function ProfileView({
 
 
       {/* ================= PHẦN NỘI DUNG CHÍNH (THEO TAB ĐƯỢC CHỌN) ================= */}
-      <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-5">
+      <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-5">
         
         {/* ── TAB 1: TẤT CẢ (CHUẨN 2 CỘT FACEBOOK) ────────────────── */}
         {activeTab === 'all' && (

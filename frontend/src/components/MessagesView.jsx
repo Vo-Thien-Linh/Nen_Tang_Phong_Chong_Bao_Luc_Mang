@@ -209,7 +209,8 @@ export default function MessagesView({
   onRequireAuth,
   onOpenProfile,
   onOpenStoryViewer,
-  onUnreadCountChange
+  onUnreadCountChange,
+  onMobileChatStateChange
 }) {
   const { t, isEn } = useTranslation();
   if (!currentUser) {
@@ -268,6 +269,10 @@ export default function MessagesView({
   const [searchTerm, setSearchTerm] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+
+  useEffect(() => {
+    onMobileChatStateChange?.(mobileShowChat);
+  }, [mobileShowChat, onMobileChatStateChange]);
   
   // Modal tạo nhóm chat mới
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -2708,7 +2713,7 @@ export default function MessagesView({
           </div>
 
           {/* VÙNG CUỘN ĐỘC LẬP: DANH SÁCH CÁC CUỘC TRÒ CHUYỆN */}
-          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 overscroll-contain">
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 overscroll-contain pb-20 md:pb-0">
             {displayedConversations.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 {inboxTab === 'main' ? (
@@ -3750,7 +3755,7 @@ export default function MessagesView({
 
                   <form 
                     onSubmit={handleSendMessage}
-                    className="p-3 sm:p-4 flex items-center gap-2"
+                    className="p-3 sm:p-4 pb-[max(env(safe-area-inset-bottom,0px),12px)] flex items-center gap-2"
                   >
                     <button
                       type="button"

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
+import BottomNav from './components/BottomNav';
 import HomeView from './components/HomeView';
 import CommunityGroupsView from './components/CommunityGroupsView';
 import HashtagView from './components/HashtagView';
@@ -177,6 +178,7 @@ export default function App() {
   // Quản lý trạng thái chức năng Livestream THẬT từ CSDL PostgreSQL/SQLite
   const [isCreateLiveOpen, setIsCreateLiveOpen] = useState(false);
   const [activeLiveSession, setActiveLiveSession] = useState(null);
+  const [isInMobileChat, setIsInMobileChat] = useState(false);
   const [liveStreamMode, setLiveStreamMode] = useState('view');
   const [activeStreamsList, setActiveStreamsList] = useState([]);
 
@@ -1982,7 +1984,7 @@ export default function App() {
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
-      <div className={`flex-1 min-h-0 ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col h-full overflow-hidden' : 'pb-16'}`}>
+      <div className={`flex-1 min-h-0 ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col h-full overflow-hidden' : 'pb-20 md:pb-12'}`}>
         
         {/* Tab 1: Trang chủ / News Feed */}
         {activeTab === 'home' && (
@@ -2118,6 +2120,7 @@ export default function App() {
               onOpenProfile={handleOpenUserProfile}
               onOpenStoryViewer={handleOpenStoryViewer}
               onUnreadCountChange={setUnreadMessagesCount}
+              onMobileChatStateChange={setIsInMobileChat}
             />
           )}
         </div>
@@ -2385,6 +2388,17 @@ export default function App() {
           onViewPost={handleViewPost}
           onOpenStoryViewer={handleOpenStoryViewer}
           onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
+
+      {/* Thanh điều hướng dưới đáy màn hình trên Mobile (ẩn khi đang chat bên trong cuộc trò chuyện cụ thể) */}
+      {!(activeTab === 'messages' && isInMobileChat) && (
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={handleTabChange}
+          unreadCount={unreadCount}
+          unreadMessagesCount={unreadMessagesCount}
+          onRefreshHome={handleRefreshHome}
         />
       )}
 

@@ -223,7 +223,7 @@ export default function NotificationsView({
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 animate-fade-in">
+    <div className="w-full max-w-4xl mx-auto px-2 sm:px-6 py-3 sm:py-8 animate-fade-in">
       {/* Container chính với hiệu ứng bo góc và shadow mềm */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm overflow-hidden transition-all">
         
@@ -285,7 +285,7 @@ export default function NotificationsView({
         </div>
 
         {/* Bộ lọc tabs hiện đại */}
-        <div className="px-5 sm:px-6 py-2.5 bg-slate-50/70 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none text-xs font-semibold">
+        <div className="px-3 sm:px-6 py-2.5 bg-slate-50/70 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none touch-pan-x text-xs font-semibold">
           {[
             { key: 'all', label: isEn ? 'All' : 'Tất cả', count: notifications.length },
             { key: 'unread', label: isEn ? 'Unread' : 'Chưa đọc', count: unreadCount },
@@ -297,7 +297,7 @@ export default function NotificationsView({
               <button
                 key={tab.key}
                 onClick={() => handleFilterClick(tab.key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition duration-150 cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl shrink-0 transition duration-150 cursor-pointer whitespace-nowrap ${
                   isActive
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-slate-200/80 dark:border-slate-700'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-800'
