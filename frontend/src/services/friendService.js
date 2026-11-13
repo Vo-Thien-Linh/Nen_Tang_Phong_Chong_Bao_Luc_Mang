@@ -60,10 +60,8 @@ export const friendService = {
     if (!force && memoryCache.friends[cacheKey]) return memoryCache.friends[cacheKey];
 
     try {
-      const url = new URL(`${API_BASE_URL}/list`);
-      if (search) url.searchParams.append('search', search);
-
-      const res = await fetch(url.toString(), {
+      const searchParam = search ? `?search=${encodeURIComponent(search)}` : '';
+      const res = await fetch(`${API_BASE_URL}/list${searchParam}`, {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Không thể tải danh sách bạn bè');

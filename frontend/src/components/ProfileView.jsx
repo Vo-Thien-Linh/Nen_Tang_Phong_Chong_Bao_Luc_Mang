@@ -7,13 +7,13 @@ import {
   MessageCircle, Send, ThumbsUp, Loader2, X, Search, Sparkles, 
   Eye, Users, Plus, Check, UploadCloud,
   UserPlus, UserCheck, Clock, UserX, ArrowLeft, ShieldAlert,
-  ShieldCheck, ExternalLink, Mail, Phone, Trash2, Bookmark
+  ShieldCheck, ExternalLink, Mail, Phone, Trash2, Bookmark, Archive, Play
 } from 'lucide-react';
 import { profileService } from '../services/profileService';
 import { friendService } from '../services/friendService';
 import { messageService } from '../services/messageService';
 import { settingsService } from '../services/settingsService';
-import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchUserStoriesApi, fetchSavedPostsApi, fetchSavedCommunityGroupPosts } from '../api/client';
+import { updatePostReaction, sharePost, fetchUserTrustHistory, fetchStories, fetchUserStoriesApi, fetchSavedPostsApi, fetchSavedCommunityGroupPosts, fetchStoryArchiveApi } from '../api/client';
 import EditProfileModal from './EditProfileModal';
 import SharePostModal from './SharePostModal';
 import CreatePostCard from './CreatePostCard';
@@ -100,6 +100,10 @@ export default function ProfileView({
   const [savedPosts, setSavedPosts] = useState([]);
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
 
+  // ── State Kho lưu trữ tin (Story Archive) ────────────────────
+  const [storyArchive, setStoryArchive] = useState([]);
+  const [isLoadingStoryArchive, setIsLoadingStoryArchive] = useState(false);
+
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
@@ -124,6 +128,19 @@ export default function ProfileView({
         })
         .catch((err) => console.warn('Lỗi lấy bài viết đã lưu:', err.message))
         .finally(() => setIsLoadingSaved(false));
+    }
+  }, [activeTab, isOwnProfile, currentUser?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'story_archive' && isOwnProfile && currentUser?.id) {
+      setIsLoadingStoryArchive(true);
+      fetchStoryArchiveApi(50, 0)
+        .then((res) => {
+          const list = res?.data || (Array.isArray(res) ? res : []);
+          setStoryArchive(Array.isArray(list) ? list : []);
+        })
+        .catch((err) => console.warn('Lỗi lấy kho lưu trữ tin:', err.message))
+        .finally(() => setIsLoadingStoryArchive(false));
     }
   }, [activeTab, isOwnProfile, currentUser?.id]);
 
@@ -889,7 +906,7 @@ export default function ProfileView({
       {/* Loading skeleton toàn trang khi đang tải profile */}
       {isLoadingProfile && (
         <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
-          <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
             <div className="h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
             <div className="flex items-end gap-5 pb-6 pt-0 px-4 mt-[-4rem]">
               <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-slate-300 dark:bg-slate-700 animate-pulse ring-4 ring-white dark:ring-slate-900" />
@@ -930,7 +947,7 @@ export default function ProfileView({
 
       {/* ================= PHẦN TRÊN: HEADER TRANG CÁ NHÂN (CHUẨN FACEBOOK) ================= */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
-        <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-3 sm:px-6 lg:px-8">
           
           {/* Ảnh bìa (Cover photo) */}
           <div className="relative h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl sm:rounded-b-3xl overflow-hidden bg-slate-200 dark:bg-slate-800 shadow-inner group">
@@ -1032,7 +1049,7 @@ export default function ProfileView({
             </div>
 
             {/* Các nút hành động bên phải */}
-            <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-2.5 pb-2">
+            <div className="flex flex-row flex-wrap items-center justify-center sm:justify-end gap-2 pb-2">
               {friendActionToast && (
                 <div className="text-xs font-semibold px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl animate-fadeIn">
                   {friendActionToast}
@@ -1219,11 +1236,11 @@ export default function ProfileView({
           <div className="h-px bg-slate-200 dark:bg-slate-800 w-full" />
 
           {/* Thanh Tab điều hướng cá nhân */}
-          <div className="flex items-center justify-between overflow-x-auto text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-400">
-            <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center justify-between overflow-x-auto scrollbar-none touch-pan-x text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-400">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
                 onClick={() => setActiveTab('all')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'all' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1234,7 +1251,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('about')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'about' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1245,7 +1262,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('friends')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'friends' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1256,7 +1273,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('photos')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'photos' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1267,7 +1284,7 @@ export default function ProfileView({
 
               <button
                 onClick={() => setActiveTab('reels')}
-                className={`py-3.5 px-4 border-b-4 transition cursor-pointer ${
+                className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer ${
                   activeTab === 'reels' 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1279,7 +1296,7 @@ export default function ProfileView({
               {isOwnProfile && (
                 <button
                   onClick={() => setActiveTab('saved')}
-                  className={`py-3.5 px-4 border-b-4 transition cursor-pointer flex items-center gap-1.5 ${
+                  className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'saved' 
                       ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                       : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -1294,6 +1311,25 @@ export default function ProfileView({
                   )}
                 </button>
               )}
+
+              {isOwnProfile && (
+                <button
+                  onClick={() => setActiveTab('story_archive')}
+                  className={`py-3 sm:py-3.5 px-3 sm:px-4 border-b-4 whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'story_archive' 
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
+                      : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Archive className="w-4 h-4" />
+                  <span>{isEn ? 'Story Archive' : 'Kho lưu trữ tin'}</span>
+                  {storyArchive.length > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                      {storyArchive.length}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1302,7 +1338,7 @@ export default function ProfileView({
 
 
       {/* ================= PHẦN NỘI DUNG CHÍNH (THEO TAB ĐƯỢC CHỌN) ================= */}
-      <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-5">
+      <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-5">
         
         {/* ── TAB 1: TẤT CẢ (CHUẨN 2 CỘT FACEBOOK) ────────────────── */}
         {activeTab === 'all' && (
@@ -2244,6 +2280,146 @@ export default function ProfileView({
                 <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'No saved posts yet' : 'Chưa có bài viết nào được lưu'}</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
                   {isEn ? 'Click the bookmark icon at the bottom right of any post to save it and review it here.' : 'Nhấn vào biểu tượng lưu ở góc dưới bên phải bất kỳ bài viết nào để lưu lại và xem lại tại đây.'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB 7: KHO LƯU TRỮ TIN (STORY ARCHIVE) ───────────────── */}
+        {activeTab === 'story_archive' && isOwnProfile && (
+          <div className="max-w-5xl mx-auto space-y-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                  <Archive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">{isEn ? 'Story Archive' : 'Kho lưu trữ tin'}</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Only you can see your archived stories. Expired stories (after 24 hours) are preserved safely here.' : 'Chỉ bạn mới có thể xem kho lưu trữ tin của mình. Các tin sau 24 giờ sẽ tự động được lưu trữ an toàn tại đây.'}</p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full self-start sm:self-auto shrink-0">
+                {storyArchive.length} {isEn ? 'stories' : 'tin'}
+              </span>
+            </div>
+
+            {isLoadingStoryArchive ? (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 text-center border border-slate-200 dark:border-slate-800">
+                <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-2" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">{isEn ? 'Loading archived stories...' : 'Đang tải kho lưu trữ tin...'}</p>
+              </div>
+            ) : storyArchive.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                {storyArchive.map((story) => {
+                  const isExpired = story.expires_at ? new Date(story.expires_at) <= new Date() : false;
+                  const bgStyle = typeof story.background_style === 'string'
+                    ? (() => { try { return JSON.parse(story.background_style); } catch { return {}; } })()
+                    : (story.background_style || {});
+                  const isMedia = Boolean(story.media_url);
+                  const isVideo = story.story_type === 'video' || (story.media_url && story.media_url.match(/\.(mp4|webm|mov)(\?.*)?$/i));
+
+                  return (
+                    <div
+                      key={story.id}
+                      onClick={() => {
+                        if (onOpenStoryViewer) {
+                          onOpenStoryViewer({
+                            tray: {
+                              author: {
+                                id: activeUser.id,
+                                name: activeUser.name || activeUser.full_name,
+                                username: activeUser.username,
+                                avatar: activeUser.avatar || activeUser.avatar_url || DEFAULT_AVATAR
+                              },
+                              stories: [story]
+                            },
+                            storyId: String(story.id),
+                            userId: activeUser.id
+                          });
+                        }
+                      }}
+                      className="group relative aspect-[9/16] rounded-2xl overflow-hidden cursor-pointer bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02] flex flex-col justify-between p-3"
+                    >
+                      {/* Background Media / Color */}
+                      <div className="absolute inset-0 z-0">
+                        {isMedia ? (
+                          isVideo ? (
+                            <video
+                              src={story.media_url}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                              preload="metadata"
+                            />
+                          ) : (
+                            <img
+                              src={story.media_url}
+                              alt="Story"
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                            />
+                          )
+                        ) : (
+                          <div 
+                            className="w-full h-full flex items-center justify-center p-3 text-center"
+                            style={{
+                              background: bgStyle.background || bgStyle.gradient || 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                              color: bgStyle.color || '#fff'
+                            }}
+                          >
+                            <p className="text-xs sm:text-sm font-bold line-clamp-4 leading-relaxed select-none">
+                              {story.text_content || 'Tin văn bản'}
+                            </p>
+                          </div>
+                        )}
+                        {/* Gradient bóng mờ cho text dễ đọc */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40 group-hover:from-black/70 transition" />
+                      </div>
+
+                      {/* Header Card: Tag trạng thái (Đang hiển thị / Đã lưu trữ) */}
+                      <div className="relative z-10 flex items-center justify-between">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur-md shadow-xs ${
+                          isExpired 
+                            ? 'bg-black/50 text-slate-300 border border-white/10' 
+                            : 'bg-emerald-500/80 text-white'
+                        }`}>
+                          {isExpired ? (isEn ? 'Expired' : 'Đã lưu trữ') : (isEn ? 'Active' : 'Đang phát')}
+                        </span>
+
+                        <div className="w-6 h-6 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                          <Play className="w-3 h-3 text-white fill-white ml-0.5" />
+                        </div>
+                      </div>
+
+                      {/* Footer Card: Thời gian và thống kê */}
+                      <div className="relative z-10 text-white space-y-1">
+                        <div className="flex items-center gap-1 text-[11px] font-medium text-white/90">
+                          <Clock className="w-3 h-3 text-white/70 shrink-0" />
+                          <span className="truncate">{formatRelativeTime(story.created_at || story.createdAt, isEn)}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-white/80 pt-0.5">
+                          <span className="flex items-center gap-1">
+                            <Eye className="w-3 h-3" />
+                            {story.views_count || 0}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Heart className="w-3 h-3 fill-rose-500 text-rose-500" />
+                            {story.reactions_count || 0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs p-12 text-center space-y-3">
+                <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                  <Archive className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{isEn ? 'No archived stories yet' : 'Chưa có tin nào trong kho lưu trữ'}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                  {isEn ? 'Stories you post will automatically be preserved here after they expire in 24 hours.' : 'Các tin (story) bạn đăng tải sẽ tự động được lưu trữ tại đây sau khi hết hạn 24 giờ.'}
                 </p>
               </div>
             )}

@@ -209,7 +209,8 @@ export default function MessagesView({
   onRequireAuth,
   onOpenProfile,
   onOpenStoryViewer,
-  onUnreadCountChange
+  onUnreadCountChange,
+  onMobileChatStateChange
 }) {
   const { t, isEn } = useTranslation();
   if (!currentUser) {
@@ -268,6 +269,10 @@ export default function MessagesView({
   const [searchTerm, setSearchTerm] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+
+  useEffect(() => {
+    onMobileChatStateChange?.(mobileShowChat);
+  }, [mobileShowChat, onMobileChatStateChange]);
   
   // Modal tạo nhóm chat mới
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -2113,13 +2118,22 @@ export default function MessagesView({
 
   // Chọn hội thoại và đánh dấu đã xem
   const handleSelectConversation = (convId) => {
-    if (String(convId) === String(selectedConversationId)) return;
-    // Hủy bỏ trạng thái draft khi người dùng chuyển sang chat khác mà không gửi gì
+    // Luôn mở giao diện chat trên mobile khi người dùng nhấn vào bất kỳ cuộc trò chuyện nào
     setDraftConversation(null);
+    setMobileShowChat(true);
 
     const strId = String(convId);
+    if (strId === String(selectedConversationId)) {
+      // Đã chọn cuộc trò chuyện này, đảm bảo cuộn xuống tin nhắn mới nhất
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 50);
+      return;
+    }
+
     setSelectedConversationId(strId);
-    setMobileShowChat(true);
 
     const existing = conversations.find(c => String(c.id) === strId);
     if (existing && existing.messages && existing.messages.length > 0) {
@@ -2595,10 +2609,10 @@ export default function MessagesView({
 
   return (
     <main className={`w-full h-full min-h-0 flex flex-col overflow-hidden transition-all duration-200 ${
-      isEdgeToEdge ? 'p-0' : 'p-2 sm:p-3 lg:p-4'
+      isEdgeToEdge ? 'p-0' : 'p-0 sm:p-2 lg:p-4'
     }`}>
-      <div className={`bg-white dark:bg-slate-900 shadow-sm border border-slate-200/90 dark:border-slate-800 h-full w-full flex min-h-0 overflow-hidden ${
-        isEdgeToEdge ? 'rounded-none border-x-0 border-b-0' : 'rounded-2xl sm:rounded-3xl'
+      <div className={`bg-white dark:bg-slate-900 shadow-sm h-full w-full flex min-h-0 overflow-hidden ${
+        isEdgeToEdge ? 'rounded-none border-x-0 border-b-0' : 'rounded-none sm:rounded-2xl lg:rounded-3xl border-0 sm:border border-slate-200/90 dark:border-slate-800'
       }`}>
         
         {/* ================= CỘT TRÁI: DANH SÁCH CUỘC TRÒ CHUYỆN ================= */}
@@ -2708,7 +2722,7 @@ export default function MessagesView({
           </div>
 
           {/* VÙNG CUỘN ĐỘC LẬP: DANH SÁCH CÁC CUỘC TRÒ CHUYỆN */}
-          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 overscroll-contain">
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 overscroll-contain pb-20 md:pb-0">
             {displayedConversations.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 {inboxTab === 'main' ? (
@@ -2959,6 +2973,10 @@ export default function MessagesView({
                       {currentConversation.type === 'group' ? (
                         <span className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded text-[10px] font-bold">
                           Nhóm
+                        </span>
+                      ) : currentConversation.user?.isFriend ? (
+                        <span className="px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded text-[10px] font-bold">
+                          Bạn bè
                         </span>
                       ) : currentConversation.status === 'pending' ? (
                         <span className="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded text-[10px] font-bold">
@@ -3750,42 +3768,42 @@ export default function MessagesView({
 
                   <form 
                     onSubmit={handleSendMessage}
-                    className="p-3 sm:p-4 flex items-center gap-2"
+                    className="p-2 sm:p-3 pb-[max(env(safe-area-inset-bottom,0px),8px)] flex items-center gap-1.5 sm:gap-2 shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800"
                   >
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       title="Gửi ảnh"
-                      className="p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                      className="p-1.5 sm:p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer shrink-0"
                     >
-                      <ImageIcon className="w-5 h-5" />
+                      <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => docFileInputRef.current?.click()}
                       title="Đính kèm tệp tin"
-                      className="p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                      className="p-1.5 sm:p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer shrink-0"
                     >
-                      <Paperclip className="w-5 h-5" />
+                      <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                       title="Biểu tượng cảm xúc"
-                      className={`p-2 rounded-xl transition cursor-pointer ${
+                      className={`p-1.5 sm:p-2 rounded-xl transition cursor-pointer shrink-0 ${
                         showEmojiPicker ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-500' : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
-                      <Smile className="w-5 h-5" />
+                      <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
 
                     <input
                       ref={inputRef}
                       type="text"
                       placeholder={
-                        currentConversation.status === 'pending'
+                        currentConversation.status === 'pending' && currentConversation.initiatedBy !== currentUser?.id
                           ? 'Chấp nhận cuộc trò chuyện để trả lời...'
-                          : ('Nhắn tin cho ' + currentConversation.user.name + '... (Nhấn Enter để gửi)')
+                          : (`Nhắn tin cho ${currentConversation.type === 'group' ? (currentConversation.name || 'nhóm') : currentConversation.user.name}... (Nhấn Enter để gửi)`)
                       }
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
@@ -3797,7 +3815,7 @@ export default function MessagesView({
                           }
                         }
                       }}
-                      className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-750 focus:bg-white dark:focus:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/30 outline-none transition"
+                      className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-750 focus:bg-white dark:focus:bg-slate-800 text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 rounded-full border border-transparent focus:border-blue-400 dark:focus:border-blue-500 focus:ring-2 sm:focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/30 outline-none transition"
                     />
 
                     <button
@@ -3805,7 +3823,7 @@ export default function MessagesView({
                       disabled={!inputText.trim() && !selectedImagePreview && !selectedFileAttachment}
                       title={inputText.trim() || selectedImagePreview || selectedFileAttachment ? "Gửi tin nhắn (Enter)" : "Nhập nội dung hoặc đính kèm ảnh/tệp tin để gửi"}
                       className={
-                        'p-2.5 rounded-full text-white transition shadow-sm ' +
+                        'p-2 sm:p-2.5 rounded-full text-white transition shadow-sm shrink-0 ' +
                         (inputText.trim() || selectedImagePreview || selectedFileAttachment
                           ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 scale-105 cursor-pointer'
                           : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed opacity-60')

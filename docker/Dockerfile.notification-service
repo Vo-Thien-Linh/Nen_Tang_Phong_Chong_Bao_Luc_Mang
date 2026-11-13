@@ -5,12 +5,8 @@ COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN npm ci --omit=dev --prefix backend
 RUN ln -s /app/backend/node_modules /app/node_modules
-COPY backend/src/config/db.js ./backend/src/config/db.js
-COPY backend/src/middleware/auth.js ./backend/src/middleware/auth.js
-COPY backend/src/repositories/userRepository.js ./backend/src/repositories/userRepository.js
-COPY backend/src/services/postgresRealtimeBridge.js ./backend/src/services/postgresRealtimeBridge.js
-COPY backend/src/services/realtimeService.js ./backend/src/services/realtimeService.js
-COPY backend/src/utils/rbac.js ./backend/src/utils/rbac.js
+COPY shared ./shared
+COPY backend/src ./backend/src
 COPY services/notification-service/src ./services/notification-service/src
 COPY services/notification-service/server.js ./services/notification-service/server.js
 

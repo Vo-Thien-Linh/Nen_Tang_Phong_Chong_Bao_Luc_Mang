@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from './components/Navbar';
+import BottomNav from './components/BottomNav';
 import HomeView from './components/HomeView';
 import CommunityGroupsView from './components/CommunityGroupsView';
 import HashtagView from './components/HashtagView';
@@ -177,6 +178,7 @@ export default function App() {
   // Quản lý trạng thái chức năng Livestream THẬT từ CSDL PostgreSQL/SQLite
   const [isCreateLiveOpen, setIsCreateLiveOpen] = useState(false);
   const [activeLiveSession, setActiveLiveSession] = useState(null);
+  const [isInMobileChat, setIsInMobileChat] = useState(false);
   const [liveStreamMode, setLiveStreamMode] = useState('view');
   const [activeStreamsList, setActiveStreamsList] = useState([]);
 
@@ -1948,7 +1950,7 @@ export default function App() {
   };
 
   return (
-    <div className={`bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+    <div className={`w-full max-w-full overflow-x-hidden bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-screen'}`}>
 
 
       {/* Thanh điều hướng chính */}
@@ -1982,7 +1984,7 @@ export default function App() {
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
-      <div className={`flex-1 min-h-0 ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col h-full overflow-hidden' : 'pb-16'}`}>
+      <div className={`flex-1 min-h-0 w-full max-w-full overflow-x-hidden ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col flex-1 min-h-0 overflow-hidden' : 'pb-20 md:pb-12'}`}>
         
         {/* Tab 1: Trang chủ / News Feed */}
         {activeTab === 'home' && (
@@ -2107,7 +2109,7 @@ export default function App() {
         )}
 
         {/* Tab 3: Tin nhắn (Hỗ trợ báo cáo tin nhắn, giữ DOM để chuyển tab tức thì 0s) */}
-        <div className={activeTab === 'messages' ? 'h-full flex flex-col flex-1' : 'hidden'}>
+        <div className={activeTab === 'messages' ? 'flex-1 min-h-0 h-full flex flex-col overflow-hidden' : 'hidden'}>
           {hasVisitedMessages && currentUser && (
             <MessagesView 
               currentUser={currentUser} 
@@ -2118,6 +2120,7 @@ export default function App() {
               onOpenProfile={handleOpenUserProfile}
               onOpenStoryViewer={handleOpenStoryViewer}
               onUnreadCountChange={setUnreadMessagesCount}
+              onMobileChatStateChange={setIsInMobileChat}
             />
           )}
         </div>
@@ -2385,6 +2388,17 @@ export default function App() {
           onViewPost={handleViewPost}
           onOpenStoryViewer={handleOpenStoryViewer}
           onClose={() => setActiveStoryViewerTarget(null)}
+        />
+      )}
+
+      {/* Thanh điều hướng dưới đáy màn hình trên Mobile (ẩn khi đang chat bên trong cuộc trò chuyện cụ thể) */}
+      {!(activeTab === 'messages' && isInMobileChat) && (
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={handleTabChange}
+          unreadCount={unreadCount}
+          unreadMessagesCount={unreadMessagesCount}
+          onRefreshHome={handleRefreshHome}
         />
       )}
 

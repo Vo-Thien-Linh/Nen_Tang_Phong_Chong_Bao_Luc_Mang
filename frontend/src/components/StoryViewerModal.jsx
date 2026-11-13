@@ -11,6 +11,7 @@ import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi, in
 import { messageService } from '../services/messageService';
 import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import { formatRelativeTime } from '../utils/timeAgo';
 
 const REACTION_ICONS = [
   { type: 'like', label: 'Thích', emoji: '👍' },
@@ -990,9 +991,8 @@ export default function StoryViewerModal({
               <p className="text-white/70 text-xs">
                 {(() => {
                   try {
-                    const raw = currentStory.createdAt || currentStory.created_at || Date.now();
-                    const d = new Date(raw);
-                    return isNaN(d.getTime()) ? 'Vừa xong' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const raw = currentStory.createdAt || currentStory.created_at || currentStory.createdAtIso;
+                    return raw ? formatRelativeTime(raw) : 'Vừa xong';
                   } catch {
                     return 'Vừa xong';
                   }
@@ -2076,16 +2076,17 @@ export default function StoryViewerModal({
 
         {/* Modal Xem danh sách người đã xem (Chỉ tác giả) */}
         {showViewers && (
-          <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col p-6 text-white animate-slide-up">
-            <div className="flex flex-col gap-2.5 pb-4 border-b border-white/10">
+          <div className="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col p-4 sm:p-6 text-white animate-fade-in">
+            <div className="flex flex-col gap-2.5 pb-3 border-b border-white/10">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-base flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-blue-400" />
+                  <Eye className="w-5 h-5 text-slate-300" />
                   <span>Người xem tin ({viewersList.length})</span>
                 </h3>
                 <button 
                   onClick={() => { setShowViewers(false); setIsPaused(false); }}
-                  className="p-1 rounded-full hover:bg-white/10 cursor-pointer"
+                  className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                  title="Đóng"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2094,16 +2095,16 @@ export default function StoryViewerModal({
               {/* Tóm tắt tất cả các loại cảm xúc trên tin (Facebook Story style) */}
               {totalReactionsBreakdown.length > 0 && (
                 <div className="flex items-center gap-2 pt-1 text-xs">
-                  <span className="text-white/60">Cảm xúc:</span>
+                  <span className="text-slate-400">Cảm xúc:</span>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {totalReactionsBreakdown.map((r) => (
                       <span 
                         key={r.type} 
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-xs select-none shadow-xs hover:bg-white/15 transition"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 text-xs select-none hover:bg-white/15 transition"
                         title={`${r.label}: ${r.total} lượt`}
                       >
                         <span className="text-sm leading-none">{r.emoji}</span>
-                        <span className="font-bold text-white/90">{r.total}</span>
+                        <span className="font-semibold text-slate-200">{r.total}</span>
                       </span>
                     ))}
                   </div>
@@ -2111,13 +2112,13 @@ export default function StoryViewerModal({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto py-4 space-y-3">
+            <div className="flex-1 overflow-y-auto py-3 space-y-2">
               {isLoadingViewers ? (
                 <div className="flex justify-center py-8">
                   <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                 </div>
               ) : viewersList.length === 0 ? (
-                <p className="text-center text-white/50 text-sm py-8">Chưa có ai xem tin này</p>
+                <p className="text-center text-slate-400 text-sm py-8">Chưa có ai xem tin này</p>
               ) : (
                 viewersList.map((v) => {
                   const isTarget = targetViewerId && (
@@ -2133,37 +2134,34 @@ export default function StoryViewerModal({
                           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
                       }}
-                      className={`flex items-center justify-between p-2.5 rounded-2xl transition duration-300 ${
+                      className={`flex items-center justify-between p-3 rounded-2xl transition duration-150 ${
                         isTarget 
-                          ? 'bg-blue-600/35 ring-2 ring-blue-400 shadow-lg shadow-blue-500/25 border border-blue-400/50' 
+                          ? 'bg-slate-800/90 border border-slate-700 shadow-sm' 
                           : 'hover:bg-white/5'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <img 
-                            src={v.avatar_url || DEFAULT_AVATAR} 
-                            alt={v.full_name} 
-                            className={`w-10 h-10 rounded-full object-cover ring-2 ${isTarget ? 'ring-blue-400 ring-offset-2 ring-offset-slate-900' : 'ring-white/20'}`}
-                          />
-                          {isTarget && (
-                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full ring-2 ring-slate-900 animate-ping" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-sm leading-tight flex items-center gap-1.5">
-                            <span>{v.full_name}</span>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <img 
+                          src={v.avatar_url || DEFAULT_AVATAR} 
+                          alt={v.full_name} 
+                          className="w-10 h-10 rounded-full object-cover ring-1 ring-white/15 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-sm leading-tight text-white truncate">
+                              {v.full_name}
+                            </p>
                             {isTarget && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/50 text-blue-200 border border-blue-400/50">
+                              <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
                                 Đã tương tác
                               </span>
                             )}
-                          </p>
-                          <p className="text-xs text-white/50 mt-0.5">
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">
                             {(() => {
                               try {
-                                const d = new Date(v.viewed_at || Date.now());
-                                return isNaN(d.getTime()) ? 'Vừa xong' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                const raw = v.viewed_at || v.viewedAt;
+                                return raw ? formatRelativeTime(raw) : 'Vừa xong';
                               } catch {
                                 return 'Vừa xong';
                               }
@@ -2176,20 +2174,18 @@ export default function StoryViewerModal({
                         if (reactionsSummary.length === 0) return null;
 
                         return (
-                          <div className="flex items-center gap-1.5 flex-wrap justify-end pl-2">
+                          <div className="flex items-center gap-1.5 shrink-0 pl-2">
                             {reactionsSummary.map((item) => (
                               <div
                                 key={item.type}
-                                className={`relative inline-flex items-center justify-center p-1 rounded-full bg-white/10 dark:bg-white/5 border border-white/15 transition-all duration-200 ${
-                                  isTarget ? 'scale-110 ring-2 ring-blue-400 animate-pulse' : 'hover:scale-125'
-                                }`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 transition select-none"
                                 title={`${item.label}${item.count > 1 ? `: ${item.count} lượt` : ''}`}
                               >
-                                <span className="text-xl sm:text-2xl leading-none select-none drop-shadow">
+                                <span className="text-base sm:text-lg leading-none select-none">
                                   {item.emoji}
                                 </span>
                                 {item.count > 1 && (
-                                  <span className="absolute -bottom-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center border border-slate-900 shadow-xs leading-none">
+                                  <span className="text-xs font-bold text-slate-200">
                                     {item.count}
                                   </span>
                                 )}
