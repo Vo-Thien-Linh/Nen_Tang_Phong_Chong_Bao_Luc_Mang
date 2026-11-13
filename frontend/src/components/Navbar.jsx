@@ -58,7 +58,7 @@ export default function Navbar({
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-all shadow-xs shrink-0">
-      <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 sm:gap-4">
+      <div className="max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
         
         {/* Left Side: Logo & Search */}
         <div className="flex items-center gap-3 sm:gap-4 shrink-0">
@@ -210,7 +210,7 @@ export default function Navbar({
             onClick={() => setShowMobileSearch(!showMobileSearch)}
             title="Tìm kiếm bài viết, bạn bè"
             className={
-              'sm:hidden h-10 w-10 flex items-center justify-center rounded-xl transition duration-150 cursor-pointer shrink-0 ' +
+              'sm:hidden h-9 w-9 flex items-center justify-center rounded-xl transition duration-150 cursor-pointer shrink-0 ' +
               (showMobileSearch
                 ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
                 : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300')
@@ -219,21 +219,21 @@ export default function Navbar({
             <Search className="w-4 h-4" />
           </button>
 
-          {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render khi là Moderator hoặc Admin) */}
+          {/* NÚT ĐẶC QUYỀN DUY NHẤT (Chỉ render trên màn hình >= md vì mobile đã có trong User Menu) */}
           {isAdmin ? (
             <button
               id="nav-privileged-btn"
               onClick={() => setActiveTab('admin')}
               title="Khu vực quản trị hệ thống"
               className={
-                'h-10 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                'hidden md:flex h-10 items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
                 (activeTab === 'admin'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200')
               }
             >
               <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline whitespace-nowrap">{t("nav.admin")}</span>
+              <span className="hidden lg:inline whitespace-nowrap">{t("nav.admin")}</span>
             </button>
           ) : isModerator ? (
             <button
@@ -241,32 +241,32 @@ export default function Navbar({
               onClick={() => setActiveTab('moderation')}
               title="Khu vực kiểm duyệt nội dung"
               className={
-                'h-10 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
+                'hidden md:flex h-10 items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 rounded-xl text-xs sm:text-sm font-medium transition duration-150 cursor-pointer whitespace-nowrap shrink-0 ' +
                 (activeTab === 'moderation'
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200')
               }
             >
               <Shield className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline whitespace-nowrap">{t("nav.moderation")}</span>
+              <span className="hidden lg:inline whitespace-nowrap">{t("nav.moderation")}</span>
             </button>
           ) : null}
 
-          {/* AI Moderation Lab Popup Launcher */}
+          {/* AI Moderation Lab Popup Launcher (Màn hình >= md, mobile có trong User Menu) */}
           <button
             onClick={onOpenAiLab}
             title="Thử nghiệm AI Kiểm duyệt thời gian thực"
-            className="h-10 flex items-center gap-1.5 px-2.5 sm:px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition duration-150 cursor-pointer whitespace-nowrap shrink-0"
+            className="hidden md:flex h-10 items-center gap-1.5 px-2.5 sm:px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition duration-150 cursor-pointer whitespace-nowrap shrink-0"
           >
             <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-            <span className="hidden sm:inline whitespace-nowrap">AI Lab</span>
+            <span className="hidden lg:inline whitespace-nowrap">AI Lab</span>
           </button>
 
           {/* Nút Chuyển đổi Giao diện Sáng / Tối */}
           <button
             onClick={onToggleTheme}
             title={theme === 'dark' ? t("nav.switch_to_light") : t("nav.switch_to_dark")}
-            className="h-10 w-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-400 transition duration-150 cursor-pointer shrink-0"
+            className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-400 transition duration-150 cursor-pointer shrink-0"
           >
             {theme === 'dark' ? (
               <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
@@ -276,7 +276,7 @@ export default function Navbar({
           </button>
 
           {/* Phân cách */}
-          <div className="h-6 w-px bg-slate-200 mx-0.5 sm:mx-1 shrink-0" />
+          <div className="hidden sm:block h-6 w-px bg-slate-200 mx-0.5 sm:mx-1 shrink-0" />
 
           {/* ======================================================== */}
           {/* USER PROFILE VÀ MENU ĐĂNG XUẤT / HOẶC NÚT ĐĂNG NHẬP KHÁCH */}
@@ -287,7 +287,7 @@ export default function Navbar({
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 title={t("nav.user_menu")}
                 className={
-                  'h-10 flex items-center gap-1.5 sm:gap-2 p-1 pr-2 sm:pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
+                  'h-9 sm:h-10 flex items-center gap-1.5 sm:gap-2 p-0.5 sm:p-1 pr-1 sm:pr-2.5 rounded-full transition duration-150 border cursor-pointer whitespace-nowrap shrink-0 ' +
                   (showUserMenu || activeTab === 'profile' || activeTab === 'settings'
                     ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100'
                     : 'hover:bg-slate-100 border-slate-200 bg-white/80')
@@ -296,14 +296,14 @@ export default function Navbar({
                 <img 
                   src={currentUser.avatar || currentUser.avatar_url || DEFAULT_AVATAR} 
                   alt={currentUser.name} 
-                  className="w-8 h-8 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0"
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0"
                 />
                 {isAdmin && (
-                  <span className="px-1.5 py-0.5 text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-200/80 rounded-md uppercase tracking-wider">
+                  <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-200/80 rounded-md uppercase tracking-wider">
                     ADMIN
                   </span>
                 )}
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`hidden sm:inline-block w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
               </button>
 
               {/* DROPDOWN MENU TÀI KHOẢN (Chứa nút Đăng xuất theo User Story 3) */}
@@ -347,6 +347,14 @@ export default function Navbar({
                     >
                       <Settings className="w-4 h-4 text-blue-500" />
                       <span>{t('nav.settings')}</span>
+                    </button>
+
+                    <button
+                      onClick={() => { onOpenAiLab(); setShowUserMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium cursor-pointer"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      <span>AI Moderation Lab</span>
                     </button>
 
 

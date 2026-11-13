@@ -160,7 +160,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'r
   );
 
   return (
-    <main className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6 animate-fade-in">
+    <main className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 animate-fade-in">
       <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-xs border border-slate-200/90 dark:border-slate-800 overflow-hidden">
         
         {/* Header */}

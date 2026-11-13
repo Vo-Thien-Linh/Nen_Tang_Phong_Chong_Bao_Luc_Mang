@@ -1950,7 +1950,7 @@ export default function App() {
   };
 
   return (
-    <div className={`bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+    <div className={`w-full max-w-full overflow-x-hidden bg-slate-100/80 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white flex flex-col font-sans transition-colors duration-200 ${activeTab === 'messages' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
 
 
       {/* Thanh điều hướng chính */}
@@ -1984,7 +1984,7 @@ export default function App() {
       />
 
       {/* Vùng hiển thị nội dung theo Tab */}
-      <div className={`flex-1 min-h-0 ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col h-full overflow-hidden' : 'pb-20 md:pb-12'}`}>
+      <div className={`flex-1 min-h-0 w-full max-w-full overflow-x-hidden ${activeTab === 'admin' ? 'pb-6' : activeTab === 'messages' ? 'pb-0 flex flex-col h-full overflow-hidden' : 'pb-20 md:pb-12'}`}>
         
         {/* Tab 1: Trang chủ / News Feed */}
         {activeTab === 'home' && (

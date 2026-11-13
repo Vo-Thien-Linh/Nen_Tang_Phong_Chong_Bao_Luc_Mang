@@ -889,7 +889,7 @@ export default function ProfileView({
       {/* Loading skeleton toàn trang khi đang tải profile */}
       {isLoadingProfile && (
         <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
-          <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
             <div className="h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
             <div className="flex items-end gap-5 pb-6 pt-0 px-4 mt-[-4rem]">
               <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-slate-300 dark:bg-slate-700 animate-pulse ring-4 ring-white dark:ring-slate-900" />
@@ -904,7 +904,7 @@ export default function ProfileView({
 
       {/* Thanh điều hướng Quay lại Bảng tin / Trang trước */}
       <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs border-b border-slate-200/70 dark:border-slate-800 py-2.5 px-4 sm:px-6 lg:px-8 transition-colors">
-        <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto flex items-center justify-between gap-3">
+        <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => {
@@ -930,7 +930,7 @@ export default function ProfileView({
 
       {/* ================= PHẦN TRÊN: HEADER TRANG CÁ NHÂN (CHUẨN FACEBOOK) ================= */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
-        <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           
           {/* Ảnh bìa (Cover photo) */}
           <div className="relative h-64 sm:h-80 md:h-[420px] w-full rounded-b-2xl sm:rounded-b-3xl overflow-hidden bg-slate-200 dark:bg-slate-800 shadow-inner group">
@@ -1302,7 +1302,7 @@ export default function ProfileView({
 
 
       {/* ================= PHẦN NỘI DUNG CHÍNH (THEO TAB ĐƯỢC CHỌN) ================= */}
-      <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-5">
+      <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-5">
         
         {/* ── TAB 1: TẤT CẢ (CHUẨN 2 CỘT FACEBOOK) ────────────────── */}
         {activeTab === 'all' && (

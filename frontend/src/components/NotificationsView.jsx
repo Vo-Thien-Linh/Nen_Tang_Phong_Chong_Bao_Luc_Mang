@@ -223,7 +223,7 @@ export default function NotificationsView({
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-2 sm:px-6 py-3 sm:py-8 animate-fade-in">
+    <div className="w-full max-w-4xl mx-auto px-3 sm:px-6 py-3 sm:py-8 animate-fade-in">
       {/* Container chính với hiệu ứng bo góc và shadow mềm */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm overflow-hidden transition-all">
         
