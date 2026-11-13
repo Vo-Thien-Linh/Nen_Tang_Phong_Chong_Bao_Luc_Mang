@@ -11,6 +11,7 @@ import { viewStoryApi, reactToStoryApi, deleteStoryApi, fetchStoryViewersApi, in
 import { messageService } from '../services/messageService';
 import { friendService } from '../services/friendService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
+import { formatRelativeTime } from '../utils/timeAgo';
 
 const REACTION_ICONS = [
   { type: 'like', label: 'Thích', emoji: '👍' },
@@ -990,9 +991,8 @@ export default function StoryViewerModal({
               <p className="text-white/70 text-xs">
                 {(() => {
                   try {
-                    const raw = currentStory.createdAt || currentStory.created_at || Date.now();
-                    const d = new Date(raw);
-                    return isNaN(d.getTime()) ? 'Vừa xong' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const raw = currentStory.createdAt || currentStory.created_at || currentStory.createdAtIso;
+                    return raw ? formatRelativeTime(raw) : 'Vừa xong';
                   } catch {
                     return 'Vừa xong';
                   }
@@ -2160,8 +2160,8 @@ export default function StoryViewerModal({
                           <p className="text-xs text-slate-400 mt-0.5">
                             {(() => {
                               try {
-                                const d = new Date(v.viewed_at || Date.now());
-                                return isNaN(d.getTime()) ? 'Vừa xong' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                const raw = v.viewed_at || v.viewedAt;
+                                return raw ? formatRelativeTime(raw) : 'Vừa xong';
                               } catch {
                                 return 'Vừa xong';
                               }

@@ -330,7 +330,7 @@ export default function HomeView({
         if (mounted) setFriendsLoading(false);
       });
 
-    friendService.getFriendsList()
+    friendService.getFriendsList('', true)
       .then(list => {
         if (!mounted) return;
         if (Array.isArray(list)) {
@@ -417,7 +417,7 @@ export default function HomeView({
   const isAdmin = Boolean(currentUser && (currentUser.role?.toLowerCase() === 'admin' || currentUser.isAdmin || currentUser.is_admin));
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 animate-fade-in">
+    <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6 animate-fade-in">
       <div className="flex justify-center items-start gap-4 sm:gap-6 lg:gap-8 w-full">
 
         {/* ================= CỘT TRÁI: LỐI TẮT NHANH & PROFILE (HIỆN TRÊN MÀN HÌNH RỘNG XL) ================= */}
