@@ -14,6 +14,7 @@ from ..schemas.message import (
     ConversationPartner,
     CreateGroupRequest,
     UpdateGroupRequest,
+    AddGroupMembersRequest,
 )
 
 class MessageService:
@@ -315,6 +316,145 @@ class MessageService:
                 sender_avatar=updater.avatar_url
             )
             for sm in system_messages
+        ]
+
+        return {
+            "conversation": updated_conv,
+            "system_messages": formatted_sys_msgs
+        }
+
+    @staticmethod
+    def add_group_members(conversation_id: int, user_id: str, payload: AddGroupMembersRequest, db: Session) -> dict:
+        conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conv or getattr(conv, "type", "direct") != "group":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy nhóm trò chuyện"
+            )
+
+        is_member = db.query(ConversationMember).filter(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == user_id
+        ).first() is not None
+        if not is_member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không phải thành viên của nhóm này"
+            )
+
+        adder = db.query(User).filter(User.id == user_id).first()
+        if not adder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy thông tin người dùng"
+            )
+
+        valid_member_ids = list(set([str(mid).strip() for mid in payload.member_ids if str(mid).strip()]))
+        if not valid_member_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Vui lòng chọn ít nhất một thành viên để thêm vào nhóm"
+            )
+
+        existing_member_rows = db.query(ConversationMember.user_id).filter(
+            ConversationMember.conversation_id == conversation_id
+        ).all()
+        existing_member_ids = set([str(m[0]) for m in existing_member_rows])
+
+        new_member_ids = [mid for mid in valid_member_ids if mid not in existing_member_ids]
+        if not new_member_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tất cả người dùng được chọn đã là thành viên của nhóm"
+            )
+
+        new_users = db.query(User).filter(User.id.in_(new_member_ids)).all()
+        if not new_users:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy người dùng được chọn"
+            )
+
+        added_names = []
+        for u in new_users:
+            new_cm = ConversationMember(
+                conversation_id=conv.id,
+                user_id=u.id,
+                role="member"
+            )
+            db.add(new_cm)
+            added_names.append(u.full_name)
+
+        names_str = ", ".join(added_names)
+        sys_msg = Message(
+            conversation_id=conv.id,
+            sender_id=user_id,
+            receiver_id=None,
+            content=f"{adder.full_name} đã thêm {names_str} vào nhóm",
+            media_type="system",
+            status="sent",
+            is_read=True,
+            created_at=func.now()
+        )
+        db.add(sys_msg)
+
+        conv.last_message_at = func.now()
+        conv.updated_at = func.now()
+        db.commit()
+        db.refresh(conv)
+        db.refresh(sys_msg)
+
+        members_query = db.query(ConversationMember, User).join(
+            User, User.id == ConversationMember.user_id
+        ).filter(ConversationMember.conversation_id == conv.id).all()
+
+        group_members = [
+            ConversationPartner(
+                id=str(u.id),
+                name=u.full_name,
+                username=u.username,
+                avatar=u.avatar_url,
+                bio=u.bio,
+                is_online=True,
+                is_friend=True
+            )
+            for _, u in members_query
+        ]
+
+        updated_conv = ConversationItem(
+            id=conv.id,
+            type="group",
+            name=conv.name or "Nhóm trò chuyện",
+            avatar=conv.avatar_url,
+            member_count=len(group_members),
+            members=group_members,
+            status=conv.status,
+            initiated_by=str(conv.initiated_by) if conv.initiated_by else None,
+            blocked_by=None,
+            is_requester=str(conv.initiated_by) == str(user_id),
+            last_message=sys_msg.content,
+            last_message_at=sys_msg.created_at,
+            unread_count=0,
+            last_message_status="sent",
+            last_message_sender_id=str(user_id)
+        )
+
+        formatted_sys_msgs = [
+            MessageItem(
+                id=sys_msg.id,
+                conversation_id=sys_msg.conversation_id,
+                sender_id=str(sys_msg.sender_id),
+                receiver_id=None,
+                content=sys_msg.content,
+                media_url=None,
+                media_type="system",
+                status=sys_msg.status,
+                is_read=sys_msg.is_read,
+                is_recalled=False,
+                created_at=sys_msg.created_at,
+                sender_name=adder.full_name,
+                sender_avatar=adder.avatar_url
+            )
         ]
 
         return {

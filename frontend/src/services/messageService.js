@@ -135,6 +135,27 @@ export const messageService = {
   },
 
   /**
+   * Thêm thành viên vào nhóm trò chuyện
+   */
+  async addMembersToGroup(conversationId, memberIds) {
+    if (!hasValidToken()) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/members`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        member_ids: memberIds
+      })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể thêm thành viên vào nhóm');
+    }
+    return await res.json();
+  },
+
+  /**
    * Gửi tin nhắn mới tới receiverId hoặc nhóm qua conversationId (hỗ trợ văn bản và đa phương tiện ảnh/link)
    */
   async sendMessage(receiverId, content = '', mediaUrl = null, mediaType = 'text', conversationId = null) {

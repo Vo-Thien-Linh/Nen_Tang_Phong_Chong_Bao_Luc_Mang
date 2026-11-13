@@ -14,6 +14,7 @@ import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } fr
 import { fetchStories, fetchUserStoriesApi } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import CreateGroupModal from './CreateGroupModal';
+import AddGroupMemberModal from './AddGroupMemberModal';
 import GroupVideoCallModal from './GroupVideoCallModal';
 import {
   CALL_STATUS,
@@ -276,6 +277,8 @@ export default function MessagesView({
   
   // Modal tạo nhóm chat mới
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  // Modal thêm thành viên vào nhóm chat hiện tại
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
 
   // Trạng thái cập nhật thông tin nhóm (Tên nhóm, Ảnh nhóm)
   const [isEditingGroupName, setIsEditingGroupName] = useState(false);
@@ -1819,9 +1822,13 @@ export default function MessagesView({
   const handleToggleGroupCamera = () => {
     const next = !isGroupVideoOff;
     setIsGroupVideoOff(next);
-    toggleMediaTrack(groupLocalStream, 'video', !next);
+    // Luôn bật/tắt camera vật lý thực tế
     if (groupRawCameraStreamRef.current) {
       toggleMediaTrack(groupRawCameraStreamRef.current, 'video', !next);
+    }
+    // Chỉ tắt/bật groupLocalStream nếu KHÔNG đang chia sẻ màn hình (để không làm tắt luồng chia sẻ màn hình)
+    if (!isGroupScreenSharing) {
+      toggleMediaTrack(groupLocalStream, 'video', !next);
     }
   };
 
@@ -1884,15 +1891,19 @@ export default function MessagesView({
       const rawStream = groupRawCameraStreamRef.current;
       const cameraVideoTrack = rawStream?.getVideoTracks ? rawStream.getVideoTracks()[0] : null;
 
-      if (cameraVideoTrack && meshCallManagerRef.current) {
-        await meshCallManagerRef.current.replaceVideoTrack(cameraVideoTrack);
-        if (rawStream) {
-          meshCallManagerRef.current.setLocalStream(rawStream);
+      if (cameraVideoTrack) {
+        // Đảm bảo trạng thái camera giữ nguyên cài đặt của người dùng
+        cameraVideoTrack.enabled = !isGroupVideoOff;
+        if (meshCallManagerRef.current) {
+          await meshCallManagerRef.current.replaceVideoTrack(cameraVideoTrack);
+          if (rawStream) {
+            meshCallManagerRef.current.setLocalStream(rawStream);
+          }
+          meshCallManagerRef.current.broadcastSignal({
+            type: 'SCREEN_SHARE_CHANGE',
+            is_sharing: false
+          });
         }
-        meshCallManagerRef.current.broadcastSignal({
-          type: 'SCREEN_SHARE_CHANGE',
-          is_sharing: false
-        });
       }
       if (rawStream) {
         setGroupLocalStream(rawStream);
@@ -3053,6 +3064,19 @@ export default function MessagesView({
                     )
                   )}
 
+                  {/* Nút Thêm thành viên vào nhóm chat */}
+                  {currentConversation.type === 'group' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddMemberModal(true)}
+                      title="Thêm thành viên vào nhóm trò chuyện"
+                      className="p-2 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl transition cursor-pointer text-slate-500 dark:text-slate-400 flex items-center gap-1"
+                    >
+                      <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 hidden sm:inline">Thêm người</span>
+                    </button>
+                  )}
+
                   {/* Nút Báo cáo cuộc trò chuyện */}
                   <button 
                     onClick={() => {
@@ -4051,6 +4075,14 @@ export default function MessagesView({
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                   <span>Thành viên ({currentConversation.members.length})</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddMemberModal(true)}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center gap-1 cursor-pointer normal-case"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Thêm người</span>
+                  </button>
                 </div>
                 <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                   {currentConversation.members.map((m) => (
@@ -4441,6 +4473,7 @@ export default function MessagesView({
           groupAvatar={groupCallGroupAvatar}
           currentUser={currentUser}
           localStream={groupLocalStream}
+          rawCameraStream={groupRawCameraStreamRef.current}
           participants={groupCallParticipants}
           remoteStreams={groupCallRemoteStreams}
           callDuration={groupCallDuration}
@@ -4608,6 +4641,21 @@ export default function MessagesView({
               setDraftConversation(null);
               setMobileShowChat(true);
             }
+          }}
+          currentUser={currentUser}
+        />
+
+        {/* Modal Thêm thành viên vào nhóm chat hiện tại */}
+        <AddGroupMemberModal
+          isOpen={showAddMemberModal}
+          onClose={() => setShowAddMemberModal(false)}
+          conversation={currentConversation}
+          onMembersAdded={(updatedGroup) => {
+            if (updatedGroup) {
+              setConversations(prev => prev.map(c => c.id === updatedGroup.id ? { ...c, ...updatedGroup } : c));
+              setCurrentConversation(prev => prev && prev.id === updatedGroup.id ? { ...prev, ...updatedGroup } : prev);
+            }
+            loadServerConversations(false);
           }}
           currentUser={currentUser}
         />

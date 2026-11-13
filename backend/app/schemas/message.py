@@ -14,6 +14,9 @@ class CreateGroupRequest(BaseModel):
     member_ids: List[str]
     avatar_url: Optional[str] = None
 
+class AddGroupMembersRequest(BaseModel):
+    member_ids: List[str]
+
 class UpdateGroupRequest(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
