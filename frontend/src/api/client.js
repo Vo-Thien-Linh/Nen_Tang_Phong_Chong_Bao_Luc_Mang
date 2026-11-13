@@ -707,7 +707,3 @@ export async function deleteStoryApi(storyId) {
     method: 'DELETE',
   });
 }
-
-export async function fetchStoryArchiveApi(limit = 50, offset = 0) {
-  return request(`/api/stories/my-archive?limit=${limit}&offset=${offset}`);
-}

@@ -160,19 +160,19 @@ export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'r
   );
 
   return (
-    <main className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6 animate-fade-in">
+    <main className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
       <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-xs border border-slate-200/90 dark:border-slate-800 overflow-hidden">
         
         {/* Header */}
-        <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2.5">
               <div className="p-2 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-xl">
-                <Users className="w-5 h-5 sm:w-6 sm:h-6" />
+                <Users className="w-6 h-6" />
               </div>
               {isEn ? 'Friends & Connections' : 'Bạn bè & Kết nối'}
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
               {isEn ? 'Manage friend lists, respond to requests, and find new connections' : 'Quản lý danh sách bạn bè, phản hồi lời mời và tìm kiếm kết nối mới'}
             </p>
           </div>
@@ -185,17 +185,17 @@ export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'r
               placeholder={t('friends.search_placeholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-850 text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-blue-400 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/30 outline-none transition"
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-850 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-blue-400 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/30 outline-none transition"
             />
           </div>
         </div>
 
         {/* Tab Controls */}
-        <div className="flex border-b border-slate-100 dark:border-slate-800 px-3 sm:px-6 gap-2 pt-2 bg-slate-50/50 dark:bg-slate-950/40 overflow-x-auto scrollbar-none touch-pan-x">
+        <div className="flex border-b border-slate-100 dark:border-slate-800 px-6 gap-2 pt-2 bg-slate-50/50 dark:bg-slate-950/40">
           <button
             onClick={() => setActiveTab('requests')}
             className={
-              'flex items-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 border-b-2 font-semibold text-xs sm:text-sm whitespace-nowrap shrink-0 transition cursor-pointer ' +
+              'flex items-center gap-2 py-3 px-4 border-b-2 font-semibold text-sm transition cursor-pointer ' +
               (activeTab === 'requests'
                 ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
                 : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200')
@@ -213,7 +213,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'r
           <button
             onClick={() => setActiveTab('all')}
             className={
-              'flex items-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 border-b-2 font-semibold text-xs sm:text-sm whitespace-nowrap shrink-0 transition cursor-pointer ' +
+              'flex items-center gap-2 py-3 px-4 border-b-2 font-semibold text-sm transition cursor-pointer ' +
               (activeTab === 'all'
                 ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
                 : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200')
@@ -226,7 +226,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'r
           <button
             onClick={() => setActiveTab('suggestions')}
             className={
-              'flex items-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 border-b-2 font-semibold text-xs sm:text-sm whitespace-nowrap shrink-0 transition cursor-pointer ' +
+              'flex items-center gap-2 py-3 px-4 border-b-2 font-semibold text-sm transition cursor-pointer ' +
               (activeTab === 'suggestions'
                 ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
                 : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200')
@@ -238,7 +238,7 @@ export default function FriendsView({ onOpenChat, onOpenProfile, initialTab = 'r
         </div>
 
         {/* Tab Content Area */}
-        <div className="p-3 sm:p-6">
+        <div className="p-6">
           
           {/* TAB 1: LỜI MỜI KẾT BẠN */}
           {activeTab === 'requests' && (

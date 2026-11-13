@@ -41,7 +41,7 @@ export default function StoryBar({
       {/* Danh sách các Thẻ Tin nằm ngang */}
       <div
         ref={scrollContainerRef}
-        className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto pb-2 scrollbar-none scroll-smooth px-1 touch-pan-x overscroll-x-contain"
+        className="flex items-center gap-2.5 overflow-x-auto pb-2 scrollbar-none scroll-smooth px-1"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {/* THẺ 1: TẠO TIN (Chuẩn Facebook) */}

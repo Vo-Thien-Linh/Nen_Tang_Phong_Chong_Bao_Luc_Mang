@@ -357,13 +357,13 @@ export default function AuthModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-md animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-md animate-fade-in overflow-y-auto">
       <div 
-        className="relative w-full max-w-lg max-h-[92vh] bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100 overflow-y-auto my-auto"
+        className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header với Gradient sang trọng */}
-        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-4 py-5 sm:px-6 sm:py-6 text-white relative">
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-6 text-white relative">
           <button 
             onClick={onClose}
             className="absolute top-4 right-4 p-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer"
@@ -485,7 +485,7 @@ export default function AuthModal({
         </div>
 
         {/* Thân Form */}
-        <div className="p-4 sm:p-7">
+        <div className="p-6 sm:p-7">
           
           {/* Thông báo lỗi nổi bật */}
           {errorMessage && (
@@ -641,7 +641,7 @@ export default function AuthModal({
                 <p className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
                   <span>💡 Tài khoản mẫu đăng nhập nhanh:</span>
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     id="btn-quick-login-admin"
                     type="button"

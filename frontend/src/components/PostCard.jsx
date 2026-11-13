@@ -1391,18 +1391,18 @@ export default function PostCard({
             onMouseUp={handleReactionButtonMouseUp}
             onTouchStart={handleReactionTouchStart}
             onTouchEnd={handleReactionTouchEnd}
-            className={`w-full py-2 flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none ${
+            className={`w-full py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none ${
               activeReactionObj ? `${activeReactionObj.color} font-bold` : 'text-slate-600 dark:text-slate-300'
             }`}
           >
             {activeReactionObj ? (
               <>
                 <span className="text-base leading-none">{activeReactionObj.emoji}</span>
-                <span className="truncate">{activeReactionObj.label}</span>
+                <span>{activeReactionObj.label}</span>
               </>
             ) : (
               <>
-                <ThumbsUp className="w-4 h-4 text-slate-500 shrink-0" />
+                <ThumbsUp className="w-4 h-4 text-slate-500" />
                 <span>Thích</span>
               </>
             )}
@@ -1411,24 +1411,24 @@ export default function PostCard({
 
         <button
           onClick={() => setShowComments(!showComments)}
-          className={`flex-1 py-2 flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer ${
+          className={`flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold transition duration-150 cursor-pointer ${
             isCooldown
               ? 'text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/30'
               : 'hover:bg-slate-50'
           }`}
           title={isCooldown ? `Đang bị khóa bình luận (${cooldownRemainingStr || 'Đang đếm...'})` : undefined}
         >
-          <MessageCircle className={`w-4 h-4 shrink-0 ${isCooldown ? 'text-amber-600' : 'text-slate-500'}`} />
-          <span>{isCooldown ? 'Bình luận (khóa)' : 'Bình luận'}</span>
+          <MessageCircle className={`w-4 h-4 ${isCooldown ? 'text-amber-600' : 'text-slate-500'}`} />
+          <span>{isCooldown ? 'Xem bình luận (Đang bị khóa)' : 'Bình luận'}</span>
         </button>
 
         <button
           onClick={handleShare}
           disabled={Boolean(post.privacy && post.privacy !== 'public')}
           title={post.privacy && post.privacy !== 'public' ? "Ch\u1ec9 b\u00e0i vi\u1ebft c\u00f4ng khai m\u1edbi c\u00f3 th\u1ec3 chia s\u1ebb" : undefined}
-          className="flex-1 py-2 flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-50 transition duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Share2 className="w-4 h-4 text-slate-500 shrink-0" />
+          <Share2 className="w-4 h-4 text-slate-500" />
           <span>Chia sẻ</span>
         </button>
 
