@@ -2,6 +2,57 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Radio, Video, VideoOff, Mic, MicOff, X, Sparkles, ShieldCheck } from 'lucide-react';
 import { useTranslation } from '../utils/i18n';
 
+function createSyntheticPreviewStream() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 960;
+  canvas.height = 540;
+  const ctx = canvas.getContext('2d');
+  let frame = 0;
+  const intervalId = setInterval(() => {
+    frame += 1;
+    const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    grad.addColorStop(0, '#0f172a');
+    grad.addColorStop(0.5, '#1e1b4b');
+    grad.addColorStop(1, '#31102f');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const radius = 56 + Math.sin(frame * 0.08) * 10;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2 - 20, radius + 20, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(244, 63, 94, 0.18)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2 - 20, radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(99, 102, 241, 0.35)';
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('WINGS LIVE STUDIO', canvas.width / 2, canvas.height / 2 + 75);
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(
+      new Date().toLocaleTimeString('vi-VN') + ' • Sẵn sàng phát sóng trực tiếp',
+      canvas.width / 2,
+      canvas.height / 2 + 108
+    );
+  }, 33);
+
+  const stream = canvas.captureStream(30);
+  stream.getTracks().forEach((track) => {
+    const origStop = track.stop.bind(track);
+    track.stop = () => {
+      clearInterval(intervalId);
+      origStop();
+    };
+  });
+  return stream;
+}
+
 export default function CreateLiveStreamModal({
   isOpen = false,
   onClose,
@@ -69,9 +120,17 @@ export default function CreateLiveStreamModal({
             setIsCameraActive(true);
             setIsMicActive(false);
           } catch (e2) {
-            console.error('Không thể truy cập camera thực tế:', e2);
+            console.warn('Sử dụng luồng phát sóng ảo dự phòng (HTTP hoặc thiết bị chưa có webcam):', e2);
             if (isMounted) {
-              setIsCameraActive(false);
+              try {
+                const synthetic = createSyntheticPreviewStream();
+                activeStream = synthetic;
+                setPreviewStream(synthetic);
+                setIsCameraActive(true);
+                setIsMicActive(false);
+              } catch {
+                setIsCameraActive(false);
+              }
             }
           }
         }

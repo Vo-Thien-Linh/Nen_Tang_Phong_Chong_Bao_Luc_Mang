@@ -141,8 +141,13 @@ def ensure_schema_migrations(eng):
                     user_cols = [r[0] for r in conn.execute(text(
                         "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"
                     )).fetchall()]
-                    if user_cols and "last_seen" not in user_cols:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"))
+                    if user_cols:
+                        if "last_seen" not in user_cols:
+                            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"))
+                        if "banned_until" not in user_cols:
+                            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_until TIMESTAMPTZ"))
+                        if "ban_reason" not in user_cols:
+                            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT"))
 
                     conv_cols = [r[0] for r in conn.execute(text(
                         "SELECT column_name FROM information_schema.columns WHERE table_name = 'conversations'"

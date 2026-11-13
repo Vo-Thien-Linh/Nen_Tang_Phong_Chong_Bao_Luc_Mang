@@ -41,6 +41,9 @@ function logApiError(error) {
 }
 
 // Route kiểm tra server hoạt động
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', service: 'express-backend', message: 'Backend server đang chạy tốt!' });
+});
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Backend server đang chạy tốt!' });
 });
