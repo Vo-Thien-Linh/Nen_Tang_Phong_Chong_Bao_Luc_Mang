@@ -2118,13 +2118,22 @@ export default function MessagesView({
 
   // Chọn hội thoại và đánh dấu đã xem
   const handleSelectConversation = (convId) => {
-    if (String(convId) === String(selectedConversationId)) return;
-    // Hủy bỏ trạng thái draft khi người dùng chuyển sang chat khác mà không gửi gì
+    // Luôn mở giao diện chat trên mobile khi người dùng nhấn vào bất kỳ cuộc trò chuyện nào
     setDraftConversation(null);
+    setMobileShowChat(true);
 
     const strId = String(convId);
+    if (strId === String(selectedConversationId)) {
+      // Đã chọn cuộc trò chuyện này, đảm bảo cuộn xuống tin nhắn mới nhất
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 50);
+      return;
+    }
+
     setSelectedConversationId(strId);
-    setMobileShowChat(true);
 
     const existing = conversations.find(c => String(c.id) === strId);
     if (existing && existing.messages && existing.messages.length > 0) {
