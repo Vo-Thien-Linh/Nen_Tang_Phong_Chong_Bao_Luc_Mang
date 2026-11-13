@@ -1,114 +1,97 @@
-# 🚀 Hướng Dẫn CI/CD Pipeline - WINGS Social Network
+# 🚀 Hướng dẫn CD Pipeline - WINGS
 
-Tài liệu này cung cấp hướng dẫn chi tiết về hệ thống Tích hợp liên tục (CI) và Triển khai liên tục (CD) tự động cho dự án **WINGS Social Network**.
-
----
-
-## 📌 1. Tổng quan Kiến trúc CI/CD
+CD nằm ở [`.github/workflows/cd.yml`](../../.github/workflows/cd.yml), chạy sau CI ([`ci.yml`](../../.github/workflows/ci.yml)).
 
 ```mermaid
-flowchart TD
-    subgraph CI["1. CI Pipeline (.github/workflows/ci.yml)"]
-        A["Developer Push / PR"] --> B["Frontend Check (Node 20, Test, Build)"]
-        A --> C["Backend Check (Node 20, Unit & Integration Tests)"]
-    end
-
-    subgraph CD["2. CD Pipeline (.github/workflows/cd.yml)"]
-        D{"CI Thành Công trên main / develop?"}
-        B & C -->|Passed| D
-        D -->|Yes| E["Prepare & Detect Environment"]
-        E --> F["Database Migration (Nếu có DATABASE_URL)"]
-        E --> G["Build & Push 9 Docker Images lên GHCR"]
-        F & G --> H["SSH Deploy lên VPS / Server"]
-        H --> I["Health Check Gateway (/api/health)"]
-        I --> J["GitHub Actions Step Summary Report"]
-    end
+flowchart LR
+    CI["CI thành công (push main/master/develop)"] --> P["prepare: env, tag, matrix"]
+    TAG["Tag v* trên main"] --> P
+    MAN["Chạy thủ công"] --> P
+    P --> B["build-and-push: image lên GHCR"]
+    P -.opt-in.-> M["database-migration"]
+    B --> D["deploy: SSH + scripts/deploy.sh"]
+    M -.-> D
+    D --> H["Healthcheck /api/health = 200"]
+    H -->|lỗi| R["Rollback về tag tốt trước đó"]
 ```
 
----
+## 1. Kích hoạt
 
-## ⚙️ 2. Các File Cấu Hình Chính
+| Sự kiện | Môi trường | Ghi chú |
+| :-- | :-- | :-- |
+| CI xanh trên `main` / `master` | `production` | Chỉ nhận CI chạy bởi `push`, không nhận PR |
+| CI xanh trên `develop` | `staging` | |
+| Push tag `v*` | `production` | Tag **phải nằm trên `main`**, nếu không job fail |
+| Chạy thủ công | chọn | Chọn môi trường, kiến trúc, migration |
 
-| Đường dẫn | Vai trò |
-| :--- | :--- |
-| `.github/workflows/ci.yml` | Pipeline kiểm thử tự động (Unit Test, Integration Test, Lint, Vite Build). |
-| `.github/workflows/cd.yml` | Pipeline triển khai tự động (Build Docker Images, GHCR Registry, SSH Server Deploy, Healthcheck). |
-| `scripts/deploy.sh` | Shell script triển khai độc lập trên máy chủ hoặc local hỗ trợ cả Monolith và Microservices. |
-| `docker-compose.yml` | Cấu hình Docker Compose môi trường Monolith / Hybrid. |
-| `docker-compose.microservices.yml` | Cấu hình Docker Compose môi trường Full Microservices. |
+CD luôn checkout **đúng commit đã qua CI** (`workflow_run.head_sha`).
 
----
+> [!IMPORTANT]
+> `workflow_run` chỉ kích hoạt khi `cd.yml` đã có trên nhánh mặc định (`main`). Cần merge file này vào `main` trước thì CD tự động mới chạy.
 
-## 🎯 3. Cơ chế Kích hoạt CD Pipeline (`cd.yml`)
+## 2. Kiến trúc triển khai
 
-1. **Tự động theo chuỗi CI (`workflow_run`)**:
-   - Khi pipeline `WINGS Social CI Pipeline` hoàn tất thành công trên các nhánh `main`, `master` hoặc `develop`, CD Pipeline sẽ tự động được kích hoạt.
-   - Nhánh `main` / `master` $\rightarrow$ Triển khai môi trường **Production**.
-   - Nhánh `develop` $\rightarrow$ Triển khai môi trường **Staging**.
+Repo variable `DEPLOY_STRATEGY` (hoặc input khi chạy tay), mặc định `monolith`:
 
-2. **Kích hoạt theo Release Tag (`push: tags`)**:
-   - Khi tạo tag phát hành mới (ví dụ: `v1.0.0`, `v2.0.0`), pipeline tự động đóng gói image với tag tương ứng và deploy Production.
+| Giá trị | Compose | Image được build |
+| :-- | :-- | :-- |
+| `monolith` | `docker-compose.yml` + `docker-compose.prod.yml` | gateway, frontend, express, fastapi, ai-service |
+| `microservices` | `docker-compose.microservices.yml` + `docker-compose.microservices.prod.yml` | gateway, frontend, fastapi, ai-service, user/post/moderation/notification-service |
+| `build-only` | (không deploy) | tất cả 9 image |
 
-3. **Kích hoạt thủ công (`workflow_dispatch`)**:
-   - Vào tab **Actions** $\rightarrow$ chọn **WINGS Social CD Pipeline** $\rightarrow$ nhấn **Run workflow**.
-   - Các tham số tùy chọn:
-     - `environment`: `production` hoặc `staging`.
-     - `deploy_strategy`: `docker-compose-monolith`, `docker-compose-microservices`, hoặc `build-only`.
-     - `run_migrations`: `true` hoặc `false`.
-
----
-
-## 🔑 4. Thiết lập GitHub Secrets & Variables
-
-Để kích hoạt đầy đủ tính năng triển khai tự động lên máy chủ và cơ sở dữ liệu, hãy thêm các biến sau vào **Repository Settings > Secrets and variables > Actions**:
-
-### 🔒 Repository Secrets (Bảo mật):
-- `DATABASE_URL`: Chuỗi kết nối PostgreSQL / Supabase dùng để tự động chạy migration trước khi khởi động dịch vụ mới.
-- `SERVER_HOST`: Địa chỉ IP hoặc Domain máy chủ VPS/Cloud.
-- `SERVER_USER`: Tên tài khoản SSH trên máy chủ (ví dụ: `ubuntu`, `debian`, `root`).
-- `SERVER_SSH_KEY`: Khóa SSH Private Key dùng để xác thực không cần mật khẩu.
-- `SERVER_PORT`: Cổng SSH (mặc định: `22`).
-- `SERVER_DEPLOY_PATH`: Đường dẫn thư mục mã nguồn trên máy chủ (mặc định: `/var/www/wings-social`).
+Hai file `*.prod.yml` chỉ thêm `image:` trỏ về GHCR (`ghcr.io/<owner>/wings-<tên>:<tag>`) nên máy chủ **không build lại**, chạy đúng image CI đã dựng.
 
 > [!NOTE]
-> Nếu chưa cấu hình các SSH Secrets, CD Pipeline vẫn sẽ **tự động Build và Push tất cả Docker Images lên GitHub Container Registry (GHCR)** thành công mà không báo lỗi.
+> `microservices` dùng PostgreSQL chạy trong compose (`wings_dev`), còn `monolith` dùng `DATABASE_URL` (Supabase) trong `backend/.env`.
 
----
+## 3. Cấu hình GitHub
 
-## 🐳 5. GitHub Container Registry (GHCR)
+Tạo 2 **Environments**: `staging` và `production` (Settings → Environments). Nên bật *Required reviewers* cho `production`.
 
-Tất cả Docker Images được đóng gói và lưu trữ tập trung tại `ghcr.io` với cache nhiều tầng:
-- `ghcr.io/<owner>/wings-gateway`
-- `ghcr.io/<owner>/wings-frontend`
-- `ghcr.io/<owner>/wings-express-backend`
-- `ghcr.io/<owner>/wings-fastapi-backend`
-- `ghcr.io/<owner>/wings-ai-service`
-- `ghcr.io/<owner>/wings-user-service`
-- `ghcr.io/<owner>/wings-post-service`
-- `ghcr.io/<owner>/wings-moderation-service`
-- `ghcr.io/<owner>/wings-notification-service`
+**Secrets (đặt theo từng environment, để staging không ghi đè production):**
 
-Mỗi image được gắn tag theo:
-- Commit SHA ngắn (ví dụ: `:a1b2c3d`)
-- Tên môi trường (ví dụ: `:production`, `:staging`)
-- Tag `:latest` (dành riêng cho nhánh Production)
+| Secret | Ý nghĩa |
+| :-- | :-- |
+| `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` | Truy cập SSH (thiếu → chỉ build/push, bỏ qua deploy) |
+| `SERVER_PORT` | Mặc định 22 |
+| `SERVER_DEPLOY_PATH` | Mặc định `/opt/wings` |
+| `DATABASE_URL` | Chỉ cần khi chạy migration thủ công |
 
----
+**Variables (tùy chọn):** `DEPLOY_STRATEGY`, `HEALTH_URL` (mặc định `http://127.0.0.1:5000/api/health`), `AI_MODELS_ROOT` (mặc định `/opt/wings/models`), `PUBLIC_API_URL`.
 
-## 💻 6. Triển khai Thủ công qua `scripts/deploy.sh`
+`PUBLIC_API_URL` để **trống** là đúng: frontend gọi cùng origin, nginx proxy `/api/` sang `api-gateway`. Chỉ đặt khi API ở domain khác (giá trị được build cứng vào bundle).
 
-Trên máy chủ hoặc môi trường phát triển, bạn có thể thực thi trực tiếp script triển khai:
+## 4. Chuẩn bị máy chủ (một lần)
+
+```text
+<SERVER_DEPLOY_PATH>/
+├── backend/.env              # BẮT BUỘC, tạo tay từ backend/.env.example (secret thật)
+└── (CD tự upload compose + scripts/deploy.sh)
+<AI_MODELS_ROOT>/             # mặc định /opt/wings/models
+├── image_moderation/         # config.json + efficientnet_b1_best.pt
+└── text_moderation/          # PhoBERT: config, tokenizer, weights
+```
+
+- Cài Docker + Docker Compose v2, mở cổng 80 (và 5000 nếu cần).
+- Trọng số model (`*.pt`, `*.bin`, `*.safetensors`) bị `.gitignore` nên **không có trong image**, phải copy sẵn lên máy chủ. `deploy.sh` sẽ báo lỗi rõ ràng nếu thiếu.
+- `deploy.sh` không tự tạo `backend/.env` từ file mẫu để tránh chạy production bằng giá trị giả.
+
+## 5. Healthcheck và rollback
+
+`scripts/deploy.sh` chờ tối đa ~3 phút cho `GET /api/health` trả **200** (mọi service UP; 207 nghĩa là còn service lỗi). Nếu thất bại: in log, tự động chạy lại **tag tốt gần nhất** (lưu ở `.deploy-state/`), rồi job báo đỏ.
+
+## 6. Database migration
+
+Mặc định **không tự chạy**. `npm run migrate` chạy `schema.sql` + `seed.sql` + `migrations/*.sql` mỗi lần, **không phù hợp với DB đang có dữ liệu**. Chỉ bật `run_migrations` khi chạy tay cho DB mới. Với DB hiện có, áp dụng migration thủ công như README mô tả.
+
+## 7. Chạy tay trên máy chủ
 
 ```bash
-# Cấp quyền thực thi
-chmod +x scripts/deploy.sh
-
-# Triển khai mô hình Monolith (mặc định)
-./scripts/deploy.sh
-
-# Triển khai mô hình Microservices
-./scripts/deploy.sh --mode microservices
-
-# Triển khai bỏ qua Database Migration
-./scripts/deploy.sh --skip-migration
+# Dùng image từ GHCR
+./scripts/deploy.sh --mode monolith --registry ghcr.io/<owner> --tag <tag>
+# Build trực tiếp từ mã nguồn (dev / lần đầu)
+./scripts/deploy.sh --mode microservices --build-local
 ```
+
+> [!TIP]
+> Nếu package GHCR chưa liên kết với repo hoặc máy chủ không pull được, đăng nhập sẵn bằng PAT có `read:packages` (`docker login ghcr.io`) rồi chạy lại.

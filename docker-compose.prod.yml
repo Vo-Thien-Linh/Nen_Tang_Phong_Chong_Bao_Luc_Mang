@@ -1,0 +1,24 @@
+﻿# Override dùng cho CD: chạy image dựng sẵn từ GHCR thay vì build trên máy chủ.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+# Bắt buộc đặt IMAGE_PREFIX (vd: ghcr.io/<owner>) và IMAGE_TAG (vd: a1b2c3d).
+services:
+  api-gateway:
+    image: ${IMAGE_PREFIX:?IMAGE_PREFIX is required}/wings-gateway:${IMAGE_TAG:?IMAGE_TAG is required}
+
+  frontend:
+    image: ${IMAGE_PREFIX}/wings-frontend:${IMAGE_TAG}
+
+  express-backend:
+    image: ${IMAGE_PREFIX}/wings-express:${IMAGE_TAG}
+
+  fastapi-backend:
+    image: ${IMAGE_PREFIX}/wings-fastapi:${IMAGE_TAG}
+
+  # Trọng số model (*.pt, *.bin, *.safetensors) bị .gitignore nên KHÔNG có trong image.
+  # Mount từ ${AI_MODELS_ROOT} trên máy chủ gồm 2 thư mục (đủ cả file weights):
+  #   image_moderation/  và  text_moderation/
+  ai-service:
+    image: ${IMAGE_PREFIX}/wings-ai-service:${IMAGE_TAG}
+    volumes:
+      - ${AI_MODELS_ROOT:-/opt/wings/models}/image_moderation:/app/backend/ml_models/image_moderation:ro
+      - ${AI_MODELS_ROOT:-/opt/wings/models}/text_moderation:/app/backend/app/ai_model:ro

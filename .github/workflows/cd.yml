@@ -1,7 +1,7 @@
 name: WINGS Social CD Pipeline
 
 on:
-  # Tự động kích hoạt khi pipeline CI hoàn tất thành công trên main, master hoặc develop
+  # Tự động chạy khi CI thành công trên main / master / develop (chỉ với sự kiện push)
   workflow_run:
     workflows: ["WINGS Social CI Pipeline"]
     types: [completed]
@@ -10,391 +10,377 @@ on:
       - master
       - develop
 
-  # Kích hoạt khi có release tag mới (ví dụ: v1.0.0, v2.1.0)
+  # Release tag (v1.0.0, ...) - chỉ chấp nhận tag nằm trên nhánh main
   push:
     tags:
       - 'v*'
 
-  # Cho phép kích hoạt thủ công từ giao diện GitHub Actions với các tùy chọn linh hoạt
   workflow_dispatch:
     inputs:
       environment:
         description: 'Môi trường triển khai'
         required: true
-        default: 'production'
+        default: 'staging'
         type: choice
         options:
-          - production
           - staging
+          - production
       deploy_strategy:
         description: 'Kiến trúc triển khai'
         required: true
-        default: 'docker-compose-monolith'
+        default: 'monolith'
         type: choice
         options:
-          - docker-compose-monolith
-          - docker-compose-microservices
+          - monolith
+          - microservices
           - build-only
       run_migrations:
-        description: 'Chạy Database Migration trước khi triển khai'
+        description: 'Chạy database/schema.sql + seed.sql + migrations (CHỈ khi DB mới, KHÔNG dùng cho DB đang có dữ liệu)'
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 concurrency:
-  group: cd-${{ github.ref }}
+  group: cd-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
+
+env:
+  # Checkout đúng commit đã vượt qua CI (workflow_run mặc định lấy nhánh mặc định)
+  TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   # ========================================================
-  # JOB 1: CHUẨN BỊ & XÁC ĐỊNH MÔI TRƯỜNG TRIỂN KHAI
+  # JOB 1: XÁC ĐỊNH MÔI TRƯỜNG, TAG, DANH SÁCH IMAGE CẦN BUILD
   # ========================================================
   prepare:
-    name: 🔍 Xác định Môi trường & Phiên bản
+    name: 🔍 Xác định môi trường & phiên bản
     runs-on: ubuntu-latest
-    # Chỉ chạy nếu kích hoạt thủ công, qua tag, hoặc khi CI trước đó thành công
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     outputs:
-      deploy_env: ${{ steps.env_detect.outputs.deploy_env }}
-      image_tag: ${{ steps.env_detect.outputs.image_tag }}
-      owner_lc: ${{ steps.env_detect.outputs.owner_lc }}
-      should_migrate: ${{ steps.env_detect.outputs.should_migrate }}
-      deploy_strategy: ${{ steps.env_detect.outputs.deploy_strategy }}
-      target_branch: ${{ steps.env_detect.outputs.target_branch }}
+      deploy_env: ${{ steps.detect.outputs.deploy_env }}
+      strategy: ${{ steps.detect.outputs.strategy }}
+      run_migrations: ${{ steps.detect.outputs.run_migrations }}
+      image_tag: ${{ steps.detect.outputs.image_tag }}
+      image_prefix: ${{ steps.detect.outputs.image_prefix }}
+      matrix: ${{ steps.detect.outputs.matrix }}
 
     steps:
-      - name: 📥 Tải mã nguồn từ GitHub
+      - name: 📥 Tải mã nguồn
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
 
-      - name: 🎯 Thiết lập thông số Môi trường
-        id: env_detect
+      - name: 🎯 Thiết lập thông số
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          REF: ${{ github.ref }}
+          INPUT_ENV: ${{ inputs.environment }}
+          INPUT_STRATEGY: ${{ inputs.deploy_strategy }}
+          INPUT_MIGRATE: ${{ inputs.run_migrations }}
+          REPO_STRATEGY: ${{ vars.DEPLOY_STRATEGY }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          # 1. Chuyển đổi tên repository owner thành chữ thường (chuẩn OCI / Docker)
-          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "owner_lc=$OWNER_LC" >> $GITHUB_OUTPUT
+          set -euo pipefail
 
-          # 2. Xác định branch mục tiêu
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            TARGET_BRANCH="${{ github.event.workflow_run.head_branch }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TARGET_BRANCH="${{ github.ref_name }}"
-          else
-            TARGET_BRANCH="${{ github.ref_name }}"
+          # Tag release phải nằm trên main để tránh deploy production từ nhánh chưa review
+          if [[ "$REF" == refs/tags/* ]]; then
+            git fetch origin main
+            if ! git merge-base --is-ancestor "$TARGET_SHA" origin/main; then
+              echo "::error::Tag ${REF#refs/tags/} không nằm trên nhánh main, từ chối deploy production."
+              exit 1
+            fi
           fi
-          echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
 
-          # 3. Xác định môi trường (Production vs Staging)
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            DEPLOY_ENV="${{ github.event.inputs.environment }}"
-            STRATEGY="${{ github.event.inputs.deploy_strategy }}"
-            MIGRATE="${{ github.event.inputs.run_migrations }}"
-          elif [ "$TARGET_BRANCH" = "main" ] || [ "$TARGET_BRANCH" = "master" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          # Môi trường
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            DEPLOY_ENV="$INPUT_ENV"
+          elif [[ "$REF" == refs/tags/* ]] || [ "$HEAD_BRANCH" = "main" ] || [ "$HEAD_BRANCH" = "master" ]; then
             DEPLOY_ENV="production"
-            STRATEGY="docker-compose-monolith"
-            MIGRATE="true"
           else
             DEPLOY_ENV="staging"
-            STRATEGY="docker-compose-monolith"
-            MIGRATE="true"
           fi
 
-          echo "deploy_env=$DEPLOY_ENV" >> $GITHUB_OUTPUT
-          echo "deploy_strategy=$STRATEGY" >> $GITHUB_OUTPUT
-          echo "should_migrate=$MIGRATE" >> $GITHUB_OUTPUT
+          # Kiến trúc: input > repo variable DEPLOY_STRATEGY > monolith (docker-compose.yml)
+          STRATEGY="monolith"
+          [ -n "${REPO_STRATEGY:-}" ] && STRATEGY="$REPO_STRATEGY"
+          [ "$EVENT_NAME" = "workflow_dispatch" ] && STRATEGY="$INPUT_STRATEGY"
+          case "$STRATEGY" in monolith|microservices|build-only) ;; *)
+            echo "::error::DEPLOY_STRATEGY không hợp lệ: $STRATEGY"; exit 1 ;;
+          esac
 
-          # 4. Xác định Image Tag (Release Tag hoặc Short SHA)
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            IMG_TAG="${GITHUB_REF#refs/tags/}"
+          # Migration chỉ chạy khi người dùng chủ động chọn (schema.sql + seed.sql không idempotent an toàn)
+          MIGRATE="false"
+          [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_MIGRATE" = "true" ] && MIGRATE="true"
+
+          # Image tag
+          if [[ "$REF" == refs/tags/* ]]; then
+            IMAGE_TAG="${REF#refs/tags/}"
           else
-            IMG_TAG=$(git rev-parse --short HEAD)
+            IMAGE_TAG="$(git rev-parse --short=7 "$TARGET_SHA")"
           fi
-          echo "image_tag=$IMG_TAG" >> $GITHUB_OUTPUT
 
-          echo "✅ Đã xác định:"
-          echo "  - Môi trường: $DEPLOY_ENV"
-          echo "  - Chiến lược: $STRATEGY"
-          echo "  - Image Tag: $IMG_TAG"
-          echo "  - Registry Owner: $OWNER_LC"
-          echo "  - Chạy migration: $MIGRATE"
+          OWNER_LC="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+
+          # Danh sách image: chỉ build những gì kiến trúc đã chọn thực sự dùng
+          G='{"name":"gateway","file":"docker/Dockerfile.gateway"}'
+          F='{"name":"frontend","file":"frontend/Dockerfile"}'
+          E='{"name":"express","file":"docker/Dockerfile.express"}'
+          P='{"name":"fastapi","file":"docker/Dockerfile.fastapi"}'
+          A='{"name":"ai-service","file":"docker/Dockerfile.ai-service"}'
+          U='{"name":"user-service","file":"docker/Dockerfile.user-service"}'
+          S='{"name":"post-service","file":"docker/Dockerfile.post-service"}'
+          M='{"name":"moderation-service","file":"docker/Dockerfile.moderation-service"}'
+          N='{"name":"notification-service","file":"docker/Dockerfile.notification-service"}'
+          case "$STRATEGY" in
+            monolith)      LIST="$G,$F,$E,$P,$A" ;;
+            microservices) LIST="$G,$F,$P,$A,$U,$S,$M,$N" ;;
+            build-only)    LIST="$G,$F,$E,$P,$A,$U,$S,$M,$N" ;;
+          esac
+
+          {
+            echo "deploy_env=$DEPLOY_ENV"
+            echo "strategy=$STRATEGY"
+            echo "run_migrations=$MIGRATE"
+            echo "image_tag=$IMAGE_TAG"
+            echo "image_prefix=ghcr.io/$OWNER_LC"
+            echo "matrix={\"include\":[$LIST]}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "env=$DEPLOY_ENV strategy=$STRATEGY migrate=$MIGRATE tag=$IMAGE_TAG sha=$TARGET_SHA"
 
   # ========================================================
-  # JOB 2: TỰ ĐỘNG CHẠY DATABASE MIGRATION (NẾU CÓ SECRET)
+  # JOB 2: MIGRATION (CHỈ KHI CHỦ ĐỘNG BẬT, THỦ CÔNG)
   # ========================================================
   database-migration:
     name: 🗄️ Database Migration
     needs: prepare
-    if: needs.prepare.outputs.should_migrate == 'true'
+    if: needs.prepare.outputs.run_migrations == 'true'
     runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.deploy_env }}
     steps:
-      - name: 📥 Tải mã nguồn từ GitHub
+      - name: 📥 Tải mã nguồn
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
 
-      - name: ⚙️ Cài đặt môi trường Node.js 20
+      - name: ⚙️ Cài đặt Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-          cache-dependency-path: backend/package.json
+          cache-dependency-path: backend/package-lock.json
 
       - name: 📦 Cài đặt thư viện Backend
         working-directory: backend
-        run: npm ci || npm install
+        run: npm ci
 
-      - name: 🚀 Thực thi Database Migration
+      - name: 🚀 Chạy migration
+        working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          if [ -n "$DATABASE_URL" ]; then
-            echo "🚀 Đang thực thi migration trên cơ sở dữ liệu đích..."
-            npm run migrate
-            echo "✅ Hoàn tất migration thành công!"
-          else
-            echo "ℹ️ Biến bí mật DATABASE_URL chưa được cấu hình. Bỏ qua bước migration tự động."
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Secret DATABASE_URL chưa được cấu hình cho environment này."
+            exit 1
           fi
-        working-directory: backend
+          # Lưu ý: migrate.js tự bắt lỗi và vẫn exit 0, hãy đọc log để xác nhận kết quả.
+          npm run migrate
 
   # ========================================================
-  # JOB 3: XÂY DỰNG & ĐẨY DOCKER IMAGES (GHCR)
+  # JOB 3: BUILD & PUSH IMAGE LÊN GHCR
   # ========================================================
-  build-and-push-images:
-    name: 🐳 Build & Push ${{ matrix.service.name }}
+  build-and-push:
+    name: 🐳 Build ${{ matrix.name }}
     needs: prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
-      fail-fast: false
-      matrix:
-        service:
-          - name: gateway
-            dockerfile: docker/Dockerfile.gateway
-            context: .
-          - name: frontend
-            dockerfile: frontend/Dockerfile
-            context: .
-          - name: express-backend
-            dockerfile: docker/Dockerfile.express
-            context: .
-          - name: fastapi-backend
-            dockerfile: docker/Dockerfile.fastapi
-            context: .
-          - name: ai-service
-            dockerfile: docker/Dockerfile.ai-service
-            context: .
-          - name: user-service
-            dockerfile: docker/Dockerfile.user-service
-            context: .
-          - name: post-service
-            dockerfile: docker/Dockerfile.post-service
-            context: .
-          - name: moderation-service
-            dockerfile: docker/Dockerfile.moderation-service
-            context: .
-          - name: notification-service
-            dockerfile: docker/Dockerfile.notification-service
-            context: .
-
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      IMAGE: ${{ needs.prepare.outputs.image_prefix }}/wings-${{ matrix.name }}
     steps:
-      - name: 📥 Tải mã nguồn từ GitHub
+      - name: 📥 Tải mã nguồn
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
 
       - name: ⚙️ Thiết lập Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🔑 Đăng nhập GitHub Container Registry (GHCR)
+      - name: 🔑 Đăng nhập GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🏷️ Khởi tạo Tags cho Docker Image
-        id: meta
+      - name: 🏷️ Tạo danh sách tag
+        id: tags
+        env:
+          DEPLOY_ENV: ${{ needs.prepare.outputs.deploy_env }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
         run: |
-          IMAGE_NAME="ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-${{ matrix.service.name }}"
-          TAG_SHA="${IMAGE_NAME}:${{ needs.prepare.outputs.image_tag }}"
-          TAG_ENV="${IMAGE_NAME}:${{ needs.prepare.outputs.deploy_env }}"
-          
-          TAGS="${TAG_SHA},${TAG_ENV}"
-          if [ "${{ needs.prepare.outputs.deploy_env }}" = "production" ]; then
-            TAGS="${TAGS},${IMAGE_NAME}:latest"
-          fi
-          
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
-          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          TAGS="$IMAGE:$IMAGE_TAG,$IMAGE:$DEPLOY_ENV"
+          [ "$DEPLOY_ENV" = "production" ] && TAGS="$TAGS,$IMAGE:latest"
+          echo "list=$TAGS" >> "$GITHUB_OUTPUT"
 
-      - name: 🏗️ Xây dựng & Đẩy Image lên GHCR
+      # Frontend: URL API được "nướng" vào bundle. Để trống = cùng origin qua nginx proxy /api -> api-gateway
+      # (đúng với frontend/nginx.conf). Chỉ đặt vars.PUBLIC_API_URL khi API nằm ở domain khác.
+      - name: 🏗️ Build & Push (frontend)
+        if: matrix.name == 'frontend'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.service.context }}
-          file: ${{ matrix.service.dockerfile }}
+          context: .
+          file: ${{ matrix.file }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.tags.outputs.list }}
           build-args: |
-            PUBLIC_API_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:5000' }}
-            VITE_API_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:5000' }}
-            VITE_FASTAPI_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:5000' }}
+            VITE_API_URL=${{ vars.PUBLIC_API_URL }}
+            VITE_FASTAPI_URL=${{ vars.PUBLIC_API_URL }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: 🏗️ Build & Push
+        if: matrix.name != 'frontend'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
   # ========================================================
-  # JOB 4: TRIỂN KHAI LÊN MÁY CHỦ (SSH / DOCKER COMPOSE)
+  # JOB 4: TRIỂN KHAI LÊN MÁY CHỦ QUA SSH
   # ========================================================
-  deploy-to-server:
-    name: 🚀 Triển khai Máy chủ (${{ needs.prepare.outputs.deploy_env }})
-    needs: [prepare, database-migration, build-and-push-images]
-    if: needs.prepare.outputs.deploy_strategy != 'build-only'
+  deploy:
+    name: 🚀 Deploy (${{ needs.prepare.outputs.deploy_env }})
+    needs: [prepare, database-migration, build-and-push]
+    if: >
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.build-and-push.result == 'success' &&
+      (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped') &&
+      needs.prepare.outputs.strategy != 'build-only'
     runs-on: ubuntu-latest
+    # Secrets SERVER_* được cấu hình RIÊNG cho từng environment (staging / production)
+    environment: ${{ needs.prepare.outputs.deploy_env }}
     env:
-      HAS_SSH_SECRETS: ${{ secrets.SERVER_HOST != '' && secrets.SERVER_SSH_KEY != '' }}
-
+      HAS_SSH: ${{ secrets.SERVER_HOST != '' && secrets.SERVER_SSH_KEY != '' }}
+      DEPLOY_PATH: ${{ secrets.SERVER_DEPLOY_PATH || '/opt/wings' }}
     steps:
-      - name: 📥 Tải mã nguồn từ GitHub
+      - name: 📥 Tải mã nguồn
         uses: actions/checkout@v4
-
-      - name: 🚀 Thực thi Triển khai qua SSH (Khi đã cấu hình Secrets)
-        if: env.HAS_SSH_SECRETS == 'true'
-        uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER || 'root' }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
-          script_stop: true
-          envs: |
-            TARGET_BRANCH=${{ needs.prepare.outputs.target_branch }}
-            DEPLOY_STRATEGY=${{ needs.prepare.outputs.deploy_strategy }}
-            GITHUB_ACTOR=${{ github.actor }}
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
-          script: |
-            set -e
-            DEPLOY_PATH="${{ secrets.SERVER_DEPLOY_PATH || '/var/www/wings-social' }}"
-            echo "🚀 Đang triển khai tại thư mục: $DEPLOY_PATH..."
-            mkdir -p "$DEPLOY_PATH"
-            cd "$DEPLOY_PATH"
+          ref: ${{ env.TARGET_SHA }}
 
-            # Đăng nhập GHCR
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-
-            # Cập nhật mã nguồn git nếu có
-            if [ -d .git ]; then
-              echo "🔄 Đang cập nhật mã nguồn từ remote..."
-              git fetch origin
-              git checkout "$TARGET_BRANCH" || true
-              git pull origin "$TARGET_BRANCH" || true
-            fi
-
-            # Lựa chọn file docker compose theo chiến lược
-            if [ "$DEPLOY_STRATEGY" = "docker-compose-microservices" ]; then
-              COMPOSE_FILE="docker-compose.microservices.yml"
-            else
-              COMPOSE_FILE="docker-compose.yml"
-            fi
-            echo "📦 Sử dụng cấu hình Compose: $COMPOSE_FILE"
-
-            # Tải ảnh mới nhất và khởi động lại dịch vụ
-            docker compose -f "$COMPOSE_FILE" pull || true
-            docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
-
-            # Dọn dẹp docker images không dùng
-            docker image prune -f
-
-            echo "✅ Cụm dịch vụ Docker Compose đã được triển khai thành công!"
-
-      - name: 🩺 Kiểm tra Sức khỏe Hệ thống (Healthcheck)
-        if: env.HAS_SSH_SECRETS == 'true'
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER || 'root' }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
-          script: |
-            echo "🩺 Đang kiểm tra sức khỏe API Gateway và dịch vụ phụ trợ..."
-            HEALTH_URL="${{ secrets.SERVER_HEALTH_URL || 'http://127.0.0.1:5000/api/health' }}"
-            MAX_RETRIES=15
-            INTERVAL=4
-            SUCCESS=0
-
-            for i in $(seq 1 $MAX_RETRIES); do
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || true)
-              if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "207" ]; then
-                echo "✅ Dịch vụ đã sẵn sàng! (HTTP $HTTP_CODE tại lần thử $i)"
-                SUCCESS=1
-                break
-              fi
-              echo "⏳ Đang chờ dịch vụ khởi động... (Lần thử $i/$MAX_RETRIES - HTTP $HTTP_CODE)"
-              sleep $INTERVAL
-            done
-
-            if [ "$SUCCESS" -ne 1 ]; then
-              echo "⚠️ Cảnh báo: Healthcheck không trả về HTTP 200/207 sau thời gian chờ!"
-              exit 1
-            fi
-
-      - name: ℹ️ Hướng dẫn cấu hình Server SSH (Nếu chưa có Secret)
-        if: env.HAS_SSH_SECRETS != 'true'
+      - name: ℹ️ Chưa cấu hình SSH
+        if: env.HAS_SSH != 'true'
         run: |
-          echo "=========================================================================="
-          echo "ℹ️ THÔNG BÁO TỪ CD PIPELINE:"
-          echo "Tất cả Docker Images đã được xây dựng và đẩy thành công lên GitHub Packages (GHCR)!"
-          echo "Máy chủ chưa được kích hoạt triển khai tự động vì chưa cấu hình SSH Secrets."
-          echo "Để kích hoạt tự động deploy lên VPS, hãy thêm các Secrets sau trong Repo Settings:"
-          echo "  - SERVER_HOST: IP hoặc Domain của máy chủ"
-          echo "  - SERVER_USER: Tên tài khoản SSH (ví dụ: ubuntu, debian, root)"
-          echo "  - SERVER_SSH_KEY: Private SSH Key"
-          echo "  - SERVER_DEPLOY_PATH: Thư mục chứa project trên máy chủ (ví dụ: /var/www/wings)"
-          echo "  - DATABASE_URL: Chuỗi kết nối PostgreSQL / Supabase để chạy migration"
-          echo "=========================================================================="
+          echo "::notice::Image đã được push lên GHCR nhưng chưa deploy vì environment '${{ needs.prepare.outputs.deploy_env }}' thiếu secret SERVER_HOST / SERVER_SSH_KEY. Xem docs/deployment/cd-pipeline-guide.md"
+
+      - name: 📤 Upload file compose
+        if: env.HAS_SSH == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER || 'root' }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "docker-compose.yml,docker-compose.prod.yml,docker-compose.microservices.yml,docker-compose.microservices.prod.yml"
+          target: ${{ env.DEPLOY_PATH }}
+
+      - name: 📤 Upload script triển khai
+        if: env.HAS_SSH == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER || 'root' }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "scripts/deploy.sh"
+          target: ${{ env.DEPLOY_PATH }}/scripts
+          strip_components: 1
+
+      - name: 🚀 Chạy deploy (pull image, healthcheck, rollback khi lỗi)
+        if: env.HAS_SSH == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+          DEPLOY_MODE: ${{ needs.prepare.outputs.strategy }}
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          AI_MODELS_ROOT: ${{ vars.AI_MODELS_ROOT }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER || 'root' }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          command_timeout: 30m
+          script_stop: true
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE_PREFIX,IMAGE_TAG,DEPLOY_MODE,HEALTH_URL,AI_MODELS_ROOT
+          script: |
+            set -euo pipefail
+            cd "${{ env.DEPLOY_PATH }}"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            chmod +x scripts/deploy.sh
+            [ -n "${AI_MODELS_ROOT:-}" ] && export AI_MODELS_ROOT
+            ARGS=(--mode "$DEPLOY_MODE" --registry "$IMAGE_PREFIX" --tag "$IMAGE_TAG")
+            [ -n "${HEALTH_URL:-}" ] && ARGS+=(--health-url "$HEALTH_URL")
+            ./scripts/deploy.sh "${ARGS[@]}"
 
   # ========================================================
-  # JOB 5: TỔNG HỢP KẾT QUẢ TRIỂN KHAI (STEP SUMMARY)
+  # JOB 5: BÁO CÁO TỔNG HỢP
   # ========================================================
   summary:
-    name: 📋 Báo cáo Kết quả CD
-    needs: [prepare, database-migration, build-and-push-images, deploy-to-server]
-    if: always()
+    name: 📋 Báo cáo kết quả CD
+    needs: [prepare, database-migration, build-and-push, deploy]
+    if: always() && needs.prepare.result != 'skipped'
     runs-on: ubuntu-latest
     steps:
-      - name: 📝 Tạo Báo cáo Tóm tắt GitHub Actions
+      - name: 📝 Ghi báo cáo
+        env:
+          DEPLOY_ENV: ${{ needs.prepare.outputs.deploy_env }}
+          STRATEGY: ${{ needs.prepare.outputs.strategy }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+          R_PREPARE: ${{ needs.prepare.result }}
+          R_MIGRATE: ${{ needs.database-migration.result }}
+          R_BUILD: ${{ needs.build-and-push.result }}
+          R_DEPLOY: ${{ needs.deploy.result }}
         run: |
-          STATUS="✅ THÀNH CÔNG"
-          if [ "${{ needs.build-and-push-images.result }}" != "success" ] || \
-             [ "${{ needs.deploy-to-server.result }}" = "failure" ]; then
-            STATUS="❌ THẤT BÀI"
-          fi
-
-          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
-          # 🚀 Báo cáo Triển khai WINGS Social CD Pipeline
-
-          | Thông tin | Giá trị |
-          | :--- | :--- |
-          | **Trạng thái Pipeline** | **$STATUS** |
-          | **Môi trường** | `${{ needs.prepare.outputs.deploy_env || 'N/A' }}` |
-          | **Chiến lược** | `${{ needs.prepare.outputs.deploy_strategy || 'N/A' }}` |
-          | **Nhánh mục tiêu** | `${{ needs.prepare.outputs.target_branch || github.ref_name }}` |
-          | **Image Tag** | `${{ needs.prepare.outputs.image_tag || 'N/A' }}` |
-          | **Registry** | `ghcr.io/${{ needs.prepare.outputs.owner_lc }}` |
-          | **Database Migration** | `${{ needs.database-migration.result }}` |
-          | **Build & Push Images** | `${{ needs.build-and-push-images.result }}` |
-          | **Triển khai Máy chủ** | `${{ needs.deploy-to-server.result }}` |
-          | **Người kích hoạt** | `@${{ github.actor }}` |
-
-          ### 🐳 Danh sách Docker Images đã xuất bản trên GHCR:
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-gateway:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-frontend:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-express-backend:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-fastapi-backend:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-ai-service:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-user-service:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-post-service:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-moderation-service:${{ needs.prepare.outputs.image_tag }}`
-          - `ghcr.io/${{ needs.prepare.outputs.owner_lc }}/wings-notification-service:${{ needs.prepare.outputs.image_tag }}`
-
-          EOF
+          OVERALL="✅ Thành công"
+          for r in "$R_PREPARE" "$R_BUILD" "$R_DEPLOY" "$R_MIGRATE"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then OVERALL="❌ Thất bại"; fi
+          done
+          {
+            echo "## 🚀 WINGS CD — $OVERALL"
+            echo ""
+            echo "| Mục | Giá trị |"
+            echo "| :-- | :-- |"
+            echo "| Môi trường | \`$DEPLOY_ENV\` |"
+            echo "| Kiến trúc | \`$STRATEGY\` |"
+            echo "| Commit | \`${TARGET_SHA::7}\` |"
+            echo "| Image tag | \`$IMAGE_TAG\` |"
+            echo "| Registry | \`$IMAGE_PREFIX\` |"
+            echo "| Migration | \`$R_MIGRATE\` |"
+            echo "| Build & Push | \`$R_BUILD\` |"
+            echo "| Deploy | \`$R_DEPLOY\` |"
+            echo "| Người kích hoạt | @${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$OVERALL" = "✅ Thành công" ]

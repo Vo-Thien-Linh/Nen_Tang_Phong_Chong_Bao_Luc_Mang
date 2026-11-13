@@ -1,0 +1,32 @@
+﻿# Override dùng cho CD (kiến trúc microservices): chạy image dựng sẵn từ GHCR.
+#   docker compose -f docker-compose.microservices.yml -f docker-compose.microservices.prod.yml up -d --no-build
+# Bắt buộc đặt IMAGE_PREFIX (vd: ghcr.io/<owner>) và IMAGE_TAG (vd: a1b2c3d).
+services:
+  api-gateway:
+    image: ${IMAGE_PREFIX:?IMAGE_PREFIX is required}/wings-gateway:${IMAGE_TAG:?IMAGE_TAG is required}
+
+  frontend:
+    image: ${IMAGE_PREFIX}/wings-frontend:${IMAGE_TAG}
+
+  user-service:
+    image: ${IMAGE_PREFIX}/wings-user-service:${IMAGE_TAG}
+
+  post-service:
+    image: ${IMAGE_PREFIX}/wings-post-service:${IMAGE_TAG}
+
+  moderation-service:
+    image: ${IMAGE_PREFIX}/wings-moderation-service:${IMAGE_TAG}
+
+  notification-service:
+    image: ${IMAGE_PREFIX}/wings-notification-service:${IMAGE_TAG}
+
+  platform-service:
+    image: ${IMAGE_PREFIX}/wings-fastapi:${IMAGE_TAG}
+
+  # Trọng số model bị .gitignore nên không có trong image.
+  # Mount từ ${AI_MODELS_ROOT} trên máy chủ: image_moderation/ và text_moderation/ (đủ cả file weights).
+  ai-service:
+    image: ${IMAGE_PREFIX}/wings-ai-service:${IMAGE_TAG}
+    volumes:
+      - ${AI_MODELS_ROOT:-/opt/wings/models}/image_moderation:/app/backend/ml_models/image_moderation:ro
+      - ${AI_MODELS_ROOT:-/opt/wings/models}/text_moderation:/app/backend/app/ai_model:ro

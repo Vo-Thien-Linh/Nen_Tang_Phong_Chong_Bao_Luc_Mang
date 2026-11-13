@@ -266,11 +266,12 @@ Hệ thống được trang bị bộ quy trình CI/CD hoàn chỉnh trên GitHu
   * Kích hoạt trên tất cả Pull Request và Push vào `develop`, `main`, `master`.
 
 * **CD Pipeline (`.github/workflows/cd.yml`):**
-  * Tự động kích hoạt sau khi CI vượt qua thành công hoặc khi phát hành Git Tag (`v*`).
-  * Tự động đóng gói và đẩy 9 Docker Images đa dịch vụ lên **GitHub Container Registry (GHCR)** có hỗ trợ GHA Cache.
-  * Tự động chạy Database Migrations lên cơ sở dữ liệu đích nếu có cấu hình `DATABASE_URL`.
-  * Hỗ trợ triển khai tự động qua SSH lên máy chủ VPS/Cloud và kiểm tra sức khỏe hệ thống qua API Gateway `/api/health`.
-  * Cung cấp kịch bản triển khai độc lập `scripts/deploy.sh` hỗ trợ cả hai mô hình Monolith và Microservices.
+  * Tự động chạy sau khi CI thành công trên `main`/`master` (production) hoặc `develop` (staging), hoặc khi push tag `v*` nằm trên `main`.
+  * Build và đẩy image theo kiến trúc đã chọn (monolith hoặc microservices) lên **GitHub Container Registry (GHCR)**, có cache GHA.
+  * Deploy qua SSH bằng `docker-compose.prod.yml` / `docker-compose.microservices.prod.yml` (chạy đúng image CI đã dựng), healthcheck `/api/health`, tự rollback khi lỗi.
+  * Secrets tách riêng theo GitHub Environment `staging` / `production`.
+  * Database migration **không tự chạy**; chỉ chạy khi chủ động bật lúc kích hoạt thủ công.
+  * Trọng số model AI không nằm trong image, cần có sẵn trên máy chủ (xem tài liệu).
 
 👉 Xem tài liệu hướng dẫn cấu hình và vận hành chi tiết tại: [docs/deployment/cd-pipeline-guide.md](docs/deployment/cd-pipeline-guide.md)
 

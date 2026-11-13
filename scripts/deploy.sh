@@ -1,135 +1,145 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# WINGS Social Network - Production Deployment Script
-# Hỗ trợ triển khai cả kiến trúc Monolith (docker-compose.yml)
-# và Microservices (docker-compose.microservices.yml)
+# WINGS - Script triển khai trên máy chủ (được CD upload và gọi qua SSH,
+# cũng có thể chạy tay). Đặt tại <DEPLOY_PATH>/scripts/deploy.sh.
+#
+# Chế độ registry (mặc định): kéo image dựng sẵn từ GHCR theo --tag, healthcheck,
+# tự động rollback về tag chạy thành công trước đó nếu healthcheck thất bại.
+# Chế độ --build-local: build trực tiếp từ mã nguồn bằng compose gốc (dev/lần đầu).
 # ==============================================================================
-
 set -euo pipefail
 
-# Màu sắc thông báo
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+MODE="monolith"                 # monolith | microservices
+IMAGE_PREFIX="${IMAGE_PREFIX:-}" # ví dụ: ghcr.io/<owner>
+IMAGE_TAG="${IMAGE_TAG:-}"
+BUILD_LOCAL=false
+HEALTH_URL="http://127.0.0.1:5000/api/health"
+HEALTH_RETRIES=36
+HEALTH_INTERVAL=5
 
-echo -e "${BLUE}=================================================================${NC}"
-echo -e "${BLUE}  🚀 WINGS SOCIAL NETWORK - SCRIPT TRIỂN KHAI TỰ ĐỘNG (CD)       ${NC}"
-echo -e "${BLUE}=================================================================${NC}"
+usage() {
+  cat <<'EOF'
+Cách dùng: scripts/deploy.sh [tùy chọn]
+  --mode <monolith|microservices>  Kiến trúc triển khai (mặc định: monolith)
+  --registry <prefix>              Tiền tố image, ví dụ ghcr.io/<owner>   (hoặc env IMAGE_PREFIX)
+  --tag <tag>                      Tag image cần chạy, ví dụ a1b2c3d     (hoặc env IMAGE_TAG)
+  --build-local                    Build từ mã nguồn thay vì kéo image từ registry
+  --health-url <url>               URL healthcheck (mặc định http://127.0.0.1:5000/api/health)
+  -h, --help                       Hiển thị trợ giúp
+EOF
+}
 
-# Thiết lập mặc định
-DEPLOY_MODE="monolith"
-COMPOSE_FILE="docker-compose.yml"
-SKIP_MIGRATION=false
-ENV_FILE="backend/.env"
-HEALTH_CHECK_URL="http://127.0.0.1:5000/api/health"
-MAX_HEALTH_RETRIES=15
-HEALTH_INTERVAL=4
-
-# Đọc tham số dòng lệnh
 while [[ $# -gt 0 ]]; do
-  case $1 in
-    --mode)
-      DEPLOY_MODE="$2"
-      shift 2
-      ;;
-    --skip-migration)
-      SKIP_MIGRATION=true
-      shift
-      ;;
-    --env-file)
-      ENV_FILE="$2"
-      shift 2
-      ;;
-    --health-url)
-      HEALTH_CHECK_URL="$2"
-      shift 2
-      ;;
-    --help)
-      echo "Cách sử dụng: ./scripts/deploy.sh [OPTIONS]"
-      echo "Tùy chọn:"
-      echo "  --mode <monolith|microservices>  Chọn kiến trúc triển khai (mặc định: monolith)"
-      echo "  --skip-migration                 Bỏ qua bước chạy database migration"
-      echo "  --env-file <path>                Đường dẫn tới file cấu hình môi trường"
-      echo "  --health-url <url>               URL kiểm tra sức khỏe hệ thống"
-      exit 0
-      ;;
-    *)
-      echo -e "${RED}Tham số không hợp lệ: $1${NC}"
-      exit 1
-      ;;
+  case "$1" in
+    --mode)         MODE="$2"; shift 2 ;;
+    --registry)     IMAGE_PREFIX="$2"; shift 2 ;;
+    --tag)          IMAGE_TAG="$2"; shift 2 ;;
+    --build-local)  BUILD_LOCAL=true; shift ;;
+    --health-url)   HEALTH_URL="$2"; shift 2 ;;
+    -h|--help)      usage; exit 0 ;;
+    *) echo "Tham số không hợp lệ: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-if [ "$DEPLOY_MODE" = "microservices" ]; then
-  COMPOSE_FILE="docker-compose.microservices.yml"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+ROOT="$(pwd)"
+
+case "$MODE" in
+  monolith)       BASE_FILE="docker-compose.yml";               PROD_FILE="docker-compose.prod.yml" ;;
+  microservices)  BASE_FILE="docker-compose.microservices.yml"; PROD_FILE="docker-compose.microservices.prod.yml" ;;
+  *) echo "❌ --mode phải là monolith hoặc microservices" >&2; exit 1 ;;
+esac
+
+STATE_DIR="$ROOT/.deploy-state"
+STATE_FILE="$STATE_DIR/last_good_tag.$MODE"
+mkdir -p "$STATE_DIR"
+
+echo "🚀 WINGS deploy | mode=$MODE | build-local=$BUILD_LOCAL | dir=$ROOT"
+
+# ---- Kiểm tra điều kiện tiên quyết -------------------------------------------
+command -v docker >/dev/null || { echo "❌ Chưa cài Docker" >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo "❌ Chưa cài Docker Compose v2" >&2; exit 1; }
+[ -f "$BASE_FILE" ] || { echo "❌ Thiếu $BASE_FILE" >&2; exit 1; }
+
+# backend/.env chứa secret thật (DATABASE_URL, JWT_SECRET_KEY, Cloudinary, SMTP...).
+# Không tự sao chép từ .env.example để tránh chạy production bằng giá trị giả.
+if [ ! -f backend/.env ]; then
+  echo "❌ Thiếu $ROOT/backend/.env. Hãy tạo từ backend/.env.example và điền giá trị thật." >&2
+  exit 1
+fi
+
+# ---- Chế độ build từ mã nguồn -------------------------------------------------
+if [ "$BUILD_LOCAL" = true ]; then
+  docker compose -f "$BASE_FILE" up -d --build --remove-orphans
+  COMPOSE=(docker compose -f "$BASE_FILE")
 else
-  COMPOSE_FILE="docker-compose.yml"
+  [ -n "$IMAGE_PREFIX" ] || { echo "❌ Thiếu --registry / IMAGE_PREFIX" >&2; exit 1; }
+  [ -n "$IMAGE_TAG" ]    || { echo "❌ Thiếu --tag / IMAGE_TAG" >&2; exit 1; }
+  [ -f "$PROD_FILE" ]    || { echo "❌ Thiếu $PROD_FILE" >&2; exit 1; }
+
+  export IMAGE_PREFIX
+  export AI_MODELS_ROOT="${AI_MODELS_ROOT:-/opt/wings/models}"
+
+  # Trọng số AI không nằm trong image (bị .gitignore) nên phải có sẵn trên máy chủ.
+  for d in image_moderation text_moderation; do
+    if [ ! -d "$AI_MODELS_ROOT/$d" ]; then
+      echo "❌ Thiếu thư mục model: $AI_MODELS_ROOT/$d (đặt đủ file weights vào đó)" >&2
+      exit 1
+    fi
+  done
+
+  COMPOSE=(docker compose -f "$BASE_FILE" -f "$PROD_FILE")
+
+  apply_tag() {
+    export IMAGE_TAG="$1"
+    echo "📦 Triển khai tag: $IMAGE_TAG"
+    "${COMPOSE[@]}" pull
+    "${COMPOSE[@]}" up -d --no-build --remove-orphans
+  }
 fi
 
-echo -e "🔹 Chế độ triển khai: ${GREEN}${DEPLOY_MODE}${NC} (File: ${COMPOSE_FILE})"
+# ---- Healthcheck --------------------------------------------------------------
+wait_healthy() {
+  echo "🩺 Healthcheck: $HEALTH_URL"
+  local i code
+  for i in $(seq 1 "$HEALTH_RETRIES"); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)"
+    # Gateway trả 200 khi mọi service UP, 207 khi có service chưa sẵn sàng.
+    if [ "$code" = "200" ]; then
+      echo "✅ Tất cả dịch vụ UP (lần thử $i)"
+      return 0
+    fi
+    echo "⏳ Chờ dịch vụ... ($i/$HEALTH_RETRIES, HTTP ${code:-000})"
+    sleep "$HEALTH_INTERVAL"
+  done
+  return 1
+}
 
-# 1. Kiểm tra Docker & Docker Compose
-if ! command -v docker &> /dev/null; then
-  echo -e "${RED}❌ Lỗi: Docker chưa được cài đặt trên hệ thống!${NC}"
-  exit 1
+if [ "$BUILD_LOCAL" = true ]; then
+  wait_healthy || { echo "❌ Healthcheck thất bại"; "${COMPOSE[@]}" logs --tail=60; exit 1; }
+  exit 0
 fi
 
-if ! docker compose version &> /dev/null; then
-  echo -e "${RED}❌ Lỗi: Docker Compose (v2) chưa được cài đặt!${NC}"
-  exit 1
-fi
-echo -e "✅ Docker và Docker Compose sẵn sàng."
+PREVIOUS_TAG=""
+[ -f "$STATE_FILE" ] && PREVIOUS_TAG="$(cat "$STATE_FILE")"
 
-# 2. Kiểm tra file cấu hình môi trường
-if [ ! -f "$ENV_FILE" ]; then
-  if [ -f "backend/.env.example" ]; then
-    echo -e "${YELLOW}⚠️ Không tìm thấy $ENV_FILE. Đang sao chép từ backend/.env.example...${NC}"
-    cp backend/.env.example "$ENV_FILE"
-  fi
+apply_tag "$IMAGE_TAG"
+
+if wait_healthy; then
+  echo "$IMAGE_TAG" > "$STATE_FILE"
+  docker image prune -f >/dev/null
+  echo "🎉 Triển khai thành công: $IMAGE_TAG"
+  exit 0
 fi
 
-# 3. Chạy Database Migration
-if [ "$SKIP_MIGRATION" = false ]; then
-  echo -e "\n${BLUE}🗄️ Đang kiểm tra và chạy Database Migration...${NC}"
-  if [ -f "backend/package.json" ]; then
-    (cd backend && npm run migrate || echo -e "${YELLOW}⚠️ Chạy migration gặp cảnh báo, tiếp tục deploy...${NC}")
-  fi
+echo "❌ Healthcheck thất bại với tag $IMAGE_TAG" >&2
+"${COMPOSE[@]}" logs --tail=60 || true
+
+if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
+  echo "↩️ Rollback về tag chạy tốt trước đó: $PREVIOUS_TAG" >&2
+  apply_tag "$PREVIOUS_TAG" || true
+  wait_healthy || echo "⚠️ Rollback cũng chưa healthy, cần kiểm tra thủ công" >&2
 else
-  echo -e "⏭️ Bỏ qua bước Database Migration theo yêu cầu."
+  echo "⚠️ Không có tag cũ để rollback" >&2
 fi
-
-# 4. Kéo images mới hoặc build lại
-echo -e "\n${BLUE}📦 Đang cập nhật và khởi chạy các dịch vụ Docker...${NC}"
-docker compose -f "$COMPOSE_FILE" pull || true
-docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
-
-# 5. Dọn dẹp docker images thừa
-echo -e "\n${BLUE}🧹 Dọn dẹp Docker images không còn dùng (prune)...${NC}"
-docker image prune -f
-
-# 6. Kiểm tra sức khỏe hệ thống (Healthcheck)
-echo -e "\n${BLUE}🩺 Đang kiểm tra sức khỏe dịch vụ tại: ${HEALTH_CHECK_URL}...${NC}"
-HEALTH_SUCCESS=false
-
-for i in $(seq 1 $MAX_HEALTH_RETRIES); do
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_CHECK_URL" || true)
-  if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "207" ]; then
-    echo -e "${GREEN}✅ Hệ thống hoạt động tốt! (Mã phản hồi: HTTP $HTTP_STATUS tại lần thử $i)${NC}"
-    HEALTH_SUCCESS=true
-    break
-  fi
-  echo -e "${YELLOW}⏳ Đang đợi dịch vụ sẵn sàng... (Lần thử $i/$MAX_HEALTH_RETRIES - HTTP $HTTP_STATUS)${NC}"
-  sleep "$HEALTH_INTERVAL"
-done
-
-if [ "$HEALTH_SUCCESS" = false ]; then
-  echo -e "${RED}⚠️ Cảnh báo: API Gateway chưa phản hồi thành công sau thời gian chờ! Vui lòng kiểm tra logs:${NC}"
-  echo -e "   docker compose -f $COMPOSE_FILE logs --tail=50"
-  exit 1
-fi
-
-echo -e "\n${GREEN}=================================================================${NC}"
-echo -e "${GREEN}  🎉 TRIỂN KHAI HOÀN TẤT VÀ HỆ THỐNG ĐÃ SẴN SÀNG HOẠT ĐỘNG!    ${NC}"
-echo -e "${GREEN}=================================================================${NC}"
+exit 1
