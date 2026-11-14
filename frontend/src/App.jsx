@@ -843,7 +843,7 @@ export default function App() {
     }
   };
 
-  // Mở trình xem Story mục tiêu từ thông báo hoặc danh sách tin (chuyên nghiệp như Facebook)
+  // Mở trình xem Story mục tiêu từ thông báo, tin nhắn hoặc danh sách tin (chuyên nghiệp như Instagram/Facebook)
   const handleOpenStoryViewer = async ({ storyId, tray, userId, initialShowViewers = false, targetViewerId = null }) => {
     try {
       let targetTray = tray;
@@ -854,6 +854,18 @@ export default function App() {
           const singleStoryRes = await fetchStoryByIdApi(storyId, currentUser?.id);
           const singleStory = singleStoryRes?.data || singleStoryRes;
           if (singleStory?.id) {
+            const isOwner = Boolean(currentUser?.id && String(singleStory.author_id) === String(currentUser.id));
+            const isExpired = Boolean(
+              singleStory.isExpired ||
+              (singleStory.expires_at && new Date(singleStory.expires_at) <= new Date()) ||
+              (singleStory.expiresAt && new Date(singleStory.expiresAt) <= new Date())
+            );
+
+            // Nếu tin đã hết hạn (>24h) và người xem KHÔNG phải chủ tin -> Chặn xem
+            if ((isExpired && !isOwner) || singleStory.canView === false) {
+              return { expired: true, canView: false };
+            }
+
             const parsedBg = typeof singleStory.backgroundStyle === 'object' && singleStory.backgroundStyle !== null
               ? singleStory.backgroundStyle
               : (typeof singleStory.background_style === 'string'
@@ -867,27 +879,47 @@ export default function App() {
               mediaUrl: singleStory.mediaUrl || singleStory.media_url || null,
               textContent: singleStory.textContent || singleStory.text_content || '',
               backgroundStyle: parsedBg,
+              isExpired,
             };
 
-            targetTray = {
-              author: {
-                id: singleStory.author_id,
-                name: singleStory.author_name || singleStory.full_name || singleStory.username || 'Người dùng',
-                username: singleStory.author_username || singleStory.username || '',
-                avatar: singleStory.author_avatar || singleStory.avatar_url,
-              },
-              isSelf: currentUser?.id ? String(currentUser.id) === String(singleStory.author_id) : false,
-              hasUnviewedStories: false,
-              stories: [normalizedSingleStory],
-            };
+            // Nếu tin chưa hết hạn, thử nạp toàn bộ khay tin đang hoạt động của tác giả đó để vuốt qua lại mượt mà
+            if (!isExpired && singleStory.author_id) {
+              try {
+                const authorTrayRes = await fetchUserStoriesApi(singleStory.author_id);
+                if (
+                  authorTrayRes?.data?.stories?.length > 0 &&
+                  authorTrayRes.data.stories.some((s) => String(s.id) === String(singleStory.id))
+                ) {
+                  targetTray = authorTrayRes.data;
+                }
+              } catch {
+                // ignore and use single story tray
+              }
+            }
+
+            if (!targetTray) {
+              targetTray = {
+                author: {
+                  id: singleStory.author_id,
+                  name: singleStory.author_name || singleStory.full_name || singleStory.username || 'Người dùng',
+                  username: singleStory.author_username || singleStory.username || '',
+                  avatar: singleStory.author_avatar || singleStory.avatar_url,
+                },
+                isSelf: isOwner,
+                hasUnviewedStories: false,
+                stories: [normalizedSingleStory],
+              };
+            }
           }
         } catch (fetchErr) {
-          console.warn('Không thể tải tin theo ID, thử tìm qua feed/user:', fetchErr.message);
+          console.warn('Không thể tải tin theo ID:', fetchErr.message);
+          // Nếu chỉ định rõ storyId mà tin đã bị xóa (404), không mở nhầm sang tin của người khác
+          return { deleted: true, canView: false };
         }
       }
 
-      // 2. Nếu chưa có tray và có userId, thử gọi API lấy tin của user đó
-      if (!targetTray && userId) {
+      // 2. Nếu chưa có tray (và không truyền storyId cố định) nhưng có userId, thử gọi API lấy tin đang hoạt động của user đó
+      if (!targetTray && !storyId && userId) {
         try {
           const userStoriesRes = await fetchUserStoriesApi(userId);
           if (userStoriesRes?.data?.stories?.length > 0) {
@@ -898,14 +930,11 @@ export default function App() {
         }
       }
 
-      // 3. Fallback: tìm trong feed stories chung
-      if (!targetTray) {
+      // 3. Fallback: tìm trong feed stories chung (khi không có storyId bị hết hạn/xóa)
+      if (!targetTray && !storyId) {
         const res = await fetchStories();
         const allTrays = res?.data || [];
-        if (storyId) {
-          targetTray = allTrays.find((t) => t.stories?.some((s) => String(s.id) === String(storyId)));
-        }
-        if (!targetTray && userId) {
+        if (userId) {
           targetTray = allTrays.find((t) => String(t.author?.id) === String(userId));
         }
         if (!targetTray && currentUser?.id && !userId) {
@@ -916,18 +945,6 @@ export default function App() {
         }
       }
 
-      // 4. Nếu vẫn chưa có và người dùng đang click vào thông báo tin của chính mình
-      if (!targetTray && currentUser?.id) {
-        try {
-          const myStoriesRes = await fetchUserStoriesApi(currentUser.id);
-          if (myStoriesRes?.data?.stories?.length > 0) {
-            targetTray = myStoriesRes.data;
-          }
-        } catch (myErr) {
-          console.warn('Không thể tải tin cá nhân:', myErr.message);
-        }
-      }
-
       if (targetTray) {
         setActiveStoryViewerTarget({
           tray: targetTray,
@@ -935,11 +952,28 @@ export default function App() {
           initialShowViewers: Boolean(initialShowViewers),
           targetViewerId: targetViewerId ? String(targetViewerId) : undefined,
         });
+        return { success: true };
       }
     } catch (err) {
       console.warn('Lỗi mở Story Viewer:', err.message);
     }
+    return { success: false };
   };
+
+  // Tự động mở Story nếu truy cập qua liên kết ?storyId=... hoặc ?story=...
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const storyIdParam = urlParams.get('storyId') || urlParams.get('story');
+    if (storyIdParam && /^\d+$/.test(storyIdParam)) {
+      urlParams.delete('storyId');
+      urlParams.delete('story');
+      const newSearch = urlParams.toString();
+      const cleanUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}${window.location.hash}`;
+      window.history.replaceState(window.history.state, '', cleanUrl);
+      handleOpenStoryViewer({ storyId: storyIdParam });
+    }
+  }, [currentUser?.id]);
 
   // Lắng nghe Realtime SSE cho Bài viết & Chia sẻ (Realtime Feed)
   useEffect(() => {

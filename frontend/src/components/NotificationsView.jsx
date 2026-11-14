@@ -385,15 +385,17 @@ export default function NotificationsView({
                     const isStory = 
                       item.type === 'story_reaction' || 
                       item.type === 'story_view' ||
+                      item.type === 'story_mention' ||
                       Boolean(payload?.isStory || payload?.storyId) ||
-                      (item.content && (item.content.includes('về tin của bạn') || item.content.includes('vào tin của bạn') || item.content.includes('xem tin của bạn')));
+                      (item.content && (item.content.includes('về tin của bạn') || item.content.includes('vào tin của bạn') || item.content.includes('xem tin của bạn') || item.content.includes('nhắc đến bạn trong một tin')));
 
                     if (isStory && onOpenStoryViewer) {
+                      const isMention = item.type === 'story_mention' || Boolean(item.content && item.content.includes('nhắc đến bạn'));
                       onOpenStoryViewer({
                         storyId: payload?.storyId || item.target_post_id || null,
-                        userId: item.recipient_id || currentUser?.id || null,
-                        initialShowViewers: true,
-                        targetViewerId: payload?.actorId || item.actor_id || actor.id,
+                        userId: isMention ? (item.actor_id || actor.id || null) : (item.recipient_id || currentUser?.id || null),
+                        initialShowViewers: !isMention,
+                        targetViewerId: isMention ? null : (payload?.actorId || item.actor_id || actor.id),
                       });
                       return;
                     }
@@ -515,10 +517,12 @@ export default function NotificationsView({
                       const isStory = 
                         item.type === 'story_reaction' || 
                         item.type === 'story_view' ||
+                        item.type === 'story_mention' ||
                         Boolean(payload?.isStory || payload?.storyId) ||
-                        (item.content && (item.content.includes('về tin của bạn') || item.content.includes('vào tin của bạn') || item.content.includes('xem tin của bạn')));
+                        (item.content && (item.content.includes('về tin của bạn') || item.content.includes('vào tin của bạn') || item.content.includes('xem tin của bạn') || item.content.includes('nhắc đến bạn trong một tin')));
 
                       if (!isStory) return null;
+                      const isMention = item.type === 'story_mention' || Boolean(item.content && item.content.includes('nhắc đến bạn'));
 
                       return (
                         <div 
@@ -528,9 +532,9 @@ export default function NotificationsView({
                             if (onOpenStoryViewer) {
                               onOpenStoryViewer({
                                 storyId: payload?.storyId || item.target_post_id || null,
-                                userId: item.recipient_id || currentUser?.id || null,
-                                initialShowViewers: true,
-                                targetViewerId: payload?.actorId || item.actor_id || actor.id,
+                                userId: isMention ? (item.actor_id || actor.id || null) : (item.recipient_id || currentUser?.id || null),
+                                initialShowViewers: !isMention,
+                                targetViewerId: isMention ? null : (payload?.actorId || item.actor_id || actor.id),
                               });
                             }
                           }}
@@ -538,7 +542,7 @@ export default function NotificationsView({
                         >
                           <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
                             <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                            <span>Xem chi tiết người xem tin & cảm xúc</span>
+                            <span>{isMention ? 'Nhấn để xem tin được gắn thẻ' : 'Xem chi tiết người xem tin & cảm xúc'}</span>
                           </div>
                           <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover/storylink:translate-x-0.5 transition" />
                         </div>

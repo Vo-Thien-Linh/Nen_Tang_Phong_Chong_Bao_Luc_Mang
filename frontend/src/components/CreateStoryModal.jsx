@@ -63,21 +63,13 @@ const TEXT_COLORS = [
 ];
 
 /**
- * Xuất ảnh đã qua chỉnh sửa (Xoay, Phóng to, Chèn chữ kéo thả, Nhãn thời gian kéo thả) sang File Blob
+ * Xuất & nén ảnh Story (áp dụng xoay, phóng to và tối ưu dung lượng < 400KB để tải lên nhanh trên điện thoại)
+ * Lưu ý: Chữ chèn (overlayText), nhãn giờ (hasTimeSticker) và stickers được render bằng lớp DOM sắc nét trên StoryViewerModal
  */
 function exportEditedImage(file, { 
   rotation = 0, 
   zoomLevel = 1, 
-  overlayText = '', 
-  overlayFont = '', 
-  overlayColor = '#ffffff', 
-  hasTimeSticker = false, 
-  timeText = '',
-  timePos = { x: 50, y: 16 },
-  timeScale = 1,
-  textPos = { x: 50, y: 50 },
-  textScale = 1,
-}) {
+} = {}) {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -87,92 +79,37 @@ function exportEditedImage(file, {
         const ctx = canvas.getContext('2d');
         const isRotated90 = (rotation % 180) !== 0;
 
-        // Chuẩn khung Story dọc 9:16 (1080 x 1920)
-        const canvasWidth = 1080;
-        const canvasHeight = 1920;
+        const rawW = isRotated90 ? img.naturalHeight : img.naturalWidth;
+        const rawH = isRotated90 ? img.naturalWidth : img.naturalHeight;
+
+        // Giới hạn chiều lớn nhất 1440px để ảnh nét nhưng nhẹ, không bị lỗi mạng di động (Failed to fetch)
+        const maxDim = 1440;
+        const downscale = Math.min(1, maxDim / Math.max(rawW || 1, rawH || 1));
+        const canvasWidth = Math.max(360, Math.round(rawW * downscale));
+        const canvasHeight = Math.max(360, Math.round(rawH * downscale));
+
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
 
-        // Nền tối
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-        // Vẽ ảnh với xoay và zoom
         ctx.save();
         ctx.translate(canvasWidth / 2, canvasHeight / 2);
         ctx.rotate((rotation * Math.PI) / 180);
         ctx.scale(zoomLevel, zoomLevel);
 
-        const imgW = isRotated90 ? img.naturalHeight : img.naturalWidth;
-        const imgH = isRotated90 ? img.naturalWidth : img.naturalHeight;
-        const scale = Math.max(canvasWidth / imgW, canvasHeight / imgH);
-        const drawW = img.naturalWidth * scale;
-        const drawH = img.naturalHeight * scale;
-
+        const drawW = img.naturalWidth * downscale;
+        const drawH = img.naturalHeight * downscale;
         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
         ctx.restore();
-
-        // Vẽ nhãn thời gian theo đúng tọa độ và tỷ lệ người dùng kéo thả
-        if (hasTimeSticker && timeText) {
-          ctx.save();
-          const calculatedTimeSize = Math.round(42 * (timeScale || 1));
-          ctx.font = `bold ${calculatedTimeSize}px system-ui, sans-serif`;
-          const textMetrics = ctx.measureText(timeText);
-          const boxW = Math.round(textMetrics.width + 56 * (timeScale || 1));
-          const boxH = Math.round(68 * (timeScale || 1));
-
-          const targetCenterX = (timePos.x / 100) * canvasWidth;
-          const targetCenterY = (timePos.y / 100) * canvasHeight;
-          const boxX = targetCenterX - boxW / 2;
-          const boxY = targetCenterY - boxH / 2;
-
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-          if (ctx.roundRect) {
-            ctx.beginPath();
-            ctx.roundRect(boxX, boxY, boxW, boxH, Math.round(34 * (timeScale || 1)));
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-            ctx.lineWidth = Math.max(2, Math.round(3 * (timeScale || 1)));
-            ctx.stroke();
-          } else {
-            ctx.fillRect(boxX, boxY, boxW, boxH);
-          }
-
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(timeText, targetCenterX, targetCenterY);
-          ctx.restore();
-        }
-
-        // Vẽ chữ chèn lên ảnh theo đúng tọa độ người dùng kéo thả & kích cỡ đã chỉnh
-        if (overlayText && overlayText.trim()) {
-          ctx.save();
-          const calculatedFontSize = Math.round(58 * textScale);
-          ctx.font = `bold ${calculatedFontSize}px ${overlayFont || 'system-ui, sans-serif'}`;
-          ctx.fillStyle = overlayColor || '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-          ctx.shadowBlur = 18;
-
-          const targetCenterX = (textPos.x / 100) * canvasWidth;
-          const targetCenterY = (textPos.y / 100) * canvasHeight;
-
-          const lines = overlayText.split('\n');
-          const lineHeight = Math.round(calculatedFontSize * 1.3);
-          const startY = targetCenterY - ((lines.length - 1) * lineHeight) / 2;
-          lines.forEach((line, idx) => {
-            ctx.fillText(line, targetCenterX, startY + idx * lineHeight);
-          });
-          ctx.restore();
-        }
 
         canvas.toBlob(
           (blob) => {
             URL.revokeObjectURL(objectUrl);
             if (blob) {
-              const editedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+              const safeName = (file.name || 'story.jpg').replace(/\.[^.]+$/, '') + '.jpg';
+              const editedFile = new File([blob], safeName, {
                 type: 'image/jpeg',
               });
               resolve(editedFile);
@@ -181,7 +118,7 @@ function exportEditedImage(file, {
             }
           },
           'image/jpeg',
-          0.92
+          0.86
         );
       } catch (err) {
         URL.revokeObjectURL(objectUrl);
@@ -199,6 +136,7 @@ function exportEditedImage(file, {
 
 export default function CreateStoryModal({ currentUser, isOpen, onClose, onStoryCreated }) {
   const [mode, setMode] = useState(null); // 'text' | 'media' | null
+  const [mobileExpandPreview, setMobileExpandPreview] = useState(false);
   const [textContent, setTextContent] = useState('');
   const [privacy, setPrivacy] = useState('public');
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
@@ -785,7 +723,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
     window.addEventListener('pointerup', onPointerUp);
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -802,15 +740,26 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       return;
     }
 
-    if (isImage && file.size > 15 * 1024 * 1024) {
-      setErrorMsg('Ảnh không được vượt quá 15MB');
+    if (isImage && file.size > 20 * 1024 * 1024) {
+      setErrorMsg('Ảnh không được vượt quá 20MB');
       return;
     }
 
+    // Nạp file vào bộ nhớ ngay khi chọn để tránh mất quyền truy cập URI tạm thời trên trình duyệt di động (Android/iOS)
+    let safeFile = file;
+    try {
+      const buf = await file.arrayBuffer();
+      safeFile = new File([buf], file.name || 'story.jpg', {
+        type: file.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
+      });
+    } catch {
+      safeFile = file;
+    }
+
     setErrorMsg('');
-    setMediaFile(file);
+    setMediaFile(safeFile);
     setMediaType(isVideo ? 'video' : 'image');
-    setMediaPreview(URL.createObjectURL(file));
+    setMediaPreview(URL.createObjectURL(safeFile));
     setZoomLevel(1);
     setRotation(0);
     setTextScale(1);
@@ -834,22 +783,12 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         }
 
         let fileToUpload = mediaFile;
-        const hasVisualEdits = rotation !== 0 || zoomLevel !== 1 || overlayText.trim() || hasTimeSticker;
 
-        // Nếu là hình ảnh và có thao tác chỉnh sửa, xuất file mới qua Canvas với tọa độ kéo thả & kích cỡ chữ
-        if (mediaType === 'image' && hasVisualEdits) {
+        // Luôn nén & chuẩn hóa ảnh qua Canvas để đảm bảo tốc độ tải lên nhanh trên điện thoại và không bị Failed to fetch
+        if (mediaType === 'image') {
           fileToUpload = await exportEditedImage(mediaFile, {
             rotation,
             zoomLevel,
-            overlayText: overlayText.trim(),
-            overlayFont: overlayFont.font,
-            overlayColor,
-            hasTimeSticker,
-            timeText: currentTimeText,
-            timePos,
-            timeScale,
-            textPos,
-            textScale,
           });
         }
 
@@ -894,6 +833,8 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
           timePos,
           timeScale,
           overlayText: overlayText.trim() || null,
+          overlayFont: overlayFont?.font || 'sans-serif',
+          overlayColor: overlayColor || '#ffffff',
           textPos,
           textScale,
           altText: altText.trim() || null,
@@ -928,16 +869,41 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
       }
 
       if (res?.success) {
-        // Tự động gửi tin nhắn đến các bạn bè được nhắc tên (@ mention)
+        const createdStory = res.data || {};
+        // Tự động gửi thẻ Mini Story chuẩn Instagram đến các bạn bè được nhắc tên (@ mention)
         const mentions = stickers.filter((s) => s.type === 'widget' && s.widgetType === 'mention' && s.userId);
         for (const m of mentions) {
           if (m.userId && String(m.userId) !== String(currentUser?.id)) {
             try {
-              const storyLink = `${window.location.origin}/?storyId=${res?.data?.id || ''}`;
-              messageService.sendMessage(
-                m.userId,
-                `📸 Tôi vừa nhắc đến bạn trong một tin mới trên Story! Vào xem ngay nhé: ${storyLink}`
-              ).catch(() => {});
+              const mentionRefPayload = {
+                kind: 'mention',
+                storyId: createdStory.id,
+                authorId: currentUser?.id,
+                authorName: currentUser?.name || currentUser?.full_name || 'Người dùng',
+                authorUsername: currentUser?.username || '',
+                mentionedUserId: m.userId,
+                mentionedUsername: (m.text || '').replace(/^@/, '') || m.username || m.name || 'banbe',
+                storyType: mode === 'text' ? 'text' : mediaType,
+                mediaUrl: finalMediaUrl || createdStory.mediaUrl || null,
+                textContent:
+                  mode === 'text'
+                    ? textContent.trim().slice(0, 120)
+                    : (overlayText.trim() || altText.trim() || '').slice(0, 120) || null,
+                bgStyle:
+                  mode === 'text'
+                    ? {
+                        background: selectedGradient.style?.background || null,
+                        fontFamily: selectedFont?.font || null,
+                      }
+                    : null,
+                expiresAt:
+                  createdStory.expiresAt ||
+                  new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                createdAt: createdStory.createdAt || new Date().toISOString(),
+              };
+              messageService
+                .sendMessage(m.userId, `[STORY_REF:${JSON.stringify(mentionRefPayload)}]`)
+                .catch(() => {});
             } catch (mentionMsgErr) {
               console.warn('Lỗi gửi tin nhắn nhắc tên:', mentionMsgErr);
             }
@@ -1027,17 +993,17 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
         </div>
       )}
 
-      {/* MÀN HÌNH 2: STUDIO TẠO TIN FACEBOOK-STYLE */}
+      {/* MÀN HÌNH 2: STUDIO TẠO TIN FACEBOOK-STYLE (Tối ưu hiển thị song song Khung Xem Trước 9:16 trên Điện thoại & Máy tính) */}
       {mode && (
         <div 
           onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-6xl h-[92vh] max-h-[860px] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row overflow-hidden animate-scale-up"
+          className="relative w-full max-w-6xl h-[95dvh] sm:h-[92vh] max-h-[880px] bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row overflow-hidden animate-scale-up"
         >
-          {/* CỘT TRÁI: SIDEBAR ĐIỀU KHIỂN & CÀI ĐẶT */}
-          <div className="w-full lg:w-[360px] xl:w-[380px] shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 z-20">
+          {/* CỘT TRÁI (TRÊN DESKTOP) / PHẦN DƯỚI (TRÊN MOBILE): SIDEBAR ĐIỀU KHIỂN & CÀI ĐẶT */}
+          <div className="order-2 lg:order-1 w-full lg:w-[360px] xl:w-[380px] flex-1 min-h-0 lg:h-full lg:shrink-0 border-t lg:border-t-0 lg:border-r border-slate-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 z-20">
             
-            {/* Header Sidebar */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            {/* Header Sidebar (Hiển thị đầy đủ trên Desktop, thu gọn trên Mobile vì Mobile đã có thanh tiêu đề trên Khung Xem Trước) */}
+            <div className="hidden lg:flex p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setMode(null)}
@@ -1101,16 +1067,17 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
               </div>
             </div>
 
-            {/* Thông tin tác giả & Tag đối tượng xem tin */}
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
-              <img
-                src={userAvatar}
-                alt={userName}
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-blue-500/30"
-              />
-              <div className="min-w-0">
-                <p className="font-bold text-sm text-slate-900 dark:text-white truncate">{userName}</p>
-                <div className="relative inline-block mt-0.5">
+            {/* Thông tin tác giả & Tag đối tượng xem tin (Thu gọn trên Mobile để nhường không gian cho công cụ chỉnh sửa) */}
+            <div className="px-3.5 py-2 sm:px-4 sm:py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <img
+                  src={userAvatar}
+                  alt={userName}
+                  className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">{userName}</p>
+                  <div className="relative inline-block mt-0.5">
                   <button
                     type="button"
                     onClick={() => setShowPrivacyMenu(!showPrivacyMenu)}
@@ -1168,10 +1135,21 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                   )}
                 </div>
               </div>
+              </div>
+
+              {/* Nút mở rộng / thu gọn không gian chỉnh sửa trên điện thoại */}
+              <button
+                type="button"
+                onClick={() => setMobileExpandPreview(!mobileExpandPreview)}
+                className="lg:hidden px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-[11px] font-bold flex items-center gap-1 border border-blue-200/70 dark:border-blue-800/60 shrink-0 cursor-pointer"
+              >
+                <Move className="w-3.5 h-3.5" />
+                <span>{mobileExpandPreview ? 'Mở công cụ' : 'Phóng to khung sửa'}</span>
+              </button>
             </div>
 
             {/* NỘI DUNG ĐIỀU KHIỂN CHÍNH CUỘN ĐƯỢC */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4 space-y-3.5 sm:space-y-4">
 
               {/* Thông báo lỗi nếu có */}
               {errorMsg && (
@@ -1843,12 +1821,12 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             </div>
 
             {/* THANH THAO TÁC CỐ ĐỊNH Ở DƯỚI (NÚT BỎ & CHIA SẺ LÊN TIN) */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-3">
+            <div className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-3 shrink-0">
               <button
                 type="button"
                 onClick={handleClose}
                 disabled={isSubmitting}
-                className="px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-sm transition cursor-pointer"
+                className="px-4 sm:px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm transition cursor-pointer"
               >
                 Bỏ
               </button>
@@ -1856,7 +1834,7 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                 type="button"
                 onClick={() => handleSubmit(false)}
                 disabled={isSubmitting || (mode === 'text' && !textContent.trim()) || (mode === 'media' && !mediaFile)}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs sm:text-sm transition shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
@@ -1870,19 +1848,30 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
             </div>
           </div>
 
-          {/* CỘT PHẢI: KHUNG XEM TRƯỚC (CANVAS XEM TRƯỚC VỚI HỖ TRỢ KÉO THẢ) */}
-          <div className="flex-1 flex flex-col bg-[#18191a] relative overflow-hidden">
-            
+          {/* CỘT PHẢI (TRÊN DESKTOP) / PHẦN TRÊN (TRÊN MOBILE): KHUNG XEM TRƯỚC 9:16 VỚI HỖ TRỢ KÉO THẢ */}
+          <div
+            className={`order-1 lg:order-2 ${
+              mobileExpandPreview ? 'h-[62dvh] sm:h-[64vh]' : 'h-[44dvh] sm:h-[48vh]'
+            } lg:h-auto lg:flex-1 shrink-0 flex flex-col bg-[#18191a] relative overflow-hidden transition-[height] duration-300`}
+          >
             {/* Header Xem trước */}
-            <div className="px-6 py-4 flex items-center justify-between text-white/90 z-20">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-bold tracking-wide">Xem trước</span>
-                <span className="text-[11px] text-white/50 flex items-center gap-1 bg-white/10 px-2.5 py-0.5 rounded-full">
-                  <Move className="w-3 h-3 text-blue-400" />
-                  Kéo thả để di chuyển chữ & giờ
+            <div className="px-3.5 py-2.5 sm:px-6 sm:py-4 flex items-center justify-between text-white/90 z-20 shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setMode(null)}
+                  className="lg:hidden p-1.5 -ml-1 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+                  title="Quay lại"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs sm:text-sm font-bold tracking-wide shrink-0">Xem trước</span>
+                <span className="text-[10px] sm:text-[11px] text-white/60 flex items-center gap-1 bg-white/10 px-2 sm:px-2.5 py-0.5 rounded-full truncate">
+                  <Move className="w-3 h-3 text-blue-400 shrink-0" />
+                  <span className="truncate">Kéo thả chữ, giờ & sticker</span>
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 {(timePos.x !== 50 || timePos.y !== 16 || textPos.x !== 50 || textPos.y !== 50 || textScale !== 1) && (
                   <button
                     type="button"
@@ -1891,29 +1880,33 @@ export default function CreateStoryModal({ currentUser, isOpen, onClose, onStory
                       setTextPos({ x: 50, y: 50 });
                       setTextScale(1);
                     }}
-                    className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer flex items-center gap-1 text-xs"
+                    className="p-1.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer flex items-center gap-1 text-xs"
                     title="Đặt lại vị trí & kích cỡ mặc định"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span className="text-[10px]">Đặt lại</span>
+                    <span className="text-[10px] hidden sm:inline">Đặt lại</span>
                   </button>
                 )}
                 <button
                   onClick={handleClose}
-                  className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                  className="p-1.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
             </div>
 
             {/* Vùng Canvas hiển thị điện thoại 9:16 */}
-            <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden relative">
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-2 sm:p-4 lg:p-6 overflow-hidden relative">
               
               {/* Thẻ Story 9:16 - Gắn ref để tính tọa độ kéo thả */}
               <div 
                 ref={cardRef}
-                className="w-[280px] sm:w-[310px] h-[490px] sm:h-[540px] rounded-2xl shadow-2xl relative flex items-center justify-center overflow-hidden transition-all duration-300 border border-white/10 select-none touch-none"
+                className={`${
+                  mobileExpandPreview
+                    ? 'w-[242px] h-[428px] sm:w-[285px] sm:h-[506px]'
+                    : 'w-[188px] h-[332px] sm:w-[250px] sm:h-[444px]'
+                } lg:w-[310px] lg:h-[540px] rounded-2xl shadow-2xl relative flex items-center justify-center overflow-hidden transition-all duration-300 border border-white/15 select-none touch-none`}
                 style={mode === 'text' ? selectedGradient.style : { backgroundColor: '#000000' }}
               >
                 {/* 1. HIỂN THỊ TIN VĂN BẢN (Kéo thả di chuyển vị trí & kéo các góc để chỉnh kích cỡ) */}

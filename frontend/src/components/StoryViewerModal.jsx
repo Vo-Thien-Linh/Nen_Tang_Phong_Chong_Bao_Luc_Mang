@@ -447,19 +447,47 @@ export default function StoryViewerModal({
     }
   };
 
+  const buildStoryRefPayload = (kind, extra = {}) => {
+    const safeMediaUrl =
+      currentStory?.mediaUrl && !String(currentStory.mediaUrl).startsWith('data:')
+        ? currentStory.mediaUrl
+        : null;
+    return {
+      kind, // 'reply' | 'mention' | 'share' | 'qa'
+      storyId: String(currentStory?.id || ''),
+      authorId: String(tray?.author?.id || currentStory?.author_id || ''),
+      authorName: tray?.author?.name || currentStory?.author_name || 'Người dùng',
+      authorUsername: tray?.author?.username || currentStory?.author_username || '',
+      storyType: currentStory?.storyType || currentStory?.story_type || 'image',
+      mediaUrl: safeMediaUrl,
+      textContent: (currentStory?.textContent || currentStory?.backgroundStyle?.overlayText || '').slice(0, 120) || null,
+      bgStyle:
+        (currentStory?.storyType || currentStory?.story_type) === 'text'
+          ? {
+              background: currentStory?.backgroundStyle?.background || null,
+              color: currentStory?.backgroundStyle?.color || '#ffffff',
+              fontFamily: currentStory?.backgroundStyle?.fontFamily || null,
+            }
+          : null,
+      expiresAt: currentStory?.expiresAt || currentStory?.expires_at || null,
+      createdAt: currentStory?.createdAt || currentStory?.created_at || null,
+      ...extra,
+    };
+  };
+
   const handleSendStoryToFriend = async (friend) => {
     const friendId = friend.id;
     if (storySendingStatus[friendId] === 'sending' || storySendingStatus[friendId] === 'sent') return;
 
     setStorySendingStatus(prev => ({ ...prev, [friendId]: 'sending' }));
     try {
-      const storyUrl = `${window.location.origin}?story=${currentStory?.id}`;
-      const authorName = tray?.author?.name || 'thành viên';
-      const textMsg = storyShareMsg.trim() 
-        ? `${storyShareMsg.trim()}\n\n🔗 Tin của ${authorName}: ${storyUrl}`
-        : `Xem tin của ${authorName} nhé:\n\n🔗 ${storyUrl}`;
+      const refPayload = buildStoryRefPayload('share');
+      const caption = storyShareMsg.trim();
+      const textMsg = caption
+        ? `[STORY_REF:${JSON.stringify(refPayload)}]\n${caption}`
+        : `[STORY_REF:${JSON.stringify(refPayload)}]`;
 
-      await messageService.sendMessage(friendId, textMsg);
+      await messageService.sendMessage(friendId, textMsg, null, 'text');
       setStorySendingStatus(prev => ({ ...prev, [friendId]: 'sent' }));
       setReplySuccessMsg(`Đã gửi tin tới ${friend.name || friend.username}!`);
       setTimeout(() => setReplySuccessMsg(''), 2500);
@@ -770,8 +798,11 @@ export default function StoryViewerModal({
 
     setIsSendingQuestion((prev) => ({ ...prev, [stk.id]: true }));
     try {
-      const messageContent = `[Story Q&A: "${stk.prompt || 'Hỏi tôi bất cứ điều gì'}"]\n${text}`;
-      await messageService.sendMessage(authorId, messageContent, currentStory.mediaUrl || null, 'text');
+      const qaRef = buildStoryRefPayload('qa', {
+        question: stk.prompt || 'Hỏi tôi bất cứ điều gì',
+      });
+      const messageContent = `[STORY_REF:${JSON.stringify(qaRef)}]\n${text}`;
+      await messageService.sendMessage(authorId, messageContent, null, 'text');
 
       // Gửi lên backend lưu câu trả lời
       await interactStoryWidgetApi(storyId, {
@@ -818,22 +849,18 @@ export default function StoryViewerModal({
     setReplyErrorMsg('');
 
     try {
-      const authorId = tray.author?.id;
+      const authorId = tray.author?.id || currentStory?.author_id;
       if (!authorId) throw new Error('Không tìm thấy thông tin tác giả tin');
 
-      // Định dạng nội dung tin nhắn có ngữ cảnh trích dẫn tin
-      let formattedContent = '';
-      if (currentStory.storyType === 'text') {
-        formattedContent = `[Trả lời tin: "${currentStory.textContent?.slice(0, 60) || 'Tin'}"]\n${replyMessage.trim()}`;
-      } else {
-        formattedContent = `[Trả lời tin]\n${replyMessage.trim()}`;
-      }
+      // Gửi phản hồi kèm metadata Mini Story chuẩn Instagram (không gửi mediaUrl thô làm vỡ bong bóng chat)
+      const replyRef = buildStoryRefPayload('reply');
+      const formattedContent = `[STORY_REF:${JSON.stringify(replyRef)}]\n${replyMessage.trim()}`;
 
       await messageService.sendMessage(
         authorId,
         formattedContent,
-        currentStory.mediaUrl || null,
-        currentStory.storyType === 'video' ? 'video' : (currentStory.storyType === 'image' ? 'image' : 'text')
+        null,
+        'text'
       );
 
       setReplyMessage('');
@@ -988,16 +1015,27 @@ export default function StoryViewerModal({
                   </span>
                 )}
               </h4>
-              <p className="text-white/70 text-xs">
-                {(() => {
-                  try {
-                    const raw = currentStory.createdAt || currentStory.created_at || currentStory.createdAtIso;
-                    return raw ? formatRelativeTime(raw) : 'Vừa xong';
-                  } catch {
-                    return 'Vừa xong';
-                  }
-                })()}
-              </p>
+              <div className="flex items-center gap-1.5 flex-wrap text-white/70 text-xs">
+                <span>
+                  {(() => {
+                    try {
+                      const raw = currentStory.createdAt || currentStory.created_at || currentStory.createdAtIso;
+                      return raw ? formatRelativeTime(raw) : 'Vừa xong';
+                    } catch {
+                      return 'Vừa xong';
+                    }
+                  })()}
+                </span>
+                {Boolean(
+                  currentStory.isExpired ||
+                  (currentStory.expiresAt && new Date(currentStory.expiresAt) <= new Date()) ||
+                  (currentStory.expires_at && new Date(currentStory.expires_at) <= new Date())
+                ) && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/20">
+                    Đã hết hạn • Kho lưu trữ
+                  </span>
+                )}
+              </div>
 
               {/* Nhãn âm nhạc đang phát chuẩn Facebook/Instagram */}
               {storyMusic && storyMusic.showSticker !== false && storyMusic.displayMode !== 'hidden' && (

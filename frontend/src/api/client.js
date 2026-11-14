@@ -634,21 +634,55 @@ export async function uploadStoryMedia(file) {
   formData.append('media', file);
 
   const token = localStorage.getItem('nexussocial_token');
-  const response = await fetch(`${API_URL}/api/upload/story-media`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
+  const isImage = file && typeof file.type === 'string' && file.type.startsWith('image/');
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || data.error || 'Tải tệp đa phương tiện lên thất bại');
+  const fileToDataUrl = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Không thể đọc tệp ảnh trên thiết bị'));
+      reader.readAsDataURL(blob);
+    });
+
+  try {
+    const response = await fetch(`${API_URL}/api/upload/story-media`, {
+      method: 'POST',
+      headers: {
+        ...autoUserHeader(),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      if (isImage && file.size <= 4 * 1024 * 1024) {
+        const fallbackUrl = await fileToDataUrl(file);
+        return { url: fallbackUrl, mediaType: 'image' };
+      }
+      throw new Error(data.message || data.error || 'Tải tệp đa phương tiện lên thất bại');
+    }
+
+    return {
+      url: data.url,
+      mediaType: data.mediaType || (file.type?.startsWith('video/') ? 'video' : 'image'),
+    };
+  } catch (err) {
+    // Dự phòng trên điện thoại khi mạng di động / Cloudflare tunnel ngắt kết nối multipart upload
+    if (isImage && file.size <= 4 * 1024 * 1024) {
+      try {
+        const fallbackUrl = await fileToDataUrl(file);
+        return { url: fallbackUrl, mediaType: 'image' };
+      } catch {
+        // ignore fallback error and throw original
+      }
+    }
+    throw new Error(
+      err?.message === 'Failed to fetch'
+        ? 'Kết nối mạng bị gián đoạn khi tải tệp lên. Vui lòng thử lại.'
+        : (err?.message || 'Tải tệp đa phương tiện lên thất bại')
+    );
   }
-
-  return {
-    url: data.url,
-    mediaType: data.mediaType || (file.type.startsWith('video/') ? 'video' : 'image'),
-  };
 }
 
 export async function fetchStories() {

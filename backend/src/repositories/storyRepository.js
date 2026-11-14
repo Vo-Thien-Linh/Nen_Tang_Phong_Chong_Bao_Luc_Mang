@@ -126,9 +126,13 @@ export function createStoryRepository({ pool }) {
       if (rows.length === 0) return null;
 
       const story = rows[0];
+      const isOwner = Boolean(viewerId && String(story.author_id) === String(viewerId));
+      const isExpired = Boolean(
+        (story.expires_at && new Date(story.expires_at) <= new Date()) || story.is_archived
+      );
 
       // Kiểm tra quyền riêng tư (Privacy) & kiểm duyệt nếu người xem không phải tác giả
-      if (String(story.author_id) !== String(viewerId)) {
+      if (!isOwner) {
         if (story.ai_status === 'hidden') {
           return null;
         }
@@ -149,6 +153,38 @@ export function createStoryRepository({ pool }) {
           if (friendCheck.rows.length === 0) {
             return null;
           }
+        }
+
+        // Nếu tin đã hết hạn (>24h) và người xem không phải chủ tin:
+        // Không cho phép xem nội dung tin hết hạn của người khác, chỉ trả về metadata trạng thái hết hạn
+        if (isExpired) {
+          return {
+            id: String(story.id),
+            author_id: story.author_id,
+            author: {
+              id: story.author_id,
+              name: story.full_name || story.username || 'Người dùng',
+              username: story.username || '',
+              avatar: story.avatar_url,
+              isVerified: Boolean(story.is_verified),
+            },
+            author_name: story.full_name || story.username || 'Người dùng',
+            author_username: story.username || '',
+            author_avatar: story.avatar_url,
+            expires_at: story.expires_at,
+            expiresAt: story.expires_at,
+            created_at: story.created_at,
+            createdAt: story.created_at,
+            isExpired: true,
+            canView: false,
+            storyType: story.story_type,
+            mediaUrl: null,
+            media_url: null,
+            textContent: null,
+            text_content: null,
+            backgroundStyle: null,
+            background_style: null,
+          };
         }
       }
 
@@ -187,6 +223,10 @@ export function createStoryRepository({ pool }) {
         mediaUrl: story.media_url,
         textContent: story.text_content,
         backgroundStyle: parsedBackgroundStyle,
+        expiresAt: story.expires_at,
+        createdAt: story.created_at,
+        isExpired,
+        canView: true,
         author: {
           id: story.author_id,
           name: story.full_name || story.username || 'Người dùng',
