@@ -1,4 +1,5 @@
 import { applyTrustPenalty } from '../services/trustScoreService.js';
+import { deriveFriendshipStatus } from '../utils/friendshipStatus.js';
 
 async function inTransaction(pool, work) {
   if (typeof pool.connect !== 'function') return work(pool);
@@ -425,18 +426,37 @@ export function createCommunityGroupsRepository({ pool }) {
       return result.rows[0] || null;
     },
 
-    async listPostReactions({ groupId, postId }) {
+    async listPostReactions({ groupId, postId, viewerId = null }) {
       const result = await pool.query(
         `SELECT r.user_id AS "userId", u.full_name AS name, u.username,
-                u.avatar_url AS avatar, r.reaction_type AS "reactionType", r.created_at AS "createdAt"
+                u.avatar_url AS avatar, r.reaction_type AS "reactionType", r.created_at AS "createdAt",
+                f.status AS "friendshipStatus", f.requester_id AS "friendshipRequesterId",
+                f.addressee_id AS "friendshipAddresseeId"
          FROM community_group_post_reactions r
          JOIN community_group_posts p ON p.id = r.post_id
          JOIN users u ON u.id = r.user_id
+         LEFT JOIN friendships f
+           ON (f.requester_id = $3 AND f.addressee_id = r.user_id)
+           OR (f.requester_id = r.user_id AND f.addressee_id = $3)
          WHERE p.group_id = $1 AND p.id = $2 AND p.review_status = 'approved'
          ORDER BY r.created_at DESC, r.user_id`,
-        [groupId, postId]
+        [groupId, postId, viewerId]
       );
-      return result.rows;
+      return result.rows.map((row) => ({
+        userId: row.userId,
+        name: row.name,
+        username: row.username,
+        avatar: row.avatar,
+        reactionType: row.reactionType,
+        createdAt: row.createdAt,
+        friendshipStatus: deriveFriendshipStatus({
+          viewerId,
+          reactorId: row.userId,
+          status: row.friendshipStatus,
+          requesterId: row.friendshipRequesterId,
+          addresseeId: row.friendshipAddresseeId,
+        }),
+      }));
     },
 
     async setPostReaction({ groupId, postId, userId, reactionType, action }) {

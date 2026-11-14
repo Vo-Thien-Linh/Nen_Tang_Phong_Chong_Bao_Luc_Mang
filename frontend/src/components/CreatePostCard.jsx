@@ -8,6 +8,7 @@ import { validateImageFile } from '../utils/imageLogic';
 import { canStartCreation } from '../utils/creationFlowLogic';
 import { getHashtagHighlightParts } from '../utils/hashtagHighlight';
 import { normalizePostPrivacy, POST_PRIVACY_OPTIONS } from '../utils/postPrivacy';
+import { getFilePickerLabel } from '../utils/filePicker';
 import { useTranslation } from '../utils/i18n';
 
 const getInitialDefaultPrivacy = () => {
@@ -39,6 +40,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
   const [nudgeData, setNudgeData] = useState(null);
   const submitLockRef = useRef(false);
   const hashtagHighlightRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   const syncHashtagHighlightScroll = (event) => {
     if (!hashtagHighlightRef.current) return;
@@ -366,11 +368,25 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
 
           {showImageInput && (
             <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                aria-label="Chọn tệp hình ảnh"
+              >
+                Chọn tệp
+              </button>
+              <span className="ml-2 text-xs text-slate-600" aria-live="polite">
+                {getFilePickerLabel(imageFile)}
+              </span>
               <input
+                ref={imageInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
                 onChange={handleImageChange}
-                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
               />
               <ImagePreview
                 src={imagePreview || imageUrl}
@@ -380,6 +396,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                   setImagePreview('');
                   setImageFile(null);
                   setImageAiPreview(null);
+                  if (imageInputRef.current) imageInputRef.current.value = '';
                 }}
               />
             </div>
@@ -404,7 +421,7 @@ export default function CreatePostCard({ currentUser, onAddPost, onRequireAuth, 
                 </span>
               </div>
               <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/80 shadow-xs">
-                {aiPreview.action || 'analyzed'}
+                {aiPreview.action || 'đã phân tích'}
               </span>
             </div>
           )}

@@ -1,7 +1,8 @@
 import os
+import json
 import unittest
 
-from app.image_moderation.config import DEFAULT_THRESHOLDS, get_image_moderation_thresholds
+from app.image_moderation.config import DEFAULT_THRESHOLDS, MODEL_CONFIG_PATH, get_image_moderation_thresholds
 from app.image_moderation.policy import PENDING_REVIEW, REJECTED, SAFE, SENSITIVE, decide_content_moderation, decide_image_moderation, image_preview_payload
 
 
@@ -41,6 +42,26 @@ class ImageModerationPolicyTests(unittest.TestCase):
         self.assertEqual(payload["category"], "PENDING_REVIEW")
         self.assertIsNone(payload["confidence"])
         self.assertEqual(payload["source"], "unavailable")
+
+    def test_model_config_auto_approve_threshold_is_loaded_and_auto_hide_is_preserved(self):
+        with MODEL_CONFIG_PATH.open("r", encoding="utf-8") as handle:
+            thresholds = json.load(handle)["thresholds"]
+        self.assertEqual(thresholds["auto_approve_safe"], 0.60)
+        self.assertEqual(thresholds["auto_hide"], 0.50)
+        self.assertEqual(DEFAULT_THRESHOLDS.safe_min, 0.60)
+
+    def test_safe_score_auto_approves_only_above_sixty_percent(self):
+        for safe in (0.6531660, 0.6001):
+            scores = {"safe": safe, "nsfw": (1 - safe) / 2, "violence": (1 - safe) / 2}
+            self.assertEqual(decide_image_moderation(scores)["decision"], SAFE)
+
+        for safe in (0.6000, 0.5999):
+            scores = {"safe": safe, "nsfw": (1 - safe) / 2, "violence": (1 - safe) / 2}
+            self.assertEqual(decide_image_moderation(scores)["decision"], PENDING_REVIEW)
+
+    def test_medium_violence_stays_in_review_even_with_low_safe_score(self):
+        result = decide_image_moderation({"safe": 0.1128123, "nsfw": 0.0931805, "violence": 0.7940072})
+        self.assertEqual(result["decision"], PENDING_REVIEW)
 
 
 if __name__ == "__main__":

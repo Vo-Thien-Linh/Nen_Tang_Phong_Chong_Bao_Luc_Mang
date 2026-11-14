@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, UserPlus, Check } from 'lucide-react';
 import { REACTIONS } from '../utils/reactionLogic';
+import { getReactionFriendshipView, resolveReactionFriendshipStatus } from '../utils/reactionFriendship';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { fetchCommunityGroupPostReactions, fetchPostReactions } from '../api/client';
+import { friendService } from '../services/friendService';
 
 export default function PostReactionsModal({
   isOpen,
@@ -69,15 +71,21 @@ export default function PostReactionsModal({
   }, [reactors]);
 
   // Toggle kết bạn trực tiếp trên modal
-  const handleToggleAddFriend = (userId) => {
+  const handleToggleAddFriend = async (userId) => {
     if (!currentUser && onRequireAuth) {
       onRequireAuth('Vui lòng đăng nhập để gửi lời mời kết bạn');
       return;
     }
-    setFriendStatuses(prev => ({
-      ...prev,
-      [userId]: !prev[userId]
-    }));
+    try {
+      await friendService.sendFriendRequest(userId);
+      setFriendStatuses(prev => ({ ...prev, [userId]: 'pending_sent' }));
+    } catch {
+      setFriendStatuses(prev => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    }
   };
 
   if (!isOpen) return null;
@@ -164,7 +172,13 @@ export default function PostReactionsModal({
             reactorsByTab.map((reactor) => {
               const reactionObj = REACTIONS.find(r => r.id === reactor.reactionType) || REACTIONS[0];
               const isMe = currentUser?.id && String(reactor.userId) === String(currentUser.id);
-              const isAdded = friendStatuses[reactor.userId];
+              const friendshipStatus = isMe
+                ? 'self'
+                : resolveReactionFriendshipStatus(
+                    reactor.friendshipStatus || reactor.friendship_status,
+                    friendStatuses[reactor.userId],
+                  );
+              const friendshipView = getReactionFriendshipView(friendshipStatus);
 
               return (
                 <div
@@ -210,28 +224,23 @@ export default function PostReactionsModal({
                   </div>
 
                   {/* Nút thao tác nhanh */}
-                  {!isMe && (
+                  {friendshipView.kind !== 'hidden' && (
                     <div className="shrink-0">
-                      <button
-                        onClick={() => handleToggleAddFriend(reactor.userId)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs ${
-                          isAdded
-                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                            : 'bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60'
-                        }`}
-                      >
-                        {isAdded ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-500" />
-                            <span>Đã gửi</span>
-                          </>
-                        ) : (
-                          <>
-                            <UserPlus className="w-3.5 h-3.5" />
-                            <span>Kết bạn</span>
-                          </>
-                        )}
-                      </button>
+                      {friendshipView.kind === 'add' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAddFriend(reactor.userId)}
+                          className="flex items-center gap-1.5 rounded-xl border border-blue-200/60 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 shadow-2xs transition hover:bg-blue-100 dark:border-blue-800/60 dark:bg-blue-950/50 dark:text-blue-400 dark:hover:bg-blue-900"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>{friendshipView.label}</span>
+                        </button>
+                      ) : (
+                        <span className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          <Check className="h-3.5 w-3.5 text-emerald-500" />
+                          <span>{friendshipView.label}</span>
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

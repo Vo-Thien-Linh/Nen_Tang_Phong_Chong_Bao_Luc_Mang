@@ -309,7 +309,7 @@ export function createCommunityGroupsService({
         throw fail('Cảm xúc của nhóm riêng tư chỉ dành cho thành viên', 403);
       }
       await requireApprovedPost({ groupId, postId });
-      return repository.listPostReactions({ groupId, postId });
+      return repository.listPostReactions({ groupId, postId, viewerId: user?.id || null });
     },
 
     async setPostReaction({ groupId, postId, user, reactionType, action }) {

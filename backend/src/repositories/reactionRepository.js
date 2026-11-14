@@ -1,4 +1,5 @@
 import { buildPostVisibilityPredicate } from './postVisibility.js';
+import { deriveFriendshipStatus } from '../utils/friendshipStatus.js';
 
 const emptyCounts = () => ({
   like: 0,
@@ -155,12 +156,17 @@ export function createReactionRepository({ pool }) {
       }
 
       const result = await pool.query(
-        `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username
+        `SELECT pr.reaction_type, pr.created_at, u.id, u.full_name AS name, u.avatar_url AS avatar, u.username,
+                f.status AS friendship_status, f.requester_id AS friendship_requester_id,
+                f.addressee_id AS friendship_addressee_id
          FROM post_reactions pr
          JOIN users u ON pr.user_id = u.id
+         LEFT JOIN friendships f
+           ON (f.requester_id = $2 AND f.addressee_id = u.id)
+           OR (f.requester_id = u.id AND f.addressee_id = $2)
          WHERE pr.post_id = $1
          ORDER BY pr.created_at DESC`,
-        [cleanId]
+        [cleanId, viewerId || null]
       );
       return result.rows.map(r => ({
         userId: r.id,
@@ -168,7 +174,14 @@ export function createReactionRepository({ pool }) {
         avatar: r.avatar,
         username: r.username,
         reactionType: r.reaction_type,
-        createdAt: r.created_at
+        createdAt: r.created_at,
+        friendshipStatus: deriveFriendshipStatus({
+          viewerId,
+          reactorId: r.id,
+          status: r.friendship_status,
+          requesterId: r.friendship_requester_id,
+          addresseeId: r.friendship_addressee_id,
+        }),
       }));
     },
 
