@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>503 - Mất kết nối máy chủ WINGS</title>
+  <link rel="icon" type="image/png" href="/wings-logo.png">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      min-height: 100vh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 2.5rem 1.5rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #ffffff;
+      background-color: #274337;
+      background-image: 
+        radial-gradient(ellipse at 50% 40%, rgba(55, 95, 78, 0.85) 0%, rgba(32, 56, 45, 0.95) 60%, rgba(19, 34, 27, 1) 100%),
+        repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.015) 0px, rgba(255, 255, 255, 0.015) 2px, transparent 2px, transparent 6px);
+      user-select: none;
+      box-shadow: inset 0 0 120px rgba(0,0,0,0.5);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      opacity: 0.95;
+    }
+    .brand img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .brand span {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .brand span span {
+      font-weight: 300;
+      opacity: 0.75;
+    }
+    .centerpiece {
+      text-align: center;
+      max-width: 600px;
+      margin: auto 0;
+      padding: 2rem 1rem;
+    }
+    .error-code {
+      font-size: clamp(5rem, 15vw, 8.5rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 1.5rem;
+      text-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .error-desc {
+      font-size: clamp(1rem, 2.5vw, 1.2rem);
+      line-height: 1.6;
+      opacity: 0.92;
+      margin-bottom: 2rem;
+    }
+    .error-prompt {
+      display: block;
+      margin-top: 0.5rem;
+      font-size: 0.95rem;
+      opacity: 0.75;
+    }
+    .action-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem 2rem;
+      margin-top: 1rem;
+    }
+    .action-links a, .action-links button {
+      background: none;
+      border: none;
+      color: #ffffff;
+      font-size: 1.05rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 8px;
+      text-decoration-color: rgba(255,255,255,0.6);
+      transition: text-decoration-color 0.2s, opacity 0.2s;
+    }
+    .action-links a:hover, .action-links button:hover {
+      text-decoration-color: #ffffff;
+      opacity: 1;
+    }
+    .footer {
+      font-size: 0.75rem;
+      opacity: 0.55;
+      text-align: center;
+      letter-spacing: 0.05em;
+      font-weight: 300;
+    }
+  </style>
+</head>
+<body>
+  <div class="brand">
+    <img src="/wings-logo.png" alt="WINGS Logo" onerror="this.style.display='none'">
+    <span>WINGS <span>Social Network</span></span>
+  </div>
+
+  <div class="centerpiece">
+    <div class="error-code">503</div>
+    <p class="error-desc">
+      Không thể kết nối đến máy chủ WINGS. Hệ thống đang bảo trì hoặc mất kết nối mạng.
+      <span class="error-prompt">Bạn có đang tìm kiếm các thao tác dưới đây?</span>
+    </p>
+    <div class="action-links">
+      <button onclick="window.location.reload()">Thử kết nối lại</button>
+      <a href="/">Về Bảng tin chính</a>
+      <a href="/#messages">Hộp thư tin nhắn</a>
+    </div>
+  </div>
+
+  <div class="footer">
+    @WingsSocial — Nền tảng phòng chống bạo lực mạng và kiểm duyệt thông minh
+  </div>
+</body>
+</html>
+
