@@ -17,6 +17,7 @@ const ALL_VALID_RELATIONSHIPS = new Set([
 ]);
 
 const FIELD_META = {
+  name: { label: 'Họ và tên', labelEn: 'Full Name', minLength: 2, maxLength: 70, kind: 'name' },
   bio: { label: 'Tiểu sử', labelEn: 'Bio', minLength: 2, maxLength: 200, kind: 'bio' },
   workplace: { label: 'Nơi làm việc', labelEn: 'Workplace', minLength: 2, maxLength: 150, kind: 'work_edu' },
   jobTitle: { label: 'Chức vụ / Nghề nghiệp', labelEn: 'Job Title / Role', minLength: 2, maxLength: 150, kind: 'work_edu' },
@@ -82,7 +83,12 @@ export function validateProfileField(fieldName, rawValue, isEn = false) {
   if (!meta) return '';
 
   const normalized = meta.kind === 'bio' ? normalizeBio(rawValue) : normalizeSingleLine(rawValue);
-  if (!normalized) return '';
+  if (!normalized) {
+    if (meta.kind === 'name') {
+      return isEn ? 'Full name cannot be empty.' : 'Họ và tên không được để trống.';
+    }
+    return '';
+  }
 
   const label = isEn ? meta.labelEn : meta.label;
 
@@ -125,6 +131,21 @@ export function validateProfileField(fieldName, rawValue, isEn = false) {
       : `${label} phải nhập thông tin thật (ít nhất 2 chữ cái, không chỉ số hoặc ký hiệu).`;
   }
 
+  if (meta.kind === 'name') {
+    const NAME_CHAR_REGEX = /^[\p{L}\s.'’\-]+$/u;
+    if (!NAME_CHAR_REGEX.test(normalized)) {
+      return isEn
+        ? 'Full name contains unsupported special characters.'
+        : 'Họ và tên chỉ được chứa chữ cái, khoảng trắng và dấu gạch nối.';
+    }
+    if (hasGibberishWord(normalized)) {
+      return isEn
+        ? 'Full name appears to be invalid.'
+        : 'Họ và tên không hợp lệ.';
+    }
+    return '';
+  }
+
   const charRegex = meta.kind === 'place' ? PLACE_CHAR_REGEX : WORK_EDU_CHAR_REGEX;
   if (!charRegex.test(normalized)) {
     return isEn
@@ -143,6 +164,7 @@ export function validateProfileField(fieldName, rawValue, isEn = false) {
 
 export function validateProfileForm(formData = {}, isEn = false) {
   const sanitized = {
+    ...(formData.name !== undefined ? { name: normalizeSingleLine(formData.name) } : {}),
     avatar_url: String(formData.avatar_url || '').trim(),
     cover_url: String(formData.cover_url || '').trim(),
     bio: normalizeBio(formData.bio),

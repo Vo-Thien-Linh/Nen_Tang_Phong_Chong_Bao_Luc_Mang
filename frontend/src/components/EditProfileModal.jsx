@@ -23,6 +23,7 @@ export default function EditProfileModal({
 }) {
   const { t, isEn } = useTranslation();
   const [formData, setFormData] = useState({
+    name: '',
     avatar_url: '',
     cover_url: '',
     bio: '',
@@ -52,6 +53,7 @@ export default function EditProfileModal({
   useEffect(() => {
     if (isOpen) {
       setFormData({
+        name: initialData.name || initialData.full_name || '',
         avatar_url: initialData.avatar || initialData.avatar_url || '',
         cover_url: initialData.cover || initialData.cover_url || initialData.coverImage || '',
         bio: initialData.bio || '',
@@ -435,33 +437,62 @@ export default function EditProfileModal({
 
           </div>
 
-          {/* Section 2: Tiểu sử (Bio) */}
-          <div className="pt-5 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                {t('edit_profile.bio')}
-              </label>
-              <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                {(formData.bio || '').length}/200 {isEn ? 'chars' : 'ký tự'}
-              </span>
+          {/* Section 2: Thông tin cơ bản (Tên hiển thị & Tiểu sử) */}
+          <div className="pt-5 space-y-4">
+            {/* Họ và tên */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  {t('edit_profile.full_name')}
+                  <span className="text-rose-500">*</span>
+                </label>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                  {(formData.name || '').length}/70 {isEn ? 'chars' : 'ký tự'}
+                </span>
+              </div>
+              <input
+                type="text"
+                maxLength={70}
+                value={formData.name}
+                onChange={(e) => handleChange('name', e.target.value)}
+                onBlur={() => handleFieldBlur('name')}
+                placeholder={isEn ? 'Enter your full name' : 'Nhập họ và tên của bạn'}
+                className={getInputClass('name')}
+              />
+              {fieldErrors.name && (
+                <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.name}</p>
+              )}
             </div>
-            <textarea
-              rows={3}
-              maxLength={200}
-              value={formData.bio}
-              onChange={(e) => handleChange('bio', e.target.value)}
-              onBlur={() => handleFieldBlur('bio')}
-              placeholder={isEn ? 'Describe your interests, expertise, or personal motto...' : 'Ví dụ: Yêu thích công nghệ, chia sẻ kiến thức lập trình & nhiếp ảnh...'}
-              className={`w-full p-3 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border ${
-                fieldErrors.bio
-                  ? 'border-rose-400 dark:border-rose-500 focus:border-rose-500 bg-rose-50/40 dark:bg-rose-950/20'
-                  : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
-              } text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:bg-white dark:focus:bg-slate-850 transition resize-none`}
-            />
-            {fieldErrors.bio && (
-              <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.bio}</p>
-            )}
+
+            {/* Tiểu sử (Bio) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  {t('edit_profile.bio')}
+                </label>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                  {(formData.bio || '').length}/200 {isEn ? 'chars' : 'ký tự'}
+                </span>
+              </div>
+              <textarea
+                rows={3}
+                maxLength={200}
+                value={formData.bio}
+                onChange={(e) => handleChange('bio', e.target.value)}
+                onBlur={() => handleFieldBlur('bio')}
+                placeholder={isEn ? 'Describe your interests, expertise, or personal motto...' : 'Ví dụ: Yêu thích công nghệ, chia sẻ kiến thức lập trình & nhiếp ảnh...'}
+                className={`w-full p-3 text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border ${
+                  fieldErrors.bio
+                    ? 'border-rose-400 dark:border-rose-500 focus:border-rose-500 bg-rose-50/40 dark:bg-rose-950/20'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } text-slate-900 dark:text-slate-100 rounded-xl outline-none focus:bg-white dark:focus:bg-slate-850 transition resize-none`}
+              />
+              {fieldErrors.bio && (
+                <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{fieldErrors.bio}</p>
+              )}
+            </div>
           </div>
 
           {/* Section 3: Công việc và Học vấn */}
