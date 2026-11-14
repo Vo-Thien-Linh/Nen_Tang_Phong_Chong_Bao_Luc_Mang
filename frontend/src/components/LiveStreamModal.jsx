@@ -1,11 +1,30 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Video, VideoOff, Mic, MicOff, PhoneOff, Users, ShieldAlert,
   Send, Heart, AlertTriangle, Radio, Sparkles, MessageSquare,
-  Eye, X, ShieldCheck, Flag, Volume2, VolumeX, RefreshCw
+  Eye, X, ShieldCheck, Flag, Volume2, VolumeX, RefreshCw, Smile
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { livestreamService } from '../services/livestreamService';
+import { CALL_FILTERS, FaceFilterManager, preloadFaceFilterAi } from '../utils/faceFilterLogic';
+
+const INTERACTIVE_STICKERS = [
+  { emoji: '💖', name: 'Trái tim' },
+  { emoji: '🔥', name: 'Bùng cháy' },
+  { emoji: '🎉', name: 'Chúc mừng' },
+  { emoji: '👑', name: 'Vương miện' },
+  { emoji: '🐱', name: 'Mèo cưng' },
+  { emoji: '🕶️', name: 'Siêu ngầu' },
+  { emoji: '🥳', name: 'Quẩy lên' },
+  { emoji: '🚀', name: 'Bay cao' },
+  { emoji: '⭐', name: 'Ngôi sao' },
+  { emoji: '💯', name: 'Tuyệt đối' },
+  { emoji: '🌸', name: 'Hoa nở' },
+  { emoji: '😂', name: 'Ha ha' },
+  { emoji: '😍', name: 'Mê mẩn' },
+  { emoji: '👏', name: 'Vỗ tay' },
+  { emoji: '🛡️', name: 'Bảo vệ' }
+];
 
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -108,6 +127,31 @@ export default function LiveStreamModal({
     streamerName: session?.streamer_name || 'Người phát sóng'
   });
 
+  // Trạng thái Sticker & Hiệu ứng AR cho Camera
+  const [activeFilterId, setActiveFilterId] = useState('none');
+  const [showStickerDrawer, setShowStickerDrawer] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [showInteractiveStickers, setShowInteractiveStickers] = useState(false);
+  const rawCameraStreamRef = useRef(null);
+  const filterManagerRef = useRef(null);
+
+  const displayedFilters = useMemo(() => {
+    if (filterCategory === 'all') return CALL_FILTERS;
+    return CALL_FILTERS.filter(f => f.category === 'all' || f.category === filterCategory);
+  }, [filterCategory]);
+
+  useEffect(() => {
+    if (isOpen) {
+      preloadFaceFilterAi();
+    }
+    return () => {
+      if (filterManagerRef.current) {
+        filterManagerRef.current.destroy();
+        filterManagerRef.current = null;
+      }
+    };
+  }, [isOpen]);
+
   const videoRef = useRef(null);
   const viewerVideoRef = useRef(null);
   const chatBottomRef = useRef(null);
@@ -123,6 +167,8 @@ export default function LiveStreamModal({
   // Đồng bộ initialStream nhận từ CreateLiveStreamModal hoặc global broadcast
   useEffect(() => {
     if (initialStream) {
+      rawCameraStreamRef.current = initialStream;
+      localStreamRef.current = initialStream;
       setLocalStream(initialStream);
       setHasCamera(initialStream.getVideoTracks().length > 0);
       setHasMic(initialStream.getAudioTracks().length > 0);
@@ -265,6 +311,7 @@ export default function LiveStreamModal({
           }
         });
         if (isMounted) {
+          rawCameraStreamRef.current = stream;
           localStreamRef.current = stream;
           setLocalStream(stream);
           setHasCamera(true);
@@ -284,6 +331,7 @@ export default function LiveStreamModal({
             audio: false
           });
           if (isMounted) {
+            rawCameraStreamRef.current = videoOnly;
             localStreamRef.current = videoOnly;
             setLocalStream(videoOnly);
             setHasCamera(true);
@@ -295,6 +343,7 @@ export default function LiveStreamModal({
           if (isMounted) {
             try {
               const synthetic = createSyntheticBroadcastStream(session?.title || 'Phòng phát trực tiếp');
+              rawCameraStreamRef.current = synthetic;
               localStreamRef.current = synthetic;
               setLocalStream(synthetic);
               setHasCamera(true);
@@ -802,6 +851,78 @@ export default function LiveStreamModal({
     }
   };
 
+  const handleSelectFilter = async (filterId) => {
+    setActiveFilterId(filterId);
+    const rawStream = rawCameraStreamRef.current;
+    if (!rawStream) return;
+
+    if (filterId === 'none') {
+      if (filterManagerRef.current) {
+        filterManagerRef.current.setFilter('none');
+      }
+      const rawVideoTrack = rawStream.getVideoTracks ? rawStream.getVideoTracks()[0] : null;
+      if (rawVideoTrack) {
+        for (const vId in streamerPcsRef.current) {
+          const pc = streamerPcsRef.current[vId];
+          if (pc && pc.signalingState !== 'closed') {
+            const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+            if (sender) {
+              await sender.replaceTrack(rawVideoTrack).catch(() => {});
+            }
+          }
+        }
+      }
+      localStreamRef.current = rawStream;
+      setLocalStream(rawStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = rawStream;
+      }
+      return;
+    }
+
+    try {
+      if (!filterManagerRef.current) {
+        const mgr = new FaceFilterManager();
+        await mgr.init(rawStream);
+        filterManagerRef.current = mgr;
+      }
+      filterManagerRef.current.setFilter(filterId);
+      const filteredStream = filterManagerRef.current.getFilteredStream();
+      if (filteredStream) {
+        let combinedStream = filteredStream;
+        if (typeof MediaStream !== 'undefined') {
+          combinedStream = new MediaStream();
+          if (rawStream.getAudioTracks) {
+            rawStream.getAudioTracks().forEach((t) => combinedStream.addTrack(t));
+          }
+          if (filteredStream.getVideoTracks) {
+            filteredStream.getVideoTracks().forEach((t) => combinedStream.addTrack(t));
+          }
+        }
+
+        const filteredVideoTrack = filteredStream.getVideoTracks ? filteredStream.getVideoTracks()[0] : null;
+        if (filteredVideoTrack) {
+          for (const vId in streamerPcsRef.current) {
+            const pc = streamerPcsRef.current[vId];
+            if (pc && pc.signalingState !== 'closed') {
+              const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+              if (sender) {
+                await sender.replaceTrack(filteredVideoTrack).catch(() => {});
+              }
+            }
+          }
+        }
+        localStreamRef.current = combinedStream;
+        setLocalStream(combinedStream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = combinedStream;
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi khi kích hoạt sticker livestream:', err);
+    }
+  };
+
   const toggleMic = () => {
     if (localStream) {
       localStream.getAudioTracks().forEach((track) => {
@@ -1153,6 +1274,70 @@ export default function LiveStreamModal({
                 );
               })}
             </div>
+
+            {/* Drawer chọn Sticker & Hiệu ứng AR cho Streamer */}
+            {showStickerDrawer && effectiveMode === 'broadcast' && !isStreamEnded && (
+              <div className="absolute bottom-20 left-4 right-4 z-40 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">Sticker & Hiệu ứng khuôn mặt</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[
+                      { id: 'all', label: 'Tất cả' },
+                      { id: 'ar', label: 'Sticker AR' },
+                      { id: 'color', label: 'Màu sắc' }
+                    ].map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setFilterCategory(cat.id)}
+                        className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium transition cursor-pointer ${
+                          filterCategory === cat.id
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setShowStickerDrawer(false)}
+                      className="ml-2 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-h-36 overflow-y-auto pr-1">
+                  {displayedFilters.map((filter) => {
+                    const isActive = activeFilterId === filter.id;
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => handleSelectFilter(filter.id)}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition cursor-pointer ${
+                          isActive
+                            ? 'border-blue-500 bg-blue-500/20 shadow-md shadow-blue-500/30'
+                            : 'border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/10'
+                        }`}
+                      >
+                        <span className="text-xl">{filter.icon}</span>
+                        <span className={`text-[10px] font-medium truncate max-w-full ${
+                          isActive ? 'text-blue-400 font-bold' : 'text-slate-300'
+                        }`}>
+                          {filter.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Thanh điều khiển dưới đáy Video */}
@@ -1187,6 +1372,20 @@ export default function LiveStreamModal({
                   >
                     {isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
                   </button>
+
+                  <button
+                    id="btn-toggle-stickers"
+                    type="button"
+                    onClick={() => setShowStickerDrawer((prev) => !prev)}
+                    title="Hiệu ứng AR & Sticker khuôn mặt"
+                    className={`w-11 h-11 rounded-full flex items-center justify-center transition border shadow-lg cursor-pointer ${
+                      activeFilterId !== 'none'
+                        ? 'bg-amber-500 border-amber-400 text-white shadow-amber-500/30 ring-2 ring-amber-400'
+                        : 'bg-black/60 border-white/20 text-white hover:bg-black/80'
+                    }`}
+                  >
+                    <Sparkles className="w-5 h-5 text-amber-300" />
+                  </button>
                 </>
               )}
             </div>
@@ -1204,6 +1403,58 @@ export default function LiveStreamModal({
                       {emoji}
                     </button>
                   ))}
+
+                  {/* Nút mở rộng Sticker tương tác */}
+                  <div className="relative">
+                    <button
+                      id="btn-open-interactive-stickers"
+                      type="button"
+                      onClick={() => setShowInteractiveStickers((prev) => !prev)}
+                      title="Gửi sticker tương tác"
+                      className={`w-9 h-9 rounded-full flex items-center justify-center text-lg transition transform hover:scale-125 active:scale-95 cursor-pointer ${
+                        showInteractiveStickers ? 'bg-amber-500/30 text-amber-300' : 'hover:bg-white/20 text-slate-300'
+                      }`}
+                    >
+                      <Smile className="w-5 h-5 text-amber-400" />
+                    </button>
+
+                    {showInteractiveStickers && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setShowInteractiveStickers(false)}
+                        />
+                        <div className="absolute right-0 bottom-12 z-50 w-64 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2.5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+                          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10 text-xs font-bold text-slate-300">
+                            <span>Sticker tương tác</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowInteractiveStickers(false)}
+                              className="text-slate-400 hover:text-white p-0.5 rounded transition"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-5 gap-1.5 max-h-40 overflow-y-auto p-1">
+                            {INTERACTIVE_STICKERS.map((s) => (
+                              <button
+                                key={s.name}
+                                type="button"
+                                onClick={() => {
+                                  handleSendReaction(s.emoji);
+                                  setShowInteractiveStickers(false);
+                                }}
+                                title={s.name}
+                                className="w-10 h-10 rounded-xl hover:bg-white/15 flex items-center justify-center text-2xl transition transform hover:scale-125 active:scale-95 cursor-pointer"
+                              >
+                                {s.emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 

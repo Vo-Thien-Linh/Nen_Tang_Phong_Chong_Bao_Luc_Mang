@@ -570,6 +570,11 @@ export function renderFloatingHearts(ctx, face, time = 0) {
 let faceLandmarkerInstance = null;
 let faceLandmarkerPromise = null;
 
+export function preloadFaceFilterAi() {
+  if (typeof window === 'undefined') return;
+  getFaceLandmarker().catch(() => {});
+}
+
 export async function getFaceLandmarker() {
   if (typeof window === 'undefined') return null;
   if (faceLandmarkerInstance) return faceLandmarkerInstance;
@@ -590,22 +595,40 @@ export async function getFaceLandmarker() {
       }
 
       // Nạp model AI nhẹ (3.7MB) từ local public/mediapipe/face_landmarker.task
-      const landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-        baseOptions: {
-          modelAssetPath: '/mediapipe/face_landmarker.task',
-          delegate: 'GPU'
-        },
-        runningMode: 'VIDEO',
-        numFaces: 1,
-        minFaceDetectionConfidence: 0.3,
-        minFacePresenceConfidence: 0.3,
-        minTrackingConfidence: 0.3
-      });
+      // Ưu tiên GPU delegate để đạt tốc độ cao, tự động fallback sang CPU nếu GPU bận hoặc không hỗ trợ
+      let landmarker = null;
+      try {
+        landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath: '/mediapipe/face_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'VIDEO',
+          numFaces: 1,
+          minFaceDetectionConfidence: 0.5,
+          minFacePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+      } catch (gpuErr) {
+        console.warn('[FaceLandmarker] GPU delegate không khả dụng, chuyển sang CPU delegate:', gpuErr);
+        landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath: '/mediapipe/face_landmarker.task',
+            delegate: 'CPU'
+          },
+          runningMode: 'VIDEO',
+          numFaces: 1,
+          minFaceDetectionConfidence: 0.5,
+          minFacePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+      }
 
       faceLandmarkerInstance = landmarker;
       return landmarker;
     } catch (err) {
       console.warn('[FaceLandmarker] Không thể nạp MediaPipe model:', err);
+      faceLandmarkerPromise = null;
       return null;
     }
   })();
@@ -628,7 +651,10 @@ export class FaceFilterManager {
     this.isDestroyed = false;
     this.time = 0;
     this.lastVideoTime = -1;
-    this.faceLandmarker = null;
+    this.lastInferenceTime = 0;
+    this.lastDetectTimestamp = 0;
+    this.missedFaceFrames = 0;
+    this.faceLandmarker = faceLandmarkerInstance;
     this.smoothedFace = null;
     this.isInitializingAi = false;
   }
@@ -651,7 +677,7 @@ export class FaceFilterManager {
         this.videoElement.play().catch(() => {});
         resolve(true);
       };
-      setTimeout(resolve, 1000);
+      setTimeout(resolve, 800);
     });
 
     const vWidth = this.videoElement.videoWidth || 640;
@@ -682,7 +708,8 @@ export class FaceFilterManager {
   }
 
   async loadAiModel() {
-    if (this.isInitializingAi || this.faceLandmarker) return;
+    if (this.faceLandmarker) return;
+    if (this.isInitializingAi) return;
     this.isInitializingAi = true;
     try {
       this.faceLandmarker = await getFaceLandmarker();
@@ -731,25 +758,42 @@ export class FaceFilterManager {
         if (isArFilter(this.activeFilterId)) {
           let currentFace = null;
 
-          if (this.faceLandmarker && this.videoElement.currentTime !== this.lastVideoTime) {
-            this.lastVideoTime = this.videoElement.currentTime;
-            try {
-              const now = performance.now();
-              const results = this.faceLandmarker.detectForVideo(this.videoElement, now);
-              if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
-                currentFace = extractLandmarkPositions(results.faceLandmarks[0], width, height);
+          if (this.faceLandmarker && this.videoElement.readyState >= 2) {
+            const now = performance.now();
+            // Điều tiết tần suất nhận diện: cách nhau >= 25ms (~35-40 FPS) để không nghẽn thread GPU/CPU
+            if (now - this.lastInferenceTime >= 25) {
+              this.lastInferenceTime = now;
+              const safeTimestamp = Math.max(now, (this.lastDetectTimestamp || 0) + 1);
+              this.lastDetectTimestamp = safeTimestamp;
+
+              try {
+                const results = this.faceLandmarker.detectForVideo(this.videoElement, safeTimestamp);
+                if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+                  currentFace = extractLandmarkPositions(results.faceLandmarks[0], width, height);
+                  this.missedFaceFrames = 0;
+                } else {
+                  this.missedFaceFrames = (this.missedFaceFrames || 0) + 1;
+                }
+              } catch (err) {
+                this.missedFaceFrames = (this.missedFaceFrames || 0) + 1;
               }
-            } catch (err) {
-              // detectForVideo catch
             }
           }
 
-          // Cập nhật tọa độ nội suy mượt mà (Exponential Smoothing)
+          // Cập nhật tọa độ nội suy mượt mà & thích ứng theo tốc độ (Adaptive Lerp)
           if (currentFace) {
             if (!this.smoothedFace) {
-              this.smoothedFace = currentFace;
+              // Bắt đầu nhận diện mặt: gán ngay lập tức, không để sticker trôi dạt từ xa
+              this.smoothedFace = { ...currentFace };
             } else {
-              const alpha = 0.75; // 75% vị trí mới, 25% vị trí cũ để bám sát và khử rung
+              const dist = Math.hypot(
+                currentFace.eyeCenter.x - this.smoothedFace.eyeCenter.x,
+                currentFace.eyeCenter.y - this.smoothedFace.eyeCenter.y
+              );
+              // Chuyển động nhanh: alpha cao (0.92) bám sát tức thì không bị trễ/lag
+              // Chuyển động chậm/đứng yên: alpha (0.82) khử rung (jitter) nhẹ
+              const alpha = dist > 12 ? 0.92 : 0.82;
+
               this.smoothedFace = {
                 faceWidth: lerp(this.smoothedFace.faceWidth, currentFace.faceWidth, alpha),
                 eyeCenter: {
@@ -779,31 +823,38 @@ export class FaceFilterManager {
                 angle: lerpAngle(this.smoothedFace.angle, currentFace.angle, alpha)
               };
             }
+          } else if (this.missedFaceFrames > 8) {
+            // Mất dấu khuôn mặt quá 8 frame (~250ms): reset để tránh icon bị đơ/dính cố định trên màn hình
+            this.smoothedFace = null;
           }
 
-          const targetFace = this.smoothedFace || estimateDefaultFace(width, height);
+          // QUAN TRỌNG: Chỉ vẽ AR filter khi ĐÃ nhận diện được khuôn mặt thật
+          // Tuyệt đối không fallback về estimateDefaultFace làm icon bị "dính cố định giữa màn hình"
+          if (this.smoothedFace) {
+            const targetFace = this.smoothedFace;
 
-          switch (this.activeFilterId) {
-            case 'sunglasses':
-              renderSunglasses(this.ctx, targetFace);
-              break;
-            case 'cat_ears':
-              renderCatEars(this.ctx, targetFace, this.time);
-              break;
-            case 'party_hat':
-              renderPartyHat(this.ctx, targetFace, this.time);
-              break;
-            case 'mustache':
-              renderMustache(this.ctx, targetFace);
-              break;
-            case 'crown':
-              renderCrown(this.ctx, targetFace, this.time);
-              break;
-            case 'hearts':
-              renderFloatingHearts(this.ctx, targetFace, this.time);
-              break;
-            default:
-              break;
+            switch (this.activeFilterId) {
+              case 'sunglasses':
+                renderSunglasses(this.ctx, targetFace);
+                break;
+              case 'cat_ears':
+                renderCatEars(this.ctx, targetFace, this.time);
+                break;
+              case 'party_hat':
+                renderPartyHat(this.ctx, targetFace, this.time);
+                break;
+              case 'mustache':
+                renderMustache(this.ctx, targetFace);
+                break;
+              case 'crown':
+                renderCrown(this.ctx, targetFace, this.time);
+                break;
+              case 'hearts':
+                renderFloatingHearts(this.ctx, targetFace, this.time);
+                break;
+              default:
+                break;
+            }
           }
         }
       }

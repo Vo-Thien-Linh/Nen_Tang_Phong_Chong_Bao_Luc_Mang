@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { CALL_STATUS, formatCallDuration } from '../utils/callMediaLogic';
-import { CALL_FILTERS } from '../utils/faceFilterLogic';
+import { CALL_FILTERS, preloadFaceFilterAi } from '../utils/faceFilterLogic';
 
 export default function VideoCallModal({
   callStatus = CALL_STATUS.IDLE,
@@ -41,6 +41,13 @@ export default function VideoCallModal({
     if (filterCategory === 'all') return CALL_FILTERS;
     return CALL_FILTERS.filter(f => f.category === 'all' || f.category === filterCategory);
   }, [filterCategory]);
+
+  // Tải trước AI model nhận diện khuôn mặt ngay khi cuộc gọi bắt đầu để tránh bị trễ khi chọn filter
+  useEffect(() => {
+    if (callStatus === CALL_STATUS.CONNECTED || callStatus === CALL_STATUS.CALLING) {
+      preloadFaceFilterAi();
+    }
+  }, [callStatus]);
 
   // Gắn stream vào các thẻ video DOM
   useEffect(() => {

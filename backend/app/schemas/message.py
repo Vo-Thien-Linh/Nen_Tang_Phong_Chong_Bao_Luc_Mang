@@ -14,9 +14,15 @@ class CreateGroupRequest(BaseModel):
     member_ids: List[str]
     avatar_url: Optional[str] = None
 
+class AddGroupMembersRequest(BaseModel):
+    member_ids: List[str]
+
 class UpdateGroupRequest(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: str  # 'deputy', 'member'
 
 class MessageItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -44,6 +50,7 @@ class ConversationPartner(BaseModel):
     is_online: bool = False
     is_friend: bool = False
     last_seen: Optional[str] = None
+    role: Optional[str] = "member"
 
 class ConversationItem(BaseModel):
     id: int

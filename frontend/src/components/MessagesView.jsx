@@ -5,7 +5,8 @@ import {
   UserCheck, UserX, AlertCircle, ShieldAlert, Flag,
   Info, Maximize2, Minimize2, Paperclip, BellOff,
   User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download,
-  PhoneMissed, PhoneOff, Users, UserPlus, Camera, Pencil, Calendar
+  PhoneMissed, PhoneOff, Users, UserPlus, Camera, Pencil, Calendar,
+  Crown, ShieldCheck, UserMinus
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
@@ -14,6 +15,7 @@ import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } fr
 import { fetchStories, fetchUserStoriesApi } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import CreateGroupModal from './CreateGroupModal';
+import AddGroupMemberModal from './AddGroupMemberModal';
 import GroupVideoCallModal from './GroupVideoCallModal';
 import {
   CALL_STATUS,
@@ -25,7 +27,7 @@ import {
   stopMediaStream,
   applyVideoTrackToPeer
 } from '../utils/callMediaLogic';
-import { FaceFilterManager } from '../utils/faceFilterLogic';
+import { FaceFilterManager, preloadFaceFilterAi } from '../utils/faceFilterLogic';
 import { MeshCallManager } from '../utils/meshCallManager';
 import { useTranslation } from '../utils/i18n';
 import { formatRelativeTime } from '../utils/timeAgo';
@@ -276,6 +278,10 @@ export default function MessagesView({
   
   // Modal tạo nhóm chat mới
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  // Modal thêm thành viên vào nhóm chat hiện tại
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  // Menu thao tác với thành viên trong nhóm (bầu phó nhóm, kick thành viên)
+  const [memberActionMenuId, setMemberActionMenuId] = useState(null);
 
   // Trạng thái cập nhật thông tin nhóm (Tên nhóm, Ảnh nhóm)
   const [isEditingGroupName, setIsEditingGroupName] = useState(false);
@@ -738,6 +744,13 @@ export default function MessagesView({
                 }
                 return c;
               }));
+            } else if (data.type === 'MEMBER_KICKED') {
+              const convIdStr = String(data.conversation_id);
+              setConversations((prev) => prev.filter((c) => String(c.id) !== convIdStr));
+              if (String(selectedConversationIdRef.current) === convIdStr) {
+                setSelectedConversationId(null);
+                alert('Bạn đã bị xóa khỏi nhóm trò chuyện này.');
+              }
             } else if (data.type === 'MESSAGE_RECALLED') {
               const msgId = data.message_id;
               const convIdStr = String(data.conversation_id);
@@ -1299,6 +1312,7 @@ export default function MessagesView({
   const startCall = async (type = 'video') => {
     const targetUser = currentConversation?.user;
     if (!targetUser?.id || !currentUser?.id || isBlocked) return;
+    if (type === 'video') preloadFaceFilterAi();
 
     // Tự động thử kết nối lại nếu WebSocket chưa sẵn sàng
     const isWsReady = await ensureWebSocketReady();
@@ -1557,6 +1571,7 @@ export default function MessagesView({
 
   const startGroupCall = async (conversationId) => {
     if (!conversationId) return;
+    preloadFaceFilterAi();
 
     // 1. Kiểm tra trạng thái hiện tại trên local: nếu đang có cuộc gọi thì chuyển ngay sang tham gia
     const localStatus = activeGroupCallsStatus[conversationId] || activeGroupCallsStatus[String(conversationId)];
@@ -1690,6 +1705,7 @@ export default function MessagesView({
 
   const joinGroupCall = async (conversationId) => {
     if (!conversationId) return;
+    preloadFaceFilterAi();
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         alert('Trình duyệt không hỗ trợ truy cập camera/mic.');
@@ -1819,9 +1835,13 @@ export default function MessagesView({
   const handleToggleGroupCamera = () => {
     const next = !isGroupVideoOff;
     setIsGroupVideoOff(next);
-    toggleMediaTrack(groupLocalStream, 'video', !next);
+    // Luôn bật/tắt camera vật lý thực tế
     if (groupRawCameraStreamRef.current) {
       toggleMediaTrack(groupRawCameraStreamRef.current, 'video', !next);
+    }
+    // Chỉ tắt/bật groupLocalStream nếu KHÔNG đang chia sẻ màn hình (để không làm tắt luồng chia sẻ màn hình)
+    if (!isGroupScreenSharing) {
+      toggleMediaTrack(groupLocalStream, 'video', !next);
     }
   };
 
@@ -1884,15 +1904,19 @@ export default function MessagesView({
       const rawStream = groupRawCameraStreamRef.current;
       const cameraVideoTrack = rawStream?.getVideoTracks ? rawStream.getVideoTracks()[0] : null;
 
-      if (cameraVideoTrack && meshCallManagerRef.current) {
-        await meshCallManagerRef.current.replaceVideoTrack(cameraVideoTrack);
-        if (rawStream) {
-          meshCallManagerRef.current.setLocalStream(rawStream);
+      if (cameraVideoTrack) {
+        // Đảm bảo trạng thái camera giữ nguyên cài đặt của người dùng
+        cameraVideoTrack.enabled = !isGroupVideoOff;
+        if (meshCallManagerRef.current) {
+          await meshCallManagerRef.current.replaceVideoTrack(cameraVideoTrack);
+          if (rawStream) {
+            meshCallManagerRef.current.setLocalStream(rawStream);
+          }
+          meshCallManagerRef.current.broadcastSignal({
+            type: 'SCREEN_SHARE_CHANGE',
+            is_sharing: false
+          });
         }
-        meshCallManagerRef.current.broadcastSignal({
-          type: 'SCREEN_SHARE_CHANGE',
-          is_sharing: false
-        });
       }
       if (rawStream) {
         setGroupLocalStream(rawStream);
@@ -2383,6 +2407,35 @@ export default function MessagesView({
       alert(err.message || 'Không thể cập nhật tên nhóm');
     } finally {
       setIsUpdatingGroupName(false);
+    }
+  };
+
+  // Cập nhật vai trò thành viên nhóm (Bổ nhiệm / Thu hồi Phó nhóm)
+  const handleUpdateMemberRole = async (targetUserId, newRole) => {
+    if (!currentConversation?.id) return;
+    try {
+      const updated = await messageService.updateMemberRole(currentConversation.id, targetUserId, newRole);
+      if (updated) {
+        setConversations(prev => prev.map(c => String(c.id) === String(updated.id) ? { ...c, ...updated } : c));
+      }
+    } catch (err) {
+      alert(err.message || 'Lỗi khi cập nhật vai trò');
+    }
+  };
+
+  // Xóa thành viên khỏi nhóm (Kick)
+  const handleKickMember = async (targetUserId, targetName) => {
+    if (!currentConversation?.id) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa "${targetName || 'thành viên này'}" khỏi nhóm trò chuyện?`)) {
+      return;
+    }
+    try {
+      const updated = await messageService.removeMember(currentConversation.id, targetUserId);
+      if (updated) {
+        setConversations(prev => prev.map(c => String(c.id) === String(updated.id) ? { ...c, ...updated } : c));
+      }
+    } catch (err) {
+      alert(err.message || 'Lỗi khi xóa thành viên khỏi nhóm');
     }
   };
 
@@ -3051,6 +3104,19 @@ export default function MessagesView({
                         <span className="text-xs font-semibold hidden md:inline">Gọi nhóm</span>
                       </button>
                     )
+                  )}
+
+                  {/* Nút Thêm thành viên vào nhóm chat */}
+                  {currentConversation.type === 'group' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddMemberModal(true)}
+                      title="Thêm thành viên vào nhóm trò chuyện"
+                      className="p-2 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl transition cursor-pointer text-slate-500 dark:text-slate-400 flex items-center gap-1"
+                    >
+                      <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 hidden sm:inline">Thêm người</span>
+                    </button>
                   )}
 
                   {/* Nút Báo cáo cuộc trò chuyện */}
@@ -4047,33 +4113,146 @@ export default function MessagesView({
             </div>
 
             {/* Danh sách thành viên (nếu là nhóm) */}
-            {currentConversation.type === 'group' && currentConversation.members?.length > 0 && (
-              <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  <span>Thành viên ({currentConversation.members.length})</span>
+            {currentConversation.type === 'group' && currentConversation.members?.length > 0 && (() => {
+              const currentUserIdStr = String(currentUser?.id || '');
+              const isCurrentLeader = (String(currentConversation.initiatedBy) === currentUserIdStr) ||
+                currentConversation.members?.some(mem => String(mem.id) === currentUserIdStr && (mem.role === 'admin' || mem.role === 'leader'));
+              const isCurrentDeputy = !isCurrentLeader && currentConversation.members?.some(mem => String(mem.id) === currentUserIdStr && mem.role === 'deputy');
+
+              return (
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    <span>Thành viên ({currentConversation.members.length})</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddMemberModal(true)}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center gap-1 cursor-pointer normal-case"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Thêm người</span>
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                    {currentConversation.members.map((m) => {
+                      const mIdStr = String(m.id);
+                      const isMe = mIdStr === currentUserIdStr;
+                      const isMLeader = (String(currentConversation.initiatedBy) === mIdStr) || m.role === 'admin' || m.role === 'leader';
+                      const isMDeputy = !isMLeader && m.role === 'deputy';
+
+                      const canChangeRole = isCurrentLeader && !isMe && !isMLeader;
+                      const canKick = !isMe && !isMLeader && (isCurrentLeader || (isCurrentDeputy && !isMDeputy));
+                      const hasActions = canChangeRole || canKick;
+
+                      return (
+                        <div key={m.id} className="relative flex items-center gap-2 p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition">
+                          <img
+                            src={m.avatar || DEFAULT_AVATAR}
+                            alt={m.name}
+                            className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-100 dark:ring-slate-800 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{m.name}</p>
+                              {isMLeader && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1 py-0.2 rounded border border-amber-200/60 dark:border-amber-800/60 shrink-0">
+                                  <Crown className="w-2.5 h-2.5" /> Trưởng nhóm
+                                </span>
+                              )}
+                              {isMDeputy && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded border border-indigo-200/60 dark:border-indigo-800/60 shrink-0">
+                                  <ShieldCheck className="w-2.5 h-2.5" /> Phó nhóm
+                                </span>
+                              )}
+                              {isMe && (
+                                <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1 py-0.2 rounded shrink-0">
+                                  Bạn
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-400 truncate">@{m.username}</p>
+                          </div>
+
+                          {/* Menu thao tác cho Trưởng nhóm / Phó nhóm */}
+                          {hasActions && (
+                            <div className="relative shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMemberActionMenuId(memberActionMenuId === m.id ? null : m.id);
+                                }}
+                                className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition cursor-pointer"
+                                title="Thao tác thành viên"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </button>
+
+                              {memberActionMenuId === m.id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setMemberActionMenuId(null);
+                                    }}
+                                  />
+                                  <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 py-1 z-50 text-xs animate-in fade-in zoom-in-95 duration-100">
+                                    {canChangeRole && (
+                                      isMDeputy ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setMemberActionMenuId(null);
+                                            handleUpdateMemberRole(m.id, 'member');
+                                          }}
+                                          className="w-full px-3 py-1.5 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 flex items-center gap-2 cursor-pointer"
+                                        >
+                                          <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                                          <span>Thu hồi Phó nhóm</span>
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setMemberActionMenuId(null);
+                                            handleUpdateMemberRole(m.id, 'deputy');
+                                          }}
+                                          className="w-full px-3 py-1.5 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 flex items-center gap-2 cursor-pointer"
+                                        >
+                                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
+                                          <span>Bổ nhiệm Phó nhóm</span>
+                                        </button>
+                                      )
+                                    )}
+
+                                    {canKick && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setMemberActionMenuId(null);
+                                          handleKickMember(m.id, m.name);
+                                        }}
+                                        className="w-full px-3 py-1.5 text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <UserMinus className="w-3.5 h-3.5" />
+                                        <span>Xóa khỏi nhóm</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                  {currentConversation.members.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2.5 p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition">
-                      <img
-                        src={m.avatar || DEFAULT_AVATAR}
-                        alt={m.name}
-                        className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-100 dark:ring-slate-800 shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{m.name}</p>
-                        <p className="text-[10px] text-slate-400 truncate">@{m.username}</p>
-                      </div>
-                      {String(m.id) === String(currentUser?.id) && (
-                        <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.2 rounded">
-                          Bạn
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* File, Ảnh & Link đã gửi */}
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3">
@@ -4441,6 +4620,7 @@ export default function MessagesView({
           groupAvatar={groupCallGroupAvatar}
           currentUser={currentUser}
           localStream={groupLocalStream}
+          rawCameraStream={groupRawCameraStreamRef.current}
           participants={groupCallParticipants}
           remoteStreams={groupCallRemoteStreams}
           callDuration={groupCallDuration}
@@ -4608,6 +4788,21 @@ export default function MessagesView({
               setDraftConversation(null);
               setMobileShowChat(true);
             }
+          }}
+          currentUser={currentUser}
+        />
+
+        {/* Modal Thêm thành viên vào nhóm chat hiện tại */}
+        <AddGroupMemberModal
+          isOpen={showAddMemberModal}
+          onClose={() => setShowAddMemberModal(false)}
+          conversation={currentConversation}
+          onMembersAdded={(updatedGroup) => {
+            if (updatedGroup) {
+              setConversations(prev => prev.map(c => c.id === updatedGroup.id ? { ...c, ...updatedGroup } : c));
+              setCurrentConversation(prev => prev && prev.id === updatedGroup.id ? { ...prev, ...updatedGroup } : prev);
+            }
+            loadServerConversations(false);
           }}
           currentUser={currentUser}
         />

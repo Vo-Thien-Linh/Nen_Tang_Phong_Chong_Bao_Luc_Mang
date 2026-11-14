@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 
 from ..models.livestream import LiveSession, LiveComment, LiveSanction
 from ..models.user import User
+from .ai_services import predict_vi_content
 
 # Từ điển kiểm duyệt từ khóa thù ghét, bạo lực và công kích cá nhân (Cyberbullying & Hate speech)
 BLACK_LIST_KEYWORDS: Dict[str, Tuple[float, str]] = {
@@ -29,13 +30,16 @@ class LiveStreamService:
     @staticmethod
     def analyze_content(text: str) -> Tuple[bool, float, Optional[str]]:
         """
-        Phân tích nội dung phòng chống bạo lực mạng.
+        Phân tích nội dung phòng chống bạo lực mạng kết hợp 2 lớp:
+        1. Từ điển từ khóa cấm & tiếng lóng thô tục (BLACK_LIST_KEYWORDS).
+        2. Mô hình AI PhoBERT (predict_vi_content) phát hiện Hate Speech, Violence, Toxic theo ngữ cảnh.
         Trả về: (is_blocked, toxic_score, violation_reason)
         """
         text_lower = text.lower().strip()
         highest_score = 0.0
         reasons = []
 
+        # 1. Quét từ khóa cấm / tiếng lóng thô tục
         for keyword, (score, reason) in BLACK_LIST_KEYWORDS.items():
             if keyword in text_lower:
                 if score > highest_score:
@@ -43,7 +47,29 @@ class LiveStreamService:
                 if reason not in reasons:
                     reasons.append(reason)
 
-        if highest_score >= 0.60:
+        # 2. Quét qua mô hình AI ngôn ngữ PhoBERT
+        try:
+            ai_res = predict_vi_content(text)
+            label = ai_res.get("label", "Normal")
+            confidence = float(ai_res.get("confidence", 0.0))
+            reason_msg = ai_res.get("reason", "")
+
+            if label in ["Violence", "Hate Speech", "Toxic"] or ai_res.get("action") in ["warn", "hide"]:
+                if confidence > highest_score:
+                    highest_score = confidence
+                label_vn = {
+                    "Violence": "Đe dọa / Bạo lực",
+                    "Hate Speech": "Phát ngôn thù địch",
+                    "Toxic": "Ngôn từ độc hại"
+                }.get(label, label)
+                ai_desc = f"AI {label_vn} ({round(confidence * 100)}%)"
+                if ai_desc not in reasons:
+                    reasons.append(ai_desc)
+        except Exception:
+            # Chế độ chịu lỗi: tiếp tục xử lý dựa trên từ khóa nếu AI bận
+            pass
+
+        if highest_score >= 0.60 or len(reasons) > 0:
             return True, highest_score, "; ".join(reasons)
         return False, highest_score, None
 

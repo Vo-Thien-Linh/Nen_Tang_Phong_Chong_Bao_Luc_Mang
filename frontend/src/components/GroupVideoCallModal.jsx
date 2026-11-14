@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatCallDuration } from '../utils/callMediaLogic';
-import { CALL_FILTERS } from '../utils/faceFilterLogic';
+import { CALL_FILTERS, preloadFaceFilterAi } from '../utils/faceFilterLogic';
 import { getMeshGridLayoutClass } from '../utils/meshCallManager';
 
 /**
@@ -25,6 +25,7 @@ import { getMeshGridLayoutClass } from '../utils/meshCallManager';
 function ParticipantVideoTile({
   participant,
   stream,
+  cameraStream = null,
   isLocal = false,
   isMuted = false,
   isVideoOff = false,
@@ -33,6 +34,7 @@ function ParticipantVideoTile({
   onTogglePin = null
 }) {
   const videoRef = useRef(null);
+  const cameraVideoRef = useRef(null);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -40,6 +42,13 @@ function ParticipantVideoTile({
       videoRef.current.play().catch(() => {});
     }
   }, [stream]);
+
+  useEffect(() => {
+    if (cameraVideoRef.current && cameraStream) {
+      cameraVideoRef.current.srcObject = cameraStream;
+      cameraVideoRef.current.play().catch(() => {});
+    }
+  }, [cameraStream, isScreenShare, isVideoOff]);
 
   const name = participant?.name || (isLocal ? 'Bạn' : 'Thành viên');
   const avatar = participant?.avatar || DEFAULT_AVATAR;
@@ -52,8 +61,8 @@ function ParticipantVideoTile({
           : 'border-slate-700/60 shadow-lg hover:border-slate-600'
       }`}
     >
-      {/* Thẻ Video hiển thị luồng trực tiếp */}
-      {stream && !isVideoOff ? (
+      {/* Thẻ Video hiển thị luồng trực tiếp (Khi chia sẻ màn hình, màn hình luôn được hiển thị độc lập với camera) */}
+      {stream && (isScreenShare || !isVideoOff) ? (
         <video
           ref={videoRef}
           autoPlay
@@ -77,6 +86,22 @@ function ParticipantVideoTile({
           <p className="mt-2 text-xs sm:text-sm font-semibold text-slate-200 truncate max-w-[160px] text-center">
             {name}
           </p>
+        </div>
+      )}
+
+      {/* Picture-in-Picture camera của bạn khi đang chia sẻ màn hình */}
+      {isScreenShare && isLocal && cameraStream && !isVideoOff && (
+        <div className="absolute bottom-12 right-2.5 w-24 h-18 sm:w-32 sm:h-24 rounded-xl overflow-hidden border-2 border-white/30 shadow-2xl z-20 bg-slate-900 pointer-events-auto">
+          <video
+            ref={cameraVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover scale-x-[-1]"
+          />
+          <div className="absolute bottom-1 left-1.5 px-1 py-0.2 rounded bg-black/70 text-[9px] text-white font-medium">
+            Camera
+          </div>
         </div>
       )}
 
@@ -134,6 +159,7 @@ export default function GroupVideoCallModal({
   groupAvatar = null,
   currentUser = null,
   localStream = null,
+  rawCameraStream = null,
   participants = [], // Array of { user_id, name, avatar }
   remoteStreams = {}, // Map/Object: remoteUserId -> MediaStream
   callDuration = 0,
@@ -169,6 +195,12 @@ export default function GroupVideoCallModal({
       setPinnedId(null);
     }
   }, [isScreenSharing, screenSharingUsers, currentUserIdStr]);
+
+  useEffect(() => {
+    if (isOpen) {
+      preloadFaceFilterAi();
+    }
+  }, [isOpen]);
 
   const displayedFilters = useMemo(() => {
     if (filterCategory === 'all') return CALL_FILTERS;
@@ -209,6 +241,7 @@ export default function GroupVideoCallModal({
         avatar: currentUser?.avatar || DEFAULT_AVATAR
       },
       stream: localStream,
+      cameraStream: rawCameraStream,
       isLocal: true,
       isMuted,
       isVideoOff,
@@ -284,6 +317,7 @@ export default function GroupVideoCallModal({
                 <ParticipantVideoTile
                   participant={pinnedTile.participant}
                   stream={pinnedTile.stream}
+                  cameraStream={pinnedTile.cameraStream}
                   isLocal={pinnedTile.isLocal}
                   isMuted={pinnedTile.isMuted}
                   isVideoOff={pinnedTile.isVideoOff}
@@ -302,6 +336,7 @@ export default function GroupVideoCallModal({
                     <ParticipantVideoTile
                       participant={tile.participant}
                       stream={tile.stream}
+                      cameraStream={tile.cameraStream}
                       isLocal={tile.isLocal}
                       isMuted={tile.isMuted}
                       isVideoOff={tile.isVideoOff}
@@ -322,6 +357,7 @@ export default function GroupVideoCallModal({
                 key={tile.userId}
                 participant={tile.participant}
                 stream={tile.stream}
+                cameraStream={tile.cameraStream}
                 isLocal={tile.isLocal}
                 isMuted={tile.isMuted}
                 isVideoOff={tile.isVideoOff}
