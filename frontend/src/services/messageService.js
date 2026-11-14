@@ -156,6 +156,43 @@ export const messageService = {
   },
 
   /**
+   * Cập nhật vai trò thành viên nhóm (Bổ nhiệm / Thu hồi Phó nhóm)
+   */
+  async updateMemberRole(conversationId, targetUserId, role) {
+    if (!hasValidToken()) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/members/${targetUserId}/role`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ role })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể cập nhật quyền thành viên');
+    }
+    return await res.json();
+  },
+
+  /**
+   * Xóa thành viên khỏi nhóm trò chuyện (Kick)
+   */
+  async removeMember(conversationId, targetUserId) {
+    if (!hasValidToken()) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+    const res = await fetch(`${API_BASE_URL}/groups/${conversationId}/members/${targetUserId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Không thể xóa thành viên khỏi nhóm');
+    }
+    return await res.json();
+  },
+
+  /**
    * Gửi tin nhắn mới tới receiverId hoặc nhóm qua conversationId (hỗ trợ văn bản và đa phương tiện ảnh/link)
    */
   async sendMessage(receiverId, content = '', mediaUrl = null, mediaType = 'text', conversationId = null) {

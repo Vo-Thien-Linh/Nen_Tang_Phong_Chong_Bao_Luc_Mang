@@ -292,4 +292,83 @@ def test_update_group_nonexistent_group(db_session):
         MessageService.update_group(999999, u1_id, UpdateGroupRequest(name="Nhóm Ảo"), db_session)
     assert exc_info.value.status_code == 404
 
+def test_update_member_role_success(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Bầu Cử", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    # 1. Trưởng nhóm bổ nhiệm u2 làm phó nhóm
+    res = MessageService.update_member_role(group.id, u1_id, u2_id, "deputy", db_session)
+    updated_conv = res["conversation"]
+    u2_member = next(m for m in updated_conv.members if str(m.id) == u2_id)
+    assert u2_member.role == "deputy"
+
+    # 2. Trưởng nhóm thu hồi quyền phó nhóm của u2
+    res2 = MessageService.update_member_role(group.id, u1_id, u2_id, "member", db_session)
+    u2_member_updated = next(m for m in res2["conversation"].members if str(m.id) == u2_id)
+    assert u2_member_updated.role == "member"
+
+def test_update_member_role_non_leader_forbidden(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Quyền Hạn", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    # u2 (thành viên thường) cố tự bầu u3 làm phó nhóm
+    with pytest.raises(HTTPException) as exc_info:
+        MessageService.update_member_role(group.id, u2_id, u3_id, "deputy", db_session)
+    assert exc_info.value.status_code == 403
+
+def test_remove_group_member_by_leader(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Kick Test", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    # Leader kicks u3
+    res = MessageService.remove_group_member(group.id, u1_id, u3_id, db_session)
+    assert res["removed_user_id"] == u3_id
+    assert res["conversation"].member_count == 2
+    assert not any(str(m.id) == u3_id for m in res["conversation"].members)
+
+def test_remove_group_member_by_deputy(db_session):
+    u1_id = "11111111-1111-1111-1111-111111111111"
+    u2_id = "22222222-2222-2222-2222-222222222222"
+    u3_id = "33333333-3333-3333-3333-333333333333"
+
+    group = MessageService.create_group(
+        u1_id,
+        CreateGroupRequest(name="Nhóm Phó Nhóm Kick", member_ids=[u2_id, u3_id]),
+        db_session
+    )
+
+    # Leader bổ nhiệm u2 làm deputy
+    MessageService.update_member_role(group.id, u1_id, u2_id, "deputy", db_session)
+
+    # Deputy (u2) kick regular member (u3) -> thành công
+    res = MessageService.remove_group_member(group.id, u2_id, u3_id, db_session)
+    assert res["removed_user_id"] == u3_id
+
+    # Deputy (u2) cố kick Leader (u1) -> 400 hoặc 403
+    with pytest.raises(HTTPException) as exc_info:
+        MessageService.remove_group_member(group.id, u2_id, u1_id, db_session)
+    assert exc_info.value.status_code in [400, 403]
+
+
 
