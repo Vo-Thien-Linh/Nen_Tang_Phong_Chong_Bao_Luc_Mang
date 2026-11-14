@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { formatCallDuration } from '../utils/callMediaLogic';
-import { CALL_FILTERS } from '../utils/faceFilterLogic';
+import { CALL_FILTERS, preloadFaceFilterAi } from '../utils/faceFilterLogic';
 import { getMeshGridLayoutClass } from '../utils/meshCallManager';
 
 /**
@@ -195,6 +195,12 @@ export default function GroupVideoCallModal({
       setPinnedId(null);
     }
   }, [isScreenSharing, screenSharingUsers, currentUserIdStr]);
+
+  useEffect(() => {
+    if (isOpen) {
+      preloadFaceFilterAi();
+    }
+  }, [isOpen]);
 
   const displayedFilters = useMemo(() => {
     if (filterCategory === 'all') return CALL_FILTERS;

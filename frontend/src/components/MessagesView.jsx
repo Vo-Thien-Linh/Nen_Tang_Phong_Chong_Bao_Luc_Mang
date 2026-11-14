@@ -27,7 +27,7 @@ import {
   stopMediaStream,
   applyVideoTrackToPeer
 } from '../utils/callMediaLogic';
-import { FaceFilterManager } from '../utils/faceFilterLogic';
+import { FaceFilterManager, preloadFaceFilterAi } from '../utils/faceFilterLogic';
 import { MeshCallManager } from '../utils/meshCallManager';
 import { useTranslation } from '../utils/i18n';
 import { formatRelativeTime } from '../utils/timeAgo';
@@ -1312,6 +1312,7 @@ export default function MessagesView({
   const startCall = async (type = 'video') => {
     const targetUser = currentConversation?.user;
     if (!targetUser?.id || !currentUser?.id || isBlocked) return;
+    if (type === 'video') preloadFaceFilterAi();
 
     // Tự động thử kết nối lại nếu WebSocket chưa sẵn sàng
     const isWsReady = await ensureWebSocketReady();
@@ -1570,6 +1571,7 @@ export default function MessagesView({
 
   const startGroupCall = async (conversationId) => {
     if (!conversationId) return;
+    preloadFaceFilterAi();
 
     // 1. Kiểm tra trạng thái hiện tại trên local: nếu đang có cuộc gọi thì chuyển ngay sang tham gia
     const localStatus = activeGroupCallsStatus[conversationId] || activeGroupCallsStatus[String(conversationId)];
@@ -1703,6 +1705,7 @@ export default function MessagesView({
 
   const joinGroupCall = async (conversationId) => {
     if (!conversationId) return;
+    preloadFaceFilterAi();
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         alert('Trình duyệt không hỗ trợ truy cập camera/mic.');
