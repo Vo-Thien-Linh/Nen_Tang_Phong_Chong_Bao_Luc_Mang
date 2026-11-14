@@ -703,6 +703,8 @@ export default function ProfileView({
 
     try {
       const res = await profileService.updateProfile(currentUser.id, {
+        name: updatedFields.name,
+        full_name: updatedFields.name,
         bio: updatedFields.bio,
         workplace: updatedFields.workplace,
         jobTitle: updatedFields.jobTitle,
@@ -716,17 +718,21 @@ export default function ProfileView({
       });
 
       if (res.success) {
+        const nextName = updatedFields.name || res.data?.name || res.data?.full_name || activeUser.name;
         // Cập nhật profile state
         setProfileData(prev => ({
           ...prev,
-          ...res.data
+          ...res.data,
+          name: nextName,
+          full_name: nextName
         }));
         setBioInput(updatedFields.bio || '');
 
         // Đồng bộ lên Navbar và App state
         if (onUpdateUser) {
           onUpdateUser({
-            name: activeUser.name,
+            name: nextName,
+            full_name: nextName,
             avatar: updatedFields.avatar_url || activeUser.avatar,
             avatar_url: updatedFields.avatar_url || activeUser.avatar,
             cover: updatedFields.cover_url || activeUser.cover,

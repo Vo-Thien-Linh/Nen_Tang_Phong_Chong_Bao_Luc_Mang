@@ -287,7 +287,6 @@ export function createCommunityGroupsService({
       return repository.listPosts({
         groupId,
         viewerId: user?.id || null,
-        includePending: isGroupModerator(group),
       });
     },
 
@@ -771,6 +770,55 @@ export function createCommunityGroupsService({
         actorId: user.id,
       });
       if (!updated) throw fail('Không tìm thấy thành viên đang hoạt động hoặc không thể đổi vai trò chủ nhóm', 404);
+      return updated;
+    },
+
+    async removeMember({ groupId, targetUserId, user }) {
+      requireUser(user);
+      requireGroupId(groupId);
+      requireUserId(targetUserId);
+      if (String(user.id) === String(targetUserId)) {
+        throw fail('Không thể tự xóa chính mình khỏi nhóm qua chức năng này, vui lòng chọn rời nhóm', 400);
+      }
+      const group = await requireGroup(groupId, user.id);
+      if (!['owner', 'admin'].includes(group.currentRole)) {
+        throw fail('Chỉ chủ nhóm hoặc quản trị viên mới có quyền xóa thành viên khỏi nhóm', 403);
+      }
+      const removed = await repository.removeMember({
+        groupId,
+        targetUserId,
+        actorId: user.id,
+      });
+      if (!removed) throw fail('Không tìm thấy thành viên hoặc bạn không có đủ thẩm quyền xóa thành viên này', 404);
+      await emitGroupRealtime({
+        type: 'GROUP_MEMBER_REMOVED',
+        groupId,
+        groupPrivacy: group.privacy,
+        payload: { userId: targetUserId },
+      });
+      return { success: true, message: 'Đã xóa thành viên khỏi nhóm' };
+    },
+
+    async updateGroupPrivacy({ groupId, user, privacy }) {
+      requireUser(user);
+      requireGroupId(groupId);
+      if (!['public', 'private'].includes(privacy)) throw fail('Chế độ quyền riêng tư không hợp lệ', 400);
+      const group = await requireGroup(groupId, user.id);
+      if (!['owner', 'admin'].includes(group.currentRole)) {
+        throw fail('Chỉ chủ nhóm hoặc quản trị viên mới có quyền thay đổi quyền riêng tư của nhóm', 403);
+      }
+      const updated = await repository.updateGroupPrivacy({
+        groupId,
+        privacy,
+        actorId: user.id,
+      });
+      if (!updated) throw fail('Không thể cập nhật quyền riêng tư nhóm', 404);
+      await emitGroupRealtime({
+        type: 'GROUP_UPDATED',
+        groupId,
+        groupPrivacy: privacy,
+        payload: { groupId, privacy },
+      });
       return updated;
     },
   };

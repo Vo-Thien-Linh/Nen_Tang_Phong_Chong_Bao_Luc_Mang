@@ -42,6 +42,8 @@ export const profileService = {
   async updateProfile(userId, fields) {
     // Map frontend field names sang DB field names
     const body = {};
+    if (fields.name !== undefined) body.full_name = fields.name;
+    else if (fields.full_name !== undefined) body.full_name = fields.full_name;
     if (fields.bio !== undefined)      body.bio = fields.bio;
     if (fields.workplace !== undefined) body.workplace = fields.workplace;
     if (fields.jobTitle !== undefined) body.job_title = fields.jobTitle;

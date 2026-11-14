@@ -13,6 +13,7 @@ export const PROFILE_RELATIONSHIP_OPTIONS = [
 ];
 
 export const PROFILE_FIELD_RULES = {
+  full_name: { label: 'Họ và tên', minLength: 2, maxLength: 70, kind: 'name' },
   bio: { label: 'Tiểu sử', minLength: 2, maxLength: 200, kind: 'bio' },
   workplace: { label: 'Nơi làm việc', minLength: 2, maxLength: 150, kind: 'work_edu' },
   job_title: { label: 'Chức vụ / Nghề nghiệp', minLength: 2, maxLength: 150, kind: 'work_edu' },
@@ -22,6 +23,7 @@ export const PROFILE_FIELD_RULES = {
   high_school: { label: 'Trường THPT', minLength: 2, maxLength: 150, kind: 'work_edu' },
 };
 
+const NAME_CHAR_REGEX = /^[\p{L}\s.'’\-]+$/u;
 const PLACE_CHAR_REGEX = /^[\p{L}\p{N}\s,.\-/()'’]+$/u;
 const WORK_EDU_CHAR_REGEX = /^[\p{L}\p{N}\s,.\-&/()'’:+#]+$/u;
 const REPEATED_CHAR_REGEX = /(.)\1{3,}/u;
@@ -69,6 +71,9 @@ export function validateStructuredProfileField(fieldKey, rawValue) {
     : normalizeSingleLineText(rawValue);
 
   if (!normalized) {
+    if (rule.kind === 'name') {
+      return { valid: false, value: '', error: `${rule.label} không được để trống.` };
+    }
     return { valid: true, value: '', error: '' };
   }
 
@@ -121,6 +126,24 @@ export function validateStructuredProfileField(fieldKey, rawValue) {
       value: normalized,
       error: `${rule.label} phải là thông tin thật có ít nhất 2 chữ cái (không chỉ nhập số hoặc ký hiệu).`,
     };
+  }
+
+  if (rule.kind === 'name') {
+    if (!NAME_CHAR_REGEX.test(normalized)) {
+      return {
+        valid: false,
+        value: normalized,
+        error: `${rule.label} chỉ được chứa chữ cái, khoảng trắng và dấu gạch nối.`,
+      };
+    }
+    if (hasGibberishWord(normalized)) {
+      return {
+        valid: false,
+        value: normalized,
+        error: `${rule.label} không hợp lệ.`,
+      };
+    }
+    return { valid: true, value: normalized, error: '' };
   }
 
   const charRegex = rule.kind === 'place' ? PLACE_CHAR_REGEX : WORK_EDU_CHAR_REGEX;
@@ -184,6 +207,10 @@ export function validateBackendProfileUpdate(rawBody = {}) {
     if (rawVal !== undefined) mapped[targetKey] = rawVal;
   };
 
+  assignIfDefined(
+    'full_name',
+    rawBody.full_name !== undefined ? rawBody.full_name : rawBody.name
+  );
   assignIfDefined('bio', rawBody.bio);
   assignIfDefined('workplace', rawBody.workplace);
   assignIfDefined('job_title', rawBody.job_title !== undefined ? rawBody.job_title : rawBody.jobTitle);

@@ -105,7 +105,7 @@ export function createUserRepository({ pool }) {
 
     async updateProfile(userId, fields) {
       // Chỉ cho phép cập nhật các trường an toàn
-      const allowed = ['bio', 'workplace', 'job_title', 'location', 'hometown', 'education', 'high_school', 'relationship_status', 'avatar_url', 'cover_url'];
+      const allowed = ['full_name', 'bio', 'workplace', 'job_title', 'location', 'hometown', 'education', 'high_school', 'relationship_status', 'avatar_url', 'cover_url'];
       const updates = [];
       const values = [];
       let paramCount = 1;
