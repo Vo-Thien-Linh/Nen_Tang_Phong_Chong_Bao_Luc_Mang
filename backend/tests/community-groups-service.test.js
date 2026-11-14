@@ -259,6 +259,27 @@ test('safe image-only posts can auto-approve without reporting a nonexistent tex
   assert.equal(calls.createdPosts[0].imageModeration.confidence, 0.98);
 });
 
+test('safe image above the model auto-approve threshold is stored as approved', async () => {
+  const imageResult = {
+    decision: 'safe',
+    scores: { safe: 0.6531660, nsfw: 0.2, violence: 0.1468340 },
+    thresholds: { auto_approve_safe: 0.60, auto_hide: 0.50 },
+    source: 'efficientnet-b1',
+  };
+  const { service, calls } = createHarness({ imageResult });
+  await service.updatePostApprovalMode({ groupId: '1', user: user('owner'), postApprovalMode: 'automatic' });
+
+  const post = await service.createPost({
+    groupId: '1',
+    user: user('member'),
+    content: '',
+    imageUrl: 'https://res.cloudinary.com/demo/image/upload/test.jpg',
+  });
+
+  assert.equal(post.status, 'approved');
+  assert.equal(calls.createdPosts[0].reviewStatus, 'approved');
+});
+
 test('image moderation outages fail closed instead of storing an unmoderated image post', async () => {
   const { service, calls } = createHarness({ imageError: new Error('model unavailable') });
   await assert.rejects(

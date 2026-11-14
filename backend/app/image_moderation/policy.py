@@ -27,7 +27,7 @@ def decide_image_moderation(scores, thresholds=None, failed=False):
             decision = SENSITIVE
         elif violence >= thresholds.review_floor or nsfw >= thresholds.review_floor:
             decision = PENDING_REVIEW
-        elif safe >= thresholds.safe_min:
+        elif safe > thresholds.safe_min:
             decision = SAFE
         else:
             decision = PENDING_REVIEW
