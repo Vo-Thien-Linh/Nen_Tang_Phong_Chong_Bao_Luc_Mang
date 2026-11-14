@@ -253,6 +253,19 @@ export async function updateCommunityGroupMemberRole({ groupId, userId, role }) 
   });
 }
 
+export async function removeCommunityGroupMember({ groupId, userId }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function updateCommunityGroupPrivacy({ groupId, privacy }) {
+  return request(`/api/groups/${encodeURIComponent(groupId)}/privacy`, {
+    method: 'PUT',
+    body: JSON.stringify({ privacy }),
+  });
+}
+
 export async function fetchTrendingHashtags({ userId, limit = 5 } = {}) {
   const query = new URLSearchParams({ limit: String(limit) }).toString();
   return request(`/api/hashtags/trending?${query}`, {

@@ -1065,5 +1065,42 @@ export function createCommunityGroupsRepository({ pool }) {
       );
       return result.rows.map((row) => row.id);
     },
+
+    async removeMember({ groupId, targetUserId, actorId }) {
+      const result = await pool.query(
+        `UPDATE community_group_members target
+         SET status = 'left', reviewed_at = CURRENT_TIMESTAMP, reviewed_by = $3
+         WHERE target.group_id = $1
+           AND target.user_id = $2
+           AND target.status = 'active'
+           AND target.role <> 'owner'
+           AND EXISTS (
+             SELECT 1 FROM community_group_members actor
+             WHERE actor.group_id = $1 AND actor.user_id = $3
+               AND actor.status = 'active'
+               AND (actor.role = 'owner' OR (actor.role = 'admin' AND target.role IN ('member', 'moderator')))
+           )
+         RETURNING target.user_id AS id, target.status`,
+        [groupId, targetUserId, actorId]
+      );
+      return result.rows[0] || null;
+    },
+
+    async updateGroupPrivacy({ groupId, privacy, actorId }) {
+      const result = await pool.query(
+        `UPDATE community_groups g
+         SET privacy = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE g.id = $1
+           AND EXISTS (
+             SELECT 1 FROM community_group_members actor
+             WHERE actor.group_id = $1 AND actor.user_id = $3
+               AND actor.status = 'active'
+               AND actor.role IN ('owner', 'admin')
+           )
+         RETURNING g.id::text AS id, g.name, g.privacy`,
+        [groupId, privacy, actorId]
+      );
+      return result.rows[0] || null;
+    },
   };
 }

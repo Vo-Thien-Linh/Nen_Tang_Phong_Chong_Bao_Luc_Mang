@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, BookOpen, Check, CheckCircle2, Clock3, Globe2, ImagePlus,
-  LockKeyhole, MessageCircle, Plus, Search, Send, ShieldCheck, Sparkles, UsersRound, X,
+  LockKeyhole, MessageCircle, Plus, Search, Send, ShieldCheck, Sparkles, UserMinus, UsersRound, X,
 } from 'lucide-react';
 import {
   createCommunityGroup,
@@ -17,12 +17,14 @@ import {
   fetchCommunityGroups,
   joinCommunityGroup,
   leaveCommunityGroup,
+  removeCommunityGroupMember,
   reviewCommunityGroupAppeal,
   reviewCommunityGroupMember,
   reviewCommunityGroupPost,
   reviewCommunityGroupReport,
   updateCommunityGroupMemberRole,
   updateCommunityGroupPostApprovalMode,
+  updateCommunityGroupPrivacy,
   previewPostImage,
   uploadCommunityGroupPostImage,
   cleanupCommunityGroupPostImage,
@@ -615,6 +617,39 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
     }
   };
 
+  const handlePrivacyChange = async (nextPrivacy) => {
+    if (!selectedGroup || !isAdmin) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await updateCommunityGroupPrivacy({ groupId: selectedGroup.id, privacy: nextPrivacy });
+      setSelectedGroup((group) => ({ ...group, privacy: response.data?.privacy || nextPrivacy }));
+      setNotice(nextPrivacy === 'private' ? 'Đã đổi nhóm sang chế độ Riêng tư.' : 'Đã đổi nhóm sang chế độ Công khai.');
+      await loadGroups();
+    } catch (requestError) {
+      setError(requestError.message || 'Không thể đổi quyền riêng tư của nhóm.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId, memberName) => {
+    if (!selectedGroup || !isAdmin) return;
+    if (!window.confirm(`Bạn có chắc muốn xóa thành viên "${memberName || 'này'}" khỏi nhóm không?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await removeCommunityGroupMember({ groupId: selectedGroup.id, userId: memberId });
+      setNotice(`Đã xóa "${memberName || 'thành viên'}" khỏi nhóm.`);
+      await loadGroup(selectedGroup.id);
+      await loadGroups();
+    } catch (requestError) {
+      setError(requestError.message || 'Không thể xóa thành viên khỏi nhóm.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handlePostImageChange = (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -707,7 +742,36 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
                 {isReviewer && selectedGroup.moderationScore != null && <p className="mt-2 text-xs font-semibold text-blue-800 dark:text-blue-200">Uy tín kiểm duyệt riêng trong nhóm: {selectedGroup.moderationScore}/100</p>}
               </div>
               <div className="flex flex-wrap gap-2">
-                {isAdmin && <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">Chế độ duyệt<select aria-label="Chế độ duyệt bài viết" value={selectedGroup.postApprovalMode || 'manual'} onChange={(event) => handleApprovalModeChange(event.target.value)} disabled={busy} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"><option value="manual">Duyệt thủ công</option><option value="automatic">Tự động an toàn</option></select></label>}
+                {isAdmin && (
+                  <>
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                      Quyền riêng tư
+                      <select
+                        aria-label="Quyền riêng tư của nhóm"
+                        value={selectedGroup.privacy || 'public'}
+                        onChange={(event) => handlePrivacyChange(event.target.value)}
+                        disabled={busy}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
+                      >
+                        <option value="public">Công khai 🌐</option>
+                        <option value="private">Riêng tư 🔒</option>
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                      Chế độ duyệt
+                      <select
+                        aria-label="Chế độ duyệt bài viết"
+                        value={selectedGroup.postApprovalMode || 'manual'}
+                        onChange={(event) => handleApprovalModeChange(event.target.value)}
+                        disabled={busy}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
+                      >
+                        <option value="manual">Duyệt thủ công</option>
+                        <option value="automatic">Tự động an toàn</option>
+                      </select>
+                    </label>
+                  </>
+                )}
                 {!isMember && !isPendingMember && <button onClick={() => handleJoin(selectedGroup)} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700">{selectedGroup.privacy === 'private' ? 'Xin tham gia' : 'Tham gia nhóm'}</button>}
                 {isPendingMember && <span className="rounded-xl bg-amber-100 px-4 py-2.5 text-sm font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">Đang chờ duyệt thành viên</span>}
                 {isMember && selectedGroup.currentRole !== 'owner' && <button onClick={handleLeave} disabled={busy} className="rounded-xl border border-slate-300 bg-white/80 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">Rời nhóm</button>}
@@ -853,7 +917,61 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
                 </div>
               ) : activePanel === 'members' && isReviewer ? (
                 <div className="space-y-2">
-                  {members.map((member) => <article key={member.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800"><div><p className="text-sm font-semibold text-slate-900 dark:text-white">{member.name || member.username}</p><p className="mt-1 text-xs text-slate-500">{roleLabel(member.role)}</p></div>{selectedGroup.currentRole === 'owner' && member.role !== 'owner' && <select aria-label={`Vai trò của ${member.name || member.username}`} value={member.role} onChange={(event) => handleRoleChange(member.id, event.target.value)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs dark:border-slate-700 dark:bg-slate-950"><option value="member">Thành viên</option><option value="moderator">Điều phối viên</option><option value="admin">Quản trị viên</option></select>}</article>)}
+                  {members.map((member) => (
+                    <article key={member.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">{member.name || member.username}</p>
+                        <p className="mt-1 text-xs text-slate-500">{roleLabel(member.role)}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {selectedGroup.currentRole === 'owner' && member.role !== 'owner' && (
+                          <select
+                            aria-label={`Vai trò của ${member.name || member.username}`}
+                            value={member.role}
+                            onChange={(event) => handleRoleChange(member.id, event.target.value)}
+                            className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs dark:border-slate-700 dark:bg-slate-950"
+                          >
+                            <option value="member">Thành viên</option>
+                            <option value="moderator">Điều phối viên</option>
+                            <option value="admin">Quản trị viên</option>
+                          </select>
+                        )}
+                        {isAdmin && member.role !== 'owner' && String(member.id) !== String(currentUser?.id) && (
+                          <button
+                            disabled={busy}
+                            onClick={() => handleRemoveMember(member.id, member.name || member.username)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+                            title="Xóa thành viên khỏi nhóm"
+                          >
+                            <UserMinus size={13} /> Xóa
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : selectedGroup.privacy === 'private' && !isMember && !isAdmin ? (
+                <div className="rounded-3xl border border-dashed border-amber-200 bg-amber-50/50 p-8 text-center dark:border-amber-900/60 dark:bg-amber-950/20">
+                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-900/60 dark:text-amber-400">
+                    <LockKeyhole size={28} />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Đây là nhóm Riêng tư (Private)</h3>
+                  <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-600 dark:text-slate-300">
+                    Nội dung và bài viết thảo luận trong nhóm chỉ dành riêng cho các thành viên đã được phê duyệt. Hãy gửi yêu cầu tham gia để cùng kết nối!
+                  </p>
+                  {!isPendingMember ? (
+                    <button
+                      onClick={() => handleJoin(selectedGroup)}
+                      disabled={busy}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      Xin tham gia nhóm
+                    </button>
+                  ) : (
+                    <span className="mt-4 inline-block rounded-xl bg-amber-100 px-4 py-2 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+                      Yêu cầu tham gia của bạn đang chờ quản trị viên phê duyệt
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">

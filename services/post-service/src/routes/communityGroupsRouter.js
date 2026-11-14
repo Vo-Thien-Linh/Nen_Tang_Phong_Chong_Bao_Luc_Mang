@@ -278,5 +278,23 @@ export function createCommunityGroupsRouter({ pool, realtimeService = null }) {
     res.json({ success: true, data });
   }));
 
+  router.delete('/:groupId/members/:userId', requireAuth, asyncRoute(async (req, res) => {
+    const data = await service.removeMember({
+      groupId: req.params.groupId,
+      targetUserId: req.params.userId,
+      user: req.user,
+    });
+    res.json({ success: true, data });
+  }));
+
+  router.put('/:groupId/privacy', requireAuth, asyncRoute(async (req, res) => {
+    const data = await service.updateGroupPrivacy({
+      groupId: req.params.groupId,
+      user: req.user,
+      privacy: req.body?.privacy,
+    });
+    res.json({ success: true, data });
+  }));
+
   return router;
 }
