@@ -287,7 +287,6 @@ export function createCommunityGroupsService({
       return repository.listPosts({
         groupId,
         viewerId: user?.id || null,
-        includePending: isGroupModerator(group),
       });
     },
 

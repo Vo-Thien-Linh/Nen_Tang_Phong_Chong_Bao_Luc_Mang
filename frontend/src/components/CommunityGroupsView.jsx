@@ -378,7 +378,11 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
       const payload = event.detail;
       if (!payload || String(payload.groupId) !== String(selectedGroup.id)) return;
       if (payload.type === 'GROUP_POST_CREATED' && payload.post) {
-        setPosts((prev) => (prev.some((item) => String(item.id) === String(payload.post.id)) ? prev : [payload.post, ...prev]));
+        if (payload.post.status === 'approved') {
+          setPosts((prev) => (prev.some((item) => String(item.id) === String(payload.post.id)) ? prev : [payload.post, ...prev]));
+        } else if (isReviewer) {
+          setReviewQueue((prev) => (prev.some((item) => String(item.id) === String(payload.post.id)) ? prev : [payload.post, ...prev]));
+        }
       } else if (payload.type === 'GROUP_POST_UPDATED' && payload.post) {
         setPosts((prev) => {
           const exists = prev.some((item) => String(item.id) === String(payload.post.id));
@@ -976,27 +980,31 @@ export default function CommunityGroupsView({ currentUser, onRequireAuth, onOpen
               ) : (
                 <div className="space-y-4">
                   {detailLoading && <p className="py-6 text-center text-sm text-slate-500">Đang cập nhật…</p>}
-                  {!detailLoading && posts.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-10 text-center dark:border-slate-700"><BookOpen className="mx-auto text-slate-400" size={25} /><p className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Chưa có bài viết nào</p><p className="mt-1 text-xs text-slate-500">Bài viết đã được duyệt sẽ hiển thị tại đây.</p></div>}
-                  {posts.map((post) => post.status === 'approved'
-                    ? (
-                      <GroupPostCard
-                        key={post.id}
-                        post={post}
-                        currentUser={currentUser}
-                        canInteract={isMember}
-                        currentGroupRole={selectedGroup.currentRole}
-                        onRequireAuth={onRequireAuth}
-                        onOpenProfile={onOpenProfile}
-                        onPostUpdated={(updated) => {
-                          setPosts((prev) => prev.map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item)));
-                          loadGroup(selectedGroup.id);
-                        }}
-                        onPostDeleted={(deletedId) => {
-                          setPosts((prev) => prev.filter((item) => String(item.id) !== String(deletedId)));
-                        }}
-                      />
-                    )
-                    : <GroupPost key={post.id} post={post} ownPost={String(post.authorId) === String(currentUser?.id)} onAppeal={(targetPost) => setAppealTargetPost(targetPost)} />)}
+                  {!detailLoading && posts.filter((p) => p.status === 'approved').length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-10 text-center dark:border-slate-700">
+                      <BookOpen className="mx-auto text-slate-400" size={25} />
+                      <p className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Chưa có bài viết nào</p>
+                      <p className="mt-1 text-xs text-slate-500">Bài viết đã được duyệt sẽ hiển thị tại đây.</p>
+                    </div>
+                  )}
+                  {posts.filter((post) => post.status === 'approved').map((post) => (
+                    <GroupPostCard
+                      key={post.id}
+                      post={post}
+                      currentUser={currentUser}
+                      canInteract={isMember}
+                      currentGroupRole={selectedGroup.currentRole}
+                      onRequireAuth={onRequireAuth}
+                      onOpenProfile={onOpenProfile}
+                      onPostUpdated={(updated) => {
+                        setPosts((prev) => prev.map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item)));
+                        loadGroup(selectedGroup.id);
+                      }}
+                      onPostDeleted={(deletedId) => {
+                        setPosts((prev) => prev.filter((item) => String(item.id) !== String(deletedId)));
+                      }}
+                    />
+                  ))}
                 </div>
               )}
             </div>

@@ -320,9 +320,9 @@ export function createCommunityGroupsRepository({ pool }) {
          FROM community_group_posts p
          JOIN users u ON u.id = p.author_id
          WHERE p.group_id = $1
-           AND (p.review_status = 'approved' OR p.author_id = $2 OR ($3::boolean AND p.review_status = 'pending'))
+           AND p.review_status = 'approved'
          ORDER BY p.created_at DESC`,
-        [groupId, viewerId, includePending]
+        [groupId, viewerId]
       );
       return result.rows;
     },
