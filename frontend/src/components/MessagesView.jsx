@@ -6,13 +6,13 @@ import {
   Info, Maximize2, Minimize2, Paperclip, BellOff,
   User, FileText, ChevronRight, Ban, RotateCcw, ExternalLink, X, ZoomIn, Link as LinkIcon, Download,
   PhoneMissed, PhoneOff, Users, UserPlus, Camera, Pencil, Calendar,
-  Crown, ShieldCheck, UserMinus
+  Crown, ShieldCheck, UserMinus, Play, Eye
 } from 'lucide-react';
 import { messageService } from '../services/messageService';
 import { authService } from '../services/authService';
 import { DEFAULT_AVATAR } from '../constants/defaults';
 import { extractSharedMediaAndLinks, formatFileSize, validateFileAttachment } from '../utils/messageMediaLogic';
-import { fetchStories, fetchUserStoriesApi } from '../api/client';
+import { fetchStories, fetchUserStoriesApi, fetchStoryByIdApi, fetchStoryArchiveApi } from '../api/client';
 import VideoCallModal from './VideoCallModal';
 import CreateGroupModal from './CreateGroupModal';
 import AddGroupMemberModal from './AddGroupMemberModal';
@@ -69,6 +69,160 @@ function createAuthenticatedRealtimeSocket(wsUrl, userId) {
     'nexussocial',
     `bearer.${token}`,
   ]);
+}
+
+function parseStoryMessage(msg, currentUser, partnerUser) {
+  const rawText = typeof msg?.text === 'string' ? msg.text.trim() : '';
+  if (!rawText) return null;
+
+  const isMe = msg?.senderId === 'current';
+
+  // 1. Định dạng chuẩn mới: [STORY_REF:{...}]\n...
+  if (rawText.startsWith('[STORY_REF:')) {
+    const firstNewline = rawText.indexOf(']\n');
+    const hasBody = firstNewline !== -1;
+    const jsonEndIdx = hasBody ? firstNewline : (rawText.endsWith(']') ? rawText.length - 1 : -1);
+    if (jsonEndIdx > 11) {
+      const jsonStr = rawText.slice(11, jsonEndIdx);
+      const replyText = hasBody ? rawText.slice(firstNewline + 2).trim() : '';
+      try {
+        const parsed = JSON.parse(jsonStr);
+        return {
+          kind: parsed.kind || 'reply', // 'reply' | 'mention' | 'share' | 'qa'
+          storyId: parsed.storyId ? String(parsed.storyId) : null,
+          authorId: parsed.authorId ? String(parsed.authorId) : null,
+          authorName: parsed.authorName || null,
+          authorUsername: parsed.authorUsername || null,
+          mentionedUserId: parsed.mentionedUserId ? String(parsed.mentionedUserId) : null,
+          mentionedUsername: parsed.mentionedUsername || null,
+          storyType: parsed.storyType || 'image',
+          mediaUrl: parsed.mediaUrl || msg.mediaUrl || null,
+          textContent: parsed.textContent || null,
+          bgStyle: parsed.bgStyle || null,
+          question: parsed.question || null,
+          expiresAt: parsed.expiresAt || null,
+          createdAt: parsed.createdAt || msg.createdAt || null,
+          replyText,
+          isLegacy: false,
+        };
+      } catch {
+        // fallback to legacy parsing below
+      }
+    }
+  }
+
+  // 2. Định dạng Legacy: Gắn thẻ bạn bè (@mention) kèm link ?storyId=259
+  const mentionMatch = rawText.match(/nhắc đến bạn trong một tin mới trên Story!.*?\?(?:storyId|story)=(\d+)/i);
+  if (mentionMatch) {
+    return {
+      kind: 'mention',
+      storyId: String(mentionMatch[1]),
+      authorId: isMe ? String(currentUser?.id || '') : String(partnerUser?.id || msg?.senderId || ''),
+      authorName: isMe ? (currentUser?.name || 'Bạn') : (partnerUser?.name || msg?.senderName || 'Người dùng'),
+      mentionedUsername: isMe
+        ? (partnerUser?.username || partnerUser?.name || 'bạn bè')
+        : (currentUser?.username || currentUser?.name || 'bạn'),
+      storyType: 'image',
+      mediaUrl: msg.mediaUrl || null,
+      textContent: null,
+      bgStyle: null,
+      expiresAt: null,
+      createdAt: msg.createdAt || null,
+      replyText: '',
+      isLegacy: true,
+    };
+  }
+
+  // 3. Định dạng Legacy: Chia sẻ tin kèm link ?story=259 hoặc ?storyId=259
+  const shareMatch = rawText.match(/(?:Xem tin của (.*?) nhé:|🔗 Tin của (.*?):)[\s\S]*?\?(?:storyId|story)=(\d+)/i);
+  if (shareMatch) {
+    const authorName = (shareMatch[1] || shareMatch[2] || 'thành viên').trim();
+    const firstLine = rawText.split('\n')[0]?.trim() || '';
+    const caption =
+      firstLine && !firstLine.startsWith('Xem tin của') && !firstLine.startsWith('🔗')
+        ? firstLine
+        : '';
+    return {
+      kind: 'share',
+      storyId: String(shareMatch[3]),
+      authorId: null,
+      authorName,
+      storyType: 'image',
+      mediaUrl: msg.mediaUrl || null,
+      textContent: null,
+      bgStyle: null,
+      expiresAt: null,
+      createdAt: msg.createdAt || null,
+      replyText: caption,
+      isLegacy: true,
+    };
+  }
+
+  // 4. Định dạng Legacy: [Trả lời tin: "..."] ... hoặc [Trả lời tin] ...
+  const replyMatch = rawText.match(/^\[Trả lời tin(?::\s*"([^"]*)")?\]\s*([\s\S]*)$/i);
+  if (replyMatch) {
+    return {
+      kind: 'reply',
+      storyId: null,
+      authorId: isMe ? String(partnerUser?.id || '') : String(currentUser?.id || ''),
+      authorName: isMe ? (partnerUser?.name || 'Người dùng') : (currentUser?.name || 'Bạn'),
+      storyType: msg.mediaUrl ? 'image' : 'text',
+      mediaUrl: msg.mediaUrl || null,
+      textContent: replyMatch[1] ? replyMatch[1].trim() : null,
+      bgStyle: null,
+      expiresAt: null,
+      createdAt: msg.createdAt || null,
+      replyText: (replyMatch[2] || '').trim(),
+      isLegacy: true,
+    };
+  }
+
+  // 5. Định dạng Legacy: [Story Q&A: "..."]\n...
+  const qaMatch = rawText.match(/^\[Story Q&A:\s*"([^"]*)"\]\s*([\s\S]*)$/i);
+  if (qaMatch) {
+    return {
+      kind: 'qa',
+      storyId: null,
+      authorId: isMe ? String(partnerUser?.id || '') : String(currentUser?.id || ''),
+      question: qaMatch[1] ? qaMatch[1].trim() : 'Hỏi tôi bất cứ điều gì',
+      storyType: msg.mediaUrl ? 'image' : 'text',
+      mediaUrl: msg.mediaUrl || null,
+      textContent: null,
+      bgStyle: null,
+      expiresAt: null,
+      createdAt: msg.createdAt || null,
+      replyText: (qaMatch[2] || '').trim(),
+      isLegacy: true,
+    };
+  }
+
+  return null;
+}
+
+function formatConversationPreviewText(rawText) {
+  if (!rawText || typeof rawText !== 'string') return rawText || '';
+  const trimmed = rawText.trim();
+  if (trimmed.startsWith('[STORY_REF:')) {
+    const parsed = parseStoryMessage({ text: trimmed, senderId: 'other' }, null, null);
+    if (parsed) {
+      if (parsed.kind === 'mention') return '📸 Đã nhắc đến trong tin';
+      if (parsed.kind === 'share') return parsed.replyText ? `📩 Đã chia sẻ tin: ${parsed.replyText}` : '📩 Đã chia sẻ một tin';
+      if (parsed.kind === 'qa') return `💬 Trả lời Q&A: ${parsed.replyText || ''}`.trim();
+      return `💬 Đã trả lời tin: ${parsed.replyText || ''}`.trim();
+    }
+  }
+  if (/nhắc đến bạn trong một tin mới trên Story!/i.test(trimmed)) {
+    return '📸 Đã nhắc đến trong tin';
+  }
+  const legacyReply = trimmed.match(/^\[Trả lời tin(?::\s*"[^"]*")?\]\s*([\s\S]*)$/i);
+  if (legacyReply) {
+    return `💬 Đã trả lời tin: ${(legacyReply[1] || '').trim()}`;
+  }
+  const legacyQa = trimmed.match(/^\[Story Q&A:\s*"[^"]*"\]\s*([\s\S]*)$/i);
+  if (legacyQa) {
+    return `💬 Trả lời Q&A: ${(legacyQa[1] || '').trim()}`;
+  }
+  return rawText;
 }
 
 function FormattedMessageText({ text, isMe }) {
@@ -392,8 +546,72 @@ export default function MessagesView({
   const isBlocked = currentConversation?.status === 'blocked';
   const isBlockedByMe = isBlocked && String(currentConversation?.blockedBy) === String(currentUser?.id);
 
-  // File, Ảnh & Liên kết đã gửi trong cuộc trò chuyện hiện tại
-  const { media: sharedMedia, links: sharedLinks } = extractSharedMediaAndLinks(activeMessages);
+  // File, Ảnh & Liên kết đã gửi trong cuộc trò chuyện hiện tại (loại bỏ các tin nhắn tham chiếu Story để không làm rác kho ảnh/link)
+  const nonStoryMessages = useMemo(
+    () => activeMessages.filter(m => !parseStoryMessage(m, currentUser, currentConversation?.user)),
+    [activeMessages, currentUser, currentConversation?.user]
+  );
+  const { media: sharedMedia, links: sharedLinks } = extractSharedMediaAndLinks(nonStoryMessages);
+
+  // Bộ nhớ đệm thông tin chi tiết của các Story được tham chiếu trong tin nhắn (bao gồm kiểm tra hết hạn & quyền chủ tin)
+  const [storyDetailsCache, setStoryDetailsCache] = useState({});
+  const [myArchiveStories, setMyArchiveStories] = useState([]);
+  const archiveLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!activeMessages.length || !currentUser) return;
+
+    const partnerUser = currentConversation?.user;
+    const missingStoryIds = new Set();
+    let needsMyArchive = false;
+
+    for (const msg of activeMessages) {
+      if (msg.isRecalled) continue;
+      const meta = parseStoryMessage(msg, currentUser, partnerUser);
+      if (!meta) continue;
+
+      if (meta.storyId && storyDetailsCache[meta.storyId] === undefined) {
+        missingStoryIds.add(String(meta.storyId));
+      }
+      if (!meta.storyId && String(meta.authorId) === String(currentUser.id)) {
+        needsMyArchive = true;
+      }
+    }
+
+    missingStoryIds.forEach((sid) => {
+      // Đánh dấu đang tải để tránh gọi trùng
+      setStoryDetailsCache((prev) => (prev[sid] !== undefined ? prev : { ...prev, [sid]: { loading: true } }));
+      fetchStoryByIdApi(sid)
+        .then((res) => {
+          const data = res?.data;
+          if (data) {
+            setStoryDetailsCache((prev) => ({ ...prev, [sid]: data }));
+          } else {
+            setStoryDetailsCache((prev) => ({
+              ...prev,
+              [sid]: { isDeleted: true, isExpired: true, canView: false },
+            }));
+          }
+        })
+        .catch(() => {
+          setStoryDetailsCache((prev) => ({
+            ...prev,
+            [sid]: { isDeleted: true, isExpired: true, canView: false },
+          }));
+        });
+    });
+
+    if (needsMyArchive && !archiveLoadedRef.current) {
+      archiveLoadedRef.current = true;
+      fetchStoryArchiveApi(50, 0)
+        .then((res) => {
+          if (Array.isArray(res?.data)) {
+            setMyArchiveStories(res.data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeMessages, currentUser, currentConversation?.user, storyDetailsCache]);
 
   // Tự động nạp story của đối tác trò chuyện nếu họ là người lạ (chưa có trong storyTrays bạn bè)
   useEffect(() => {
@@ -455,7 +673,7 @@ export default function MessagesView({
                 bio: `${c.member_count || (c.members?.length || 0)} thành viên`,
                 lastSeen: 'Vừa xong'
               },
-              lastMessage: c.last_message || (isGroup ? 'Bắt đầu cuộc trò chuyện nhóm' : (c.user?.is_friend ? 'Bắt đầu cuộc trò chuyện' : '')),
+              lastMessage: formatConversationPreviewText(c.last_message) || (isGroup ? 'Bắt đầu cuộc trò chuyện nhóm' : (c.user?.is_friend ? 'Bắt đầu cuộc trò chuyện' : '')),
               lastTime: c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong',
               unreadCount: c.unread_count || 0,
               messages: existing ? (existing.messages || []) : []
@@ -696,17 +914,20 @@ export default function MessagesView({
                   loadServerConversations(false);
                   return prev;
                 }
+                const isStoryRefMsg = typeof msg.content === 'string' && Boolean(parseStoryMessage({ text: msg.content, senderId: 'other' }, null, null));
                 const displayMsg = msg.is_recalled 
                   ? 'Tin nhắn đã được thu hồi' 
-                  : (msg.media_type === 'system'
-                      ? msg.content
-                      : (msg.media_url && msg.media_type === 'image' 
-                          ? ('[Hình ảnh] ' + (msg.content || '')) 
-                          : (msg.media_url && msg.media_type === 'file' 
-                              ? ('[Tệp tin] ' + (msg.content || '')) 
-                              : (msg.media_type === 'call_log'
-                                  ? ('[Cuộc gọi] ' + (msg.content || ''))
-                                  : msg.content))));
+                  : isStoryRefMsg
+                    ? formatConversationPreviewText(msg.content)
+                    : (msg.media_type === 'system'
+                        ? msg.content
+                        : (msg.media_url && msg.media_type === 'image' 
+                            ? ('[Hình ảnh] ' + (msg.content || '')) 
+                            : (msg.media_url && msg.media_type === 'file' 
+                                ? ('[Tệp tin] ' + (msg.content || '')) 
+                                : (msg.media_type === 'call_log'
+                                    ? ('[Cuộc gọi] ' + (msg.content || ''))
+                                    : formatConversationPreviewText(msg.content)))));
                 return prev.map((c) => {
                   if (String(c.id) === convIdStr) {
                     const isCurrentChat = String(selectedConversationIdRef.current) === convIdStr;
@@ -3546,7 +3767,290 @@ export default function MessagesView({
                                   </button>
                                 </div>
                               );
-                            })() : (
+                            })() : (() => {
+                              const storyMeta = parseStoryMessage(msg, currentUser, currentConversation?.user);
+                              if (!storyMeta) return null;
+
+                              const cachedStory = storyMeta.storyId ? storyDetailsCache[storyMeta.storyId] : null;
+                              const isLoadingStory = Boolean(cachedStory?.loading);
+                              const fetchedStory = cachedStory && !cachedStory.loading ? cachedStory : null;
+
+                              // Xác định chủ sở hữu của Story được tham chiếu
+                              const storyAuthorId = String(
+                                fetchedStory?.author?.id ||
+                                  storyMeta.authorId ||
+                                  (storyMeta.kind === 'mention'
+                                    ? (isMe ? currentUser?.id : currentConversation?.user?.id)
+                                    : (isMe ? currentConversation?.user?.id : currentUser?.id)) ||
+                                  ''
+                              );
+                              const isStoryOwner = Boolean(storyAuthorId && String(storyAuthorId) === String(currentUser?.id));
+
+                              // Tra cứu Story trong storyTrays (đang hoạt động) hoặc kho lưu trữ cá nhân (myArchiveStories) cho cả tin nhắn mới & cũ
+                              const authorTray = storyTrays.find((t) => String(t.author?.id) === storyAuthorId);
+                              const activeAuthorStories = Array.isArray(authorTray?.stories) ? authorTray.stories : [];
+                              const candidatePool = [
+                                ...activeAuthorStories,
+                                ...(isStoryOwner ? myArchiveStories : []),
+                              ];
+
+                              let matchedStory = null;
+                              if (storyMeta.storyId) {
+                                matchedStory = candidatePool.find((s) => String(s.id) === String(storyMeta.storyId)) || null;
+                              }
+                              if (!matchedStory && storyMeta.mediaUrl) {
+                                matchedStory = candidatePool.find((s) => s.mediaUrl && s.mediaUrl === storyMeta.mediaUrl) || null;
+                              }
+                              if (!matchedStory && storyMeta.textContent) {
+                                const cleanTarget = storyMeta.textContent.replace(/\.{3}$/, '').trim().toLowerCase();
+                                if (cleanTarget) {
+                                  matchedStory =
+                                    candidatePool.find(
+                                      (s) => s.textContent && s.textContent.trim().toLowerCase().startsWith(cleanTarget)
+                                    ) || null;
+                                }
+                              }
+                              if (!matchedStory && !storyMeta.storyId && msg.createdAt && candidatePool.length > 0) {
+                                const msgTime = new Date(msg.createdAt).getTime();
+                                if (!isNaN(msgTime)) {
+                                  // Tìm story được tạo trước thời điểm phản hồi (trong vòng 24 giờ trước đó)
+                                  matchedStory =
+                                    candidatePool.find((s) => {
+                                      const sTime = new Date(s.createdAt).getTime();
+                                      return !isNaN(sTime) && sTime <= msgTime + 60000 && msgTime - sTime <= 24 * 60 * 60 * 1000;
+                                    }) || (isStoryOwner ? candidatePool[0] : null);
+                                }
+                              }
+
+                              const resolvedStoryId =
+                                fetchedStory?.id || matchedStory?.id || storyMeta.storyId || null;
+
+                              const isDeleted = Boolean(fetchedStory?.isDeleted);
+                              const resolvedExpiresAt =
+                                fetchedStory?.expiresAt || matchedStory?.expiresAt || storyMeta.expiresAt || null;
+
+                              let isExpired = false;
+                              if (fetchedStory) {
+                                isExpired = Boolean(
+                                  fetchedStory.isExpired ||
+                                    (fetchedStory.expiresAt && new Date(fetchedStory.expiresAt).getTime() <= Date.now())
+                                );
+                              } else if (matchedStory) {
+                                isExpired = Boolean(
+                                  matchedStory.isArchived ||
+                                    (matchedStory.expiresAt && new Date(matchedStory.expiresAt).getTime() <= Date.now())
+                                );
+                              } else if (resolvedExpiresAt) {
+                                isExpired = new Date(resolvedExpiresAt).getTime() <= Date.now();
+                              } else if (storyMeta.isLegacy && !storyMeta.storyId) {
+                                // Tin nhắn cũ không có storyId và không khớp với tin đang hoạt động nào
+                                const msgAgeMs = msg.createdAt ? Date.now() - new Date(msg.createdAt).getTime() : Infinity;
+                                isExpired = msgAgeMs >= 24 * 60 * 60 * 1000 || !matchedStory;
+                              }
+
+                              // Quyền xem: Tin chưa hết hạn HOẶC người xem chính là chủ sở hữu của tin chưa bị xóa
+                              const canViewStory = Boolean(
+                                !isDeleted &&
+                                  resolvedStoryId &&
+                                  (!isExpired || isStoryOwner) &&
+                                  fetchedStory?.canView !== false
+                              );
+
+                              const previewStoryType =
+                                fetchedStory?.storyType || matchedStory?.storyType || storyMeta.storyType || 'image';
+                              const previewMediaUrl =
+                                fetchedStory?.mediaUrl || matchedStory?.mediaUrl || storyMeta.mediaUrl || null;
+                              const previewTextContent =
+                                fetchedStory?.textContent || matchedStory?.textContent || storyMeta.textContent || '';
+                              const previewBgStyle =
+                                fetchedStory?.backgroundStyle || matchedStory?.backgroundStyle || storyMeta.bgStyle || null;
+
+                              const partnerUsername =
+                                storyMeta.mentionedUsername ||
+                                currentConversation?.user?.username ||
+                                currentConversation?.user?.name ||
+                                'bạn bè';
+
+                              const headerLabel =
+                                storyMeta.kind === 'mention'
+                                  ? isMe
+                                    ? `Bạn đã nhắc đến @${partnerUsername} trong tin của mình`
+                                    : 'Đã nhắc đến bạn trong tin của mình'
+                                  : storyMeta.kind === 'share'
+                                    ? isMe
+                                      ? `Bạn đã chia sẻ tin của ${storyMeta.authorName || 'thành viên'}`
+                                      : `Đã chia sẻ tin của ${storyMeta.authorName || 'thành viên'}`
+                                    : storyMeta.kind === 'qa'
+                                      ? isMe
+                                        ? 'Bạn đã trả lời câu hỏi trên tin của họ'
+                                        : 'Đã trả lời câu hỏi trên tin của bạn'
+                                      : isMe
+                                        ? `Bạn đã trả lời tin của ${isStoryOwner ? 'mình' : 'họ'}`
+                                        : 'Đã trả lời tin của bạn';
+
+                              const handleClickStoryCard = () => {
+                                if (!canViewStory || !resolvedStoryId || !onOpenStoryViewer) return;
+                                onOpenStoryViewer({
+                                  storyId: resolvedStoryId,
+                                  userId: storyAuthorId || undefined,
+                                  initialShowViewers: false,
+                                });
+                              };
+
+                              return (
+                                <div
+                                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[280px] sm:max-w-[320px]`}
+                                  title={fullTimeTooltip}
+                                >
+                                  {/* Dòng tiêu đề nhỏ chuẩn Instagram */}
+                                  <span
+                                    className={`text-[11px] sm:text-xs text-slate-400 dark:text-slate-500 mb-1 px-0.5 select-none ${
+                                      isMe ? 'text-right' : 'text-left'
+                                    }`}
+                                  >
+                                    {headerLabel}
+                                  </span>
+
+                                  {/* Trạng thái 1: Tin còn hạn (<24h) -> Hiển thị Mini Story Card 9:16 + thanh dọc bên cạnh */}
+                                  {!isExpired && !isDeleted && (resolvedStoryId || !isLoadingStory) ? (
+                                    <div
+                                      className={`flex items-stretch gap-2 ${
+                                        isMe ? 'flex-row' : 'flex-row-reverse'
+                                      }`}
+                                    >
+                                      <div
+                                        onClick={handleClickStoryCard}
+                                        role={canViewStory ? 'button' : undefined}
+                                        tabIndex={canViewStory ? 0 : -1}
+                                        onKeyDown={(e) => {
+                                          if (canViewStory && (e.key === 'Enter' || e.key === ' ')) {
+                                            e.preventDefault();
+                                            handleClickStoryCard();
+                                          }
+                                        }}
+                                        className={`relative w-[132px] h-[226px] sm:w-[142px] sm:h-[244px] rounded-2xl overflow-hidden shadow-md border border-slate-200/70 dark:border-slate-700/70 select-none group/storycard ${
+                                          canViewStory ? 'cursor-pointer' : 'cursor-default'
+                                        }`}
+                                        style={{
+                                          background:
+                                            previewBgStyle?.background ||
+                                            'linear-gradient(145deg, #1e293b 0%, #334155 50%, #0f172a 100%)',
+                                        }}
+                                      >
+                                        {/* Nội dung nền của Mini Story */}
+                                        {previewStoryType === 'video' && previewMediaUrl ? (
+                                          <video
+                                            src={previewMediaUrl}
+                                            muted
+                                            playsInline
+                                            preload="metadata"
+                                            className="w-full h-full object-cover group-hover/storycard:scale-105 transition-transform duration-300"
+                                          />
+                                        ) : previewMediaUrl ? (
+                                          <img
+                                            src={previewMediaUrl}
+                                            alt="Story preview"
+                                            onError={(e) => {
+                                              e.currentTarget.style.display = 'none';
+                                            }}
+                                            className="w-full h-full object-cover group-hover/storycard:scale-105 transition-transform duration-300"
+                                          />
+                                        ) : null}
+
+                                        {/* Lớp phủ gradient nhẹ giúp chữ nổi bật */}
+                                        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/65 pointer-events-none" />
+
+                                        {/* Icon Play nếu là Video Story */}
+                                        {previewStoryType === 'video' && (
+                                          <div className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-black/50 backdrop-blur-xs flex items-center justify-center text-white">
+                                            <Play className="w-3 h-3 fill-white ml-0.5" />
+                                          </div>
+                                        )}
+
+                                        {/* Nội dung chữ trên Story (Text Story hoặc Caption trên ảnh) */}
+                                        {previewTextContent && (
+                                          <div className="absolute inset-0 flex items-center justify-center p-3 text-center pointer-events-none">
+                                            <p
+                                              className="text-white text-xs font-bold leading-snug line-clamp-5 drop-shadow-md break-words"
+                                              style={{
+                                                fontFamily: previewBgStyle?.fontFamily || 'inherit',
+                                                color: previewBgStyle?.textColor || '#ffffff',
+                                              }}
+                                            >
+                                              {previewTextContent}
+                                            </p>
+                                          </div>
+                                        )}
+
+                                        {/* Nhãn câu hỏi Q&A nếu là phản hồi Q&A */}
+                                        {storyMeta.kind === 'qa' && storyMeta.question && (
+                                          <div className="absolute top-2.5 inset-x-2 bg-white/95 dark:bg-slate-900/95 rounded-xl px-2 py-1.5 shadow-sm text-center pointer-events-none">
+                                            <span className="block text-[9px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                                              Hỏi & Đáp
+                                            </span>
+                                            <p className="text-[10px] font-semibold text-slate-800 dark:text-slate-100 line-clamp-2">
+                                              {storyMeta.question}
+                                            </p>
+                                          </div>
+                                        )}
+
+                                        {/* Nút/Nhãn dưới chân Mini Story giống Instagram */}
+                                        <div className="absolute bottom-2.5 inset-x-2.5 flex items-center justify-center">
+                                          <span className="w-full py-1.5 px-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md text-slate-900 dark:text-white text-[11px] font-bold text-center truncate shadow-xs group-hover/storycard:bg-white transition">
+                                            {storyMeta.kind === 'mention' && !isMe
+                                              ? 'Xem tin nhắc đến bạn'
+                                              : 'Nhấn để xem tin'}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Thanh dọc đặc trưng của Instagram bên cạnh Mini Story */}
+                                      <div className="w-[3.5px] rounded-full bg-slate-300 dark:bg-slate-600 shrink-0 my-0.5" />
+                                    </div>
+                                  ) : (
+                                    /* Trạng thái 2: Tin đã hết hạn (>24h) hoặc đã xóa -> Ẩn Mini Story, chỉ hiện thanh dọc | chuẩn Instagram */
+                                    <div
+                                      className={`flex items-center gap-2.5 py-0.5 ${
+                                        isMe ? 'flex-row' : 'flex-row-reverse'
+                                      }`}
+                                    >
+                                      {isStoryOwner && !isDeleted && resolvedStoryId ? (
+                                        /* Chủ tin vẫn có thể nhấn vào để xem lại tin đã hết hạn (chưa bị xóa) của chính mình */
+                                        <button
+                                          type="button"
+                                          onClick={handleClickStoryCard}
+                                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-blue-50 dark:bg-slate-800/90 dark:hover:bg-slate-700 text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 text-xs font-medium transition cursor-pointer border border-slate-200/80 dark:border-slate-700"
+                                          title="Bạn là chủ tin này — nhấn để xem lại trong Kho lưu trữ"
+                                        >
+                                          <Eye className="w-3.5 h-3.5 shrink-0" />
+                                          <span>Tin đã hết hạn • Nhấn để xem</span>
+                                        </button>
+                                      ) : (
+                                        /* Không phải chủ tin (hoặc tin đã bị xóa) -> Không thể xem được tin đã hết hạn của người khác */
+                                        <span className="text-xs sm:text-[13px] font-medium text-slate-500 dark:text-slate-400 select-none">
+                                          Không xem được tin
+                                        </span>
+                                      )}
+                                      <div className="w-[3.5px] h-5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" />
+                                    </div>
+                                  )}
+
+                                  {/* Bong bóng nội dung tin nhắn phản hồi nằm ngay bên dưới */}
+                                  {storyMeta.replyText && (
+                                    <div
+                                      className={
+                                        'mt-1.5 px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-2xs ' +
+                                        (isMe
+                                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
+                                          : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-bl-xs')
+                                      }
+                                    >
+                                      <FormattedMessageText text={storyMeta.replyText} isMe={isMe} />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })() || (
                               <div
                                 title={fullTimeTooltip}
                                 className={
